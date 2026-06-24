@@ -1,0 +1,180 @@
+namespace SULFURTogether.Networking
+{
+    public enum NetMessageType : byte
+    {
+        HandshakeRequest  = 1,
+        HandshakeAccepted = 2,
+        HandshakeRejected = 3,
+        Ping              = 4,
+        Pong              = 5,
+        Disconnect        = 6,
+
+        // Reserved for later Phase 2.x lobby/session UI work.
+        // No gameplay synchronization is implemented.
+        SessionSnapshot   = 7,
+        PeerJoined        = 8,
+        PeerLeft          = 9,
+
+        // Phase 2.3 run/scene metadata only.
+        // This never triggers scene loading or gameplay synchronization.
+        RunStateUpdate    = 10,
+
+        // Phase 2.5 host-scene request protocol skeleton.
+        // These messages only negotiate metadata and responses; clients never auto-load scenes.
+        HostSceneRequest  = 11,
+        ClientSceneAck    = 12,
+        ClientSceneRefused = 13,
+
+        // Phase 3.0 visual-only remote player proxy.
+        // Transform metadata is only applied to local proxy GameObjects, never real gameplay Player/Unit objects.
+        PlayerTransformVisual = 14,
+
+        // Phase 4.0-B/C host enemy-death event mirror experiment.
+        // Default disabled; clients only apply matched deaths when explicitly enabled.
+        HostEnemyDeathEvent = 15,
+
+        // Phase 4.1-A host enemy-state snapshot mirror experiment.
+        // Default disabled; clients only match/log drift and never move enemies or change AI.
+        HostEnemyStateSnapshot = 16,
+
+        // Phase 4.2.0-A client enemy-death claim experiment.
+        // Clients may report local NPC deaths to Host; Host verifies against its own local entity before applying.
+        ClientEnemyDeathClaim = 17,
+
+        // Phase 4.3.0-A co-op player downed/revive lifecycle.
+        // Does not sync inventory or death penalties; it only delays/commits each peer's own original player death.
+        PlayerLifeState = 18,
+
+        // Phase 4.4.0-O3-B Host-authoritative world entity roster.
+        // Host sends the full classified entity list after each scene stabilization so that
+        // Client can bind Host spawn indices to local entities for strict type-safe matching.
+        HostWorldRoster = 19,
+
+        // Phase 5.0 Host-Driven Proxy Architecture.
+        // Reliable semantic attack phase event — sent by Host whenever a CombatEnemy
+        // transitions through a meaningful attack phase (Windup/Active/Recovery/Cancelled).
+        // Client applies this to the puppet enemy Animator directly without native method replay.
+        HostAttackPhaseEvent = 20,
+
+        // Phase 5.0 Host-Driven Proxy Architecture (P2).
+        // Reliable projectile visual spawn event — sent by Host when an enemy fires a shot.
+        // Client spawns a visual-only no-damage proxy object. Damage is host-authoritative.
+        HostProjectileVisualSpawn = 21,
+
+        // Phase 5.1 Host-authoritative enemy health sync.
+        // Reliable damage event — sent by Host whenever a combat NPC takes damage.
+        // Clients use this to track puppet health and reduce death-sync drift.
+        HostEnemyDamageEvent = 22,
+
+        // Phase 5.1 Host-authoritative NPC health state snapshot.
+        // Reliable health correction — sent alongside HostEnemyDamageEvent when host can read health.
+        // Clients use this to align puppet health cache with the host's actual HP values.
+        HostEnemyHealthState = 23,
+
+        // Phase 5.3-B Client → Host gameplay hit request.
+        // Client sends when local player deals damage to a host-bound puppet NPC.
+        // Host validates, applies damage to the real NPC, then broadcasts HealthState/DeathEvent.
+        // Architecture: "Client reports intent/evidence. Host owns result."
+        ClientHitRequest = 24,
+
+        // Phase 5.3-E Host-authoritative semantic level manifest.
+        // Host sends its level-generation RESULT summary (seed, rooms, units, specials) so the
+        // client can diff its provisional local world, quarantine client-only combat enemies,
+        // and bind host enemies to the correct local instances. ReliableOrdered (auto-fragmented).
+        HostLevelManifest = 25,
+
+        // Phase 5.3-F Host → Client hit visual event.
+        // Sent when the host applies a validated ClientHitRequest; tells the client to play the
+        // native white hit flash on the matching puppet. Carries no health (health stays in
+        // HostEnemyHealthState). Visual only — never drives damage or death.
+        HostHitVisualEvent = 26,
+
+        // Phase 5.3-K Client → Host generation-input pull request.
+        // Sent by a Client whose load gate is waiting for the Host's level generation input. The Host
+        // replies with a HostSceneRequest carrying the current scene's seed + used sets + graph name.
+        ClientHostGenerationInputRequest = 27,
+
+        // Phase 5.4-E Boss Encounter Authority.
+        // Client → Host: "I triggered this boss; please start it authoritatively."
+        ClientBossStartRequest = 28,
+        // Host → Client: authoritative "this boss encounter has started" (carries reserved phase/position fields).
+        HostBossEncounterStart = 29,
+
+        // Phase 5.4-E3 Boss dialog commit (Cousin / Lucia and other dialog-gated bosses).
+        // Client → Host: "my player chose to end the boss dialog and start the fight."
+        ClientBossDialogCommitRequest = 30,
+        // Host → Client: authoritative "the boss dialog is committed — finalize local dialog and start once."
+        HostBossDialogCommit = 31,
+
+        // Phase 5.4-E3 Boss phase/state (Witch and other phase bosses).
+        // Host → Client: authoritative current boss phase + minimal health/add summary.
+        HostBossState = 32,
+
+        // Phase 5.4-E4 Boss dynamic spawn manifest (CousinArm / LuciaEye / Witch illusions / ...).
+        // Host → Client: a boss-owned sub-entity was spawned at runtime, identified by owning encounter +
+        // add type + per-encounter sequence index (the only cross-end-stable key for same-position adds).
+        HostBossDynamicSpawn = 33,
+
+        // Phase 5.4-F BossDamageAuthority. Client → Host: "my hit landed on this boss's target role; apply it
+        // through your real ReceiveDamage so the boss mechanic advances." Host owns the actual damage + result.
+        ClientBossHitRequest = 34,
+
+        // Phase 5.4-F2 BossDamage feedback. Host → Client: "I accepted a hit on this boss target — play the local
+        // hit visual." Visual ONLY; the Client never re-applies damage or advances mechanics.
+        HostBossHitVisual = 35,
+
+        // Phase 5.4-F4 fixed-point boss discrete event. Host → Client: an authoritative discrete mechanic event
+        // (Cousin Submerge / MoveToNewPool(pool position) / Reappear) so the Client mirrors the SAME pool/dig instead
+        // of independently choosing. Carries an optional world position (the chosen pool's appear point).
+        HostBossDiscreteEvent = 36,
+
+        // Phase 5.4-F5 Lucia eye defeat authority. Client → Host: "one Lucia eye was defeated locally this eye-cycle."
+        // The Host consumes one of its OWN living eyes through the real death path so the vanilla EyeDied/RestartPhases
+        // runs host-authoritatively. Count/cycle identity only (no per-eye entity mapping).
+        ClientLuciaEyeReport = 37,
+
+        // Phase 5.4-F5 Lucia eye defeat authority. Host → Client: authoritative remaining eye count + cycle. When it
+        // reaches 0 the Host's vanilla RestartPhases has run; the Client mirrors cycle-complete (clears residual eyes).
+        HostLuciaEyeState = 38,
+
+        // Phase 5.4-F6 Lucia terminal death authority. Host → Client: the Host's Lucia really died (OnBossDead fired).
+        // The Client runs a safe local death (real Unit death + boss-end presentation; loot/save isolated) and stops
+        // sending hits / applying state for this encounter.
+        HostLuciaDeath = 39,
+
+        // Phase 5.4-G2 Witch phase revision authority. Host → Client: an authoritative Witch phase transition with a
+        // monotonic revision. The Client applies by revision (Witch phases CYCLE, so the enum can go backwards) and
+        // never self-advances its own phase.
+        HostWitchPhase = 40,
+
+        // Phase 5.4-G5 Witch Phase 2 dome manifest. Host → Client: the authoritative dome layout (real dome index) for
+        // a Phase 2 cycle, captured at ShowWitches. The Client mirrors real/illusion per dome.
+        HostWitchP2Manifest = 41,
+
+        // Phase 5.4-G5 Witch Phase 2 hit result. Host → Client: a dome's illusion was defeated, or the real witch was
+        // hit (hide all illusions). Drives the Client's hide (its local handlers don't fire — hits route to the Host).
+        HostWitchP2Result = 42,
+
+        // Phase 5.5-RT1 runtime spawn sync. Host → Client: a runtime (post-level-stabilization) unit spawned (F3 debug
+        // / boss add); the Client mirror-spawns it (UnitId→UnitSO) and binds it to the host SpawnIndex.
+        HostRuntimeSpawn = 43,
+
+        // Phase 5.6-WS player weapon bullet sync. Any peer → all others: "my local player fired this weapon barrage."
+        // Carries the computed projectile template + count/spread/aim. Receivers replay the barrage through the game's
+        // real ProjectileSystem with damage stripped (VISUAL ONLY). Damage stays host-authoritative (ClientHitRequest).
+        // Topology mirrors PlayerTransformVisual: a Client sends to Host; the Host stamps the PeerId, replays locally,
+        // and relays to all other Clients.
+        PlayerWeaponFire = 44,
+
+        // Phase 5.6-WS-2 remote held weapon model. Any peer → all others: "my local player is now holding this weapon
+        // (WeaponSO id) with these installed attachments (ItemId list)." Receivers rebuild the weapon model (attachments
+        // change the model) and attach it to that player's proxy hands. VISUAL ONLY. Same topology as PlayerWeaponFire.
+        PlayerHeldWeapon = 45,
+
+        // Phase 5.6-DL-Q2 client transition relay. Client → Host: "I walked into an exit toward this chapter:level;
+        // please perform the transition authoritatively so we both go there." The Host validates (same level, not
+        // mid-load), invokes its own GoToLevel (host player moves + generates the seed), then the existing finalized
+        // broadcast brings the gated client along. Lets the client LEAD progression while the Host still owns generation.
+        ClientTransitionRequest = 46,
+    }
+}

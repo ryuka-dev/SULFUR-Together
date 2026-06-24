@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <!--
+      Copy this file to LocalPaths.props and fill in YOUR local paths.
+      LocalPaths.props is gitignored and must never be committed.
+    -->
+    <SulfurManagedDir>D:\SteamLibrary\steamapps\common\SULFUR\Sulfur_Data\Managed</SulfurManagedDir>
+    <BepInExCoreDir>C:\Users\YourName\AppData\Roaming\com.kesomannen.gale\sulfur\profiles\Default\BepInEx\core</BepInExCoreDir>
+    <BepInExPluginDir>C:\Users\YourName\AppData\Roaming\com.kesomannen.gale\sulfur\profiles\Default\BepInEx\plugins</BepInExPluginDir>
+  </PropertyGroup>
+</Project>

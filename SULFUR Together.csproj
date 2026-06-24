@@ -1,0 +1,182 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>SULFUR Together</AssemblyName>
+    <Product>SULFUR Together</Product>
+    <RootNamespace>SULFURTogether</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <!--
+    LocalPaths.props holds machine-specific paths and is gitignored.
+    Copy LocalPaths.props.example → LocalPaths.props and fill in your paths.
+  -->
+  <Import Project="LocalPaths.props" Condition="Exists('LocalPaths.props')" />
+
+  <Target Name="CheckLocalPaths" BeforeTargets="Build">
+    <Error
+      Condition="'$(SulfurManagedDir)' == ''"
+      Text="SulfurManagedDir is not set. Copy LocalPaths.props.example to LocalPaths.props and fill in your game path." />
+    <Error
+      Condition="'$(BepInExCoreDir)' == ''"
+      Text="BepInExCoreDir is not set. Copy LocalPaths.props.example to LocalPaths.props and fill in your BepInEx core path." />
+  </Target>
+
+  <!-- Phase 2: LiteNetLib via NuGet — its DLL is copied to output and deployed alongside our plugin. -->
+  <ItemGroup>
+    <PackageReference Include="LiteNetLib" Version="1.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- BepInEx 5 core -->
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExCoreDir)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExCoreDir)\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- Game assemblies -->
+    <Reference Include="PerfectRandom.Sulfur.Core">
+      <HintPath>$(SulfurManagedDir)\PerfectRandom.Sulfur.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(SulfurManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="netstandard">
+      <HintPath>$(SulfurManagedDir)\netstandard.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- Unity engine modules -->
+    <Reference Include="UnityEngine">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.AnimationModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AIModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.AIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.ImageConversionModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>$(SulfurManagedDir)\Unity.InputSystem.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(SulfurManagedDir)\Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- Phase 5.6-WS: Unity DOTS assemblies needed to construct ProjectileRay/ProjectileData directly and
+         call the game's real ProjectileSystem.StartProjectile for visual-only player bullet replay. -->
+    <Reference Include="Unity.Mathematics">
+      <HintPath>$(SulfurManagedDir)\Unity.Mathematics.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Collections">
+      <HintPath>$(SulfurManagedDir)\Unity.Collections.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Entities">
+      <HintPath>$(SulfurManagedDir)\Unity.Entities.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Burst">
+      <HintPath>$(SulfurManagedDir)\Unity.Burst.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Animation.Curves">
+      <HintPath>$(SulfurManagedDir)\Unity.Animation.Curves.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Phase 5.6-WS-3: embed the priest (Father) walk sprite sheets (front/back, 8 frames each) into the DLL. -->
+  <ItemGroup>
+    <EmbeddedResource Include="src\Resources\father_front.png">
+      <LogicalName>father_front</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="src\Resources\father_back.png">
+      <LogicalName>father_back</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!--
+    Deploy: copies SULFUR Together.dll + LiteNetLib.dll into
+    $(BepInExPluginDir)\SULFURTogether\ after a Release build.
+    Only runs when $(BepInExPluginDir) is set in LocalPaths.props.
+  -->
+  <Target Name="Deploy" AfterTargets="Build"
+          Condition="'$(Configuration)' == 'Release' AND '$(BepInExPluginDir)' != ''">
+    <PropertyGroup>
+      <_PluginSubDir>$(BepInExPluginDir)\SULFURTogether</_PluginSubDir>
+    </PropertyGroup>
+    <Warning
+      Condition="!Exists('$(BepInExPluginDir)')"
+      Text="BepInExPluginDir '$(BepInExPluginDir)' does not exist — skipping deploy." />
+    <MakeDir Directories="$(_PluginSubDir)"
+             Condition="Exists('$(BepInExPluginDir)')" />
+    <Copy
+      Condition="Exists('$(BepInExPluginDir)')"
+      SourceFiles="$(TargetPath)"
+      DestinationFolder="$(_PluginSubDir)"
+      OverwriteReadOnlyFiles="true" />
+    <Copy
+      Condition="Exists('$(BepInExPluginDir)') AND Exists('$(OutputPath)LiteNetLib.dll')"
+      SourceFiles="$(OutputPath)LiteNetLib.dll"
+      DestinationFolder="$(_PluginSubDir)"
+      OverwriteReadOnlyFiles="true" />
+    <Message
+      Condition="Exists('$(BepInExPluginDir)')"
+      Text="Deployed → $(_PluginSubDir)"
+      Importance="high" />
+  </Target>
+
+</Project>
