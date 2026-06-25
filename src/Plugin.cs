@@ -26,7 +26,7 @@ namespace SULFURTogether
             Log      = new STLogger(Logger, Cfg);
 
             Log.Info($"v{ModInfo.Version} by {ModInfo.Author} loading...");
-            Log.Info("[Build] Phase 5.7-DS: host-authoritative death-spawn sync. The 'spawn random enemy on death' mutation picks its unit with global UnityEngine.Random (AddSpawnUnit) so each side spawned a DIFFERENT enemy; now the client suppresses its local OnDeathSpawnUnitsFunc and mirrors the host's spawn via the runtime-spawn pipeline. Also GD: UnitSignature no longer folds the non-deterministic Offensive/Defensive role into genHash. gate EnableDeathSpawnSync 2026-06-25");
+            Log.Info("[Build] Phase 5.7-DS2: host-authoritative SpawnMinions sync (spawnMinionsOnDeath) — host tags the parent UnitSO so the async minion spawns broadcast via the runtime pipeline; client suppresses its local SpawnMinions and mirrors. Fixes LogOutput118 'never bound, late-bind failed' on a GoblinYoung minion wave. + BatchedNPCRaycasts.LateUpdate finalizer swallows the roster/Players index race (1× IndexOutOfRange during runtime spawns). gates EnableMinionSpawnSync / EnableDestroyedUnitListSweep 2026-06-25");
             var harmony = new Harmony(ModInfo.GUID);
             PatchBootstrap.ApplyAll(harmony);
 

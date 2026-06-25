@@ -711,6 +711,30 @@ namespace SULFURTogether.Patches
             if (upd == null) { Log.Warn("[NpcListSweep] BatchedNPCRaycasts.Update not found"); return; }
             try { harmony.Patch(upd, prefix: Pre(nameof(BatchedNPCRaycasts_Update_Pre))); }
             catch (Exception ex) { Log.Warn($"[NpcListSweep] patch failed: {ex.Message}"); }
+
+            // Phase 5.7-DS2: BatchedNPCRaycasts.LateUpdate consumes the Burst LOS/ground job's results indexed by
+            // unitMapping/npcMapping count and decodes player indices from the LOD result bytes (players[255-b]). When the
+            // NPC roster or GameManager.Players changes between job-schedule and LateUpdate — runtime spawns (death-spawn
+            // adds) and our injected ghost Players (Phase 5.7-B) both move those counts — an index can run past
+            // _groundCheckHits / players / npcMapping → ArgumentOutOfRangeException (LogOutput118, 1×, during a death-spawn
+            // frame). It's a transient: the next frame re-schedules with consistent counts. Swallow it so it doesn't break
+            // the frame, rather than guessing the vanilla job's encoding.
+            var late = AccessTools.Method(t, "LateUpdate");
+            if (late != null)
+            {
+                try { harmony.Patch(late, finalizer: Fin(nameof(BatchedNPCRaycasts_LateUpdate_Finalizer))); }
+                catch (Exception ex) { Log.Warn($"[NpcListSweep] LateUpdate finalizer patch failed: {ex.Message}"); }
+            }
+        }
+
+        private static int _bnrLateUpdateSwallowLogCount;
+        private static Exception? BatchedNPCRaycasts_LateUpdate_Finalizer(Exception __exception)
+        {
+            if (__exception == null) return null;
+            if (!Cfg.EnableDestroyedUnitListSweep.Value) return __exception; // gate off → original behaviour
+            if (_bnrLateUpdateSwallowLogCount++ < 12)
+                Log.Warn($"[NpcListSweep] swallowed {__exception.GetType().Name} in BatchedNPCRaycasts.LateUpdate (roster/Players count race during runtime spawn; recovers next frame): {__exception.Message}");
+            return null; // swallow — skip the rest of this frame's LOS/ground update, recovers next frame
         }
 
         private static void BatchedNPCRaycasts_Update_Pre()

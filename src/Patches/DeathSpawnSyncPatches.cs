@@ -45,6 +45,72 @@ namespace SULFURTogether.Patches
                 Plugin.Log.Info("[DeathSpawn] Patched MutationDefinition.OnDeathSpawnUnitsFunc (death-spawn sync).");
             }
             catch (Exception ex) { Plugin.Log.Error($"[DeathSpawn] patch OnDeathSpawnUnitsFunc failed: {ex.Message}"); }
+
+            // Phase 5.7-DS2: SpawnMinions (spawnMinionsOnDeath) — N same-type minions via async SpawnUnitAsync.
+            if (Plugin.Cfg.EnableMinionSpawnSync.Value)
+            {
+                var minions = AccessTools.GetDeclaredMethods(mutationDef).FirstOrDefault(m => m.Name == "SpawnMinions");
+                if (minions == null) { Plugin.Log.Info("[DeathSpawn] SpawnMinions not found."); return; }
+                _spawnMinionsField = AccessTools.Field(mutationDef, "spawnMinionsOnDeath");
+                try
+                {
+                    harmony.Patch(minions,
+                        prefix: new HarmonyMethod(typeof(DeathSpawnSyncPatches).GetMethod(nameof(SpawnMinions_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Plugin.Log.Info("[DeathSpawn] Patched MutationDefinition.SpawnMinions (minion-spawn sync).");
+                }
+                catch (Exception ex) { Plugin.Log.Error($"[DeathSpawn] patch SpawnMinions failed: {ex.Message}"); }
+            }
+        }
+
+        private static FieldInfo? _spawnMinionsField;       // MutationDefinition.spawnMinionsOnDeath
+        private static FieldInfo? _amountToSpawnField;      // SpawnMinionsOnDeathData.amountToSpawn
+        private static PropertyInfo? _unitUnitSOProp;       // Unit.unitSO
+        private static FieldInfo? _unitUnitSOField;
+
+        // owner = the dying Unit; __instance = the MutationDefinition. Client: skip (suppress local minions). Host: tag the
+        // parent UnitSO so the next `amountToSpawn` async spawns of it are broadcast as DeathMinion.
+        private static bool SpawnMinions_Pre(object __instance, object owner)
+        {
+            try
+            {
+                if (SULFURTogether.Networking.Gameplay.RuntimeSpawnManager.ClientShouldSuppressMinions())
+                    return false;
+
+                object? parentUnitSO = ReadUnitSO(owner);
+                int count = ReadAmountToSpawn(__instance);
+                if (parentUnitSO != null && count > 0)
+                    SULFURTogether.Networking.Gameplay.RuntimeSpawnManager.BeginHostMinionContext(parentUnitSO, count);
+            }
+            catch { }
+            return true;
+        }
+
+        private static object? ReadUnitSO(object? unit)
+        {
+            if (unit == null) return null;
+            try
+            {
+                if (_unitUnitSOProp == null && _unitUnitSOField == null)
+                {
+                    _unitUnitSOProp  = AccessTools.Property(unit.GetType(), "unitSO");
+                    if (_unitUnitSOProp == null) _unitUnitSOField = AccessTools.Field(unit.GetType(), "unitSO");
+                }
+                return _unitUnitSOProp != null ? _unitUnitSOProp.GetValue(unit) : _unitUnitSOField?.GetValue(unit);
+            }
+            catch { return null; }
+        }
+
+        private static int ReadAmountToSpawn(object mutationDef)
+        {
+            try
+            {
+                object? data = _spawnMinionsField?.GetValue(mutationDef);
+                if (data == null) return 0;
+                if (_amountToSpawnField == null) _amountToSpawnField = AccessTools.Field(data.GetType(), "amountToSpawn");
+                object? v = _amountToSpawnField?.GetValue(data);
+                return v is int n ? n : 0;
+            }
+            catch { return 0; }
         }
 
         // Returns false to SKIP the original (client suppression). On the host, flags the spawn so the postfix on

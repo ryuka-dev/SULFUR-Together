@@ -178,6 +178,8 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableRuntimeSpawnInertUntilBound { get; }
         // ----- Phase 5.7-DS death-spawn ("spawn random enemy on death" mutation) host-authoritative sync -----
         public ConfigEntry<bool>   EnableDeathSpawnSync { get; }
+        // ----- Phase 5.7-DS2 minion-spawn (spawnMinionsOnDeath mutation) host-authoritative sync -----
+        public ConfigEntry<bool>   EnableMinionSpawnSync { get; }
 
         // ----- Phase 5.6-WS player weapon bullet sync (visual-only barrage replay) -----
         public ConfigEntry<bool>   EnablePlayerWeaponSync { get; }
@@ -773,6 +775,8 @@ namespace SULFURTogether.Config
                 "Phase 5.5-RT3-A: freeze a local boss-add's movement until it is bound+snapped to the host spawn. Reversible.");
             EnableDeathSpawnSync = cfg.Bind("NetworkEnemy", "EnableDeathSpawnSync", true,
                 "Phase 5.7-DS: host-authoritative sync of the 'spawn a random enemy on death' mutation (MutationDefinition.unitsToSpawnOnDeath). The unit is chosen with the global UnityEngine.Random, so each side otherwise spawns a DIFFERENT enemy on death. The client suppresses its local death-spawn and mirrors the host's via the runtime-spawn pipeline. Requires EnableRuntimeSpawnSync. Reversible.");
+            EnableMinionSpawnSync = cfg.Bind("NetworkEnemy", "EnableMinionSpawnSync", true,
+                "Phase 5.7-DS2: host-authoritative sync of the spawnMinionsOnDeath mutation (N same-type minions on death, spawned async via SpawnUnitAsync). Without it each side spawns its own un-bound minions and their host deaths can't be applied (LogOutput118 'never bound, late-bind failed' on a wave of GoblinYoung). The host tags + broadcasts the minions; the client suppresses its local SpawnMinions and mirrors the host's. Requires EnableRuntimeSpawnSync + EnableDeathSpawnSync. Reversible.");
 
             // Phase 5.6-WS: replicate each player's weapon barrage onto every OTHER peer as VISUAL-ONLY bullets.
             // The firing peer captures the computed projectile template (equipmentManager.lastFiredProjectile.ray) plus
@@ -1414,6 +1418,8 @@ namespace SULFURTogether.Config
             EnableRuntimeSpawnInertUntilBound.Value = true;
             // Phase 5.7-DS — death-spawn ("spawn random enemy on death" mutation) host-authoritative sync default on.
             EnableDeathSpawnSync.Value = true;
+            // Phase 5.7-DS2 — minion-spawn (spawnMinionsOnDeath mutation) host-authoritative sync default on.
+            EnableMinionSpawnSync.Value = true;
             // Phase 5.6-WS — player weapon bullet sync (visual-only barrage replay) default on.
             EnablePlayerWeaponSync.Value = true;
             LogPlayerWeaponSync.Value = true;

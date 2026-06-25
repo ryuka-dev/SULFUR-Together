@@ -45,7 +45,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         public static void Reset()
         {
-            lock (_pending) _pending.Clear();
+            lock (_pending) { _pending.Clear(); _minionCtx.Clear(); }
             _hostDeathSpawnDepth = 0;
         }
 
@@ -86,6 +86,58 @@ namespace SULFURTogether.Networking.Gameplay
             return true;
         }
 
+        // ----- Phase 5.7-DS2: SpawnMinions (spawnMinionsOnDeath) — N minions of the PARENT's type, spawned async via
+        // SpawnUnitAsync(GameManager,…) so the synchronous death-spawn flag bracket can't hold across the awaits. Instead
+        // the host registers a short-lived "minion context" keyed by the parent UnitSO + remaining count; NotePendingSpawn
+        // (already on the SpawnUnitAsync prefix, async-safe) tags matching spawns as DeathMinion so they broadcast. The
+        // client suppresses its whole SpawnMinions (loot/gibs are host-authoritative anyway) and mirrors the host's. -----
+        private static bool MinionSpawnEnabled { get { try { return Plugin.Cfg.EnableMinionSpawnSync.Value; } catch { return false; } } }
+        public static int MinionHostBroadcast;
+        public static int MinionClientSuppressed;
+
+        private sealed class MinionCtx { public object UnitSO = null!; public int Remaining; public float Deadline; }
+        private static readonly System.Collections.Generic.List<MinionCtx> _minionCtx = new System.Collections.Generic.List<MinionCtx>();
+
+        /// <summary>HOST: a SpawnMinions of `count` minions of `parentUnitSO` is about to run; tag its async spawns.</summary>
+        public static void BeginHostMinionContext(object parentUnitSO, int count)
+        {
+            if (NetGameplaySyncBridge.BossMode != NetMode.Host || parentUnitSO == null || count <= 0) return;
+            lock (_pending)
+            {
+                float now = Time.realtimeSinceStartup;
+                _minionCtx.RemoveAll(c => now > c.Deadline);
+                _minionCtx.Add(new MinionCtx { UnitSO = parentUnitSO, Remaining = count, Deadline = now + 5f });
+            }
+        }
+
+        /// <summary>Consume one slot of an active host minion context matching this UnitSO. Returns true if this spawn is a
+        /// death-minion that should be broadcast.</summary>
+        private static bool TryClaimMinionContext(object unitSO)
+        {
+            if (!MinionSpawnEnabled || unitSO == null) return false;
+            float now = Time.realtimeSinceStartup;
+            for (int i = 0; i < _minionCtx.Count; i++)
+            {
+                var c = _minionCtx[i];
+                if (now > c.Deadline) continue;
+                if (!ReferenceEquals(c.UnitSO, unitSO)) continue;
+                c.Remaining--;
+                if (c.Remaining <= 0) _minionCtx.RemoveAt(i);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>CLIENT: suppress the whole local SpawnMinions (host mirrors its own minions).</summary>
+        public static bool ClientShouldSuppressMinions()
+        {
+            if (!Enabled || !MinionSpawnEnabled) return false;
+            if (NetGameplaySyncBridge.BossMode != NetMode.Client) return false;
+            MinionClientSuppressed++;
+            if (LogOn) Plugin.Log.Info($"[RuntimeSpawn] client suppressed local SpawnMinions (#{MinionClientSuppressed}) — mirroring host's instead");
+            return true;
+        }
+
         // ================================================================== capture (from BossSpawnPatches hooks)
 
         /// <summary>Prefix on UnitSO.SpawnUnitAsync: note a runtime-spawn owner we care about (Stage 1: DevToolsManager,
@@ -97,10 +149,13 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!Enabled || unitSO == null || owner == null) return;
                 if (NetGameplaySyncBridge.BossMode != NetMode.Host) return;
                 string? src = ClassifyOwner(owner);
-                if (src == null) return; // not a source we sync in this stage
                 lock (_pending)
                 {
                     float now = Time.realtimeSinceStartup;
+                    // Phase 5.7-DS2: SpawnMinions passes owner=GameManager (unclassified); a live host minion context for
+                    // this UnitSO means this is a death-minion that must be broadcast.
+                    if (src == null && TryClaimMinionContext(unitSO)) { src = "DeathMinion"; MinionHostBroadcast++; }
+                    if (src == null) return; // not a source we sync in this stage
                     _pending.RemoveAll(p => now - p.At > PendingTtl);
                     _pending.Add(new Pending { UnitSO = unitSO, Source = src, At = now });
                 }

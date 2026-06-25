@@ -169,9 +169,24 @@ synchronous. Fix (`EnableDeathSpawnSync`, default ON, host-authoritative):
 - Verify: host `[RuntimeSpawn] host broadcasting … src=DeathSpawn`; client `[RuntimeSpawn] client suppressed
   local death-spawn …` + `client mirrored unit hostIdx=…`. Counters `DeathSpawnHostBroadcast` /
   `DeathSpawnClientSuppressed`.
-- **Follow-up:** `SpawnMinions` (the `spawnMinionsOnDeath.amountToSpawn` mutation, multiple same-type minions
-  via async `SpawnUnitAsync(GameManager,…)`) is NOT yet covered — it spawns across `await`s so the flag
-  bracket doesn't hold. Handle separately if it shows up.
+**Minion-spawn networked — DONE (Phase 5.7-DS2).** `SpawnMinions` (the `spawnMinionsOnDeath.amountToSpawn`
+mutation: N **same-type** minions spawned async via `SpawnUnitAsync(GameManager,…)`) was the source of
+LogOutput118's `never bound, late-bind failed` block — a wave of `GoblinYoung` the host spawned but never
+broadcast, so the client got their deaths with no local entity. The async path can't use the DS synchronous
+flag bracket, so instead the host registers a short-lived **minion context** (parent UnitSO + remaining
+count + 5 s TTL); `NotePendingSpawn` (already on the `SpawnUnitAsync` prefix, async-safe) claims it and tags
+the spawn `DeathMinion` so the existing pipeline broadcasts it. The client suppresses its whole `SpawnMinions`
+and mirrors the host's. Gate `EnableMinionSpawnSync`. Counters `MinionHostBroadcast`/`MinionClientSuppressed`;
+host log `src=DeathMinion`. *Loot caveat:* the client skip also skips the parent's trailing `SpawnLoot()`/
+`SpawnGibExplosion()`; harmless in practice because client puppet deaths don't re-fire the mutation `onDeath`
+(LogOutput118 DS suppress count = 0), but if loot for minion-spawning enemies goes missing on the client,
+switch the client suppression from whole-method skip to a targeted async `SpawnUnitAsync` suppress.
+
+**BatchedNPCRaycasts.LateUpdate hardened (Phase 5.7-DS2).** The Burst LOS/ground job's results are indexed by
+`unitMapping`/`npcMapping` count and decode player indices from LOD bytes (`players[255-b]`); when the roster
+or `GameManager.Players` changes between job-schedule and `LateUpdate` (runtime spawns + our injected ghost
+Players, Phase 5.7-B) an index can run past the arrays → `ArgumentOutOfRangeException` (LogOutput118, 1×). A
+finalizer swallows it (recovers next frame) under the existing `EnableDestroyedUnitListSweep` gate.
 
 **Still open (needs an owner decision — none done yet):**
 1. **Deterministic / host-authoritative AgentRole** — so the two sides agree on Offensive vs Defensive.
@@ -211,6 +226,7 @@ Gate `LogEnemyInterestDiag` (dev-default ON). When a late-spawned client enemy c
 | `EvictStaleHostBindings` | ON | DB — keep host↔local maps 1:1; release orphaned host-bound puppets |
 | `SkipDeadHostIdxRebind` | ON | DB2 — never (re)bind a buried host idx; release puppets stuck on one |
 | `EnableDeathSpawnSync` | ON | DS — host-authoritative "spawn random enemy on death" mutation (client suppress + mirror host) |
+| `EnableMinionSpawnSync` | ON | DS2 — host-authoritative `spawnMinionsOnDeath` minions (client suppress + mirror host) |
 | `EnableRetroactiveEnemyBinding` | ON | RB — park unmatched host records, bind on later client spawn |
 | `LogEnemyInterestDiag` | dev-ON | `[SnapColl]` + `[RetroBindDiag]` host/bind diagnostics |
 | `LogClientEnemyPuppetMode` | dev-ON | `[EnemyPuppet]` stale/release lines (with `hostIdx`/`lastRecv`) |
