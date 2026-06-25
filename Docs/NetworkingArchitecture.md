@@ -66,6 +66,7 @@ All messages are prefixed with a `byte` message type header. **Source of truth: 
 | 44 | `PlayerWeaponFire` | Any→All | 5.6-WS | Player weapon barrage replay (visual only; damage host-authoritative) |
 | 45 | `PlayerHeldWeapon` | Any→All | 5.6-WS2 | Remote held-weapon model (WeaponSO + attachments) on proxy hands |
 | 46 | `ClientTransitionRequest` | Client→Host | 5.6-DL-Q2 | Client-led level transition relay (host leads + generates; gated client follows) |
+| 47 | `BreakableBreak` | Any→All | 5.7-BR | In-scene destructible (`Breakable`) destruction mirror, keyed by deterministic spawn position |
 
 > **Subsystem docs:** scene/run negotiation, the client load gate, join flow, the client transition relay and the explicit 联机状态 link state are documented in **[SceneTransitionAndLinkState.md](SceneTransitionAndLinkState.md)**. The boss pipeline (IDs 28–42) is documented in **[BossAuthority.md](BossAuthority.md)** (implementation) and **[BossSourceAudit.md](BossSourceAudit.md)** (reverse-engineered references).
 
@@ -181,6 +182,7 @@ This ensures puppet enemy melee animations play on client (for visual fidelity) 
 | Player life / downed-revive | `PlayerLifeState=18` | Any→Host / Host→All | Each peer's own death is delayed/committed; co-op downed + revive-hold + downed-input blacklist. See **[PlayerLifeAndDownedInput.md](PlayerLifeAndDownedInput.md)**. |
 | Boss authority | `28–42` | both | See **[BossAuthority.md](BossAuthority.md)**. |
 | Runtime spawn | `HostRuntimeSpawn=43` | Host→Client | Post-stabilization spawns (boss adds + F3) mirrored via `UnitId→UnitSO` + HostSpawnIndex. |
+| Destructibles (visual) | `BreakableBreak=47` | Any→All | Peer-authoritative EFFECT mirror: a peer that breaks a `Breakable` broadcasts the deterministic spawn-position key; receivers `Break()` the matching live local destructible. Loot stays per-peer. See **[Destructibles.md](Destructibles.md)**. |
 | Scene / run / join / link state | `10–13`, `27`, `46` | both | See **[SceneTransitionAndLinkState.md](SceneTransitionAndLinkState.md)**. |
 
 ---

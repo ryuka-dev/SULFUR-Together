@@ -176,5 +176,13 @@ namespace SULFURTogether.Networking
         // mid-load), invokes its own GoToLevel (host player moves + generates the seed), then the existing finalized
         // broadcast brings the gated client along. Lets the client LEAD progression while the Host still owns generation.
         ClientTransitionRequest = 46,
+
+        // Phase 5.7-BR in-scene destructible (Breakable) sync. Any peer → all others: "my local player just broke this
+        // destructible (keyed by its deterministic spawn position)." Receivers find the matching still-alive local
+        // Breakable and call Break() so it shatters/loots/cascades the same on every screen. Peer-authoritative effect
+        // mirror (the user-chosen model): each peer's own real break is broadcast; receivers mirror the EFFECT, not the
+        // bullet. Loot stays per-peer (already the case — loot is not networked). Same topology as PlayerWeaponFire
+        // (Client → Host → relay to other Clients; the firing peer never mirrors its own break).
+        BreakableBreak = 47,
     }
 }
