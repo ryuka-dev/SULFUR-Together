@@ -225,6 +225,10 @@ namespace SULFURTogether.Networking
             if (_mode != NetMode.Off)
                 Gameplay.PlayerHeldWeaponManager.Tick(_visualProxies);
 
+            // World item-drop sync: drain queued pickup removals (AddItem + remove-from-world) on the main thread.
+            if (_mode != NetMode.Off)
+                Gameplay.WorldPickupManager.Tick();
+
             // WS-3: give remote proxies a billboard body (visual only). Priest sprite body takes priority; NPC-prefab body
             // is the fallback (only used if the sprite body is disabled/unavailable).
             if (_mode != NetMode.Off)
@@ -1048,6 +1052,169 @@ namespace SULFURTogether.Networking
                 if (client == sourcePeer) continue;
                 SendBreakableBreak(client, msg);
             }
+        }
+
+        // ---------------------------------------------------------------- World item-drop sync (player drops first)
+        // Spawn: optimistic + peer-authoritative — the dropping peer broadcasts (Client→Host→relay to other Clients;
+        // the dropper never mirrors its own). Take: host-authoritative — a Client requests, the Host grants exactly one
+        // and broadcasts the removal (Host→all Clients). See WorldPickupManager.
+
+        // Local identity (the dropper stamps the world-pickup owner id; also used by the take/grant logic).
+        internal string LocalPeerId => _runStates?.LocalState.PeerId ?? "";
+
+        internal void BroadcastLocalWorldPickupSpawn(Gameplay.NetWorldPickupSpawn msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.OwnerPeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendWorldPickupSpawn(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendWorldPickupSpawn(_hostPeer, msg);
+            }
+        }
+
+        private void SendWorldPickupSpawn(NetPeer peer, Gameplay.NetWorldPickupSpawn msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.WorldPickupSpawn);
+                Gameplay.NetWorldPickupCodec.WriteSpawn(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[WorldPickup] spawn send failed: {ex.Message}");
+            }
+        }
+
+        private void HandleWorldPickupSpawn(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
+            if (!Gameplay.NetWorldPickupCodec.TryReadSpawn(reader, out var msg))
+            {
+                NetLogger.Warn("[WorldPickup] malformed WorldPickupSpawn packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId))
+                {
+                    if (Plugin.Cfg.EnableDebugLog.Value)
+                        NetLogger.Debug($"[WorldPickup] spawn from unregistered peer {peer.Address}");
+                    return;
+                }
+                msg.OwnerPeerId = peerId; // stamp the dropper's authoritative identity
+
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.WorldPickupManager.ApplyRemoteSpawn(msg);
+
+                RelayWorldPickupSpawnToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.OwnerPeerId == _runStates.LocalState.PeerId) return; // never mirror my own drop
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.WorldPickupManager.ApplyRemoteSpawn(msg);
+            }
+        }
+
+        private void RelayWorldPickupSpawnToOtherClients(NetPeer sourcePeer, Gameplay.NetWorldPickupSpawn msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendWorldPickupSpawn(client, msg);
+            }
+        }
+
+        internal void SendWorldPickupTakeRequest(string ownerPeerId, ushort seq)
+        {
+            if (_mode != NetMode.Client || _hostPeer == null) return;
+            if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
+            try
+            {
+                var msg = new Gameplay.NetWorldPickupTake { OwnerPeerId = ownerPeerId, Seq = seq, SentAt = Now() };
+                var w = NetMessage.For(NetMessageType.WorldPickupTakeRequest);
+                Gameplay.NetWorldPickupCodec.WriteTake(w, msg);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[WorldPickup] take request send failed: {ex.Message}");
+            }
+        }
+
+        private void HandleWorldPickupTakeRequest(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
+            if (_mode != NetMode.Host) return;
+            if (!Gameplay.NetWorldPickupCodec.TryReadTake(reader, out var msg))
+            {
+                NetLogger.Warn("[WorldPickup] malformed WorldPickupTakeRequest packet");
+                return;
+            }
+            if (!_peerIds.TryGetValue(peer, out var requesterPeerId))
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[WorldPickup] take request from unregistered peer {peer.Address}");
+                return;
+            }
+            Gameplay.WorldPickupManager.HostHandleTakeRequest(msg, requesterPeerId);
+        }
+
+        internal void BroadcastWorldPickupRemoved(Gameplay.NetWorldPickupRemoved msg)
+        {
+            if (_net == null || _mode != NetMode.Host || msg == null) return;
+            if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
+            msg.SentAt = Now();
+            foreach (var peer in _clients.ToArray())
+                SendWorldPickupRemoved(peer, msg);
+        }
+
+        private void SendWorldPickupRemoved(NetPeer peer, Gameplay.NetWorldPickupRemoved msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.WorldPickupRemoved);
+                Gameplay.NetWorldPickupCodec.WriteRemoved(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[WorldPickup] removed send failed: {ex.Message}");
+            }
+        }
+
+        private void HandleWorldPickupRemoved(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
+            if (_mode != NetMode.Client) return; // only the Host originates removals
+            if (!Gameplay.NetWorldPickupCodec.TryReadRemoved(reader, out var msg))
+            {
+                NetLogger.Warn("[WorldPickup] malformed WorldPickupRemoved packet");
+                return;
+            }
+            Gameplay.WorldPickupManager.ApplyRemoved(msg.Key, msg.TakenByPeerId);
         }
 
         // ----------------------------------------------------------------- Phase 5.6-WS-2 remote held weapon model
@@ -1964,6 +2131,18 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.BreakableBreak:
                         HandleBreakableBreak(peer, reader);
+                        break;
+
+                    case NetMessageType.WorldPickupSpawn:
+                        HandleWorldPickupSpawn(peer, reader);
+                        break;
+
+                    case NetMessageType.WorldPickupTakeRequest:
+                        HandleWorldPickupTakeRequest(peer, reader);
+                        break;
+
+                    case NetMessageType.WorldPickupRemoved:
+                        HandleWorldPickupRemoved(peer, reader);
                         break;
 
                     case NetMessageType.Disconnect:

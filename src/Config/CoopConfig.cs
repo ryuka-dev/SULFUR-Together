@@ -186,6 +186,11 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableBreakableSync { get; }
         public ConfigEntry<bool>   LogBreakableSync { get; }
 
+        // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
+        public ConfigEntry<bool>   EnableWorldItemDropSync { get; }
+        public ConfigEntry<bool>   LogWorldItemDropSync { get; }
+        public ConfigEntry<bool>   ShareAllLoot { get; }
+
         // ----- Phase 5.6-WS-2 remote held weapon model (with attachments) -----
         public ConfigEntry<bool>   EnableRemoteWeaponModel { get; }
         public ConfigEntry<bool>   LogRemoteWeaponModel { get; }
@@ -781,6 +786,17 @@ namespace SULFURTogether.Config
                 "Phase 5.7-BR: mirror in-scene destructible (Breakable) destruction across peers so a barrel/crate/glass broken by any player shatters on every screen. Effect mirror; loot stays per-peer. Reversible.");
             LogBreakableSync = cfg.Bind("Destructibles", "LogBreakableSync", true,
                 "Phase 5.7-BR: verbose log for destructible sync (capture / broadcast / mirror match).");
+
+            // World item-drop sync: items that appear in the world are mirrored across peers. Spawn is optimistic +
+            // peer-authoritative (instant local drop, then broadcast); take is host-authoritative (first picker wins, the
+            // item vanishes for everyone and only the winner receives it). The DIY gun state (attachments / enchantments /
+            // caliber / ammo / durability+experience) travels with the item. Reversible.
+            EnableWorldItemDropSync = cfg.Bind("WorldItems", "EnableWorldItemDropSync", true,
+                "Sync items that appear in the world across peers. With ShareAllLoot=false (default) only player-thrown items/guns are synced; with ShareAllLoot=true every world pickup is synced. Spawn is optimistic; take is host-authoritative (first picker wins). Reversible.");
+            LogWorldItemDropSync = cfg.Bind("WorldItems", "LogWorldItemDropSync", true,
+                "Verbose log for world item-drop sync (capture / mirror / take request / host grant / removal).");
+            ShareAllLoot = cfg.Bind("WorldItems", "ShareAllLoot", false,
+                "FUTURE host room-setting: when true, ALL world pickups (loot included) are synced and shared (first picker takes it, it vanishes for everyone). When false (default), loot stays per-peer and only player-thrown items/guns are synced. NOTE: full shared-loot also needs host-authoritative loot rolling (suppress client rolls) — not yet implemented; flipping this now only widens the sync filter.");
 
             // Phase 5.6-WS-2: show each remote player's currently held weapon model (rebuilt from WeaponSO + installed
             // attachments, since attachments change the model) in their proxy's hands. Visual only.
@@ -1390,6 +1406,10 @@ namespace SULFURTogether.Config
             // Phase 5.7-BR — in-scene destructible (Breakable) sync default on.
             EnableBreakableSync.Value = true;
             LogBreakableSync.Value = true;
+            // World item-drop sync default on (player-thrown items); shared-loot widening stays off until host-roll exists.
+            EnableWorldItemDropSync.Value = true;
+            LogWorldItemDropSync.Value = true;
+            ShareAllLoot.Value = false;
             // Phase 5.6-WS-2 — remote held weapon model default on.
             EnableRemoteWeaponModel.Value = true;
             LogRemoteWeaponModel.Value = true;

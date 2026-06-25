@@ -184,5 +184,21 @@ namespace SULFURTogether.Networking
         // bullet. Loot stays per-peer (already the case — loot is not networked). Same topology as PlayerWeaponFire
         // (Client → Host → relay to other Clients; the firing peer never mirrors its own break).
         BreakableBreak = 47,
+
+        // World item-drop sync. A pickup is born through the single chokepoint InteractionManager.SpawnPickup; player
+        // drops carry a non-null InventoryData (Pickup.DroppedByPlayer), loot carries null — the mode filter keys on
+        // that (Independent = player drops only; Shared = every pickup). Identity is a composite {ownerPeer, seq}
+        // assigned by the dropping peer (world positions are NOT deterministic across peers, so position-matching like
+        // BreakableBreak won't work).
+        //
+        // Spawn (Any→All, optimistic + peer-authoritative, same Client→Host→relay shape as PlayerWeaponFire): the
+        // dropping peer's real pickup appears instantly and is broadcast; receivers mirror-spawn the same pickup with
+        // the same DIY InventoryData (attachments / enchantments / caliber / ammo / durability+experience).
+        WorldPickupSpawn = 48,
+        // Take (Client→Host): "I want this pickup." The Host grants the first valid requester (first-come-wins).
+        WorldPickupTakeRequest = 49,
+        // Removed (Host→All): "this pickup was taken." Every peer removes its local instance; the named taker adds the
+        // item to its inventory. Gives the future Shared-loot "first picker takes it, it vanishes for everyone" for free.
+        WorldPickupRemoved = 50,
     }
 }

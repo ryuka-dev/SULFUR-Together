@@ -67,6 +67,9 @@ All messages are prefixed with a `byte` message type header. **Source of truth: 
 | 45 | `PlayerHeldWeapon` | Any→All | 5.6-WS2 | Remote held-weapon model (WeaponSO + attachments) on proxy hands |
 | 46 | `ClientTransitionRequest` | Client→Host | 5.6-DL-Q2 | Client-led level transition relay (host leads + generates; gated client follows) |
 | 47 | `BreakableBreak` | Any→All | 5.7-BR | In-scene destructible (`Breakable`) destruction mirror, keyed by deterministic spawn position |
+| 48 | `WorldPickupSpawn` | Any→All | WI | A world pickup appeared (player drop now; all loot under Shared-loot). Carries `{ownerPeer,seq}` id + position + full `InventoryData` (gun DIY). Optimistic + peer-authoritative |
+| 49 | `WorldPickupTakeRequest` | Client→Host | WI | "I want to take this pickup" (host grants first-come) |
+| 50 | `WorldPickupRemoved` | Host→All | WI | Pickup taken/removed by `{netId}`; every peer removes its instance, the named taker adds the item |
 
 > **Subsystem docs:** scene/run negotiation, the client load gate, join flow, the client transition relay and the explicit 联机状态 link state are documented in **[SceneTransitionAndLinkState.md](SceneTransitionAndLinkState.md)**. The boss pipeline (IDs 28–42) is documented in **[BossAuthority.md](BossAuthority.md)** (implementation) and **[BossSourceAudit.md](BossSourceAudit.md)** (reverse-engineered references).
 
@@ -183,6 +186,7 @@ This ensures puppet enemy melee animations play on client (for visual fidelity) 
 | Boss authority | `28–42` | both | See **[BossAuthority.md](BossAuthority.md)**. |
 | Runtime spawn | `HostRuntimeSpawn=43` | Host→Client | Post-stabilization spawns (boss adds + F3) mirrored via `UnitId→UnitSO` + HostSpawnIndex. |
 | Destructibles (visual) | `BreakableBreak=47` | Any→All | Peer-authoritative EFFECT mirror: a peer that breaks a `Breakable` broadcasts the deterministic spawn-position key; receivers `Break()` the matching live local destructible. Loot stays per-peer. See **[Destructibles.md](Destructibles.md)**. |
+| World item drops | `48–50` | both | Items in the world (player-thrown now; all loot under a Shared-loot toggle) synced with their full DIY `InventoryData`. Spawn optimistic/peer-authoritative; take host-authoritative (first picker wins). See **[WorldItemDrop.md](WorldItemDrop.md)** (impl) + **[WorldItemDropAudit.md](WorldItemDropAudit.md)** (reverse-engineering). |
 | Scene / run / join / link state | `10–13`, `27`, `46` | both | See **[SceneTransitionAndLinkState.md](SceneTransitionAndLinkState.md)**. |
 
 ---

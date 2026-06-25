@@ -56,6 +56,10 @@ namespace SULFURTogether.Networking.Gameplay
         // Phase 5.6-WS — true if a co-op session (Host or Client) is running. Cheap gate for per-shot capture.
         public static bool IsSessionActive => _service != null && _service.Mode != NetMode.Off;
 
+        // World item-drop sync — local identity + role helpers.
+        public static bool IsHost => _service != null && _service.Mode == NetMode.Host;
+        public static string LocalPeerId => _service != null ? _service.LocalPeerId : "";
+
         // Phase 5.6-WS — player weapon fire (visual barrage) channel. The firing peer reports its local barrage;
         // NetService stamps PeerId + scene context and routes it (Client→Host, Host→all clients + replay locally).
         public static void ReportLocalPlayerWeaponFire(NetPlayerWeaponFire msg)
@@ -74,6 +78,23 @@ namespace SULFURTogether.Networking.Gameplay
         public static void ReportLocalBreakableBreak(NetBreakableBreak msg)
         {
             _service?.BroadcastLocalBreakableBreak(msg);
+        }
+
+        // World item-drop sync — spawn (optimistic, peer-authoritative; Client→Host→relay), take request (Client→Host),
+        // removal broadcast (Host→all). See WorldPickupManager.
+        public static void ReportLocalWorldPickupSpawn(NetWorldPickupSpawn msg)
+        {
+            _service?.BroadcastLocalWorldPickupSpawn(msg);
+        }
+
+        public static void SendWorldPickupTakeRequest(string ownerPeerId, ushort seq)
+        {
+            _service?.SendWorldPickupTakeRequest(ownerPeerId, seq);
+        }
+
+        public static void BroadcastWorldPickupRemoved(NetWorldPickupRemoved msg)
+        {
+            _service?.BroadcastWorldPickupRemoved(msg);
         }
 
         // Phase 5.1 Host-authoritative enemy health sync.
