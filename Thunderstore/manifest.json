@@ -1,0 +1,9 @@
+{
+  "name": "SULFUR_Together",
+  "version_number": "0.2.0",
+  "website_url": "https://github.com/ryuka-dev/SULFUR-Together",
+  "description": "Early-preview co-op multiplayer for SULFUR: host-authoritative synced runs, enemies, bosses, and downed/revive. Host and clients must run the same version.",
+  "dependencies": [
+    "BepInEx-BepInExPack-5.4.2100"
+  ]
+}

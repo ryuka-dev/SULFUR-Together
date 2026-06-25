@@ -7,3 +7,8 @@ obj/
 
 # Local decompile scratch (not for commit)
 .scratch/
+
+# Release-only binaries placed by hand into the Thunderstore package zip.
+# The mod DLL + LiteNetLib are dropped in manually at release time, never committed
+# and never copied here by the build. The icon/manifest/README stay tracked.
+Thunderstore/**/*.dll

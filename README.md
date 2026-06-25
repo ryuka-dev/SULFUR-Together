@@ -4,7 +4,7 @@ A work-in-progress **co-op multiplayer mod** for the game [SULFUR](https://store
 
 It adds host-authoritative networked play on top of the base game: synchronized level generation/seeds, scene transitions, remote player proxies, enemy state mirroring, boss-encounter authority, downed/revive co-op flow, and more. Networking runs over [LiteNetLib](https://github.com/RevenantX/LiteNetLib).
 
-> ⚠️ **Early/experimental.** This is a private development build that hooks deeply into the game's internals via Harmony. Expect rough edges, debug logging, and breaking changes between versions.
+> ⚠️ **Early preview.** This is an experimental build that hooks deeply into the game's internals via Harmony. Expect rough edges, debug logging, and breaking changes between versions. Host and clients must run the **same mod version** to connect.
 
 > This is an unofficial fan-made mod. It is **not** affiliated with or endorsed by Perfect Random or the SULFUR developers. SULFUR and its assets are property of their respective owners.
 
@@ -13,6 +13,15 @@ It adds host-authoritative networked play on top of the base game: synchronized 
 - **SULFUR** (Steam)
 - **BepInEx 5** installed for SULFUR — these instructions assume it is managed via [Gale](https://github.com/Kesomannen/GaleModManager)
 - **.NET SDK** (targets `net472`) and an MSBuild toolchain (Visual Studio 2022 or `dotnet` CLI)
+
+## Installing (players)
+
+You do **not** need to build anything to play. Pick one:
+
+- **Thunderstore / Gale (recommended):** search for **SULFUR Together** in [Gale](https://github.com/Kesomannen/GaleModManager) (or the Thunderstore app), install, and launch the game through the mod manager. BepInEx is pulled in automatically as a dependency.
+- **Manual:** download the release zip, and drop `SULFUR Together.dll` + `LiteNetLib.dll` into your `BepInEx/plugins/SULFUR Together/` folder (BepInEx 5 must already be installed for SULFUR).
+
+> Everyone in a session must run the **same mod version**.
 
 ## Building
 
@@ -42,8 +51,9 @@ Machine-specific paths (your game install + BepInEx folders) live in `LocalPaths
    dotnet build "SULFUR Together.csproj" -c Release
    ```
 
-   A **Release** build copies `SULFUR Together.dll` + `LiteNetLib.dll` into
-   `<BepInExPluginDir>\SULFURTogether\` automatically. A **Debug** build just compiles to `bin/`.
+   Every build copies `SULFUR Together.dll` + `LiteNetLib.dll` into
+   `<BepInExPluginDir>\SULFUR Together\` automatically (note the space — that is the
+   folder BepInEx actually loads). A build only compiles to `bin/` if no deploy paths are set.
 
 The build will error early with a clear message if `LocalPaths.props` is missing or its paths are unset.
 
