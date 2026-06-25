@@ -149,34 +149,31 @@
   </ItemGroup>
 
   <!--
-    Deploy: copies SULFUR Together.dll + LiteNetLib.dll into
-    $(BepInExPluginDir)\SULFURTogether\ after a Release build.
-    Only runs when $(BepInExPluginDir) is set in LocalPaths.props.
+    Deploy: after EVERY build, copy SULFUR Together.dll + LiteNetLib.dll into the
+    "SULFUR Together" plugin folder (note the space — that's the folder BepInEx actually loads) of every
+    destination set in LocalPaths.props:
+      - $(BepInExPluginDir)         → the real (host) Gale profile's plugins dir
+      - $(BepInExPluginDirSandbox)  → the Sandboxie (client) copy of the same profile's plugins dir (optional)
+    Each is the …\plugins dir; we append "\SULFUR Together". Folders are created if missing so the sandbox copy
+    works even when the sandboxed game isn't currently running.
   -->
   <Target Name="Deploy" AfterTargets="Build"
-          Condition="'$(Configuration)' == 'Release' AND '$(BepInExPluginDir)' != ''">
-    <PropertyGroup>
-      <_PluginSubDir>$(BepInExPluginDir)\SULFURTogether</_PluginSubDir>
-    </PropertyGroup>
-    <Warning
-      Condition="!Exists('$(BepInExPluginDir)')"
-      Text="BepInExPluginDir '$(BepInExPluginDir)' does not exist — skipping deploy." />
-    <MakeDir Directories="$(_PluginSubDir)"
-             Condition="Exists('$(BepInExPluginDir)')" />
+          Condition="'$(BepInExPluginDir)' != '' OR '$(BepInExPluginDirSandbox)' != ''">
+    <ItemGroup>
+      <_DeployDir Include="$(BepInExPluginDir)\SULFUR Together"        Condition="'$(BepInExPluginDir)' != ''" />
+      <_DeployDir Include="$(BepInExPluginDirSandbox)\SULFUR Together" Condition="'$(BepInExPluginDirSandbox)' != ''" />
+    </ItemGroup>
+    <MakeDir Directories="@(_DeployDir)" />
     <Copy
-      Condition="Exists('$(BepInExPluginDir)')"
       SourceFiles="$(TargetPath)"
-      DestinationFolder="$(_PluginSubDir)"
+      DestinationFolder="%(_DeployDir.Identity)"
       OverwriteReadOnlyFiles="true" />
     <Copy
-      Condition="Exists('$(BepInExPluginDir)') AND Exists('$(OutputPath)LiteNetLib.dll')"
+      Condition="Exists('$(OutputPath)LiteNetLib.dll')"
       SourceFiles="$(OutputPath)LiteNetLib.dll"
-      DestinationFolder="$(_PluginSubDir)"
+      DestinationFolder="%(_DeployDir.Identity)"
       OverwriteReadOnlyFiles="true" />
-    <Message
-      Condition="Exists('$(BepInExPluginDir)')"
-      Text="Deployed → $(_PluginSubDir)"
-      Importance="high" />
+    <Message Text="Deployed → %(_DeployDir.Identity)" Importance="high" />
   </Target>
 
 </Project>

@@ -6,6 +6,13 @@
     -->
     <SulfurManagedDir>D:\SteamLibrary\steamapps\common\SULFUR\Sulfur_Data\Managed</SulfurManagedDir>
     <BepInExCoreDir>C:\Users\YourName\AppData\Roaming\com.kesomannen.gale\sulfur\profiles\Default\BepInEx\core</BepInExCoreDir>
+
+    <!-- Deploy destination(s). Point at the …\plugins dir of the Gale profile you actually run; the build
+         appends "\SULFUR Together" (with the space — that is the folder BepInEx loads) on every build. -->
     <BepInExPluginDir>C:\Users\YourName\AppData\Roaming\com.kesomannen.gale\sulfur\profiles\Default\BepInEx\plugins</BepInExPluginDir>
+
+    <!-- OPTIONAL second destination (e.g. a Sandboxie copy of the same profile, for the second game instance).
+         Leave empty / delete the line if you don't run a sandboxed client. -->
+    <!-- <BepInExPluginDirSandbox>C:\Sandbox\YourName\DefaultBox\user\current\AppData\Roaming\com.kesomannen.gale\sulfur\profiles\Default\BepInEx\plugins</BepInExPluginDirSandbox> -->
   </PropertyGroup>
 </Project>
