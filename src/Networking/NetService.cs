@@ -963,6 +963,93 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- Phase 5.7-BR destructible (Breakable) break
+        // Same topology as PlayerWeaponFire: the peer that broke a destructible reports it; the Host stamps the PeerId,
+        // mirrors it locally (if in the same scene) and relays to all other clients. The firing peer never mirrors its own.
+
+        internal void BroadcastLocalBreakableBreak(Gameplay.NetBreakableBreak msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnableBreakableSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendBreakableBreak(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendBreakableBreak(_hostPeer, msg);
+            }
+        }
+
+        private void SendBreakableBreak(NetPeer peer, Gameplay.NetBreakableBreak msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.BreakableBreak);
+                Gameplay.NetBreakableBreakCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[BreakableBreak] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleBreakableBreak(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableBreakableSync.Value) return;
+            if (!Gameplay.NetBreakableBreakCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[BreakableBreak] malformed BreakableBreak packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId))
+                {
+                    if (Plugin.Cfg.EnableDebugLog.Value)
+                        NetLogger.Debug($"[BreakableBreak] ignoring break from unregistered peer {peer.Address}");
+                    return;
+                }
+                msg.PeerId = peerId;
+
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.BreakableBreakManager.ApplyRemoteBreak(msg);
+
+                RelayBreakableBreakToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.PeerId == _runStates.LocalState.PeerId) return; // never mirror my own break
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.BreakableBreakManager.ApplyRemoteBreak(msg);
+            }
+        }
+
+        private void RelayBreakableBreakToOtherClients(NetPeer sourcePeer, Gameplay.NetBreakableBreak msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendBreakableBreak(client, msg);
+            }
+        }
+
         // ----------------------------------------------------------------- Phase 5.6-WS-2 remote held weapon model
 
         internal void BroadcastLocalHeldWeapon(Gameplay.NetPlayerHeldWeapon msg)
@@ -1873,6 +1960,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.PlayerHeldWeapon:
                         HandlePlayerHeldWeapon(peer, reader);
+                        break;
+
+                    case NetMessageType.BreakableBreak:
+                        HandleBreakableBreak(peer, reader);
                         break;
 
                     case NetMessageType.Disconnect:

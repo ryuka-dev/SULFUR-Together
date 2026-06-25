@@ -69,6 +69,13 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalHeldWeapon(msg);
         }
 
+        // Phase 5.7-BR — in-scene destructible break channel. The peer that broke a destructible reports it; NetService
+        // stamps PeerId + scene context and routes it (Client→Host→relay to other Clients; firing peer never mirrors).
+        public static void ReportLocalBreakableBreak(NetBreakableBreak msg)
+        {
+            _service?.BroadcastLocalBreakableBreak(msg);
+        }
+
         // Phase 5.1 Host-authoritative enemy health sync.
         public static void ReportHostEnemyDamageEvent(NetHostEnemyDamageEvent evt)
         {

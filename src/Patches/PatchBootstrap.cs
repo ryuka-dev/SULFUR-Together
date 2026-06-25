@@ -12,6 +12,7 @@ namespace SULFURTogether.Patches
             BossEncounterPatches.Apply(harmony);
             BossSpawnPatches.Apply(harmony);
             WeaponFirePatches.Apply(harmony);
+            BreakablePatches.Apply(harmony);
             PauseControlPatches.Apply(harmony);
             Plugin.Log.Info("[PatchBootstrap] Done.");
         }

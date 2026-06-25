@@ -182,6 +182,10 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LogPlayerWeaponSync { get; }
         public ConfigEntry<int>    PlayerWeaponSyncMaxProjectilesPerShot { get; }
 
+        // ----- Phase 5.7-BR in-scene destructible (Breakable) sync -----
+        public ConfigEntry<bool>   EnableBreakableSync { get; }
+        public ConfigEntry<bool>   LogBreakableSync { get; }
+
         // ----- Phase 5.6-WS-2 remote held weapon model (with attachments) -----
         public ConfigEntry<bool>   EnableRemoteWeaponModel { get; }
         public ConfigEntry<bool>   LogRemoteWeaponModel { get; }
@@ -768,6 +772,15 @@ namespace SULFURTogether.Config
                 "Phase 5.6-WS: verbose log for player weapon sync (capture / broadcast / replay).");
             PlayerWeaponSyncMaxProjectilesPerShot = cfg.Bind("PlayerWeapon", "PlayerWeaponSyncMaxProjectilesPerShot", 256,
                 "Phase 5.6-WS: safety clamp on visual projectiles replayed per fire event (huge modded barrages). Local damage is unaffected.");
+
+            // Phase 5.7-BR: sync in-scene destructibles (Units.Breakable). Each peer breaks its own destructibles for
+            // real; when one breaks we broadcast a break event keyed by the breakable's deterministic spawn position,
+            // and receivers call Break() on the matching local destructible so it shatters/loots/cascades the same on
+            // every screen. Peer-authoritative EFFECT mirror (loot stays per-peer — loot is not networked). Reversible.
+            EnableBreakableSync = cfg.Bind("Destructibles", "EnableBreakableSync", true,
+                "Phase 5.7-BR: mirror in-scene destructible (Breakable) destruction across peers so a barrel/crate/glass broken by any player shatters on every screen. Effect mirror; loot stays per-peer. Reversible.");
+            LogBreakableSync = cfg.Bind("Destructibles", "LogBreakableSync", true,
+                "Phase 5.7-BR: verbose log for destructible sync (capture / broadcast / mirror match).");
 
             // Phase 5.6-WS-2: show each remote player's currently held weapon model (rebuilt from WeaponSO + installed
             // attachments, since attachments change the model) in their proxy's hands. Visual only.
@@ -1374,6 +1387,9 @@ namespace SULFURTogether.Config
             // Phase 5.6-WS — player weapon bullet sync (visual-only barrage replay) default on.
             EnablePlayerWeaponSync.Value = true;
             LogPlayerWeaponSync.Value = true;
+            // Phase 5.7-BR — in-scene destructible (Breakable) sync default on.
+            EnableBreakableSync.Value = true;
+            LogBreakableSync.Value = true;
             // Phase 5.6-WS-2 — remote held weapon model default on.
             EnableRemoteWeaponModel.Value = true;
             LogRemoteWeaponModel.Value = true;
