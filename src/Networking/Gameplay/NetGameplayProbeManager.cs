@@ -7608,16 +7608,22 @@ namespace SULFURTogether.Networking.Gameplay
 
         // Generation signature — uses the STABLE initial spawn position (never the live position),
         // quantized, so the generation hash does not drift as units move at runtime.
+        // Phase 5.7-GD: do NOT fold ModifierFlags (the Offensive/Defensive AgentRole) into the signature. That role is
+        // rolled per-enemy with the GLOBAL, non-seeded UnityEngine.Random in AiAgent.AssignStartRole() (verified in the
+        // decomp), so it diverges ~50% between host and client even on an identical level. Baking it in made genHash
+        // permanently mismatch and counted the SAME enemy as both hostOnly (host's role) and clientOnly (client's role),
+        // drowning out any REAL generation divergence. unitId + quantized initial position is the deterministic identity.
+        // The role divergence is still surfaced explicitly by the "[LevelManifestDiff] modifier mismatch" line.
         private static string UnitSignature(NetLevelManifestUnit u)
         {
             if (u.HasInitialPosition)
             {
                 int qx = Mathf.RoundToInt(u.InitialPosition.x / 2f);
                 int qz = Mathf.RoundToInt(u.InitialPosition.z / 2f);
-                return $"{u.UnitIdentifier}#{u.ModifierFlags}#{qx},{qz}";
+                return $"{u.UnitIdentifier}#{qx},{qz}";
             }
-            // No initial position captured — fall back to identity+modifier only (still stable).
-            return $"{u.UnitIdentifier}#{u.ModifierFlags}#?";
+            // No initial position captured — fall back to identity only (still stable across host/client).
+            return $"{u.UnitIdentifier}#?";
         }
 
         private static string PosTag(NetLevelManifestUnit? u)

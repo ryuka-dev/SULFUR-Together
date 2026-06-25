@@ -136,6 +136,35 @@ NOT cause #3 (no `Stale-release` events; SC3 working). Findings:
 This is the original "level-gen enemies, same seed but divergent spawn → position-based bind fails"
 problem (RT3-A46 era; boss adds got snap-on-bind, level enemies never did).
 
+### Gen-divergence investigation (LogOutput117, the "special attribute" report) — partly explained
+The user reported enemies whose **special attribute (Offensive/Defensive)** differs per side, and the
+`[LevelManifestDiff]` showed ~15 `modifier mismatch` lines + a `unit mismatch` + many hostOnly/clientOnly.
+Decompiling the gen pipeline (`PerfectRandom.Sulfur.LevelGeneration.dll`) settled where the randomness lives:
+- **Level layout + unit selection + mutations are DETERMINISTIC.** Each graph node gets
+  `_Random = new Unity.Mathematics.Random((uint)(Seed + nodeIndex))` (`MakerGraphContext`), and
+  `SpawnEnemiesNode` / `FinalizeAndMutateUnitsNode` draw only from that `_Random`. Same level seed ⇒ same
+  enemies, positions, and **mutations** (the `MutationDefinition`, incl. `unitsToSpawnOnDeath` — the
+  "spawn a random enemy on death" special). So the *assignment* of the death-spawn mutation is in sync.
+- **The Offensive/Defensive role is NOT.** `AiAgent.AssignStartRole()` picks it with
+  **`UnityEngine.Random.Range(0, rolesAvailable.Count)`** — the global, non-seeded Unity RNG, per enemy, at
+  AI init. Host and client roll independently → ~50 % differ. **This is the entire "modifier mismatch".**
+- **Impact is mostly diagnostic, not binding.** Actual binding matches by `Category + UnitId + position` and
+  never reads `ModifierFlags`. But `UnitSignature` *did* fold `ModifierFlags` into the generation hash, so
+  `genHash` could never match and the SAME enemy was counted as both hostOnly (host role) and clientOnly
+  (client role) — drowning out any real divergence. **Fixed (Phase 5.7-GD):** `UnitSignature` =
+  `unitId#qx,qz` only; the role is still surfaced by the explicit `modifier mismatch` line. Now `genHash`
+  is a real determinism check and the hostOnly/clientOnly counts reflect true divergence.
+
+**Still open (needs an owner decision — none done yet):**
+1. **Deterministic / host-authoritative AgentRole** — so the two sides agree on Offensive vs Defensive.
+   Low correctness impact (client enemies are host-driven puppets; host role is authoritative) but removes
+   the cosmetic/behaviour split. Options: seed `AssignStartRole` from (levelSeed, gen index) deterministically,
+   or have the host broadcast each enemy's role.
+2. **`Unit.SpawnOnDeath()` add not networked** — when a host enemy with the death-spawn mutation dies it
+   `Instantiate`s a random `UnitId` (e.g. `ShavwaLurk` in LogOutput117) that the client never mirrors. Should
+   reuse the RT3 runtime-spawn-sync pipeline (host broadcasts the spawned UnitId + index; client mirrors +
+   binds). Separate from the zombie bugs.
+
 ### Diagnostic now in place (so the next repro self-documents)
 Gate `LogEnemyInterestDiag` (dev-default ON). When a late-spawned client enemy can't retro-bind:
 ```
