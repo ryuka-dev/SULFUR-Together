@@ -26,6 +26,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static int RuntimeSpawnMirrored;
         public static int RuntimeSpawnMirrorFailed;
 
+        // Phase 5.7-DS: death-spawn (MutationDefinition.OnDeathSpawnUnitsFunc) sync counters.
+        public static int DeathSpawnHostBroadcast;
+        public static int DeathSpawnClientSuppressed;
+
         // ---- pending owner correlation across the async SpawnUnitAsync -> static SpawnUnit boundary (by UnitSO ref) ----
         private sealed class Pending { public object UnitSO = null!; public string Source = ""; public float At; }
         private static readonly System.Collections.Generic.List<Pending> _pending = new System.Collections.Generic.List<Pending>();
@@ -42,6 +46,44 @@ namespace SULFURTogether.Networking.Gameplay
         public static void Reset()
         {
             lock (_pending) _pending.Clear();
+            _hostDeathSpawnDepth = 0;
+        }
+
+        // ================================================================== Phase 5.7-DS: death-spawn sync
+        //
+        // The "spawn a random enemy on death" mutation (MutationDefinition.unitsToSpawnOnDeath) picks WHICH unit to spawn
+        // with the global UnityEngine.Random (in AddSpawnUnit), so host and client independently bake DIFFERENT units into
+        // the dying enemy's onDeath delegate — on death each side spawns a different enemy (LogOutput117: host ShavwaLurk,
+        // client something else). Fix = host-authoritative: the client suppresses its local death-spawn and mirrors the
+        // host's via the existing runtime-spawn pipeline.
+        //
+        // The actual spawn in OnDeathSpawnUnitsFunc goes through the STATIC UnitSO.SpawnUnit (no owner arg, so the
+        // SpawnUnitAsync NotePendingSpawn path never sees it). We instead bracket OnDeathSpawnUnitsFunc with a host-only
+        // flag; the SpawnUnit postfix (OnUnitSpawned) broadcasts whatever was spawned while the flag is set. The
+        // non-endless path of OnDeathSpawnUnitsFunc has no await before SpawnUnit, so it runs fully synchronously and the
+        // prefix/postfix bracket the spawn correctly.
+        private static bool DeathSpawnEnabled { get { try { return Plugin.Cfg.EnableDeathSpawnSync.Value; } catch { return false; } } }
+        [ThreadStatic] private static int _hostDeathSpawnDepth;
+
+        /// <summary>HOST: a death-spawn (OnDeathSpawnUnitsFunc) is about to run; flag it so the spawn is broadcast.</summary>
+        public static void BeginHostDeathSpawn()
+        {
+            if (NetGameplaySyncBridge.BossMode == NetMode.Host) _hostDeathSpawnDepth++;
+        }
+
+        public static void EndHostDeathSpawn()
+        {
+            if (_hostDeathSpawnDepth > 0) _hostDeathSpawnDepth--;
+        }
+
+        /// <summary>CLIENT: should the local death-spawn be suppressed (host is authoritative and will mirror its own)?</summary>
+        public static bool ClientShouldSuppressDeathSpawn()
+        {
+            if (!Enabled || !DeathSpawnEnabled) return false;
+            if (NetGameplaySyncBridge.BossMode != NetMode.Client) return false;
+            DeathSpawnClientSuppressed++;
+            if (LogOn) Plugin.Log.Info($"[RuntimeSpawn] client suppressed local death-spawn (#{DeathSpawnClientSuppressed}) — mirroring host's instead");
+            return true;
         }
 
         // ================================================================== capture (from BossSpawnPatches hooks)
@@ -80,6 +122,10 @@ namespace SULFURTogether.Networking.Gameplay
                     for (int i = 0; i < _pending.Count; i++)
                         if (ReferenceEquals(_pending[i].UnitSO, unitSO)) { src = _pending[i].Source; _pending.RemoveAt(i); break; }
                 }
+                // Phase 5.7-DS: death-spawn (static UnitSO.SpawnUnit inside OnDeathSpawnUnitsFunc) has no pending owner; the
+                // host-only bracket flag tells us this spawn must be broadcast so the client mirrors it instead of rolling
+                // its own divergent unit.
+                if (src == null && _hostDeathSpawnDepth > 0 && DeathSpawnEnabled) { src = "DeathSpawn"; DeathSpawnHostBroadcast++; }
                 if (src == null) return; // not a tracked runtime spawn
                 BroadcastHostRuntimeSpawn(spawnedUnit, unitSO, position, src);
             }

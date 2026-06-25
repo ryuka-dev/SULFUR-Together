@@ -176,6 +176,8 @@ namespace SULFURTogether.Config
         // ----- Phase 5.5-RT3-A bind correction (snap-on-bind + inert + hit-gate) -----
         public ConfigEntry<bool>   EnableRuntimeSpawnSnapOnBind { get; }
         public ConfigEntry<bool>   EnableRuntimeSpawnInertUntilBound { get; }
+        // ----- Phase 5.7-DS death-spawn ("spawn random enemy on death" mutation) host-authoritative sync -----
+        public ConfigEntry<bool>   EnableDeathSpawnSync { get; }
 
         // ----- Phase 5.6-WS player weapon bullet sync (visual-only barrage replay) -----
         public ConfigEntry<bool>   EnablePlayerWeaponSync { get; }
@@ -769,6 +771,8 @@ namespace SULFURTogether.Config
             // this is a movement freeze only (no collider disable — avoids fall-through risk). Independently toggleable.
             EnableRuntimeSpawnInertUntilBound = cfg.Bind("NetworkEnemy", "EnableRuntimeSpawnInertUntilBound", true,
                 "Phase 5.5-RT3-A: freeze a local boss-add's movement until it is bound+snapped to the host spawn. Reversible.");
+            EnableDeathSpawnSync = cfg.Bind("NetworkEnemy", "EnableDeathSpawnSync", true,
+                "Phase 5.7-DS: host-authoritative sync of the 'spawn a random enemy on death' mutation (MutationDefinition.unitsToSpawnOnDeath). The unit is chosen with the global UnityEngine.Random, so each side otherwise spawns a DIFFERENT enemy on death. The client suppresses its local death-spawn and mirrors the host's via the runtime-spawn pipeline. Requires EnableRuntimeSpawnSync. Reversible.");
 
             // Phase 5.6-WS: replicate each player's weapon barrage onto every OTHER peer as VISUAL-ONLY bullets.
             // The firing peer captures the computed projectile template (equipmentManager.lastFiredProjectile.ray) plus
@@ -1408,6 +1412,8 @@ namespace SULFURTogether.Config
             // Phase 5.5-RT3-A — bind correction (snap-on-bind + hit-gate + inert) default on.
             EnableRuntimeSpawnSnapOnBind.Value = true;
             EnableRuntimeSpawnInertUntilBound.Value = true;
+            // Phase 5.7-DS — death-spawn ("spawn random enemy on death" mutation) host-authoritative sync default on.
+            EnableDeathSpawnSync.Value = true;
             // Phase 5.6-WS — player weapon bullet sync (visual-only barrage replay) default on.
             EnablePlayerWeaponSync.Value = true;
             LogPlayerWeaponSync.Value = true;

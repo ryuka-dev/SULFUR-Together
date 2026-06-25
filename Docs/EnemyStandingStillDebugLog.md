@@ -155,15 +155,29 @@ Decompiling the gen pipeline (`PerfectRandom.Sulfur.LevelGeneration.dll`) settle
   `unitId#qx,qz` only; the role is still surfaced by the explicit `modifier mismatch` line. Now `genHash`
   is a real determinism check and the hostOnly/clientOnly counts reflect true divergence.
 
+**Death-spawn networked — DONE (Phase 5.7-DS).** The "spawn a random enemy on death" mutation
+(`MutationDefinition.unitsToSpawnOnDeath`) picks its unit in `AddSpawnUnit` with the **global
+`UnityEngine.Random`**, so host and client baked *different* units into the dying enemy's `onDeath` delegate
+→ on death each side spawned a different enemy (the user's "客机也会出一只怪，只是完全不同怪"). The actual
+spawn runs through `MutationDefinition.OnDeathSpawnUnitsFunc` → static `UnitSO.SpawnUnit`, and in non-endless
+play that method has **no `await` before the spawn** (only the endless branch awaits) so it is fully
+synchronous. Fix (`EnableDeathSpawnSync`, default ON, host-authoritative):
+- **Client** prefixes `OnDeathSpawnUnitsFunc` and returns false → **suppresses its local divergent spawn**.
+- **Host** brackets the call with a flag; the existing `UnitSO.SpawnUnit` postfix
+  (`RuntimeSpawnManager.OnUnitSpawned`) sees the flag and **broadcasts** the spawned unit via the RT1
+  `NetRuntimeSpawn` pipeline (`src=DeathSpawn`); the client **mirrors + binds** it like any host runtime spawn.
+- Verify: host `[RuntimeSpawn] host broadcasting … src=DeathSpawn`; client `[RuntimeSpawn] client suppressed
+  local death-spawn …` + `client mirrored unit hostIdx=…`. Counters `DeathSpawnHostBroadcast` /
+  `DeathSpawnClientSuppressed`.
+- **Follow-up:** `SpawnMinions` (the `spawnMinionsOnDeath.amountToSpawn` mutation, multiple same-type minions
+  via async `SpawnUnitAsync(GameManager,…)`) is NOT yet covered — it spawns across `await`s so the flag
+  bracket doesn't hold. Handle separately if it shows up.
+
 **Still open (needs an owner decision — none done yet):**
 1. **Deterministic / host-authoritative AgentRole** — so the two sides agree on Offensive vs Defensive.
    Low correctness impact (client enemies are host-driven puppets; host role is authoritative) but removes
    the cosmetic/behaviour split. Options: seed `AssignStartRole` from (levelSeed, gen index) deterministically,
-   or have the host broadcast each enemy's role.
-2. **`Unit.SpawnOnDeath()` add not networked** — when a host enemy with the death-spawn mutation dies it
-   `Instantiate`s a random `UnitId` (e.g. `ShavwaLurk` in LogOutput117) that the client never mirrors. Should
-   reuse the RT3 runtime-spawn-sync pipeline (host broadcasts the spawned UnitId + index; client mirrors +
-   binds). Separate from the zombie bugs.
+   or have the host broadcast each enemy's role. (`UnityEngine.Random.Range` in `AiAgent.AssignStartRole`.)
 
 ### Diagnostic now in place (so the next repro self-documents)
 Gate `LogEnemyInterestDiag` (dev-default ON). When a late-spawned client enemy can't retro-bind:
@@ -196,6 +210,7 @@ Gate `LogEnemyInterestDiag` (dev-default ON). When a late-spawned client enemy c
 | `ReleasePuppetOnHostDeath` | ON | SC3 — release the client puppet+binding when a host death applies |
 | `EvictStaleHostBindings` | ON | DB — keep host↔local maps 1:1; release orphaned host-bound puppets |
 | `SkipDeadHostIdxRebind` | ON | DB2 — never (re)bind a buried host idx; release puppets stuck on one |
+| `EnableDeathSpawnSync` | ON | DS — host-authoritative "spawn random enemy on death" mutation (client suppress + mirror host) |
 | `EnableRetroactiveEnemyBinding` | ON | RB — park unmatched host records, bind on later client spawn |
 | `LogEnemyInterestDiag` | dev-ON | `[SnapColl]` + `[RetroBindDiag]` host/bind diagnostics |
 | `LogClientEnemyPuppetMode` | dev-ON | `[EnemyPuppet]` stale/release lines (with `hostIdx`/`lastRecv`) |
