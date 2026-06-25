@@ -360,6 +360,8 @@ namespace SULFURTogether.Config
         // Phase 5.7-SC3: when a host enemy's death is applied, release the bound client puppet + drop its binding so a
         // host-despawned enemy doesn't linger as a stale "host-bound" standing zombie on the client.
         public ConfigEntry<bool>   ReleasePuppetOnHostDeath { get; }
+        // Phase 5.7-DB: keep the client hostIdx↔localKey binding maps strictly 1:1; release orphaned (disowned) host-bound puppets.
+        public ConfigEntry<bool>   EvictStaleHostBindings { get; }
         // Phase 5.7-RB: retro-actively bind a host enemy whose roster/manifest record arrived before the client spawned it.
         public ConfigEntry<bool>   EnableRetroactiveEnemyBinding { get; }
         // Phase 5.7-RB: sweep destroyed (Unity-null) entries out of GameManager.units/aliveNpcs before the vanilla raycast Update.
@@ -1148,6 +1150,8 @@ namespace SULFURTogether.Config
                 "Phase 5.5-RT3-A7: once a host enemy is bound to a local entity, keep that binding across roster revisions as long as both still exist (instead of re-matching by 5m position each time). Fixes enemies that lose their binding/death-sync after moving (e.g. a caster repositioning >5m). Reversible.");
             ReleasePuppetOnHostDeath = cfg.Bind("HostDrivenProxy", "ReleasePuppetOnHostDeath", true,
                 "Phase 5.7-SC3: when a host enemy death is applied to a bound client puppet, release that puppet and drop its host binding. Without this, a host enemy that despawns far from the host player (Npc.Die damageCount=0) while the client is fighting it leaves an orphaned 'host-bound' puppet that ReleaseStaleEnemyPuppets keeps suppressing → it stands in place forever (LogOutput111). Reversible.");
+            EvictStaleHostBindings = cfg.Bind("HostDrivenProxy", "EvictStaleHostBindings", true,
+                "Phase 5.7-DB: keep the client's hostIdx↔localKey binding maps strictly 1:1. When a host enemy re-binds to a new local entity, evict the old local key's reverse entry; and in ReleaseStaleEnemyPuppets, release any orphaned puppet whose hostIdx the forward map now points elsewhere. Without this, a duplicate/re-binding leaves an orphan flagged 'host-bound' that never receives snapshots (recv=never) and is suppressed from release forever → it stands frozen in place (LogOutput116: a melee Bruiser stuck after climbing onto the player's platform, hostIdx=1 had 3 local keys bound to it). Reversible.");
             EnableRetroactiveEnemyBinding = cfg.Bind("HostDrivenProxy", "EnableRetroactiveEnemyBinding", true,
                 "Phase 5.7-RB: when a host enemy's roster/manifest record arrives before the client has locally spawned that enemy (timing race historically recorded 'hostOnly, no local candidate' and never bound), bind it the moment the client later spawns the matching unit. Fixes the recurring 'rosterBound << rosterReceived' / unbound-enemy desync (each-side-simulates, host can't damage, death/state mismatch). Reversible.");
             EnableDestroyedUnitListSweep = cfg.Bind("HostDrivenProxy", "EnableDestroyedUnitListSweep", true,
@@ -1537,6 +1541,8 @@ namespace SULFURTogether.Config
             StableWorldRosterBinding.Value = true;
             // Phase 5.7-SC3 — release the client puppet + binding when a host enemy death is applied (kills standing zombies).
             ReleasePuppetOnHostDeath.Value = true;
+            // Phase 5.7-DB — strict 1:1 host-binding maps + orphan release (kills the frozen duplicate-binding zombie).
+            EvictStaleHostBindings.Value = true;
             // Phase 5.7-RB — retro-active enemy binding + destroyed-unit list sweep, default on.
             EnableRetroactiveEnemyBinding.Value = true;
             EnableDestroyedUnitListSweep.Value = true;

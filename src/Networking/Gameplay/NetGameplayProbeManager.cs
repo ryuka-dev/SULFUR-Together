@@ -5742,7 +5742,19 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 if (now - pair.Value.LastSeenAt <= timeout) continue;
                 // Host owns death/despawn — don't release a host-bound puppet on stale timer.
-                bool isHostBound = ClientLocalKeyToHostSpawnIndex.ContainsKey(pair.Key);
+                bool isHostBound = ClientLocalKeyToHostSpawnIndex.TryGetValue(pair.Key, out int boundHostIdx);
+                // Phase 5.7-DB: an ORPHANED binding — this local key still claims hostIdx=H, but the forward map for H
+                // now points at a DIFFERENT local key (H re-bound to another local entity). This puppet will never get
+                // another snapshot (recv=never) yet "host-bound" keeps suppressing its release → frozen zombie. Release it.
+                if (isHostBound && Plugin.Cfg.EvictStaleHostBindings.Value
+                    && (!ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(boundHostIdx, out var fwdLocal)
+                        || !string.Equals(fwdLocal, pair.Key, StringComparison.Ordinal)))
+                {
+                    ClientLocalKeyToHostSpawnIndex.Remove(pair.Key);
+                    _evictedStaleHostBindings++;
+                    ReleaseEnemyPuppet(pair.Key, $"stale orphan binding hostIdx={boundHostIdx} (forward map disowned, dbEvicted={_evictedStaleHostBindings})");
+                    continue;
+                }
                 if (isHostBound)
                 {
                     _puppetStaleReleaseSuppressed++;
@@ -6472,8 +6484,7 @@ namespace SULFURTogether.Networking.Gameplay
                 if (NetConfig.GetMode() != NetMode.Client) return false;
                 string key = LocalKeyForObject(entity);
                 if (string.IsNullOrWhiteSpace(key)) return false;
-                ClientHostToLocalKeyByHostSpawnIndex[hostSpawnIndex] = key;
-                ClientLocalKeyToHostSpawnIndex[key] = hostSpawnIndex;
+                SetClientHostBinding(hostSpawnIndex, key);
                 // Phase 5.5-RT3-A6: runtime (post-level-load) boss adds are NOT in the host WorldRoster. ProcessHostWorldRoster
                 // wipes the binding dicts every reconcile; without this authoritative record the RT3 binding is lost and the
                 // roster then proximity-rebinds the entity to the WRONG hostIdx (log54: -349692 RT3-bound to 25 but death of
@@ -6482,6 +6493,44 @@ namespace SULFURTogether.Networking.Gameplay
                 return true;
             }
             catch { return false; }
+        }
+
+        // Phase 5.7-DB: every binding write must keep ClientHostToLocalKeyByHostSpawnIndex (hostIdx→localKey) and
+        // ClientLocalKeyToHostSpawnIndex (localKey→hostIdx) as a strict 1:1 pair. The additive write sites (manifest
+        // reconcile, retro-bind, RT3 mirror) previously overwrote one side without evicting the stale reverse entry,
+        // so a hostIdx that re-bound to a NEW local entity left the OLD local key still flagged "host-bound". That
+        // orphan never received another snapshot (recv=never), went stale at 3s, and ReleaseStaleEnemyPuppets kept
+        // suppressing its release because it was "host-bound" → frozen standing zombie (LogOutput116 hostIdx=1: local
+        // [3]/[16] Bruisers both mapped to hostIdx=1 while [0] was the live binding). Route all writes through here.
+        private static int _evictedStaleHostBindings;
+        private static void SetClientHostBinding(int hostIdx, string localKey)
+        {
+            if (hostIdx <= 0 || string.IsNullOrWhiteSpace(localKey)) return;
+
+            if (Plugin.Cfg.EvictStaleHostBindings.Value)
+            {
+                // 1) This hostIdx is currently bound to a DIFFERENT local key → that old local key is about to become an
+                //    orphan. Drop its reverse entry so it is no longer treated as host-bound (frees it via stale-release).
+                if (ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(hostIdx, out var prevLocal)
+                    && !string.IsNullOrWhiteSpace(prevLocal)
+                    && !string.Equals(prevLocal, localKey, StringComparison.Ordinal))
+                {
+                    ClientLocalKeyToHostSpawnIndex.Remove(prevLocal);
+                    _evictedStaleHostBindings++;
+                }
+                // 2) This local key is currently bound to a DIFFERENT hostIdx → drop that stale forward entry.
+                if (ClientLocalKeyToHostSpawnIndex.TryGetValue(localKey, out var prevHost)
+                    && prevHost != hostIdx
+                    && ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(prevHost, out var prevHostLocal)
+                    && string.Equals(prevHostLocal, localKey, StringComparison.Ordinal))
+                {
+                    ClientHostToLocalKeyByHostSpawnIndex.Remove(prevHost);
+                    _evictedStaleHostBindings++;
+                }
+            }
+
+            ClientHostToLocalKeyByHostSpawnIndex[hostIdx] = localKey;
+            ClientLocalKeyToHostSpawnIndex[localKey] = hostIdx;
         }
 
         private static string ComputeNetEntityId(NetGameplayEntitySnapshot snapshot, NetRunState state)
@@ -6598,8 +6647,7 @@ namespace SULFURTogether.Networking.Gameplay
                 return;
             }
 
-            ClientHostToLocalKeyByHostSpawnIndex[bestHostIdx] = localKey;
-            ClientLocalKeyToHostSpawnIndex[localKey] = bestHostIdx;
+            SetClientHostBinding(bestHostIdx, localKey);
             ClientQuarantinedEntities.Remove(localKey);
             _pendingHostBindLedger.Remove(bestHostIdx);
             _retroBindSuccess++;
@@ -7290,8 +7338,7 @@ namespace SULFURTogether.Networking.Gameplay
                 }
 
                 string localKey = GetSnapshotTargetKey(best);
-                ClientHostToLocalKeyByHostSpawnIndex[hu.SpawnIndex] = localKey;
-                ClientLocalKeyToHostSpawnIndex[localKey] = hu.SpawnIndex;
+                SetClientHostBinding(hu.SpawnIndex, localKey);
                 usedLocalKeys.Add(localKey);
                 ClientQuarantinedEntities.Remove(localKey);
                 _manifestHostEnemyBoundExisting++;

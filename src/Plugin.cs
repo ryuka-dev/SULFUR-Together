@@ -26,7 +26,7 @@ namespace SULFURTogether
             Log      = new STLogger(Logger, Cfg);
 
             Log.Info($"v{ModInfo.Version} by {ModInfo.Author} loading...");
-            Log.Info("[Build] Phase 5.7-SC4: SC3 host-death puppet release locked in (verified); + [RetroBindDiag] probe left in place to self-document the rare same-seed spawn-divergence standing-still next time it recurs 2026-06-25");
+            Log.Info("[Build] Phase 5.7-DB: strict 1:1 client host-binding maps (SetClientHostBinding evicts stale reverse entries) + ReleaseStaleEnemyPuppets releases orphaned 'host-bound' puppets the forward map disowned. Fixes the frozen melee zombie that stuck after climbing onto the player's platform (LogOutput116 hostIdx=1 had 3 local keys bound, recv=never). gate EvictStaleHostBindings 2026-06-25");
             var harmony = new Harmony(ModInfo.GUID);
             PatchBootstrap.ApplyAll(harmony);
 

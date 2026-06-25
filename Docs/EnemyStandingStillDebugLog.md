@@ -47,9 +47,43 @@ both ways (`ClientLocalKeyToHostSpawnIndex` / `ClientHostToLocalKeyByHostSpawnIn
 Release … reason=host death (HostEnemyDeathEvent)` for idx 1/2/3/4/6; **zero `Stale-release
 suppressed`** all session.
 
+### 4. Duplicate / orphaned host-binding → frozen "host-bound" zombie — FIXED (DB) ✅
+**This was the melee zombie that stuck after climbing onto the player's platform (LogOutput116).** A
+`BlackGuildBruiser` ran in bound and fine, then froze the moment it jumped onto the player's platform; the
+client lost its binding from that point. Evidence:
+- Host `Death idx=1 BlackGuildBruiser` — the real `hostIdx=1` was bound (`Bound hostIdx=1 → localIdx=1`
+  dist=0.0m), fought (`ClientHit` seq 1–7), and died normally. Not a same-seed divergence (dist=0.0m).
+- Client `[EnemyPuppet] Stale-release suppressed (host-bound) idx=4 actor=[3]-Bruiser hostIdx=1 recv=never`
+  **and** later `idx=17 actor=[16]-Bruiser hostIdx=1 recv=never`. **Three different local entities were all
+  bound to `hostIdx=1`.** Only the live one (`[0]`) received snapshots; the surplus puppets never did
+  (`recv=never`), went stale at 3 s, but `ReleaseStaleEnemyPuppets` kept *suppressing* their release because
+  they were still "host-bound" → frozen forever.
+
+**Root cause:** the additive binding-write sites (`ProcessHostManifest` reconcile ~7293, retro-bind ~6601,
+`RegisterMirroredRuntimeSpawn` ~6475) wrote `ClientHostToLocalKeyByHostSpawnIndex[h]=localKey` /
+`ClientLocalKeyToHostSpawnIndex[localKey]=h` **without evicting the stale reverse entry**. When `hostIdx=h`
+re-bound to a *new* local entity (enemy moved / re-matched on climb), the **old** local key kept its
+`localKey→h` reverse mark. It became an orphan: snapshots for `h` went to the new binding, the orphan got
+`recv=never`, and "host-bound" suppression made it permanent. SC3's death-release only cleaned the single
+*currently-matched* local key, leaving the orphans. (`ReleaseEnemyPuppet` also never removed the binding-map
+entries — only SC3 and reconcile-`Clear()` did.)
+
+**Fix (`EvictStaleHostBindings`, default ON):**
+- New `SetClientHostBinding(hostIdx, localKey)` helper routes all additive writes; before writing it evicts
+  (a) the old local key if `hostIdx` was bound elsewhere, and (b) the old `hostIdx` if `localKey` was bound
+  elsewhere → the two maps stay strictly 1:1.
+- Safety net in `ReleaseStaleEnemyPuppets`: if a stale puppet is "host-bound" but the forward map for its
+  `hostIdx` now points at a *different* local key (orphan), **release it** instead of suppressing.
+- Counter `dbEvicted=` in the orphan-release log line. **Verify next run:** the frozen-after-climb Bruiser is
+  gone; client log shows `[EnemyPuppet] Release … reason=stale orphan binding hostIdx=… (forward map disowned…)`
+  if any orphan is caught, and no lingering `Stale-release suppressed … recv=never` for a live fight.
+
+Changed: `NetGameplayProbeManager.cs` (SetClientHostBinding + 3 call sites + orphan branch),
+`CoopConfig.cs` (gate + dev-default), `Plugin.cs` (marker DB).
+
 ---
 
-## OPEN — Cause 4: same-seed spawn divergence → retro-bind can't bind (rare)
+## OPEN — Cause 4(b): same-seed spawn divergence → retro-bind can't bind (rare)
 
 **Status: NOT fixed. Diagnostic left in place. Set aside by owner (rare — "took a long time to
 appear"); pick up opportunistically when it recurs.**
@@ -97,6 +131,7 @@ Gate `LogEnemyInterestDiag` (dev-default ON). When a late-spawned client enemy c
 |---|---|---|
 | `SendAllEnemySnapshotsToClients` | ON | RB4 — no distance throttle while a client is connected |
 | `ReleasePuppetOnHostDeath` | ON | SC3 — release the client puppet+binding when a host death applies |
+| `EvictStaleHostBindings` | ON | DB — keep host↔local maps 1:1; release orphaned host-bound puppets |
 | `EnableRetroactiveEnemyBinding` | ON | RB — park unmatched host records, bind on later client spawn |
 | `LogEnemyInterestDiag` | dev-ON | `[SnapColl]` + `[RetroBindDiag]` host/bind diagnostics |
 | `LogClientEnemyPuppetMode` | dev-ON | `[EnemyPuppet]` stale/release lines (with `hostIdx`/`lastRecv`) |
