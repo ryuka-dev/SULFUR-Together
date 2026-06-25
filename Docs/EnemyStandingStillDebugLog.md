@@ -81,6 +81,40 @@ entries — only SC3 and reconcile-`Clear()` did.)
 Changed: `NetGameplayProbeManager.cs` (SetClientHostBinding + 3 call sites + orphan branch),
 `CoopConfig.cs` (gate + dev-default), `Plugin.cs` (marker DB).
 
+### 5. Dead host idx re-binds the surviving same-type sibling → frozen ranged zombie — FIXED (DB2) ✅
+**The ranged BlackGuildTracker that stood frozen after the host killed it (LogOutput117).** Two Trackers in
+the fight (`hostIdx=12` and `hostIdx=17`), both retro-bound at dist=0.0m. Sequence:
+- Client kills `hostIdx=12` → death applied, `local [11]` puppet released, binding dropped (SC3 working).
+- The **WorldRoster is the static level-gen roster and still lists `hostIdx=12`**, so the next reconcile's
+  proximity pass re-binds the *dead* `hostIdx=12` to the only surviving Tracker, `local [16]`. That puppet
+  now shows `Stale-release suppressed (host-bound) idx=17 hostIdx=12 recv=never` — it never gets another
+  snapshot and stands frozen.
+- Meanwhile the *alive* `hostIdx=17` is left unbound; when the host kills it the client logs
+  `No safe local match for host death: hostIdx=17 never bound, late-bind failed` → **the death is never
+  applied** → the survivor stays standing. Exactly the report: "host killed it, client didn't see it die."
+
+**Root cause:** binding paths happily (re)bind a host idx the client has *already buried*. The client
+already tracks these in `_clientTerminalDeadHostIdx` (set when a terminal death is applied; cleared on level
+change) — it just wasn't consulted when binding.
+
+**Fix (`SkipDeadHostIdxRebind`, default ON):** `IsClientKnownDeadHostIdx(idx)` gates every bind path —
+`SetClientHostBinding`, the `ProcessHostWorldRoster` proximity loop, the `ProcessHostManifest` enemy-bind
+loop, and the retro-bind parked-ledger scan all skip a buried idx. `ReleaseStaleEnemyPuppets` also releases a
+puppet already stuck on a buried idx (instead of suppressing). Net effect: the dead Tracker can't steal the
+survivor, so the survivor binds the alive host idx and its death applies normally.
+
+Changed: `NetGameplayProbeManager.cs` (IsClientKnownDeadHostIdx + 4 skip sites + stale-release branch),
+`CoopConfig.cs` (gate + dev-default), `Plugin.cs` (marker DB2). **Verify next run:** the ranged Tracker dies
+on the client when the host kills it; no lingering `recv=never` suppression for the survivor.
+
+> **Still open (separate, bigger):** this fight also showed heavy **same-seed level-gen divergence** —
+> `[LevelManifestDiff]` listed ~15 `modifier mismatch` lines (host `Offensive` vs client `Defensive`, etc.),
+> a `unit mismatch idx=27 host=BlackGuildDog client=BlackGuildAssassin`, and many host-only/client-only
+> units. So enemies' **special attributes (modifiers) are rolled differently on each side**, and the
+> **`Unit.SpawnOnDeath()` "spawn a random enemy on death" mechanism is not synced** (host spawned a
+> `ShavwaLurk`; the client won't mirror it). DB2 stops the *frozen-zombie* symptom; the divergence + add-sync
+> is the cause-4 architectural work below.
+
 ---
 
 ## OPEN — Cause 4(b): same-seed spawn divergence → retro-bind can't bind (rare)
@@ -132,6 +166,7 @@ Gate `LogEnemyInterestDiag` (dev-default ON). When a late-spawned client enemy c
 | `SendAllEnemySnapshotsToClients` | ON | RB4 — no distance throttle while a client is connected |
 | `ReleasePuppetOnHostDeath` | ON | SC3 — release the client puppet+binding when a host death applies |
 | `EvictStaleHostBindings` | ON | DB — keep host↔local maps 1:1; release orphaned host-bound puppets |
+| `SkipDeadHostIdxRebind` | ON | DB2 — never (re)bind a buried host idx; release puppets stuck on one |
 | `EnableRetroactiveEnemyBinding` | ON | RB — park unmatched host records, bind on later client spawn |
 | `LogEnemyInterestDiag` | dev-ON | `[SnapColl]` + `[RetroBindDiag]` host/bind diagnostics |
 | `LogClientEnemyPuppetMode` | dev-ON | `[EnemyPuppet]` stale/release lines (with `hostIdx`/`lastRecv`) |

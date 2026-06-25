@@ -362,6 +362,8 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   ReleasePuppetOnHostDeath { get; }
         // Phase 5.7-DB: keep the client hostIdx↔localKey binding maps strictly 1:1; release orphaned (disowned) host-bound puppets.
         public ConfigEntry<bool>   EvictStaleHostBindings { get; }
+        // Phase 5.7-DB2: never (re)bind a host idx the client has already buried; release puppets stuck on a dead host idx.
+        public ConfigEntry<bool>   SkipDeadHostIdxRebind { get; }
         // Phase 5.7-RB: retro-actively bind a host enemy whose roster/manifest record arrived before the client spawned it.
         public ConfigEntry<bool>   EnableRetroactiveEnemyBinding { get; }
         // Phase 5.7-RB: sweep destroyed (Unity-null) entries out of GameManager.units/aliveNpcs before the vanilla raycast Update.
@@ -1152,6 +1154,8 @@ namespace SULFURTogether.Config
                 "Phase 5.7-SC3: when a host enemy death is applied to a bound client puppet, release that puppet and drop its host binding. Without this, a host enemy that despawns far from the host player (Npc.Die damageCount=0) while the client is fighting it leaves an orphaned 'host-bound' puppet that ReleaseStaleEnemyPuppets keeps suppressing → it stands in place forever (LogOutput111). Reversible.");
             EvictStaleHostBindings = cfg.Bind("HostDrivenProxy", "EvictStaleHostBindings", true,
                 "Phase 5.7-DB: keep the client's hostIdx↔localKey binding maps strictly 1:1. When a host enemy re-binds to a new local entity, evict the old local key's reverse entry; and in ReleaseStaleEnemyPuppets, release any orphaned puppet whose hostIdx the forward map now points elsewhere. Without this, a duplicate/re-binding leaves an orphan flagged 'host-bound' that never receives snapshots (recv=never) and is suppressed from release forever → it stands frozen in place (LogOutput116: a melee Bruiser stuck after climbing onto the player's platform, hostIdx=1 had 3 local keys bound to it). Reversible.");
+            SkipDeadHostIdxRebind = cfg.Bind("HostDrivenProxy", "SkipDeadHostIdxRebind", true,
+                "Phase 5.7-DB2: the WorldRoster/manifest is the static level-gen roster and still lists enemies the client already buried (applied a terminal death for). Never (re)bind a live local entity to such a dead host idx, and release any puppet stuck on one. Without this, when two same-type enemies exist (e.g. two BlackGuildTrackers) and one dies, the roster keeps re-binding the dead idx to the surviving sibling — which then never receives snapshots (recv=never) while the real sibling's death finds 'never bound, late-bind failed' and is never applied → the survivor stands frozen (LogOutput117). Reversible.");
             EnableRetroactiveEnemyBinding = cfg.Bind("HostDrivenProxy", "EnableRetroactiveEnemyBinding", true,
                 "Phase 5.7-RB: when a host enemy's roster/manifest record arrives before the client has locally spawned that enemy (timing race historically recorded 'hostOnly, no local candidate' and never bound), bind it the moment the client later spawns the matching unit. Fixes the recurring 'rosterBound << rosterReceived' / unbound-enemy desync (each-side-simulates, host can't damage, death/state mismatch). Reversible.");
             EnableDestroyedUnitListSweep = cfg.Bind("HostDrivenProxy", "EnableDestroyedUnitListSweep", true,
@@ -1543,6 +1547,8 @@ namespace SULFURTogether.Config
             ReleasePuppetOnHostDeath.Value = true;
             // Phase 5.7-DB — strict 1:1 host-binding maps + orphan release (kills the frozen duplicate-binding zombie).
             EvictStaleHostBindings.Value = true;
+            // Phase 5.7-DB2 — never rebind a buried host idx; release puppets stuck on a dead host idx.
+            SkipDeadHostIdxRebind.Value = true;
             // Phase 5.7-RB — retro-active enemy binding + destroyed-unit list sweep, default on.
             EnableRetroactiveEnemyBinding.Value = true;
             EnableDestroyedUnitListSweep.Value = true;

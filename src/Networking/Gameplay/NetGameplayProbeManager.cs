@@ -5746,13 +5746,20 @@ namespace SULFURTogether.Networking.Gameplay
                 // Phase 5.7-DB: an ORPHANED binding — this local key still claims hostIdx=H, but the forward map for H
                 // now points at a DIFFERENT local key (H re-bound to another local entity). This puppet will never get
                 // another snapshot (recv=never) yet "host-bound" keeps suppressing its release → frozen zombie. Release it.
-                if (isHostBound && Plugin.Cfg.EvictStaleHostBindings.Value
+                bool orphanDisowned = isHostBound && Plugin.Cfg.EvictStaleHostBindings.Value
                     && (!ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(boundHostIdx, out var fwdLocal)
-                        || !string.Equals(fwdLocal, pair.Key, StringComparison.Ordinal)))
+                        || !string.Equals(fwdLocal, pair.Key, StringComparison.Ordinal));
+                // DB2: bound to a host enemy the client already buried — it will never get another snapshot. Release it.
+                bool boundToDead = isHostBound && IsClientKnownDeadHostIdx(boundHostIdx);
+                if (orphanDisowned || boundToDead)
                 {
                     ClientLocalKeyToHostSpawnIndex.Remove(pair.Key);
+                    if (ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(boundHostIdx, out var fl)
+                        && string.Equals(fl, pair.Key, StringComparison.Ordinal))
+                        ClientHostToLocalKeyByHostSpawnIndex.Remove(boundHostIdx);
                     _evictedStaleHostBindings++;
-                    ReleaseEnemyPuppet(pair.Key, $"stale orphan binding hostIdx={boundHostIdx} (forward map disowned, dbEvicted={_evictedStaleHostBindings})");
+                    string why = boundToDead ? "bound to buried hostIdx" : "forward map disowned";
+                    ReleaseEnemyPuppet(pair.Key, $"stale orphan binding hostIdx={boundHostIdx} ({why}, dbEvicted={_evictedStaleHostBindings})");
                     continue;
                 }
                 if (isHostBound)
@@ -6503,9 +6510,22 @@ namespace SULFURTogether.Networking.Gameplay
         // suppressing its release because it was "host-bound" → frozen standing zombie (LogOutput116 hostIdx=1: local
         // [3]/[16] Bruisers both mapped to hostIdx=1 while [0] was the live binding). Route all writes through here.
         private static int _evictedStaleHostBindings;
+        // Phase 5.7-DB2: the client has already applied a terminal death for this host enemy. Never (re)bind a live local
+        // entity to it — a dead host idx that the WorldRoster still lists would otherwise steal the binding of a surviving
+        // same-type sibling, which then never receives snapshots (recv=never) while the real sibling's death can't find a
+        // local match ("never bound, late-bind failed") → that sibling stands frozen (LogOutput117: two BlackGuildTrackers,
+        // hostIdx=12 died but kept re-binding local [16], starving the alive hostIdx=17 tracker → zombie).
+        private static bool IsClientKnownDeadHostIdx(int hostIdx)
+        {
+            return hostIdx > 0
+                && Plugin.Cfg.SkipDeadHostIdxRebind.Value
+                && _clientTerminalDeadHostIdx.Contains(hostIdx);
+        }
+
         private static void SetClientHostBinding(int hostIdx, string localKey)
         {
             if (hostIdx <= 0 || string.IsNullOrWhiteSpace(localKey)) return;
+            if (IsClientKnownDeadHostIdx(hostIdx)) return; // DB2: don't bind a host enemy the client already buried
 
             if (Plugin.Cfg.EvictStaleHostBindings.Value)
             {
@@ -6618,6 +6638,7 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 var p = kv.Value;
                 if (!string.Equals(p.UnitIdentifier, unitId, StringComparison.Ordinal)) continue;
+                if (IsClientKnownDeadHostIdx(p.HostSpawnIndex)) continue; // DB2: never retro-bind to a buried host idx
                 sameUnitInLedger++;
                 if (ClientHostToLocalKeyByHostSpawnIndex.ContainsKey(p.HostSpawnIndex)) continue; // bound since parked
                 matchCount++;
@@ -6734,6 +6755,12 @@ namespace SULFURTogether.Networking.Gameplay
 
             foreach (var rec in records)
             {
+                // Phase 5.7-DB2: the WorldRoster is the static level-gen roster and still lists enemies the client has
+                // already buried. Skip them — otherwise this proximity pass re-binds a dead host idx to a surviving
+                // same-type sibling and starves the real one (LogOutput117 two Trackers; hostIdx=12 dead kept stealing
+                // local [16], so alive hostIdx=17's death found "never bound" → frozen).
+                if (IsClientKnownDeadHostIdx(rec.SpawnIndex)) continue;
+
                 // Phase 5.5-RT3-A7: if this host id was already bound to a still-alive local entity of the same unit type,
                 // KEEP that binding regardless of how far it has drifted. Identity is established once; only death /
                 // despawn / level change releases it. This is what stops a moving caster from being quarantined.
@@ -7298,6 +7325,7 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 if (!hu.IsCombatEnemy) continue;
                 if (string.IsNullOrWhiteSpace(hu.UnitIdentifier)) continue;
+                if (IsClientKnownDeadHostIdx(hu.SpawnIndex)) continue; // DB2: don't bind a buried host idx to a live local
 
                 if (!localByUnit.TryGetValue(hu.UnitIdentifier, out var candidates) || candidates.Count == 0)
                 {
