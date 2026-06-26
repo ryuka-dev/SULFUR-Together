@@ -75,6 +75,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// disables pause). When true the manager blocks StartFight until a host-authoritative dialog-close commit.</summary>
         bool GatesFightOnDialogClose(object component);
 
+        /// <summary>Phase RM (room-membership): true if this start source marks the local player having crossed into the
+        /// boss room (the room-entry trigger). Each end fires its own (PlayerTrigger.onlyOnce is per-end), so it
+        /// captures every player who reaches the boss. Default = the boss's primary trigger; Cousin = "Trigger".</summary>
+        bool IsRoomEntrySource(string source);
+
         /// <summary>True if, AFTER the fight is started, this source would re-open/re-enter the dialog and must be
         /// suppressed (e.g. Cousin.Introduction/Trigger after FightStarted).</summary>
         bool ShouldSuppressDuplicateDialogEntry(object component, string source);

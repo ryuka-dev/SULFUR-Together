@@ -193,6 +193,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // ~1.1s after the dialog opens and overlaps it. We block StartFight until the dialog is dismissed (commit).
         public override bool GatesFightOnDialogClose(object component) => true;
 
+        // Phase RM (room-membership): the local player crosses "CousinTrigger" (-> CousinHelper.Trigger) to reach the
+        // boss; that crossing marks them in-room. PlayerTrigger.onlyOnce is per-end, so every player who walks up to the
+        // boss fires their own end's trigger -> the host learns each in-room player. (The wider room-doorway "Trigger"
+        // PlayerTrigger is a future refinement for players who enter the room but don't reach the boss.)
+        public override bool IsRoomEntrySource(string source) => ParseSourceMethod(source) == "Trigger";
+
         // Introduction is the earliest unambiguous "fight chosen" step; StartFight is the definitive one.
         public override bool IsDialogCommitSource(string source)
         {

@@ -157,6 +157,13 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastHostBossState(SULFURTogether.Networking.Gameplay.Boss.NetBossState msg)
             => _service?.BroadcastHostBossState(msg);
 
+        // Phase RM: room-membership substrate.
+        public static void SendClientRoomEnter(SULFURTogether.Networking.Gameplay.Boss.NetClientRoomEnter msg)
+            => _service?.SendClientRoomEnter(msg);
+
+        public static void BroadcastHostRoomMembership(SULFURTogether.Networking.Gameplay.Boss.NetHostRoomMembership msg)
+            => _service?.BroadcastHostRoomMembership(msg);
+
         // Phase 5.4-E4 Boss dynamic spawn manifest.
         public static void BroadcastHostBossDynamicSpawn(SULFURTogether.Networking.Gameplay.Boss.NetBossDynamicSpawn msg)
             => _service?.BroadcastHostBossDynamicSpawn(msg);

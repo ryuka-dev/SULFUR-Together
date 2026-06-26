@@ -578,6 +578,61 @@ namespace SULFURTogether.Networking
             Gameplay.Boss.NetBossEncounterManager.HandleHostBossState(msg);
         }
 
+        // ---- Phase RM: room-membership substrate ----
+        internal void SendClientRoomEnter(Gameplay.Boss.NetClientRoomEnter msg)
+        {
+            if (_mode != NetMode.Client || _net == null || _hostPeer == null) return;
+            if (!Plugin.Cfg.EnableBossEncounterSync.Value || msg == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientRoomEnter);
+                Gameplay.Boss.NetBossEncounterCodec.WriteRoomEnter(w, msg);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[RoomMembership] failed to send ClientRoomEnter: {ex.Message}"); }
+        }
+
+        internal void BroadcastHostRoomMembership(Gameplay.Boss.NetHostRoomMembership msg)
+        {
+            if (_mode != NetMode.Host || _net == null) return;
+            if (!Plugin.Cfg.EnableBossEncounterSync.Value || msg == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostRoomMembership);
+                    Gameplay.Boss.NetBossEncounterCodec.WriteRoomMembership(w, msg);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[RoomMembership] failed to broadcast: {ex.Message}"); }
+            }
+        }
+
+        private void HandleClientRoomEnter(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Plugin.Cfg.EnableBossEncounterSync.Value) return;
+            if (!Gameplay.Boss.NetBossEncounterCodec.TryReadRoomEnter(reader, out var msg))
+            {
+                NetLogger.Warn("[RoomMembership] malformed ClientRoomEnter packet");
+                return;
+            }
+            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            Gameplay.Boss.NetBossEncounterManager.HandleClientRoomEnter(msg, peerId);
+        }
+
+        private void HandleHostRoomMembership(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Plugin.Cfg.EnableBossEncounterSync.Value) return;
+            if (!Gameplay.Boss.NetBossEncounterCodec.TryReadRoomMembership(reader, out var msg))
+            {
+                NetLogger.Warn("[RoomMembership] malformed HostRoomMembership packet");
+                return;
+            }
+            Gameplay.Boss.NetBossEncounterManager.HandleHostRoomMembership(msg);
+        }
+
         internal void BroadcastHostBossDynamicSpawn(Gameplay.Boss.NetBossDynamicSpawn msg)
         {
             if (_mode != NetMode.Host || _net == null) return;
@@ -2149,6 +2204,14 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.WorldPickupRemoved:
                         HandleWorldPickupRemoved(peer, reader);
+                        break;
+
+                    case NetMessageType.ClientRoomEnter:
+                        HandleClientRoomEnter(peer, reader);
+                        break;
+
+                    case NetMessageType.HostRoomMembership:
+                        HandleHostRoomMembership(peer, reader);
                         break;
 
                     case NetMessageType.Disconnect:

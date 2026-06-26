@@ -315,8 +315,36 @@ RT3 boss-add sync (host broadcasts the arm as add `seq=0`; the client mirrors it
 
 **Pre-existing behavior, out of scope.** When a client triggers the boss remotely, the host's faithful intro runs
 too, so the host player is pulled into the synced cutscene (Cinematic-locked) even if across the map. Plan B holds
-that lock until *someone* dismisses the dialog. This is the room-membership problem (§3b #2) — left for the
-room-membership substrate.
+that lock until *someone* dismisses the dialog. This is the room-membership problem (§3b #2) — addressed by the
+room-membership substrate (§3e), whose first consumer (RM-2) will scope the synced cutscene to in-room players.
+
+## 3e. Room-membership substrate (RM) — RM-1 implemented (observe-only)
+
+The shared foundation behind both the dialog cutscene scoping and the arena lockdown (§3b): a host-authoritative
+"who is in the boss room" set, per the user's **report → host accepts → in-room broadcast** model.
+
+**Feed, decompile-confirmed.** `PlayerTrigger.onlyOnce` is a per-instance `SerializeField`, and host/client each
+have their own local copy of every trigger; `OnTriggerEnter` requires `unit.isPlayer`. So **each end fires its own
+room triggers for its own local player, independently** — `onlyOnce` does not stop the *other* end's player. Log133
+shows each end crossing `Trigger` (room doorway, generic name, fires via an `onTriggerEvents` UnityEvent the probe
+can't read) then `CousinTrigger` (→ `CousinHelper.Trigger`, deeper, at the boss). RM-1 uses **crossing CousinTrigger**
+(i.e. the local `CousinHelper.Trigger` firing) as the in-room signal — precisely attributable to the encounter key,
+and it captures every player who reaches the boss (the wider doorway `Trigger` is an RM-2+ refinement for players who
+enter the room but never reach the boss).
+
+**RM-1 (this build, observe-only — changes no behavior).**
+- Host holds `_roomMembers: key → {playerId}` (host = `"host"`, clients = peer id); clients cache the last host
+  broadcast in `_roomMembersClientView`.
+- `OnLocalStartEntrypoint` (before any gating/dedup, so it fires even when the start is blocked) calls
+  `ReportLocalRoomEntry` when `adapter.IsRoomEntrySource(source)` (Cousin = `"Trigger"`). Host marks itself +
+  broadcasts; a client sends `ClientRoomEnter` (msg 51). Host `HandleClientRoomEnter` marks the peer and broadcasts
+  `HostRoomMembership` (msg 52); clients cache it.
+- API for future consumers: `IsPlayerInRoom(key, id)`, `GetRoomMembers(key)`. Config `EnableBossRoomMembership`
+  (default on). Log tag `[RoomMembership]`.
+- **Verify next test:** both players walk up to Cousin → host logs `host in-room += host` and `+= client-1`,
+  `members=[host,client-1]`; client logs `client received … members=[…]`. Once the set is correct, RM-2 wires the
+  first consumer (scope the synced intro to in-room players; the host runs the mechanic authoritatively but skips its
+  own intro/Cinematic-lock when not in-room) and then the arena lockdown.
 
 ## 4. Open questions to resolve before coding PF-1
 - Where is the **boss-room entry trigger** in the scene graph? (Dialog trigger vs a separate volume.)

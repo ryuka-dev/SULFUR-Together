@@ -151,6 +151,8 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableFaithfulBossIntro { get; }
         // ----- Phase PF (Plan B): gate the boss fight start on the intro dialog being dismissed (host-authoritative) -----
         public ConfigEntry<bool>   GateBossFightOnDialogClose { get; }
+        // ----- Phase RM: host-authoritative room-membership substrate (who is in the boss room). Observe-only for now -----
+        public ConfigEntry<bool>   EnableBossRoomMembership { get; }
         // ----- Phase 5.4-E3 BossDialogCommit + Lucia + Witch state + Emperor worm -----
         public ConfigEntry<bool>   EnableEmperorWormDiagnostics { get; }
         public ConfigEntry<bool>   EnableEmperorClientWormSuppression { get; }
@@ -688,6 +690,8 @@ namespace SULFURTogether.Config
                 "Phase PF: on a joined client, instead of fake-starting the boss via direct Introduction()/StartFight() reflection (which skips the real intro dialog), set the boss's own trigger flag so its native behavior-tree intro sequence runs locally — reproducing the REAL intro animation + dialog + camera + boss bar ~99% faithfully. The fight mechanic stays host-authoritative. Cousin first.");
             GateBossFightOnDialogClose = cfg.Bind("NetworkBoss", "GateBossFightOnDialogClose", true,
                 "Phase PF (Plan B): for dialog-gated bosses (Cousin), block the behavior-tree StartFight until an in-room player dismisses the intro dialog, then start the fight host-authoritatively on every end and close all remaining boss dialogs. Restores the single-player gate (the dialog used to PAUSE the game, freezing the WaitForSeconds before StartFight) that co-op's no-pause mode removed, so the fight no longer auto-starts on top of the dialog.");
+            EnableBossRoomMembership = cfg.Bind("NetworkBoss", "EnableBossRoomMembership", true,
+                "Phase RM (substrate): track which players are 'in the boss room' (host-authoritative). Each end reports when its local player crosses the boss's room-entry trigger; the host aggregates the in-room set and broadcasts it. Observe-only for now (logs '[RoomMembership]', changes no behavior) — the shared foundation for restricting the synced intro cutscene to in-room players and for the future arena lockdown (AFK exclusion).");
 
             // Phase 5.4-E3: dialog-gated bosses (Cousin / Lucia) sync the "fight committed" decision via BossDialogCommit
             // and finalize the local dialog with the real Graph.Stop(true). Witch broadcasts a minimal phase/state skeleton.
@@ -1401,6 +1405,7 @@ namespace SULFURTogether.Config
             RemoveBossDialogInteractableOnStart.Value = false;
             EnableFaithfulBossIntro.Value = true;
             GateBossFightOnDialogClose.Value = true;
+            EnableBossRoomMembership.Value = true;
 
             // Phase 5.4-E3 — dialog commit + Lucia + Witch state default on; Emperor worm DIAGNOSTIC on, SUPPRESSION off (reversible).
             EnableEmperorWormDiagnostics.Value = true;

@@ -132,6 +132,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static readonly HashSet<string> _fightCommitted = new HashSet<string>();        // fight start applied locally (per key)
         private static readonly HashSet<string> _fightCommitRequested = new HashSet<string>();  // client sent a fight-commit request (per key)
         private static readonly HashSet<string> _fightCommitBroadcast = new HashSet<string>();  // host broadcast a fight-commit (per key)
+        // Phase RM (room-membership substrate): host-authoritative "who is in the boss room" set. Observe-only for now.
+        private const string HostPlayerId = "host";
+        private static readonly Dictionary<string, HashSet<string>> _roomMembers = new Dictionary<string, HashSet<string>>();        // host-authoritative: key -> player ids
+        private static readonly Dictionary<string, HashSet<string>> _roomMembersClientView = new Dictionary<string, HashSet<string>>(); // client cache of last host broadcast
+        private static readonly HashSet<string> _roomEnterReported = new HashSet<string>();                                          // per-end once-per-key (room entry reported)
         private static int _bossStateRevision;
         // E4.2: client-side per-key "boss bar already attached" guard.
         private static readonly HashSet<string> _bossUiAttached = new HashSet<string>();
@@ -152,6 +157,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             get { try { return Plugin.Cfg.GateBossFightOnDialogClose.Value; } catch { return false; } }
         }
+        private static bool RoomMembershipActive
+        {
+            get { try { return Plugin.Cfg.EnableBossRoomMembership.Value; } catch { return false; } }
+        }
 
         public static void Reset()
         {
@@ -171,6 +180,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _fightCommitted.Clear();
                 _fightCommitRequested.Clear();
                 _fightCommitBroadcast.Clear();
+                _roomMembers.Clear();
+                _roomMembersClientView.Clear();
+                _roomEnterReported.Clear();
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
@@ -214,6 +226,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _fightCommitted.Clear();
                 _fightCommitRequested.Clear();
                 _fightCommitBroadcast.Clear();
+                _roomMembers.Clear();
+                _roomMembersClientView.Clear();
+                _roomEnterReported.Clear();
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
@@ -393,6 +408,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // boss; this line is meant to prove or refute that, plus give the relative host/client timing.
                 LogPreFight(source, key, mode, joined, in ctx);
 
+                // Phase RM (room-membership): record that THIS end's local player crossed into the boss room (its
+                // room-entry trigger). Fires BEFORE any start gating/dedup so it is captured even when the start itself
+                // is blocked or suppressed. PlayerTrigger.onlyOnce is per-end, so each player who reaches the boss fires
+                // their own end's trigger → the host learns every in-room player. Observe-only (no behavior change).
+                if (RoomMembershipActive && (mode == NetMode.Host || (mode == NetMode.Client && joined))
+                    && adapter.IsRoomEntrySource(source))
+                    ReportLocalRoomEntry(key, in ctx, source, mode);
+
                 // G7c TERMINAL GATE: once an encounter is dead, NEVER re-run its start chain. LogOutput41: after the
                 // witch died, the client returned to the entrance, re-triggered EventStarted and it slipped through the
                 // STALE authorized-continuation window (currentPhase=8) → re-TeleportPlayerTo + re-StartFight + boss
@@ -416,10 +439,22 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (GateFightActive && (mode == NetMode.Host || (mode == NetMode.Client && joined))
                     && source.EndsWith(".StartFight", StringComparison.Ordinal) && adapter.GatesFightOnDialogClose(component))
                 {
-                    BossLocalStartBlocked++;
-                    bool committed; lock (_lock) { committed = _fightCommitted.Contains(key); }
-                    if (LogOn) Plugin.Log.Info($"[BossFightGate] blocked behavior-tree StartFight source={source} key={key} mode={mode} committed={committed} (fight starts only on a dialog-close commit)");
-                    return false;
+                    // Block the behavior-tree StartFight ONLY while the fight has not actually started yet. Once the boss
+                    // is started (our dialog-close commit already invoked StartFight), ALLOW a trailing behavior-tree
+                    // StartFight to run. This is critical for the late-client case (Log134): when the FIGHT commit
+                    // arrives before the client's intro (host triggered + the client loads the boss late), the commit
+                    // starts the fight first, THEN Introduction runs late and RE-applies the Cinematic lock + invuln —
+                    // the trailing StartFight is what clears them, so blocking it freezes the player forever. Keyed on
+                    // the boss's real FightStarted (which lives on the Unit), NOT our _fightCommitted set (which an
+                    // OnLevelChanged level-step refresh can clear mid-encounter → the Log134 committed=False).
+                    if (!SafeStarted(adapter, component))
+                    {
+                        BossLocalStartBlocked++;
+                        if (LogOn) Plugin.Log.Info($"[BossFightGate] blocked behavior-tree StartFight source={source} key={key} mode={mode} (fight starts only on a dialog-close commit)");
+                        return false;
+                    }
+                    if (LogOn) Plugin.Log.Info($"[BossFightGate] allowed trailing StartFight (already started — clears a late intro's lock) source={source} key={key} mode={mode}");
+                    return true;
                 }
 
                 if (mode == NetMode.Host)
@@ -778,6 +813,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (!TryFindLocalEncounter(key, out var adapter, out var component)) return;
             try { if (!adapter.GatesFightOnDialogClose(component)) return; } catch { return; }
 
+            // The boss may already be started even if _fightCommitted was cleared by a level-step refresh (Log134): a
+            // late intro re-opens then closes the dialog on a boss whose fight already began. Don't re-commit it.
+            if (SafeStarted(adapter, component))
+            {
+                if (LogOn) Plugin.Log.Info($"[BossFightGate] dialog close ignored — fight already started key={key}");
+                return;
+            }
+
             NetMode mode = NetGameplaySyncBridge.BossMode;
             if (mode == NetMode.Host)
             {
@@ -823,6 +866,109 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             bool finalized = BossDialogReflect.TryFinalizeCurrentDialog(out string dlgDetail);
             Plugin.Log.Info($"[BossFightGate] committed fight start key={key} reason={reason} start[{startDetail}] dialogClosed={finalized}({dlgDetail})");
             return true;
+        }
+
+        // ================================================================== RM (room-membership substrate)
+
+        /// <summary>Phase RM: THIS end's local player crossed into the boss room. Host: record itself + broadcast. Client:
+        /// report to the host (which aggregates the authoritative set). Once per encounter per end. Never throws.</summary>
+        private static void ReportLocalRoomEntry(string key, in BossEncounterContext ctx, string source, NetMode mode)
+        {
+            try
+            {
+                lock (_lock) { if (!_roomEnterReported.Add(key)) return; }
+                if (mode == NetMode.Host)
+                {
+                    MarkInRoom(key, HostPlayerId, source);
+                }
+                else // client joined
+                {
+                    var msg = new NetClientRoomEnter
+                    {
+                        EncounterKey = key, ChapterName = ctx.ChapterName, LevelIndex = ctx.LevelIndex,
+                        HasSeed = ctx.HasSeed, Seed = ctx.Seed, EntrySource = source, Timestamp = Time.realtimeSinceStartup,
+                    };
+                    Plugin.Log.Info($"[RoomMembership] client reporting local room entry {msg.ToCompact()}");
+                    NetGameplaySyncBridge.SendClientRoomEnter(msg);
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[RoomMembership] ReportLocalRoomEntry failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        public static void HandleClientRoomEnter(NetClientRoomEnter msg, string peerId)
+        {
+            try
+            {
+                if (!Enabled || !RoomMembershipActive || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                if (!TryBuildContext(out var ctx, out _) || !string.Equals(ctx.ChapterName, msg.ChapterName, StringComparison.Ordinal)
+                    || ctx.LevelIndex != msg.LevelIndex || (ctx.HasSeed && msg.HasSeed && ctx.Seed != msg.Seed))
+                {
+                    if (LogOn) Plugin.Log.Warn($"[RoomMembership] host reject room-enter from {peerId}: run mismatch req={msg.ChapterName}:{msg.LevelIndex} host={ctx.ChapterName}:{ctx.LevelIndex}");
+                    return;
+                }
+                MarkInRoom(msg.EncounterKey, peerId, "client:" + (msg.EntrySource ?? ""));
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[RoomMembership] HandleClientRoomEnter failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        public static void HandleHostRoomMembership(NetHostRoomMembership msg)
+        {
+            try
+            {
+                if (!Enabled || !RoomMembershipActive || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
+                lock (_lock) { _roomMembersClientView[msg.EncounterKey] = new HashSet<string>(msg.PlayerIds ?? System.Array.Empty<string>()); }
+                if (LogOn) Plugin.Log.Info($"[RoomMembership] client received {msg.ToCompact()}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[RoomMembership] HandleHostRoomMembership failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>HOST: add a player to a boss room's in-room set; on change, log + broadcast the new set.</summary>
+        private static void MarkInRoom(string key, string playerId, string source)
+        {
+            bool changed; string members;
+            lock (_lock)
+            {
+                if (!_roomMembers.TryGetValue(key, out var set)) { set = new HashSet<string>(); _roomMembers[key] = set; }
+                changed = set.Add(playerId);
+                members = string.Join(",", set);
+            }
+            if (!changed) return;
+            Plugin.Log.Info($"[RoomMembership] host in-room += {playerId} (src={source}) key={key} members=[{members}]");
+            BroadcastRoomMembership(key);
+        }
+
+        private static void BroadcastRoomMembership(string key)
+        {
+            if (NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+            if (!TryBuildContext(out var ctx, out _)) return;
+            string[] ids; lock (_lock) { ids = _roomMembers.TryGetValue(key, out var set) ? set.ToArray() : System.Array.Empty<string>(); }
+            var msg = new NetHostRoomMembership
+            {
+                EncounterKey = key, ChapterName = ctx.ChapterName, LevelIndex = ctx.LevelIndex,
+                HasSeed = ctx.HasSeed, Seed = ctx.Seed, PlayerIds = ids, Timestamp = Time.realtimeSinceStartup,
+            };
+            NetGameplaySyncBridge.BroadcastHostRoomMembership(msg);
+        }
+
+        /// <summary>Phase RM API (for future consumers — dialog cutscene scoping, arena lockdown): is the given player id
+        /// in-room for this encounter? Host reads its authoritative set; a client reads the last host-broadcast set.</summary>
+        public static bool IsPlayerInRoom(string key, string playerId)
+        {
+            lock (_lock)
+            {
+                var src = NetGameplaySyncBridge.BossMode == NetMode.Host ? _roomMembers : _roomMembersClientView;
+                return src.TryGetValue(key, out var set) && set.Contains(playerId);
+            }
+        }
+
+        /// <summary>Phase RM API: snapshot of the in-room player ids for this encounter (host authoritative / client view).</summary>
+        public static string[] GetRoomMembers(string key)
+        {
+            lock (_lock)
+            {
+                var src = NetGameplaySyncBridge.BossMode == NetMode.Host ? _roomMembers : _roomMembersClientView;
+                return src.TryGetValue(key, out var set) ? set.ToArray() : System.Array.Empty<string>();
+            }
         }
 
         public static void HandleHostBossDialogCommit(NetBossDialogCommit msg)

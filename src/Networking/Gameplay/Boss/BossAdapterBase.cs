@@ -122,6 +122,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// dialog to close; co-op disables that pause (Phase 5.7-NP), so StartFight would fire ~1.1s after the dialog
         /// OPENS and overlap it. When true the manager blocks StartFight until a host-authoritative dialog-close commit.</summary>
         public virtual bool GatesFightOnDialogClose(object component) => false;
+
+        /// <summary>Phase RM (room-membership): default = no room-entry source declared (membership not tracked for this
+        /// boss). Bosses that participate override to name their room-entry trigger method.</summary>
+        public virtual bool IsRoomEntrySource(string source) => false;
         public virtual bool ShouldSuppressDuplicateDialogEntry(object component, string source) => false;
         public virtual bool TryApplyDialogCommit(object component, NetBossDialogCommit commit, out string detail)
         { detail = "dialog commit not supported by this adapter"; return false; }

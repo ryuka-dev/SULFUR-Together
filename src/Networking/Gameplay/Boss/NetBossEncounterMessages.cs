@@ -276,6 +276,36 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public string ToCompact() => $"key={EncounterKey} rev={PhaseRevision} dome={DomeIndex} kind={(Kind == KindRealHit ? "realHit" : "illusionDefeated")}";
     }
 
+    /// <summary>Phase RM (room-membership substrate): per-end "my local player entered boss room X" report
+    /// (Client→Host), fired when the local player crosses the boss's room-entry trigger.</summary>
+    internal sealed class NetClientRoomEnter
+    {
+        public string EncounterKey { get; set; } = "";
+        public string ChapterName  { get; set; } = "";
+        public int    LevelIndex   { get; set; } = -1;
+        public bool   HasSeed      { get; set; }
+        public int    Seed         { get; set; }
+        public string EntrySource  { get; set; } = "";
+        public float  Timestamp    { get; set; }
+
+        public string ToCompact() => $"key={EncounterKey} run={ChapterName}:{LevelIndex} src={EntrySource}";
+    }
+
+    /// <summary>Phase RM (room-membership substrate): host-authoritative in-room player-id set for a boss room,
+    /// broadcast on membership change (Host→All).</summary>
+    internal sealed class NetHostRoomMembership
+    {
+        public string   EncounterKey { get; set; } = "";
+        public string   ChapterName  { get; set; } = "";
+        public int      LevelIndex   { get; set; } = -1;
+        public bool     HasSeed      { get; set; }
+        public int      Seed         { get; set; }
+        public string[] PlayerIds    { get; set; } = System.Array.Empty<string>();
+        public float    Timestamp    { get; set; }
+
+        public string ToCompact() => $"key={EncounterKey} run={ChapterName}:{LevelIndex} members=[{string.Join(",", PlayerIds ?? System.Array.Empty<string>())}]";
+    }
+
     /// <summary>Phase 5.4-E: codecs for the boss-encounter messages. Versioned for forward compatibility.</summary>
     internal static class NetBossEncounterCodec
     {
@@ -293,6 +323,82 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private const byte WitchPhaseVersion = 1;
         private const byte WitchP2ManifestVersion = 1;
         private const byte WitchP2ResultVersion = 1;
+        private const byte RoomEnterVersion = 1;
+        private const byte RoomMembershipVersion = 1;
+
+        public static void WriteRoomEnter(NetDataWriter w, NetClientRoomEnter m)
+        {
+            w.Put(RoomEnterVersion);
+            w.Put(m.EncounterKey ?? "");
+            w.Put(m.ChapterName ?? "");
+            w.Put(m.LevelIndex);
+            w.Put(m.HasSeed);
+            if (m.HasSeed) w.Put(m.Seed);
+            w.Put(m.EntrySource ?? "");
+            w.Put(m.Timestamp);
+        }
+
+        public static bool TryReadRoomEnter(NetDataReader r, out NetClientRoomEnter result)
+        {
+            result = null!;
+            try
+            {
+                if (r.GetByte() != RoomEnterVersion) return false;
+                var m = new NetClientRoomEnter
+                {
+                    EncounterKey = r.GetString(),
+                    ChapterName = r.GetString(),
+                    LevelIndex = r.GetInt(),
+                    HasSeed = r.GetBool(),
+                };
+                if (m.HasSeed) m.Seed = r.GetInt();
+                m.EntrySource = r.GetString();
+                m.Timestamp = r.GetFloat();
+                result = m;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        public static void WriteRoomMembership(NetDataWriter w, NetHostRoomMembership m)
+        {
+            w.Put(RoomMembershipVersion);
+            w.Put(m.EncounterKey ?? "");
+            w.Put(m.ChapterName ?? "");
+            w.Put(m.LevelIndex);
+            w.Put(m.HasSeed);
+            if (m.HasSeed) w.Put(m.Seed);
+            var ids = m.PlayerIds ?? System.Array.Empty<string>();
+            w.Put(ids.Length);
+            foreach (var id in ids) w.Put(id ?? "");
+            w.Put(m.Timestamp);
+        }
+
+        public static bool TryReadRoomMembership(NetDataReader r, out NetHostRoomMembership result)
+        {
+            result = null!;
+            try
+            {
+                if (r.GetByte() != RoomMembershipVersion) return false;
+                var m = new NetHostRoomMembership
+                {
+                    EncounterKey = r.GetString(),
+                    ChapterName = r.GetString(),
+                    LevelIndex = r.GetInt(),
+                    HasSeed = r.GetBool(),
+                };
+                if (m.HasSeed) m.Seed = r.GetInt();
+                int n = r.GetInt();
+                if (n < 0 || n > 64) return false;
+                var ids = new string[n];
+                for (int i = 0; i < n; i++) ids[i] = r.GetString();
+                m.PlayerIds = ids;
+                m.Timestamp = r.GetFloat();
+                result = m;
+                return true;
+            }
+            catch { return false; }
+        }
 
         public static void WriteRequest(NetDataWriter w, NetClientBossStartRequest r)
         {

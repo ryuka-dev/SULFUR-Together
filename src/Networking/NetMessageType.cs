@@ -200,5 +200,11 @@ namespace SULFURTogether.Networking
         // Removed (Host→All): "this pickup was taken." Every peer removes its local instance; the named taker adds the
         // item to its inventory. Gives the future Shared-loot "first picker takes it, it vanishes for everyone" for free.
         WorldPickupRemoved = 50,
+        // Phase RM (room-membership substrate): per-end report "my local player entered boss room X" (Client→Host),
+        // fired when the local player crosses the boss's room-entry trigger. Drives the host-authoritative in-room set
+        // shared by dialog-sync (synced cutscene for in-room players) and the future arena lockdown (AFK exclusion).
+        ClientRoomEnter = 51,
+        // Host→All: the authoritative in-room player-id set for boss room X (event-driven, sent on membership change).
+        HostRoomMembership = 52,
     }
 }
