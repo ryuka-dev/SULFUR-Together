@@ -356,7 +356,10 @@ namespace SULFURTogether.Networking
             _playerVisualSequence = 0;
 
             var state = _runStates.UpdateLocalGoToLevel(chapterName, levelIndex, loadingMode, spawnIdentifier, Now());
-            Gameplay.Boss.NetBossEncounterManager.Reset(); // 5.4-E: clear boss registry/dedup on level change
+            // 5.4-E: clear boss registry/dedup on level change. fullSession:false preserves per-encounter state keyed by
+            // chapter:level:seed (room membership / fight-committed) so a same-level GoToLevel churn doesn't drop it
+            // (Log134); a genuine level change still clears it via OnLevelChanged's runScope comparison.
+            Gameplay.Boss.NetBossEncounterManager.Reset(fullSession: false);
             Gameplay.Boss.BossDynamicSpawnManifest.Reset(); // 5.4-E4: clear dynamic spawn manifest on level change
             NetLogger.Info($"[RunState] Local GoToLevel: {state.ToCompactString()} mode={loadingMode} spawn={spawnIdentifier}");
             SendLocalRunStateToConnectedPeers();

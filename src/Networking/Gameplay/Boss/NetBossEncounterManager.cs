@@ -162,7 +162,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             get { try { return Plugin.Cfg.EnableBossRoomMembership.Value; } catch { return false; } }
         }
 
-        public static void Reset()
+        /// <summary>Reset boss-encounter state. <paramref name="fullSession"/>=true (connect/disconnect) clears
+        /// everything; false (a per-GoToLevel reset) preserves the per-encounter state keyed by chapter:level:seed
+        /// (room membership + fight-committed), which must survive a same-level GoToLevel churn — Log134 showed a
+        /// spurious mid-encounter Reset dropping room membership / fight-committed. A genuine level change still clears
+        /// them via <see cref="OnLevelChanged"/> (runScope comparison).</summary>
+        public static void Reset(bool fullSession = true)
         {
             lock (_lock)
             {
@@ -177,12 +182,15 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _dialogCommitApplied.Clear();
                 _dialogInteractableRemoved.Clear();
                 _dialogOpenKey = null;
-                _fightCommitted.Clear();
-                _fightCommitRequested.Clear();
-                _fightCommitBroadcast.Clear();
-                _roomMembers.Clear();
-                _roomMembersClientView.Clear();
-                _roomEnterReported.Clear();
+                if (fullSession)
+                {
+                    _fightCommitted.Clear();
+                    _fightCommitRequested.Clear();
+                    _fightCommitBroadcast.Clear();
+                    _roomMembers.Clear();
+                    _roomMembersClientView.Clear();
+                    _roomEnterReported.Clear();
+                }
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
@@ -200,7 +208,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _witchP2DefeatedDomes.Clear();
                 _p2ClientAppliedCycle = -1;
                 WitchBossControllerAdapter.ClearPhase2State();
-                _runScope = "";
+                if (fullSession) _runScope = "";
                 _reentryDepth = 0;
             }
         }
