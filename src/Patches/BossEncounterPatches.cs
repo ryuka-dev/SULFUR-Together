@@ -91,6 +91,11 @@ namespace SULFURTogether.Patches
             // test reveals whether the boss room uses DoorBlocker/AllDeadTrigger and the host-vs-client seal timing.
             PatchArenaDoorProbe(harmony);
 
+            // Phase PF (FF14 dialog-sync evidence): probe the dialog-open chokepoints (Npc.Interact /
+            // DialogController.SetCurrentSpeakable) to confirm whether the Cousin fight starts via a trigger volume
+            // (direct boss start, no dialog) or via the boss dialog's Attack option — before wiring the dialog sync.
+            PatchDialogFlowProbe(harmony);
+
             // Phase 5.4-E2: lifecycle probe + Emperor type discovery (diagnostic only).
             ApplyLifecycleProbe(harmony);
             SULFURTogether.Networking.Gameplay.Boss.BossTypeDiscovery.LogEmperorTypes();
@@ -443,6 +448,58 @@ namespace SULFURTogether.Patches
             }
             catch (Exception ex) { Log.Error($"[ArenaDoor] probe patch failed: {ex.Message}"); }
         }
+
+        /// <summary>Phase PF: postfix-only probes on the dialog-open chokepoints (read-only). Gated by LogBossPreFight.</summary>
+        private static void PatchDialogFlowProbe(Harmony harmony)
+        {
+            // Needed when EITHER the read-only dialog-flow probe is on OR the Plan B fight gate is on (the gate reads
+            // boss-dialog open via Npc.Interact and dialog close via DialogController.SetCurrentSpeakable).
+            if (!Plugin.Cfg.LogBossPreFight.Value && !Plugin.Cfg.GateBossFightOnDialogClose.Value)
+            { Log.Info("[DialogFlow] hooks disabled (LogBossPreFight=false, GateBossFightOnDialogClose=false)."); return; }
+            try
+            {
+                var npc = FindType("Npc", "PerfectRandom.Sulfur.Core.Units.Npc");
+                if (npc != null)
+                {
+                    var interact = AccessTools.GetDeclaredMethods(npc)
+                        .FirstOrDefault(m => m.Name == "Interact" && !m.IsStatic && m.GetParameters().Length == 1);
+                    if (interact != null) harmony.Patch(interact, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(NpcInteract_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Log.Info($"[DialogFlow] patched Npc.Interact(Player)({interact != null})");
+                }
+                var dc = FindType("DialogController", "PerfectRandom.Sulfur.Core.DialogController");
+                if (dc != null)
+                {
+                    var scs = AccessTools.Method(dc, "SetCurrentSpeakable");
+                    if (scs != null) harmony.Patch(scs, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(SetCurrentSpeakable_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Log.Info($"[DialogFlow] patched DialogController.SetCurrentSpeakable({scs != null})");
+                }
+                var pt = FindType("PlayerTrigger", "PerfectRandom.Sulfur.Core.World.PlayerTrigger");
+                if (pt != null)
+                {
+                    var trig = AccessTools.Method(pt, "Trigger", new[] { typeof(UnityEngine.GameObject) });
+                    if (trig != null) harmony.Patch(trig, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(PlayerTrigger_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Log.Info($"[DialogFlow] patched PlayerTrigger.Trigger({trig != null})");
+                }
+            }
+            catch (Exception ex) { Log.Error($"[DialogFlow] probe patch failed: {ex.Message}"); }
+        }
+
+        private static void NpcInteract_Post(object __instance, bool __runOriginal)
+        {
+            SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnNpcInteract(__instance, __runOriginal);
+            // Phase PF (Plan B): a boss Npc opened its dialog → arm the dialog-close fight commit for its encounter.
+            if (__runOriginal) NetBossEncounterManager.NotifyBossDialogOpened(__instance);
+        }
+
+        private static void SetCurrentSpeakable_Post(object speakable)
+        {
+            SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnSetCurrentSpeakable(speakable);
+            // Phase PF (Plan B): the dialog closed (null speakable) → if a gated boss dialog was open, commit the fight.
+            if (speakable == null) NetBossEncounterManager.NotifyDialogClosed();
+        }
+
+        private static void PlayerTrigger_Post(object __instance)
+            => SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnPlayerTrigger(__instance);
 
         private static void DoorClose_Post(object __instance, bool __runOriginal)
         {

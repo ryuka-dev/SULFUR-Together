@@ -115,6 +115,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // ---- Phase 5.4-E3 dialog/state capabilities: default = not a dialog/phase boss ----
         public virtual bool IsDialogBoss(object component) => false;
         public virtual bool IsDialogCommitSource(string source) => false;
+
+        /// <summary>Phase PF (Plan B): true if this boss's fight must NOT auto-start from its behavior tree but instead
+        /// wait until the intro DIALOG is dismissed by an in-room player. In single-player the boss dialog pauses the
+        /// game (timeScale=0), freezing the behavior tree's WaitForSeconds so StartFight effectively waits for the
+        /// dialog to close; co-op disables that pause (Phase 5.7-NP), so StartFight would fire ~1.1s after the dialog
+        /// OPENS and overlap it. When true the manager blocks StartFight until a host-authoritative dialog-close commit.</summary>
+        public virtual bool GatesFightOnDialogClose(object component) => false;
         public virtual bool ShouldSuppressDuplicateDialogEntry(object component, string source) => false;
         public virtual bool TryApplyDialogCommit(object component, NetBossDialogCommit commit, out string detail)
         { detail = "dialog commit not supported by this adapter"; return false; }

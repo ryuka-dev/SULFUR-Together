@@ -147,6 +147,10 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LogBossPreFight { get; }
         // ----- Fix A (root): remove the boss dialog interactable on fight start (vanilla Witch pattern) -----
         public ConfigEntry<bool>   RemoveBossDialogInteractableOnStart { get; }
+        // ----- Phase PF: faithful synced boss intro (run the real behavior-tree intro/dialog on the client) -----
+        public ConfigEntry<bool>   EnableFaithfulBossIntro { get; }
+        // ----- Phase PF (Plan B): gate the boss fight start on the intro dialog being dismissed (host-authoritative) -----
+        public ConfigEntry<bool>   GateBossFightOnDialogClose { get; }
         // ----- Phase 5.4-E3 BossDialogCommit + Lucia + Witch state + Emperor worm -----
         public ConfigEntry<bool>   EnableEmperorWormDiagnostics { get; }
         public ConfigEntry<bool>   EnableEmperorClientWormSuppression { get; }
@@ -680,6 +684,10 @@ namespace SULFURTogether.Config
                 "Phase PF-0: read-only diagnostic. When a boss pre-fight start entrypoint fires, log local+remote scene/seed convergence (did the client race ahead into a divergent boss instance?) and the room-seal/teleport timing. No gameplay change.");
             RemoveBossDialogInteractableOnStart = cfg.Bind("NetworkBoss", "RemoveBossDialogInteractableOnStart", true,
                 "Fix A (root): when a boss fight starts, remove that boss's dialog interactable on EVERY end (the same thing vanilla WitchBossController.FightStartRoutine does via RemoveInteractable). This is the PRIMARY fix for the host stale-dialog loop when the fight is started remotely; the duplicate-dialog suppression remains only as a safety net.");
+            EnableFaithfulBossIntro = cfg.Bind("NetworkBoss", "EnableFaithfulBossIntro", true,
+                "Phase PF: on a joined client, instead of fake-starting the boss via direct Introduction()/StartFight() reflection (which skips the real intro dialog), set the boss's own trigger flag so its native behavior-tree intro sequence runs locally — reproducing the REAL intro animation + dialog + camera + boss bar ~99% faithfully. The fight mechanic stays host-authoritative. Cousin first.");
+            GateBossFightOnDialogClose = cfg.Bind("NetworkBoss", "GateBossFightOnDialogClose", true,
+                "Phase PF (Plan B): for dialog-gated bosses (Cousin), block the behavior-tree StartFight until an in-room player dismisses the intro dialog, then start the fight host-authoritatively on every end and close all remaining boss dialogs. Restores the single-player gate (the dialog used to PAUSE the game, freezing the WaitForSeconds before StartFight) that co-op's no-pause mode removed, so the fight no longer auto-starts on top of the dialog.");
 
             // Phase 5.4-E3: dialog-gated bosses (Cousin / Lucia) sync the "fight committed" decision via BossDialogCommit
             // and finalize the local dialog with the real Graph.Stop(true). Witch broadcasts a minimal phase/state skeleton.
@@ -1389,7 +1397,10 @@ namespace SULFURTogether.Config
             EnableBossLifecycleProbe.Value = true;
             LogBossLifecycle.Value = true;
             LogBossPreFight.Value = true;
-            RemoveBossDialogInteractableOnStart.Value = true;
+            // Faithful intro runs the boss's own intro dialog on the client; we must NOT pre-remove its dialog, so keep this off while faithful intro is on.
+            RemoveBossDialogInteractableOnStart.Value = false;
+            EnableFaithfulBossIntro.Value = true;
+            GateBossFightOnDialogClose.Value = true;
 
             // Phase 5.4-E3 — dialog commit + Lucia + Witch state default on; Emperor worm DIAGNOSTIC on, SUPPRESSION off (reversible).
             EnableEmperorWormDiagnostics.Value = true;

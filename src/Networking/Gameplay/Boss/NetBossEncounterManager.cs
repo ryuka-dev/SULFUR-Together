@@ -126,6 +126,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static readonly HashSet<string> _dialogCommitApplied = new HashSet<string>();
         // Fix A (root): per-encounter once-guard so the boss dialog interactable is removed exactly once per fight.
         private static readonly HashSet<string> _dialogInteractableRemoved = new HashSet<string>();
+        // Phase PF (Plan B): dialog-close-gated fight start. The intro+dialog play (behavior tree), but StartFight is
+        // blocked until an in-room player dismisses the dialog; that close is a host-authoritative FIGHT commit.
+        private static string? _dialogOpenKey;                                                 // gated boss whose intro dialog is open on THIS end
+        private static readonly HashSet<string> _fightCommitted = new HashSet<string>();        // fight start applied locally (per key)
+        private static readonly HashSet<string> _fightCommitRequested = new HashSet<string>();  // client sent a fight-commit request (per key)
+        private static readonly HashSet<string> _fightCommitBroadcast = new HashSet<string>();  // host broadcast a fight-commit (per key)
         private static int _bossStateRevision;
         // E4.2: client-side per-key "boss bar already attached" guard.
         private static readonly HashSet<string> _bossUiAttached = new HashSet<string>();
@@ -142,6 +148,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             get { try { return Mathf.Max(0f, Plugin.Cfg.BossContinuationGraceSeconds.Value); } catch { return 5f; } }
         }
+        private static bool GateFightActive
+        {
+            get { try { return Plugin.Cfg.GateBossFightOnDialogClose.Value; } catch { return false; } }
+        }
 
         public static void Reset()
         {
@@ -157,6 +167,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _dialogCommitBroadcast.Clear();
                 _dialogCommitApplied.Clear();
                 _dialogInteractableRemoved.Clear();
+                _dialogOpenKey = null;
+                _fightCommitted.Clear();
+                _fightCommitRequested.Clear();
+                _fightCommitBroadcast.Clear();
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
@@ -196,6 +210,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _dialogCommitBroadcast.Clear();
                 _dialogCommitApplied.Clear();
                 _dialogInteractableRemoved.Clear();
+                _dialogOpenKey = null;
+                _fightCommitted.Clear();
+                _fightCommitRequested.Clear();
+                _fightCommitBroadcast.Clear();
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
@@ -388,6 +406,22 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     return false;
                 }
 
+                // Phase PF (Plan B) FIGHT GATE: for a dialog-gated boss the intro+dialog play via the behavior tree,
+                // but the fight must wait until an in-room player DISMISSES the dialog. In single-player the dialog
+                // pauses the game (timeScale=0), freezing the WaitForSeconds before StartFight; co-op disables that
+                // pause (Phase 5.7-NP), so the behavior tree's StartFight would fire ~1.1s after the dialog OPENS and
+                // overlap it. Block every behavior-tree StartFight here — the real StartFight is driven only by the
+                // host-authoritative dialog-close commit (CommitFightStartLocal), which runs under the reentry guard
+                // and bypasses this via the InReentry early-out at the top. Intro steps and all else flow normally.
+                if (GateFightActive && (mode == NetMode.Host || (mode == NetMode.Client && joined))
+                    && source.EndsWith(".StartFight", StringComparison.Ordinal) && adapter.GatesFightOnDialogClose(component))
+                {
+                    BossLocalStartBlocked++;
+                    bool committed; lock (_lock) { committed = _fightCommitted.Contains(key); }
+                    if (LogOn) Plugin.Log.Info($"[BossFightGate] blocked behavior-tree StartFight source={source} key={key} mode={mode} committed={committed} (fight starts only on a dialog-close commit)");
+                    return false;
+                }
+
                 if (mode == NetMode.Host)
                 {
                     // HOST RE-ENTRY GUARD (Log123 root fix): vanilla relies on the encounter initiator firing exactly
@@ -419,6 +453,23 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
                 if (mode == NetMode.Client && joined)
                 {
+                    // (0.5) Phase PF FAITHFUL INTRO — runs FIRST: the boss's OWN behavior-tree intro DOWNSTREAM steps
+                    // (Introduction / StartFight) must ALWAYS be allowed to run locally so the real intro + dialog plays.
+                    // The behavior tree only reaches these once triggeredByPlayer is set, which on a client happens ONLY
+                    // via an applied host commit (the initial Trigger is still blocked below to request authority), so
+                    // this is not a private start. Blocking Introduction makes introPlayed never set, so the behavior
+                    // tree re-runs the intro forever (LogOutput130/131 infinite dialog) — and gating on the window or
+                    // _appliedStart is fragile (the window expires for a late client; _appliedStart is cleared on a
+                    // run-scope change). Introduction/StartFight are internally idempotent (introPlayed / FightStarted),
+                    // so allowing them unconditionally cannot loop. Initial Trigger/TriggerIntro are NOT allowed here.
+                    bool faithful = false; try { faithful = Plugin.Cfg.EnableFaithfulBossIntro.Value; } catch { }
+                    if (faithful && (source.EndsWith(".Introduction", StringComparison.Ordinal) || source.EndsWith(".StartFight", StringComparison.Ordinal)))
+                    {
+                        BossContinuationAllowed++;
+                        if (LogOn) Plugin.Log.Info($"[BossEncounter] faithful intro: allowed native chain source={source} key={key} started={SafeStarted(adapter, component)}");
+                        return true;
+                    }
+
                     // (0) Duplicate dialog entry: after FightStarted, a re-fired Trigger/Introduction would re-open the
                     // boss dialog (LogOutput21: SetCurrentSpeakable after FightStarted=True). Suppress the original so
                     // the dialog is not reopened. StartFight is NOT a dialog-entry source, so it still flows below.
@@ -618,6 +669,21 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     return;
                 }
 
+                // Phase PF (Plan B): a client dismissed the gated boss's intro dialog → commit the fight authoritatively
+                // for everyone (start it on the host + broadcast a FIGHT commit). Separate from the INTRO commit below.
+                if (msg.IsFightCommit)
+                {
+                    if (!TryFindLocalEncounter(msg.EncounterKey, out var fAdapter, out var fComp))
+                    {
+                        BossEncounterNotFound++;
+                        Plugin.Log.Warn($"[BossFightGate] host has no encounter for client fight-commit key={msg.EncounterKey}; candidates: {DescribeCandidates()}");
+                        return;
+                    }
+                    Plugin.Log.Info($"[BossFightGate] host received client fight-commit from {peerId}: {msg.ToCompact()}");
+                    CommitFightStart(msg.EncounterKey, fAdapter, fComp, "client:" + (msg.CommitSource ?? ""));
+                    return;
+                }
+
                 if (!TryFindLocalEncounter(msg.EncounterKey, out var adapter, out var component))
                 {
                     BossEncounterNotFound++;
@@ -659,12 +725,127 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (Exception ex) { Plugin.Log.Warn($"[BossDialogFix] interactable removal failed key={key}: {ex.GetType().Name}: {ex.Message}"); }
         }
 
+        // ================================================================== PF (Plan B): dialog-close-gated fight start
+
+        /// <summary>Phase PF (Plan B): the dialog-flow hook saw a BOSS Npc open its dialog. If it belongs to a gated
+        /// encounter (its dialog speaker == the boss health unit), remember it so the matching dialog CLOSE can be read
+        /// as the fight-start commit. Cheap registry scan; no-op for non-gated bosses. Never throws.</summary>
+        public static void NotifyBossDialogOpened(object npc)
+        {
+            try
+            {
+                if (!Enabled || !GateFightActive || npc == null) return;
+                NetMode mode = NetGameplaySyncBridge.BossMode;
+                if (mode != NetMode.Host && mode != NetMode.Client) return;
+                string? key = null;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (!(e.Component is UnityEngine.Object uo) || uo == null) continue;
+                        try { if (!e.Adapter.GatesFightOnDialogClose(e.Component)) continue; } catch { continue; }
+                        object? healthUnit = null; try { healthUnit = e.Adapter.GetHealthUnit(e.Component); } catch { }
+                        if (healthUnit != null && ReferenceEquals(healthUnit, npc)) { key = kv.Key; break; }
+                    }
+                    if (key != null) _dialogOpenKey = key;
+                }
+                if (key != null && LogOn)
+                    Plugin.Log.Info($"[BossFightGate] boss intro dialog opened key={key} (awaiting dismissal to commit fight)");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossFightGate] NotifyBossDialogOpened failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Phase PF (Plan B): the dialog controller closed its active speakable (null). If a gated boss intro
+        /// dialog was open on THIS end, treat the close as the in-room player's fight-start commit. Never throws.</summary>
+        public static void NotifyDialogClosed()
+        {
+            try
+            {
+                if (!Enabled || !GateFightActive) return;
+                string? key; lock (_lock) { key = _dialogOpenKey; _dialogOpenKey = null; }
+                if (key == null) return;
+                OnLocalBossDialogClosed(key);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossFightGate] NotifyDialogClosed failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>An in-room player dismissed the gated boss's intro dialog on THIS end. Host: commit the fight
+        /// authoritatively (start + broadcast). Client: report the dismissal to the host (which then broadcasts).</summary>
+        private static void OnLocalBossDialogClosed(string key)
+        {
+            lock (_lock) { if (_fightCommitted.Contains(key)) return; } // fight already committed — further closes are no-ops
+            if (!TryFindLocalEncounter(key, out var adapter, out var component)) return;
+            try { if (!adapter.GatesFightOnDialogClose(component)) return; } catch { return; }
+
+            NetMode mode = NetGameplaySyncBridge.BossMode;
+            if (mode == NetMode.Host)
+            {
+                Plugin.Log.Info($"[BossFightGate] host dialog dismissed → committing fight key={key}");
+                CommitFightStart(key, adapter, component, "host-dialog-close");
+                return;
+            }
+            if (mode == NetMode.Client)
+            {
+                bool joined = false; try { joined = NetClientJoinFlow.SessionJoinedHost; } catch { }
+                if (!joined) return; // not networked: StartFight was never gated, nothing to commit
+                lock (_lock) { if (!_fightCommitRequested.Add(key)) return; }
+                if (!TryBuildContext(out var ctx, out _)) return;
+                var msg = BuildDialogCommit(key, component, in ctx, "client-dialog-close");
+                msg.IsFightCommit = true;
+                Plugin.Log.Info($"[BossFightGate] client dialog dismissed → request fight commit {msg.ToCompact()}");
+                NetGameplaySyncBridge.SendClientBossDialogCommitRequest(msg);
+            }
+        }
+
+        /// <summary>HOST: apply the fight start locally then broadcast a FIGHT commit so every client starts together.</summary>
+        private static void CommitFightStart(string key, IBossEncounterAdapter adapter, object component, string reason)
+        {
+            CommitFightStartLocal(key, adapter, component, reason);
+            lock (_lock) { if (!_fightCommitBroadcast.Add(key)) return; }
+            if (!TryBuildContext(out var ctx, out _)) return;
+            var msg = BuildDialogCommit(key, component, in ctx, reason);
+            msg.IsFightCommit = true;
+            Plugin.Log.Info($"[BossFightGate] host broadcasting FIGHT commit {msg.ToCompact()}");
+            NetGameplaySyncBridge.BroadcastHostBossDialogCommit(msg);
+        }
+
+        /// <summary>Start the gated fight on THIS end: invoke the real StartFight under the reentry guard (so the gate
+        /// lets it through), close any lingering boss dialog (FF14: dialogs are removed once the fight starts), and mark
+        /// the encounter committed. Idempotent per key. Never throws.</summary>
+        private static bool CommitFightStartLocal(string key, IBossEncounterAdapter adapter, object component, string reason)
+        {
+            lock (_lock) { if (!_fightCommitted.Add(key)) return false; }
+            string startDetail = "already-started";
+            BeginApply();
+            try { if (!SafeStarted(adapter, component)) BossReflect.TryInvoke(component, "StartFight", out startDetail); }
+            finally { EndApply(); }
+            bool finalized = BossDialogReflect.TryFinalizeCurrentDialog(out string dlgDetail);
+            Plugin.Log.Info($"[BossFightGate] committed fight start key={key} reason={reason} start[{startDetail}] dialogClosed={finalized}({dlgDetail})");
+            return true;
+        }
+
         public static void HandleHostBossDialogCommit(NetBossDialogCommit msg)
         {
             try
             {
                 if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
                 if (LogOn) Plugin.Log.Info($"[BossDialogCommit] client received {msg.ToCompact()}");
+
+                // Phase PF (Plan B): host FIGHT commit (an in-room player dismissed the dialog) → start the gated fight
+                // locally + close any lingering boss dialog. Handled before the INTRO dedup below (same encounter key).
+                if (msg.IsFightCommit)
+                {
+                    if (!TryFindLocalEncounter(msg.EncounterKey, out var fAdapter, out var fComp))
+                    {
+                        BossEncounterNotFound++;
+                        Plugin.Log.Warn($"[BossFightGate] client has no encounter for host fight-commit key={msg.EncounterKey}; candidates: {DescribeCandidates()}");
+                        return;
+                    }
+                    Plugin.Log.Info($"[BossFightGate] client received host fight-commit {msg.ToCompact()}");
+                    CommitFightStartLocal(msg.EncounterKey, fAdapter, fComp, "host-fight-commit");
+                    return;
+                }
 
                 lock (_lock) { if (!_dialogCommitApplied.Add(msg.EncounterKey)) { if (LogOn) Plugin.Log.Info($"[BossDialogCommit] already applied key={msg.EncounterKey}"); return; } }
 
@@ -695,14 +876,20 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     Plugin.Log.Warn($"[BossDialogCommit] client failed to apply commit key={msg.EncounterKey}: {detail}");
                 }
 
-                // Fix A (root): remove the boss dialog interactable on the client too, so its local player can never
-                // re-open the boss dialog after the host committed the fight.
-                RemoveDialogInteractableOnce(msg.EncounterKey, adapter, component, "client-commit");
+                // Phase PF FAITHFUL INTRO: when on, the client is about to play the boss's REAL intro dialog via its
+                // native behavior-tree sequence — so we must NOT remove the dialog interactable or finalize/close the
+                // dialog here (that would kill the very dialog we want to show). Removal-after-fight is handled later.
+                bool faithful = false; try { faithful = Plugin.Cfg.EnableFaithfulBossIntro.Value; } catch { }
+                if (!faithful)
+                {
+                    // Fix A (root): remove the boss dialog interactable on the client so its local player can never
+                    // re-open the boss dialog after the host committed the fight.
+                    RemoveDialogInteractableOnce(msg.EncounterKey, adapter, component, "client-commit");
 
-                // The client's local boss dialog often opens a beat AFTER the commit arrives (LogOutput24: Lucia's
-                // dialog was active so Stop worked; Cousin's opened later so Stop found nothing). Register a short
-                // deferred finalize that Stops the dialog as soon as it appears, so the choice menu can't linger.
-                lock (_lock) { _pendingDialogFinalize.Add(new PendingDialogFinalize { Key = msg.EncounterKey, Until = Time.realtimeSinceStartup + DialogFinalizeWindowSeconds }); }
+                    // The client's local boss dialog often opens a beat AFTER the commit arrives. Register a short
+                    // deferred finalize that Stops the dialog as soon as it appears, so the choice menu can't linger.
+                    lock (_lock) { _pendingDialogFinalize.Add(new PendingDialogFinalize { Key = msg.EncounterKey, Until = Time.realtimeSinceStartup + DialogFinalizeWindowSeconds }); }
+                }
             }
             catch (Exception ex)
             {

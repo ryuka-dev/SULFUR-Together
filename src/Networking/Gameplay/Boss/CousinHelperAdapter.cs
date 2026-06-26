@@ -186,6 +186,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // chain. Without commit sync the client's local dialogue re-opens after FightStarted (LogOutput21).
         public override bool IsDialogBoss(object component) => true;
 
+        // Phase PF (Plan B): the Cousin behavior-tree sequence is `triggeredByPlayer -> Introduction -> 2s ->
+        // Npc.Interact (dialog) -> 1s -> SpawnArm -> 0.1s -> StartFight`. The class itself never gates on the dialog —
+        // in single-player the dialog PAUSES the game (timeScale=0), freezing the WaitForSeconds so StartFight only
+        // runs once the player dismisses the dialog. Co-op disables that pause (Phase 5.7-NP), so StartFight fires
+        // ~1.1s after the dialog opens and overlaps it. We block StartFight until the dialog is dismissed (commit).
+        public override bool GatesFightOnDialogClose(object component) => true;
+
         // Introduction is the earliest unambiguous "fight chosen" step; StartFight is the definitive one.
         public override bool IsDialogCommitSource(string source)
         {
@@ -205,18 +212,31 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         public override bool TryApplyDialogCommit(object component, NetBossDialogCommit commit, out string detail)
         {
-            // Drive the FULL two-stage chain so the client's dialog graph can terminate: Introduction sets introPlayed
-            // (so the graph stops looping on the un-played intro) and plays the intro presentation; StartFight then
-            // sets FightStarted. Both are guarded internally, so this is idempotent. Runs under the manager's reentry
-            // guard, so these calls are allowed rather than blocked/re-requested.
+            // Phase PF FAITHFUL INTRO: instead of fake-starting via direct Introduction()/StartFight() (which skips the
+            // real intro dialog — the client only ever saw the teleport, never the "Better get this over with" dialog),
+            // set the boss's own trigger flag via TriggerIntro() so its NATIVE behavior-tree sequence runs locally:
+            //   triggeredByPlayer -> Introduction() -> 2s -> Npc.Interact() [REAL dialog] -> SpawnArm -> AttachToBossUI + StartFight().
+            // The manager has opened the continuation window, so the behavior tree's own Introduction/StartFight calls
+            // are allowed through (not blocked). Reproduces the real intro+dialog+camera+bar ~99% faithfully; the fight
+            // mechanic stays host-authoritative (BossState / CousinPool / BossDamageAuthority). We do NOT finalize the
+            // dialog here — we WANT it to play.
+            bool faithful = false; try { faithful = Plugin.Cfg.EnableFaithfulBossIntro.Value; } catch { }
+            if (faithful)
+            {
+                string trigDetail = "intro-already-played";
+                if (!(BossReflect.TryGetBool(component, "introPlayed", out bool already) && already))
+                    BossReflect.TryInvoke(component, "TriggerIntro", out trigDetail); // sets triggeredByPlayer; behavior tree runs the rest
+                detail = $"faithful: TriggerIntro={trigDetail} (native behavior-tree intro+dialog will play; mechanic host-authoritative)";
+                return true;
+            }
+
+            // Legacy (fast-start) path: drive the chain directly + finalize the dialog (no real intro dialog shown).
             string introDetail = "intro-already-played";
             if (!(BossReflect.TryGetBool(component, "introPlayed", out bool intro) && intro))
                 BossReflect.TryInvoke(component, "Introduction", out introDetail);
             string startDetail = "already-started";
             if (!IsStarted(component))
                 BossReflect.TryInvoke(component, "StartFight", out startDetail);
-            // Finalize any active local Cousin dialog via the real Graph.Stop(true) path (deferred retry handles the
-            // case where the dialog opens a moment AFTER this commit — see NetBossEncounterManager dialog finalize).
             bool finalized = BossDialogReflect.TryFinalizeCurrentDialog(out string dlgDetail);
             detail = $"intro={introDetail}; start={startDetail}; dialogFinalized={finalized} ({dlgDetail})";
             return true;

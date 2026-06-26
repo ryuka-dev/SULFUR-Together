@@ -70,6 +70,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// Lucia.TriggerFight). Used to fire / recognise a BossDialogCommit.</summary>
         bool IsDialogCommitSource(string source);
 
+        /// <summary>Phase PF (Plan B): true if the fight must wait for the intro DIALOG to be dismissed by an in-room
+        /// player instead of auto-starting from the behavior tree (the single-player pause used to gate this; co-op
+        /// disables pause). When true the manager blocks StartFight until a host-authoritative dialog-close commit.</summary>
+        bool GatesFightOnDialogClose(object component);
+
         /// <summary>True if, AFTER the fight is started, this source would re-open/re-enter the dialog and must be
         /// suppressed (e.g. Cousin.Introduction/Trigger after FightStarted).</summary>
         bool ShouldSuppressDuplicateDialogEntry(object component, string source);

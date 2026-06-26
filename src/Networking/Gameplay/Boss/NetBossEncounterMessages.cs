@@ -38,9 +38,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public string CommitSource { get; set; } = "";
         public int    Revision     { get; set; }
         public float  Timestamp    { get; set; }
+        // Phase PF (Plan B): false = INTRO commit (play the boss intro+dialog, do NOT start the fight); true = FIGHT
+        // commit (an in-room player dismissed the dialog -> start the gated fight on every end). Two-phase handshake.
+        public bool   IsFightCommit { get; set; }
 
         public string ToCompact()
-            => $"key={EncounterKey} type={BossType} run={ChapterName}:{LevelIndex} src={CommitSource} rev={Revision}";
+            => $"key={EncounterKey} type={BossType} run={ChapterName}:{LevelIndex} src={CommitSource} rev={Revision} phase={(IsFightCommit ? "FIGHT" : "intro")}";
     }
 
     /// <summary>Phase 5.4-E3: minimal host-authoritative boss phase/state snapshot (Witch and other phase bosses).
@@ -278,7 +281,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
     {
         private const byte RequestVersion = 1;
         private const byte StateVersion = 1;
-        private const byte DialogCommitVersion = 1;
+        private const byte DialogCommitVersion = 2;
         private const byte BossStateVersion = 1;
         private const byte DynamicSpawnVersion = 1;
         private const byte BossHitVersion = 1;
@@ -399,6 +402,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             w.Put(m.CommitSource ?? "");
             w.Put(m.Revision);
             w.Put(m.Timestamp);
+            w.Put(m.IsFightCommit);
         }
 
         public static bool TryReadDialogCommit(NetDataReader r, out NetBossDialogCommit result)
@@ -421,6 +425,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 m.CommitSource = r.GetString();
                 m.Revision = r.GetInt();
                 m.Timestamp = r.GetFloat();
+                m.IsFightCommit = r.GetBool();
                 result = m;
                 return true;
             }
