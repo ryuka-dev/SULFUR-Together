@@ -129,6 +129,14 @@ namespace SULFURTogether.Networking.Gameplay
         // Phase 5.4-E Boss Encounter Authority.
         public static NetMode BossMode => _service?.Mode ?? NetMode.Off;
 
+        /// <summary>Phase PF-0: local-vs-remote scene+seed convergence summary for the boss pre-fight probe.</summary>
+        public static string FormatBossConvergence(out bool allConverged)
+        {
+            allConverged = false;
+            if (_service == null) return "no-session";
+            return _service.FormatBossConvergence(out allConverged);
+        }
+
         public static void SendClientBossStartRequest(SULFURTogether.Networking.Gameplay.Boss.NetClientBossStartRequest req)
         {
             _service?.SendClientBossStartRequest(req);

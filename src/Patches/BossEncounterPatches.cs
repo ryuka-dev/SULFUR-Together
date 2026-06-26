@@ -87,6 +87,10 @@ namespace SULFURTogether.Patches
             if (Plugin.Cfg.EnableWitchDeathFix.Value) PatchWitchDeath(harmony);
             else Log.Info("[WitchDeath] death fix disabled by config.");
 
+            // Phase PF-0 (arena lockdown evidence): probe the vanilla room-seal primitives so a real co-op Cousin
+            // test reveals whether the boss room uses DoorBlocker/AllDeadTrigger and the host-vs-client seal timing.
+            PatchArenaDoorProbe(harmony);
+
             // Phase 5.4-E2: lifecycle probe + Emperor type discovery (diagnostic only).
             ApplyLifecycleProbe(harmony);
             SULFURTogether.Networking.Gameplay.Boss.BossTypeDiscovery.LogEmperorTypes();
@@ -378,6 +382,12 @@ namespace SULFURTogether.Patches
             var cousin = FindType("CousinHelper", "PerfectRandom.Sulfur.Gameplay.CousinHelper");
             PatchProbe(harmony, cousin, throttle: false, "Trigger", "TriggerIntro", "Introduction", "StartFight", "Submerge", "Reappear", "MoveToNewPool", "CousinDeath");
 
+            // Phase PF-0: Witch arena room-seal timing (the blockade SetActive calls are animation-event driven, so the
+            // client — which suppresses the boss intro animation chain — may leave the seal in the wrong state). Probe
+            // the seal/unseal entrypoints to compare host vs client timing before building the PF-2 seal mirror.
+            var witchAnim = FindType("WitchAnimationControl", "PerfectRandom.Sulfur.Gameplay.WitchAnimationControl");
+            PatchProbe(harmony, witchAnim, throttle: false, "EnableChurchBlockade", "LookAtWitch", "EnableOutsideTrigger");
+
             Log.Info("[BossLifecycle] lifecycle probe hooks registered.");
         }
 
@@ -406,6 +416,43 @@ namespace SULFURTogether.Patches
 
         private static void BossLifecycle_Post_Throttled(object __instance, MethodBase __originalMethod, bool __runOriginal)
             => SULFURTogether.Networking.Gameplay.Boss.BossLifecycleProbe.OnLifecycle(__instance, __originalMethod?.Name ?? "?", throttle: true, ran: __runOriginal);
+
+        /// <summary>Phase PF-0: postfix-only probes on the room-seal primitives (read-only). Gated by LogBossPreFight.</summary>
+        private static void PatchArenaDoorProbe(Harmony harmony)
+        {
+            if (!Plugin.Cfg.LogBossPreFight.Value) { Log.Info("[ArenaDoor] probe disabled by config (LogBossPreFight=false)."); return; }
+            try
+            {
+                var door = FindType("DoorBlocker", "PerfectRandom.Sulfur.Core.DoorBlocker");
+                if (door != null)
+                {
+                    var close = AccessTools.Method(door, "CloseDoor");
+                    if (close != null) harmony.Patch(close, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(DoorClose_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Log.Info($"[ArenaDoor] patched DoorBlocker.CloseDoor({close != null})");
+                }
+                var allDead = FindType("AllDeadTrigger", "PerfectRandom.Sulfur.Core.AllDeadTrigger");
+                if (allDead != null)
+                {
+                    foreach (var name in new[] { "RegisterDeath", "CheckAllDead" })
+                    {
+                        var mi = AccessTools.Method(allDead, name);
+                        if (mi != null) harmony.Patch(mi, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(AllDead_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                    Log.Info("[ArenaDoor] patched AllDeadTrigger.RegisterDeath/CheckAllDead");
+                }
+            }
+            catch (Exception ex) { Log.Error($"[ArenaDoor] probe patch failed: {ex.Message}"); }
+        }
+
+        private static void DoorClose_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) SULFURTogether.Networking.Gameplay.Boss.ArenaDoorProbe.OnDoorClose(__instance);
+        }
+
+        private static void AllDead_Post(object __instance, MethodBase __originalMethod, bool __runOriginal)
+        {
+            if (__runOriginal) SULFURTogether.Networking.Gameplay.Boss.ArenaDoorProbe.OnAllDead(__instance, __originalMethod?.Name ?? "?");
+        }
 
         private static Type? FindType(string shortName, params string[] fullNames)
         {

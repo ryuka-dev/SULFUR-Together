@@ -420,6 +420,12 @@ namespace SULFURTogether.Networking
             return _runStates.LocalState.Clone();
         }
 
+        /// <summary>Phase PF-0: local-vs-remote scene+seed convergence summary for the boss pre-fight probe.</summary>
+        public string FormatBossConvergence(out bool allConverged)
+        {
+            return _runStates.FormatBossConvergence(out allConverged, out _, out _);
+        }
+
         /// <summary>Phase 5.4-E: current network role, used by the Boss encounter manager.</summary>
         public NetMode Mode => _mode;
 

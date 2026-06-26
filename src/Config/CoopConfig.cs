@@ -143,6 +143,8 @@ namespace SULFURTogether.Config
         public ConfigEntry<float>  BossContinuationGraceSeconds { get; }
         public ConfigEntry<bool>   EnableBossLifecycleProbe { get; }
         public ConfigEntry<bool>   LogBossLifecycle { get; }
+        // ----- Phase PF-0 boss pre-fight convergence diagnostic -----
+        public ConfigEntry<bool>   LogBossPreFight { get; }
         // ----- Phase 5.4-E3 BossDialogCommit + Lucia + Witch state + Emperor worm -----
         public ConfigEntry<bool>   EnableEmperorWormDiagnostics { get; }
         public ConfigEntry<bool>   EnableEmperorClientWormSuppression { get; }
@@ -672,6 +674,8 @@ namespace SULFURTogether.Config
                 "Phase 5.4-E2: postfix-probe key boss lifecycle methods (TriggerFight/StartFight/ChangePhase/transitions/death) and log compact state changes.");
             LogBossLifecycle = cfg.Bind("NetworkBoss", "LogBossLifecycle", true,
                 "Phase 5.4-E2: log the boss lifecycle probe state-change lines. Compact and state-change-gated to avoid spam.");
+            LogBossPreFight = cfg.Bind("NetworkBoss", "LogBossPreFight", true,
+                "Phase PF-0: read-only diagnostic. When a boss pre-fight start entrypoint fires, log local+remote scene/seed convergence (did the client race ahead into a divergent boss instance?) and the room-seal/teleport timing. No gameplay change.");
 
             // Phase 5.4-E3: dialog-gated bosses (Cousin / Lucia) sync the "fight committed" decision via BossDialogCommit
             // and finalize the local dialog with the real Graph.Stop(true). Witch broadcasts a minimal phase/state skeleton.
@@ -1380,6 +1384,7 @@ namespace SULFURTogether.Config
             BossContinuationGraceSeconds.Value = 5f;
             EnableBossLifecycleProbe.Value = true;
             LogBossLifecycle.Value = true;
+            LogBossPreFight.Value = true;
 
             // Phase 5.4-E3 — dialog commit + Lucia + Witch state default on; Emperor worm DIAGNOSTIC on, SUPPRESSION off (reversible).
             EnableEmperorWormDiagnostics.Value = true;

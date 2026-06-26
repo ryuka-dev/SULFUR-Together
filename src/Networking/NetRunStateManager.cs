@@ -261,6 +261,28 @@ namespace SULFURTogether.Networking
             return "authority=Off";
         }
 
+        /// <summary>Phase PF-0: compact local-vs-remote scene+seed convergence summary for the boss pre-fight probe.
+        /// <paramref name="allConverged"/> is true only when at least one remote is known AND every known remote shares
+        /// the local level instance (same scene + same seed when seed authority is on). Read-only.</summary>
+        public string FormatBossConvergence(out bool allConverged, out int peerCount, out int convergedCount)
+        {
+            bool requireSeed = RequireSameSeedForSceneMatch();
+            peerCount = 0; convergedCount = 0;
+            var parts = new List<string>();
+            foreach (var remote in _remoteStates.Values)
+            {
+                peerCount++;
+                bool same = LocalState.HasLevel && remote.HasLevel && LocalState.SameLevelInstanceAs(remote, requireSeed);
+                bool seedSplit = LocalState.HasKnownSeedMismatch(remote);
+                if (same) convergedCount++;
+                string tag = same ? "OK" : (seedSplit ? "SEED-SPLIT" : (remote.HasLevel ? "DIFF-SCENE" : "NO-LEVEL"));
+                parts.Add($"{remote.ToCompactString()}=>{tag}");
+            }
+            allConverged = peerCount > 0 && convergedCount == peerCount;
+            string remotes = parts.Count == 0 ? "<no-peers>" : string.Join(" ", parts);
+            return $"local={LocalState.ToCompactString()} requireSeed={requireSeed} converged={convergedCount}/{peerCount} | {remotes}";
+        }
+
         private static bool RequireSameSeedForSceneMatch()
         {
             try

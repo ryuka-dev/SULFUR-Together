@@ -157,6 +157,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
+                _preFightLogged.Clear();
                 _luciaEyeConsumed.Clear();
                 _luciaEyeCycleComplete.Clear();
                 _pendingEyeComplete.Clear();
@@ -194,6 +195,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
+                _preFightLogged.Clear();
                 _luciaEyeConsumed.Clear();
                 _luciaEyeCycleComplete.Clear();
                 _pendingEyeComplete.Clear();
@@ -363,6 +365,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 bool joined = false;
                 try { joined = NetClientJoinFlow.SessionJoinedHost; } catch { }
 
+                // Phase PF-0: read-only convergence diagnostic. Captures, at the exact frame a boss pre-fight start
+                // entrypoint fires on THIS end, whether the peers share the same boss level instance (scene+seed).
+                // The known infinite-dialog bug (Log99) is a client that raced ahead into a divergent seed → orphan
+                // boss; this line is meant to prove or refute that, plus give the relative host/client timing.
+                LogPreFight(source, key, mode, joined, in ctx);
+
                 // G7c TERMINAL GATE: once an encounter is dead, NEVER re-run its start chain. LogOutput41: after the
                 // witch died, the client returned to the entrance, re-triggered EventStarted and it slipped through the
                 // STALE authorized-continuation window (currentPhase=8) → re-TeleportPlayerTo + re-StartFight + boss
@@ -444,6 +452,29 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 Plugin.Log.Warn($"[BossEncounter] OnLocalStartEntrypoint failed: {ex.GetType().Name}: {ex.Message}");
                 return true;
             }
+        }
+
+        private static bool PreFightLogOn
+        {
+            get { try { return Plugin.Cfg.LogBossPreFight.Value; } catch { return false; } }
+        }
+
+        /// <summary>Phase PF-0: one read-only line per pre-fight start entrypoint, with the convergence state at that
+        /// instant. Compares THIS end's level instance to every known peer (host→clients, client→host). De-duplicated
+        /// per (key, source, convergence) so a re-fired entrypoint with the same state does not spam.</summary>
+        private static readonly HashSet<string> _preFightLogged = new HashSet<string>();
+        private static void LogPreFight(string source, string key, NetMode mode, bool joined, in BossEncounterContext ctx)
+        {
+            if (!PreFightLogOn) return;
+            try
+            {
+                bool terminal; lock (_lock) { terminal = _terminalDead.Contains(key); }
+                string conv = NetGameplaySyncBridge.FormatBossConvergence(out bool allConverged);
+                string dedupe = $"{key}|{source}|{allConverged}|{conv.GetHashCode()}";
+                lock (_lock) { if (!_preFightLogged.Add(dedupe)) return; }
+                Plugin.Log.Info($"[BossPreFight] entry source={source} mode={mode} joined={joined} terminal={terminal} key={key} allConverged={allConverged} | {conv}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossPreFight] log failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         private static void Register(string key, IBossEncounterAdapter adapter, object component)
