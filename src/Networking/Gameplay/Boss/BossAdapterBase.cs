@@ -1,5 +1,7 @@
 using System;
 using UnityEngine;
+using PerfectRandom.Sulfur.Core;
+using PerfectRandom.Sulfur.Core.Units;
 
 namespace SULFURTogether.Networking.Gameplay.Boss
 {
@@ -116,6 +118,56 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public virtual bool ShouldSuppressDuplicateDialogEntry(object component, string source) => false;
         public virtual bool TryApplyDialogCommit(object component, NetBossDialogCommit commit, out string detail)
         { detail = "dialog commit not supported by this adapter"; return false; }
+
+        /// <summary>The Npc the boss dialog interactable talks to. Default = the boss's health Unit (Cousin owner,
+        /// Lucia/Desert bossUnit). Overridden when the dialog speaker differs from the damageable unit.</summary>
+        public virtual object? ResolveDialogNpc(object component) => GetHealthUnit(component);
+
+        /// <summary>Fix A (root): make the boss un-talkable once the fight has started, so nothing can re-open its
+        /// dialog (the LogOutput121/122 host stale-dialog loop).
+        /// <para>The PRIMARY action is trigger-agnostic: null the boss <see cref="Npc"/>'s <c>dialog</c>
+        /// (<c>HasDialog =&gt; dialog != null</c>), so <c>Npc.Interact</c> skips the dialog branch no matter what opens
+        /// it — Cousin's dialog is a STEP TRIGGER that calls <c>Npc.Interact()</c>, NOT a <see cref="UnitInteractable"/>
+        /// (LogOutput122: scanned=0). As a secondary belt-and-suspenders we also remove any matching
+        /// <see cref="UnitInteractable"/> (Witch/Lucia/vendor-style hold-interact dialogs), exactly as vanilla Witch
+        /// does in FightStartRoutine.</para>
+        /// Core types referenced directly; only the boss helper lives in the Gameplay DLL (reflection via GetHealthUnit).</summary>
+        public virtual bool TryRemoveDialogInteractable(object component, out string detail)
+        {
+            detail = "";
+            try
+            {
+                var bossUnit = ResolveDialogNpc(component) as UnityEngine.Object;
+                if (bossUnit == null) { detail = "no boss unit to match"; return false; }
+
+                // PRIMARY: null the boss Npc's dialog so Npc.Interact can no longer open it (trigger-agnostic).
+                // dialog's TYPE (DialogueTreeController) lives in the unreferenced ParadoxNotion assembly, so set it
+                // via reflection — SetValue(null) needs no compile-time knowledge of the type.
+                bool dialogCleared = false;
+                var dialogProp = bossUnit.GetType().GetProperty("dialog",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                if (dialogProp != null && dialogProp.CanWrite && dialogProp.GetValue(bossUnit) != null)
+                {
+                    dialogProp.SetValue(bossUnit, null);
+                    dialogCleared = true;
+                }
+
+                // SECONDARY: remove any UnitInteractable that talks to this boss (hold-interact dialog bosses).
+                var all = UnityEngine.Object.FindObjectsOfType<UnitInteractable>();
+                var im = StaticInstance<InteractionManager>.Instance;
+                int removed = 0, disabled = 0;
+                foreach (var ui in all)
+                {
+                    if (ui == null || ui.npc == null) continue;
+                    if ((UnityEngine.Object)ui.npc != bossUnit) continue;
+                    if (im != null) { im.RemoveInteractable(ui); removed++; }
+                    if (ui.gameObject != null) { ui.gameObject.SetActive(false); disabled++; }
+                }
+                detail = $"boss={bossUnit.name} dialogCleared={dialogCleared} interactableRemoved={removed} disabled={disabled} scannedUI={all.Length}";
+                return dialogCleared || removed > 0 || disabled > 0;
+            }
+            catch (Exception ex) { detail = $"ex {ex.GetType().Name}: {ex.Message}"; return false; }
+        }
 
         // ---- Phase 5.4-E4.2 boss health sync (generic; works for any adapter that exposes a GetHealthUnit) ----
         public virtual object? GetHealthUnit(object component) => null;

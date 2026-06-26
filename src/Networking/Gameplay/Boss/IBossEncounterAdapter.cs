@@ -78,6 +78,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// ensure the fight is started exactly once. Idempotent, never throws.</summary>
         bool TryApplyDialogCommit(object component, NetBossDialogCommit commit, out string detail);
 
+        /// <summary>Fix A (root): remove this boss's dialog interactable so it can never re-open the boss dialog after
+        /// the fight has started (the same thing vanilla WitchBossController.FightStartRoutine does). Runs on every
+        /// end at fight-start, regardless of who triggered. Idempotent, never throws.</summary>
+        bool TryRemoveDialogInteractable(object component, out string detail);
+
         // ---- Phase 5.4-E4.2: boss health sync ----
 
         /// <summary>The single damageable Boss Unit whose health is authoritative (witchMainUnit / bossUnit / owner).

@@ -145,6 +145,8 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LogBossLifecycle { get; }
         // ----- Phase PF-0 boss pre-fight convergence diagnostic -----
         public ConfigEntry<bool>   LogBossPreFight { get; }
+        // ----- Fix A (root): remove the boss dialog interactable on fight start (vanilla Witch pattern) -----
+        public ConfigEntry<bool>   RemoveBossDialogInteractableOnStart { get; }
         // ----- Phase 5.4-E3 BossDialogCommit + Lucia + Witch state + Emperor worm -----
         public ConfigEntry<bool>   EnableEmperorWormDiagnostics { get; }
         public ConfigEntry<bool>   EnableEmperorClientWormSuppression { get; }
@@ -676,6 +678,8 @@ namespace SULFURTogether.Config
                 "Phase 5.4-E2: log the boss lifecycle probe state-change lines. Compact and state-change-gated to avoid spam.");
             LogBossPreFight = cfg.Bind("NetworkBoss", "LogBossPreFight", true,
                 "Phase PF-0: read-only diagnostic. When a boss pre-fight start entrypoint fires, log local+remote scene/seed convergence (did the client race ahead into a divergent boss instance?) and the room-seal/teleport timing. No gameplay change.");
+            RemoveBossDialogInteractableOnStart = cfg.Bind("NetworkBoss", "RemoveBossDialogInteractableOnStart", true,
+                "Fix A (root): when a boss fight starts, remove that boss's dialog interactable on EVERY end (the same thing vanilla WitchBossController.FightStartRoutine does via RemoveInteractable). This is the PRIMARY fix for the host stale-dialog loop when the fight is started remotely; the duplicate-dialog suppression remains only as a safety net.");
 
             // Phase 5.4-E3: dialog-gated bosses (Cousin / Lucia) sync the "fight committed" decision via BossDialogCommit
             // and finalize the local dialog with the real Graph.Stop(true). Witch broadcasts a minimal phase/state skeleton.
@@ -1385,6 +1389,7 @@ namespace SULFURTogether.Config
             EnableBossLifecycleProbe.Value = true;
             LogBossLifecycle.Value = true;
             LogBossPreFight.Value = true;
+            RemoveBossDialogInteractableOnStart.Value = true;
 
             // Phase 5.4-E3 — dialog commit + Lucia + Witch state default on; Emperor worm DIAGNOSTIC on, SUPPRESSION off (reversible).
             EnableEmperorWormDiagnostics.Value = true;

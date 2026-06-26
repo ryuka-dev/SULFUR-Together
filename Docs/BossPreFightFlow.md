@@ -220,6 +220,41 @@ but distance is likely enough.)
   the real wiring + per-end timing.
 - Can `DialogController` be invoked standalone for the Yes-only popup, or do we use `Dialog`+keypress?
 
+## 3c. Fix A (root) — boss dialog interactable removal (PRIMARY dialog handling) ✅ implemented
+
+**Evidence (LogOutput121, 5× Cousin/Caves):** convergence was healthy in all fights (`allConverged=True`,
+0 SEED-SPLIT) — the desyncs were *not* seed bugs. Two real findings:
+- **Host stale-dialog loop**: when the fight starts *remotely* (client triggered), the host opened the
+  Cousin dialog **9 times** (`SetCurrentSpeakable: Cousin` ×9). The host's `mode==Host` start path always
+  `return true` (runs the original) and had **no** equivalent of the client's duplicate-dialog suppression,
+  so a host player arriving late kept re-opening a stale dialog.
+- **Cousin room uses no vanilla door**: `[ArenaDoor]` runtime events = 0 (DoorBlocker/AllDeadTrigger never
+  fired). The arena-lockdown seal for Cousin must be a mod-spawned barrier, not a reused vanilla door.
+
+**Root cause of the loop:** `DialogueTree.currentDialogue.Stop(true)` only closes a *running* dialog; it
+does nothing about the **interactable that can start a new dialog later**. When the fight starts while a
+player is absent, there's no running dialog to stop, and the interactable survives → re-opens. Vanilla
+already solves this for the Witch: `WitchBossController.FightStartRoutine` calls
+`InteractionManager.RemoveInteractable(witchUnitInteractable)` (decompile :28977 — **pure vanilla**, not our
+code). Witch doesn't loop in MP because its `EventStarted` replay runs that removal.
+
+**Fix (now the PRIMARY boss-dialog handling, per user):** at fight-start, on **every end**, remove the
+boss's dialog interactable — the same vanilla pattern, applied to Cousin/Lucia/Desert and to the MP
+remote-start case. Suppression (`ShouldSuppressDuplicateDialogEntry`) + the client deferred-finalize stay
+only as safety nets.
+
+- `IBossEncounterAdapter.TryRemoveDialogInteractable` + generic `BossAdapterBase` impl: resolve the boss's
+  dialog Npc (`ResolveDialogNpc` → `GetHealthUnit`), find every `UnitInteractable` whose `npc` is that boss
+  (`UnitInteractable`/`InteractionManager` are **Core** types, referenced directly — no reflection), then
+  `RemoveInteractable` + deactivate.
+- Manager `RemoveDialogInteractableOnce` (once per encounter key) called from: client commit
+  (`HandleHostBossDialogCommit`), host applying a client-initiated commit
+  (`HandleClientBossDialogCommitRequest`), and host-initiated start (`OnLocalStartEntrypoint` host branch).
+- Config `RemoveBossDialogInteractableOnStart` (default on). Log tag `[BossDialogFix]`.
+- **Unifies with the FF14 lockdown:** *any player completing the boss dialog = fight start*; at that instant
+  every player's boss dialog interactable is removed (this fix), so no one can re-trigger.
+- **Status:** built + deployed; awaiting an in-game Cousin co-op re-test (commit only after verification).
+
 ## 4. Open questions to resolve before coding PF-1
 - Where is the **boss-room entry trigger** in the scene graph? (Dialog trigger vs a separate volume.)
   Needs an in-game probe: log the first pre-fight entrypoint per boss and whether the client reaches it

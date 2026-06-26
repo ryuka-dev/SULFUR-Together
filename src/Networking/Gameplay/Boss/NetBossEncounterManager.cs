@@ -124,6 +124,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // E3 per-key dedup sets for dialog commit (cleared on level change).
         private static readonly HashSet<string> _dialogCommitBroadcast = new HashSet<string>();
         private static readonly HashSet<string> _dialogCommitApplied = new HashSet<string>();
+        // Fix A (root): per-encounter once-guard so the boss dialog interactable is removed exactly once per fight.
+        private static readonly HashSet<string> _dialogInteractableRemoved = new HashSet<string>();
         private static int _bossStateRevision;
         // E4.2: client-side per-key "boss bar already attached" guard.
         private static readonly HashSet<string> _bossUiAttached = new HashSet<string>();
@@ -154,6 +156,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _pendingDialogFinalize.Clear();
                 _dialogCommitBroadcast.Clear();
                 _dialogCommitApplied.Clear();
+                _dialogInteractableRemoved.Clear();
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
@@ -192,6 +195,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _pendingDialogFinalize.Clear();
                 _dialogCommitBroadcast.Clear();
                 _dialogCommitApplied.Clear();
+                _dialogInteractableRemoved.Clear();
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
@@ -386,11 +390,30 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
                 if (mode == NetMode.Host)
                 {
+                    // HOST RE-ENTRY GUARD (Log123 root fix): vanilla relies on the encounter initiator firing exactly
+                    // once (PlayerTrigger.onlyOnce / RemoveInteractable). In MP the fight can start REMOTELY (a client's
+                    // commit), so the host's LOCAL initiator was never consumed — when the host player later reaches it,
+                    // CousinHelper.Trigger re-runs the WHOLE start chain (re-Introduction / re-StartFight / re-broadcast)
+                    // and the boss restarts its intro. The host had no "already started" guard (only the client did), so
+                    // it re-ran every time. Block the re-entry here. (Reflection-applied chain steps bypass this via the
+                    // InReentry early-out above, so the host's own first start is unaffected.)
+                    if (SafeStarted(adapter, component) || _appliedStart.Contains(key))
+                    {
+                        BossDuplicateSuppressed++;
+                        if (LogOn) Plugin.Log.Info($"[BossEncounter] host suppressed re-entry start source={source} key={key} (already started — initiator was not locally consumed)");
+                        return false;
+                    }
+
                     BroadcastStartOnce(key, adapter, component, in ctx, source);
                     // Dialog-gated bosses (Cousin / Lucia): when the host reaches the "fight committed" step, tell all
                     // clients to finalize their local dialog and start once (real dialog API on their end).
                     if (adapter.IsDialogBoss(component) && adapter.IsDialogCommitSource(source))
+                    {
                         BroadcastDialogCommitOnce(key, adapter, component, in ctx, source);
+                        // Remove the boss dialog interactable on the host too (FF14 spec: dialogs are removed once the
+                        // fight starts). Now backed by the host re-entry guard, not the sole defence.
+                        RemoveDialogInteractableOnce(key, adapter, component, "host-initiated");
+                    }
                     return true; // host runs the original boss start
                 }
 
@@ -608,12 +631,32 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 try { adapter.TryApplyDialogCommit(component, msg, out string d); if (LogOn) Plugin.Log.Info($"[BossDialogCommit] host applied own commit key={msg.EncounterKey}: {d}"); }
                 finally { EndApply(); }
 
+                // Fix A (root): the fight is committed (client-initiated) — remove the host's own boss dialog
+                // interactable so a host player arriving late can't open the stale dialog (the LogOutput121 loop).
+                RemoveDialogInteractableOnce(msg.EncounterKey, adapter, component, "host-apply-client-commit");
+
                 BroadcastDialogCommitOnce(msg.EncounterKey, adapter, component, in ctx, "ClientRequest:" + msg.CommitSource);
             }
             catch (Exception ex)
             {
                 Plugin.Log.Warn($"[BossDialogCommit] HandleClientBossDialogCommitRequest failed: {ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        /// <summary>Fix A (root): remove the boss dialog interactable once per encounter, on whichever end calls this
+        /// (host at commit/start, client at commit). After removal nothing can re-open the boss dialog, which is the
+        /// real fix for the host stale-dialog loop on a remotely-started fight. Gated by config; safety-net suppression
+        /// stays in place either way.</summary>
+        private static void RemoveDialogInteractableOnce(string key, IBossEncounterAdapter adapter, object component, string ctx)
+        {
+            try
+            {
+                if (!Plugin.Cfg.RemoveBossDialogInteractableOnStart.Value) return;
+                lock (_lock) { if (!_dialogInteractableRemoved.Add(key)) return; }
+                bool ok = adapter.TryRemoveDialogInteractable(component, out string detail);
+                Plugin.Log.Info($"[BossDialogFix] removed boss dialog interactable ({ctx}) key={key} ok={ok}: {detail}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogFix] interactable removal failed key={key}: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         public static void HandleHostBossDialogCommit(NetBossDialogCommit msg)
@@ -651,6 +694,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 {
                     Plugin.Log.Warn($"[BossDialogCommit] client failed to apply commit key={msg.EncounterKey}: {detail}");
                 }
+
+                // Fix A (root): remove the boss dialog interactable on the client too, so its local player can never
+                // re-open the boss dialog after the host committed the fight.
+                RemoveDialogInteractableOnce(msg.EncounterKey, adapter, component, "client-commit");
 
                 // The client's local boss dialog often opens a beat AFTER the commit arrives (LogOutput24: Lucia's
                 // dialog was active so Stop worked; Cousin's opened later so Stop found nothing). Register a short
@@ -740,6 +787,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     lock (_lock) { if (_terminalDead.Contains(kv.Key)) continue; } // dead — stop pushing state
                     if (!ParticipatesInStateSync(e.Adapter, e.Component)) continue;
                     if (!SafeStarted(e.Adapter, e.Component)) continue; // only sync once the fight is live
+                    // Attach the boss bar on the HOST too (Log124/125 regression): for Cousin the vanilla bar attach is
+                    // an intro-animation event, which used to fire because the host's physical trigger re-ran the intro.
+                    // The host re-entry guard now blocks that re-run, so attach explicitly here, once, mirroring the
+                    // client path (TryAttachBossBar = AttachToBossUI; the once-guard prevents the onHealthChange leak).
+                    bool firstAttach; lock (_lock) { firstAttach = _bossUiAttached.Add(kv.Key); }
+                    if (firstAttach && e.Adapter.TryAttachBossBar(e.Component) && LogOn)
+                        Plugin.Log.Info($"[BossState] host attached boss bar key={kv.Key}");
                     BroadcastBossStateFor(kv.Key, e.Adapter, e.Component, in ctx, verbose: false);
                 }
                 catch { }
