@@ -42,12 +42,24 @@ Decompiled from `PerfectRandom.Sulfur.Gameplay.dll` (`obj/decomp_gp/…`). Metho
   `ModifyPlayerInvulnerability(Cinematic, …)` / `LockPlayerController(bool)`.
 
 ### Cousin (`CousinHelper`)
-- **Dialog entry:** cousin NPC dialog → `Trigger()` → `TriggerIntro()` (sets `triggeredByPlayer=true`).
-- **Start chain:** `Introduction()` (once, `introPlayed`): `ModifyControllerLock(Cinematic,true)` +
+> **Corrected by full decompile (was "StartFight is an animation event" — wrong).** `CousinHelper` itself has
+> **no dialog / attack-option / sequencing logic**. The whole flow is driven by an external **behavior tree**
+> (`U_GoblinCousin_Sequencer_1`); the class only exposes the step methods it calls.
+- **Entry trigger:** `PlayerTrigger "CousinTrigger"` → `CousinHelper.Trigger()` → `TriggerIntro()` (sets
+  `triggeredByPlayer=true` — that is *all* `Trigger` does).
+- **Behavior-tree sequence (reads `triggeredByPlayer`):**
+  `Introduction() → 2s → Npc.Interact() [REAL intro dialog] → 1s → SpawnArm(pos) → 0.1s → AttachToBossUI + StartFight()`.
+- `Introduction()` (once, `introPlayed`): `ModifyControllerLock(Cinematic,true)` +
   `ModifyPlayerInvulnerability(Cinematic,true)`, `SetNewPool(GetClosestPool())`,
   **`owner.TeleportTo(currentPool.cousinPosition.position)`** (moves the *boss*, not the player),
-  `RotateCameraTowardsPosition(...)`, `LootManager.SetBossFightLoot(true)`, animator "Intro".
-  → `StartFight()` (animation event): `FightStarted=true`, unlock Cinematic, `EnablePoolDamagers(true)`.
+  `RotateCameraTowardsPosition(...)`, `LootManager.SetBossFightLoot(true)`, animator "Intro", then
+  `triggeredByPlayer=false`.
+- `StartFight()`: `FightStarted=true`, unlock Cinematic, `EnablePoolDamagers(true)`.
+- **The dialog is non-interactive presentation; the "双剑/attack" option does NOT call StartFight.** What gates
+  the fight in single-player is the **pause**: opening the dialog sets `timeScale=0` (Dialog padlock), which
+  **freezes the behavior tree's `WaitForSeconds`** before SpawnArm/StartFight. Dismissing the dialog unpauses,
+  the timer resumes, and ~1.1s later the fight starts. So in vanilla SP the *dialog dismissal* is the de-facto
+  fight gate. → This is the root of the co-op overlap bug; see **§3d (Plan B)**.
 - **No player teleport** — Cousin teleports itself to the closest pool to the player. Camera locks onto it.
 
 ### Lucia (`LuciaBossFightHelper` + `LuciaBossFightTrigger`)
@@ -254,6 +266,57 @@ only as safety nets.
 - **Unifies with the FF14 lockdown:** *any player completing the boss dialog = fight start*; at that instant
   every player's boss dialog interactable is removed (this fix), so no one can re-trigger.
 - **Status:** built + deployed; awaiting an in-game Cousin co-op re-test (commit only after verification).
+
+## 3d. Plan B — dialog-close-gated fight start ✅ implemented + verified (Log133, commit `d3130d1`)
+
+**Problem.** Phase 5.7-NP disables the multiplayer pause. For Cousin (and any boss whose fight is sequenced by a
+behavior tree off scaled-time `WaitForSeconds`), that pause was the *de-facto* fight gate (see §0 Cousin): the
+intro dialog used to freeze the timer until the player dismissed it. With pause gone, the behavior tree's
+`StartFight` fires ~1.1s after the dialog **opens** and overlaps it — the fight and the cutscene run together.
+
+**Faithful intro (prerequisite, config `EnableFaithfulBossIntro`).** Rather than fake-start via direct
+`Introduction()/StartFight()` reflection, the client sets the boss's own `triggeredByPlayer` (via `TriggerIntro()`
+inside `TryApplyDialogCommit`) so its **native behavior-tree intro + real dialog + camera + boss bar** play
+locally; the mechanic stays host-authoritative. This is what makes a *real* dialog appear on every end to gate on.
+
+**Plan B design (host-authoritative, two-phase; commit signal = boss dialog close).**
+- **INTRO commit** (existing `NetBossDialogCommit`, `IsFightCommit=false`): walking into the trigger drives the
+  intro handshake → both ends `TriggerIntro` → behavior tree plays intro + dialog. **StartFight is now gated.**
+- **StartFight gate** (`OnLocalStartEntrypoint`, before the mode branches): for a dialog-gated boss
+  (`CousinHelperAdapter.GatesFightOnDialogClose => true`) every behavior-tree `StartFight` is **blocked**. The
+  real `StartFight` is invoked *only* by the dialog-close commit, under the reentry guard (which bypasses the gate
+  via the `InReentry` early-out). While blocked, the player stays Cinematic-locked + invulnerable (Introduction's
+  locks are never released) — i.e. SP-faithful "you can't act until the fight starts".
+- **FIGHT commit** (`NetBossDialogCommit`, `IsFightCommit=true` — codec bumped to v2):
+  - Arm: `Npc.Interact` postfix (boss) → `NotifyBossDialogOpened(npc)` records the open encounter (matched by
+    `GetHealthUnit == npc`).
+  - Trigger: `DialogController.SetCurrentSpeakable(null)` → `NotifyDialogClosed()` → the in-room player's commit.
+  - Host: own close, or a client's fight-commit request → `CommitFightStart` = invoke real `StartFight` + close
+    any lingering dialog + broadcast the FIGHT commit.
+  - Client: own close → send a fight-commit **request**; on receiving the host's FIGHT commit → `CommitFightStartLocal`
+    (invoke `StartFight` + finalize dialog). FF14 spec: once committed, *every* player's boss dialog is closed.
+- Patches: `PatchDialogFlowProbe` now also applies when `GateBossFightOnDialogClose` is on (it reads the same
+  `Npc.Interact` / `SetCurrentSpeakable` chokepoints the read-only probe used). Config `GateBossFightOnDialogClose`
+  (default on). Log tag `[BossFightGate]`.
+
+**Verification (Log133, 4× Cousin @ Act_01_Caves:6).** All 4 passed, both dismissal paths:
+- client-first: `client dialog dismissed → request fight commit` → host `received client fight-commit` →
+  `committed fight start [invoked StartFight]` → broadcast → client `received host fight-commit → committed`.
+- host-first: `host dialog dismissed → committing` → broadcast → client `received host fight-commit → committed`.
+- Both ends: `blocked behavior-tree StartFight … committed=False` during the dialog, then `invoked StartFight`
+  only after the close. **0 Error / 0 NRE / 0 Exception. No deadlock, no overlap.**
+
+**Known remaining deviation (accepted, won't-fix for now).** Only `StartFight` is gated, not the intro `SpawnArm`,
+so the behavior tree's single intro arm (a **self-despawning presentation arm**: Log133 `damageCount=0`,
+`lifetime=13.4s`) pokes out **during** the dialog instead of at fight start. Purely cosmetic (the player is
+Cinematic-locked and can't touch it). A faithful fix would gate `SpawnArm` too, but it must coordinate with the
+RT3 boss-add sync (host broadcasts the arm as add `seq=0`; the client mirrors it) — block the client's own
+`SpawnArm` and have **only the host** replay on commit, else the arm double-spawns. Deferred.
+
+**Pre-existing behavior, out of scope.** When a client triggers the boss remotely, the host's faithful intro runs
+too, so the host player is pulled into the synced cutscene (Cinematic-locked) even if across the map. Plan B holds
+that lock until *someone* dismisses the dialog. This is the room-membership problem (§3b #2) — left for the
+room-membership substrate.
 
 ## 4. Open questions to resolve before coding PF-1
 - Where is the **boss-room entry trigger** in the scene graph? (Dialog trigger vs a separate volume.)
