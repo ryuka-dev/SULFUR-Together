@@ -62,7 +62,7 @@ The current line of work. Older phases (Phase 1.x–4.x) live in `DevelopmentPla
 | **PF Plan B** | Gate the Cousin fight start on the intro **dialog being dismissed** (host-authoritative); restores the SP pause-gate that co-op's no-pause mode removed | verified Log133 · committed `d3130d1` |
 | **PF Plan B (late-client fix)** | Gate StartFight on the boss's real `FightStarted`, not our `_fightCommitted` (which a level-step Reset can clear), so a late intro's Cinematic lock still gets cleared — no freeze | verified Log135 · committed `1cc779c` |
 | **RM-1** | Room-membership substrate: host-authoritative "who is in the boss room" set, fed by each end crossing the boss trigger (msgs 51/52, `[RoomMembership]`). **Observe-only**, changes no behaviour | verified Log134/135 · committed `1cc779c` |
-| **RM-2a** | Fix the membership/fight-committed maps being wiped mid-encounter by a per-GoToLevel `Reset()`: `Reset(fullSession:false)` preserves the per-`chapter:level:seed` state; only a session reset or a genuine level change clears it | deployed · awaiting verify |
+| **RM-2a** | Fix the membership/fight-committed maps being wiped mid-encounter by a per-GoToLevel `Reset()`: `Reset(fullSession:false)` preserves the per-`chapter:level:seed` state; only a session reset or a genuine level change clears it | verified Log137 (no member drop; churn not re-triggered) · committed `d5c748a` |
 | **RM-2b** | First consumer — scope the synced cutscene to in-room players (fix "not-in-room player pulled into the cutscene") | **shelved** (needs headless host start; edge case hasn't bitten) |
 
 ## 5. Rule going forward
