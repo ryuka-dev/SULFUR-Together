@@ -217,12 +217,30 @@ only closes its own gate), so an out-of-room / AFK player's gate is left open �
   - **Edge:** the client missed one host "Big Door" close (`no gate near` — its matching gate wasn't registered / >1 m
     at that instant; same late-spawn race as BreakableBreak). Hardening TODO: queue unmatched gate events and apply on
     the gate's `Awake` register (a door left open on one end matters more than a missed barrel).
-  - **Lucia is NOT covered (needs separate adaptation):** its door is a `GameObject "Doors"` toggled via
+  - **Lucia — covered by LD-1b** (below): its door is a `GameObject "Doors"` toggled via
     `PlayerTrigger_StartEvent.OnTriggerEvents → GameObject.SetActive(Doors, true)` (alongside `Npc.Interact` for the
-    dialog + `MusicTrigger.StartMusic`), not a `MetalGate.Close()`. LD-1's MetalGate hook can't see a `SetActive`. Sync
-    it by tying to the Lucia encounter start (host-authoritative) → `SetActive` the door on every end.
-  - **Desert sandstorm wall:** reported as syncing now, but Log154 `[GateSync]` shows only GraveyardGate — the sand
-    encirclement is likely the existing desert-boss start sync (5.4-F), not LD-1. Needs a clean desert re-test.
+    dialog + `MusicTrigger.StartMusic`), not a `MetalGate.Close()`.
+  - **Desert has no door:** the "sandstorm wall" is a *damage zone* encircling the arena (leaving the arena into the
+    storm deals continuous damage), not a gate — nothing for LD-1 to sync. The arena presentation is handled by the
+    existing desert-boss start sync (5.4-F).
+
+## 3b-LD1b. SetActive-door sync (Lucia) — implemented + deployed (awaiting verify)
+
+Some arenas seal not with a `MetalGate` but with a `PlayerTrigger` firing `GameObject.SetActive("…door…", true)` from
+its `onTriggerEvents` (Lucia: `PlayerTrigger_StartEvent` → `SetActive(Doors, true)` + `Npc.Interact` dialog + music).
+LD-1's `MetalGate.Close/Open` hook can't see a `SetActive`, so this is a sibling channel.
+
+- Capture: `PlayerTrigger.Trigger(GameObject)` postfix (Core type, reflection; coexists with the dialog-flow probe on
+  the same method) → `TriggerDoorSyncManager` reads the trigger's `onTriggerEvents` via the public `UnityEventBase`
+  persistent-call API (`GetPersistentEventCount/Target/MethodName`), collects every `SetActive` target whose **name
+  contains "door"** (only doors — `Npc.Interact`/music/other `SetActive` are ignored), and broadcasts
+  `NetTriggerDoors { triggerPos, [(name, active)] }` (`TriggerDoors(54)`, same Client→Host→relay as `GateState`).
+- Mirror: the receiver finds the matching local `PlayerTrigger` by position (≤1 m) and reads **its own** event to get
+  **its** door GameObject reference (a serialized persistent target — returned even while the door is inactive), then
+  `SetActive`s it to the broadcast state. No echo (the mirror calls `SetActive` directly, never `Trigger`).
+- Config `EnableTriggerDoorSync` (default on), log `[DoorSync]`. Verify: enter Lucia's room on one end →
+  `[DoorSync] capture trigger=PlayerTrigger_StartEvent doors=[Doors=on]` + the other end `[DoorSync] mirror … applied=1/1`
+  and its `Doors` object activates.
   - **Unrelated (not ours):** `Act_03_Canyon:1` ("Canyon2") crashes with an Addressables `InvalidKeyException` (missing
     GUID 8e87dcbc…) — reproduced identically WITHOUT the coop mod (Log155). Vanilla/modpack content bug.
 
@@ -232,14 +250,25 @@ User request (the actual next feature; supersedes the PF-1/PF-2 ordering above a
 re-create an FF14-style boss-arena entry experience, whose *purpose is to let some players AFK
 safely* (an AFK player must not be the boss's target).
 
-**Desired flow (per the user):**
-1. Any player starts the fight.
-2. Players **inside** the room: their boss room is already sealed (they crossed the entry trigger that
-   closes the door on the way in).
-3. Players **outside** the room (never crossed the close trigger): their boss room seals **after 5 s**.
-4. **5 s after sealing**: a confirmation popup appears — **only a "Yes" option**.
-5. Teleport to the *close-trigger position* (position only; the door is already shut) happens on **Yes**
-   **or** when the **boss fight ends**.
+**Desired flow — precise timeline (per the user, 2026-06-27 — pin this for LD-2):**
+1. **Any** player enters the arena → crosses the entry trigger → door closes (LD-1 / LD-1b already sync this).
+2. Every player who has crossed that close trigger = **in-room**.
+3. The **first** door-close is the time anchor (**t = 0**).
+4. **t + 5 s:** force-seal the local door of **every non-in-room** player.
+5. **t + 10 s** (another 5 s): send a **teleport event** to the non-in-room players (teleport them in).
+6. **In-room is updated in real time but event-driven** (a player who walks in later becomes in-room and is no
+   longer sealed/teleported; the host does NOT poll — it reacts to entry events). Built on the
+   room-membership substrate (§3e). Confirm-popup on the teleport (user: spike `DialogController` first, else
+   `Dialog`+keypress); teleport also fires on boss death.
+
+**⚠️ The seal must be a TWO-WAY barrier, not the vanilla one-way door (user finding, LD-1b test).** Lucia's vanilla
+door is **single-sided**: from outside it is invisible (back-face culled) AND **passable** (one-sided collider). LD-1b
+correctly reproduces that state on the out-of-room end — but a one-way door is **cheesable**: a player kept outside who
+declines the teleport can still shoot into the arena through the passable/invisible door. (Gating the teleport popup to
+a boss-dialog state so the player can't fire is *not* enough.) So when LD-2 force-seals a non-in-room player (step 4),
+the barrier must be **two-way impassable + invisible** (an invisible solid wall blocking movement *and* projectiles/LOS
+from both sides), not merely `SetActive` of the one-sided vanilla door. RECORDED — do not change LD-1/LD-1b for this;
+it is an LD-2 requirement.
 
 **Vanilla primitives (reverse-engineered, Core DLL):**
 - `DoorBlocker : HoldingInteractable` — the sealable door. `ActivateDoorBlocker(env, isAnClosingDoor)`

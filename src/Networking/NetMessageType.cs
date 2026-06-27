@@ -216,5 +216,12 @@ namespace SULFURTogether.Networking
         // authoritative effect mirror, same Client→Host→relay topology as BreakableBreak. Foundation for the FF14 arena
         // lockdown (LD-2 adds host-authoritative seal of out-of-room players + popup + teleport on top).
         GateState = 53,
+
+        // Phase LD-1b combat-room door sync, GameObject.SetActive variant (Lucia etc.). Some arenas seal via a
+        // PlayerTrigger firing GameObject.SetActive(Doors, true) (not a MetalGate). Any peer → all others: "a trigger at
+        // this position activated/deactivated these door-named GameObjects." Receivers find the matching local trigger,
+        // read its own onTriggerEvents to get the local door references, and SetActive them. Same Client→Host→relay
+        // topology as GateState; the firing peer never mirrors its own.
+        TriggerDoors = 54,
     }
 }

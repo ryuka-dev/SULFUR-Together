@@ -210,6 +210,9 @@ namespace SULFURTogether.Config
         // ----- Phase LD-1 generic combat-room gate (MetalGate) open/close sync -----
         public ConfigEntry<bool>   EnableGateSync { get; }
         public ConfigEntry<bool>   LogGateSync { get; }
+        // ----- Phase LD-1b combat-room door sync, GameObject.SetActive variant (Lucia etc.) -----
+        public ConfigEntry<bool>   EnableTriggerDoorSync { get; }
+        public ConfigEntry<bool>   LogTriggerDoorSync { get; }
 
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
         public ConfigEntry<bool>   EnableWorldItemDropSync { get; }
@@ -853,6 +856,14 @@ namespace SULFURTogether.Config
                 "Phase LD-1: mirror combat-room gate (MetalGate) open/close across peers so a door closed/opened on one end (entering a boss/elite room, room cleared) matches on every screen. Effect mirror (the same Close()/Open() — animation/collider/navmesh). Reversible. Foundation for the FF14 arena lockdown.");
             LogGateSync = cfg.Bind("Destructibles", "LogGateSync", true,
                 "Phase LD-1: verbose log for gate sync (capture / broadcast / mirror match).");
+
+            // Phase LD-1b: some arenas (Lucia) seal not with a MetalGate but with a PlayerTrigger firing
+            // GameObject.SetActive(Doors, true). Mirror those door-named SetActive targets across peers, keyed by the
+            // trigger's position (the receiver reads its own trigger's event to get its local door reference).
+            EnableTriggerDoorSync = cfg.Bind("Destructibles", "EnableTriggerDoorSync", true,
+                "Phase LD-1b: mirror combat-room doors that are sealed via a PlayerTrigger's GameObject.SetActive(\"...door...\") instead of a MetalGate (e.g. Lucia). Only door-named GameObjects are touched; matched by the trigger's deterministic position. Reversible.");
+            LogTriggerDoorSync = cfg.Bind("Destructibles", "LogTriggerDoorSync", true,
+                "Phase LD-1b: verbose log for trigger-door sync (capture / broadcast / mirror match).");
 
             // World item-drop sync: items that appear in the world are mirrored across peers. Spawn is optimistic +
             // peer-authoritative (instant local drop, then broadcast); take is host-authoritative (first picker wins, the
@@ -1499,6 +1510,9 @@ namespace SULFURTogether.Config
             // Phase LD-1 — combat-room gate (MetalGate) sync default on.
             EnableGateSync.Value = true;
             LogGateSync.Value = true;
+            // Phase LD-1b — combat-room door (SetActive variant, Lucia) sync default on.
+            EnableTriggerDoorSync.Value = true;
+            LogTriggerDoorSync.Value = true;
             // World item-drop sync default on (player-thrown items); shared-loot widening stays off until host-roll exists.
             EnableWorldItemDropSync.Value = true;
             LogWorldItemDropSync.Value = true;

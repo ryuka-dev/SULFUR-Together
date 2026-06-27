@@ -35,6 +35,21 @@ namespace SULFURTogether.Patches
                 Plugin.Log.Info("[GateSync] Patched MetalGate.Awake/Close/Open (combat-room gate sync).");
             }
             catch (Exception ex) { Plugin.Log.Error($"[GateSync] Apply failed: {ex.Message}"); }
+
+            // Phase LD-1b: doors activated via GameObject.SetActive from a PlayerTrigger (Lucia etc.) — not a MetalGate.
+            try
+            {
+                if (!Plugin.Cfg.EnableTriggerDoorSync.Value) { Plugin.Log.Info("[DoorSync] disabled by config."); return; }
+                var pt = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.World.PlayerTrigger")
+                      ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.PlayerTrigger");
+                if (pt == null) { Plugin.Log.Warn("[DoorSync] PlayerTrigger type not found — trigger-door sync disabled."); return; }
+                var trig = AccessTools.Method(pt, "Trigger", new[] { typeof(UnityEngine.GameObject) });
+                if (trig == null) { Plugin.Log.Warn("[DoorSync] PlayerTrigger.Trigger(GameObject) not found (skipped)."); return; }
+                harmony.Patch(trig, postfix: new HarmonyMethod(
+                    typeof(MetalGatePatches).GetMethod(nameof(PlayerTrigger_Trigger_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                Plugin.Log.Info("[DoorSync] Patched PlayerTrigger.Trigger (SetActive-door sync).");
+            }
+            catch (Exception ex) { Plugin.Log.Error($"[DoorSync] Apply failed: {ex.Message}"); }
         }
 
         private static void Patch(Harmony harmony, Type type, string method, string postfixName)
@@ -61,6 +76,12 @@ namespace SULFURTogether.Patches
         {
             if (!__runOriginal) return;
             GateSyncManager.CaptureLocalGate(__instance, closed: false);
+        }
+
+        private static void PlayerTrigger_Trigger_Post(object __instance, bool __runOriginal)
+        {
+            if (!__runOriginal) return;
+            TriggerDoorSyncManager.CaptureLocalTrigger(__instance);
         }
     }
 }

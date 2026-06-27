@@ -88,6 +88,12 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalGateState(msg);
         }
 
+        // Phase LD-1b — combat-room door (GameObject.SetActive variant, Lucia etc.) channel. Same routing as GateState.
+        public static void ReportLocalTriggerDoors(NetTriggerDoors msg)
+        {
+            _service?.BroadcastLocalTriggerDoors(msg);
+        }
+
         // World item-drop sync — spawn (optimistic, peer-authoritative; Client→Host→relay), take request (Client→Host),
         // removal broadcast (Host→all). See WorldPickupManager.
         public static void ReportLocalWorldPickupSpawn(NetWorldPickupSpawn msg)

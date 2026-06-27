@@ -1213,6 +1213,91 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- Phase LD-1b combat-room door (SetActive) sync
+
+        internal void BroadcastLocalTriggerDoors(Gameplay.NetTriggerDoors msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnableTriggerDoorSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendTriggerDoors(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendTriggerDoors(_hostPeer, msg);
+            }
+        }
+
+        private void SendTriggerDoors(NetPeer peer, Gameplay.NetTriggerDoors msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.TriggerDoors);
+                Gameplay.NetTriggerDoorsCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[DoorSync] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleTriggerDoors(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableTriggerDoorSync.Value) return;
+            if (!Gameplay.NetTriggerDoorsCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[DoorSync] malformed TriggerDoors packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId))
+                {
+                    if (Plugin.Cfg.EnableDebugLog.Value)
+                        NetLogger.Debug($"[DoorSync] ignoring doors from unregistered peer {peer.Address}");
+                    return;
+                }
+                msg.PeerId = peerId;
+
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.TriggerDoorSyncManager.ApplyRemote(msg);
+
+                RelayTriggerDoorsToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.PeerId == _runStates.LocalState.PeerId) return; // never mirror my own
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.TriggerDoorSyncManager.ApplyRemote(msg);
+            }
+        }
+
+        private void RelayTriggerDoorsToOtherClients(NetPeer sourcePeer, Gameplay.NetTriggerDoors msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendTriggerDoors(client, msg);
+            }
+        }
+
         // ---------------------------------------------------------------- World item-drop sync (player drops first)
         // Spawn: optimistic + peer-authoritative — the dropping peer broadcasts (Client→Host→relay to other Clients;
         // the dropper never mirrors its own). Take: host-authoritative — a Client requests, the Host grants exactly one
@@ -2290,6 +2375,9 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.GateState:
                         HandleGateState(peer, reader);
+                        break;
+                    case NetMessageType.TriggerDoors:
+                        HandleTriggerDoors(peer, reader);
                         break;
                     case NetMessageType.BreakableBreak:
                         HandleBreakableBreak(peer, reader);
