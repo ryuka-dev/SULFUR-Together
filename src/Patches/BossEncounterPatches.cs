@@ -75,6 +75,12 @@ namespace SULFURTogether.Patches
             // Phase 5.4-F4 death: postfix-only on CousinDeath (the real terminal). The Host broadcasts; the Client
             // runs its own real death. NOT prefix-blocked (the Client's own CousinDeath, via owner.Die(), must run).
             PatchDeath(harmony, cousinType, "CousinDeath");
+            // Phase PF-ArmDefer (issue 1): defer the Cousin intro arm to the dialog-close fight commit. Prefix BLOCKS the
+            // behavior-tree intro SpawnArm (which co-op's no-pause lets fire during the dialog); the manager replays it
+            // at commit. Gated on DeferBossIntroArm AND the fight gate (the deferral has no meaning without the gate).
+            if (Plugin.Cfg.DeferBossIntroArm.Value && Plugin.Cfg.GateBossFightOnDialogClose.Value)
+                PatchIntroArm(harmony, cousinType);
+            else Log.Info("[BossArmDefer] intro-arm deferral disabled by config.");
 
             // Phase 5.4-E3: host Witch phase-state broadcast hook.
             PatchWitchPhaseStateHook(harmony);
@@ -296,6 +302,30 @@ namespace SULFURTogether.Patches
         {
             if (!__runOriginal) return;
             SULFURTogether.Networking.Gameplay.Boss.NetBossEncounterManager.OnHostBossDeath(__instance, __originalMethod?.Name ?? "?");
+        }
+
+        /// <summary>Phase PF-ArmDefer (issue 1): prefix CousinHelper.SpawnArm so the manager can BLOCK the behavior-tree
+        /// intro arm (deferred to the dialog-close fight commit) while letting the mid-fight Reappear arm + the commit
+        /// replay through. Patches every SpawnArm overload (there is one: SpawnArm(Vector3, bool)).</summary>
+        private static void PatchIntroArm(Harmony harmony, Type? type)
+        {
+            if (type == null) { Log.Info("[BossArmDefer] CousinHelper type not found (skipped)"); return; }
+            var prefix = new HarmonyMethod(typeof(BossEncounterPatches)
+                .GetMethod(nameof(CousinSpawnArm_Pre), BindingFlags.Static | BindingFlags.NonPublic));
+            var methods = AccessTools.GetDeclaredMethods(type).Where(m => m.Name == "SpawnArm" && !m.IsStatic).ToList();
+            if (methods.Count == 0) { Log.Info($"[BossArmDefer] {type.Name}.SpawnArm not found (skipped)"); return; }
+            foreach (var mi in methods)
+            {
+                try { harmony.Patch(mi, prefix: prefix); Log.Info($"[BossArmDefer] patched {type.Name}.SpawnArm({string.Join(",", mi.GetParameters().Select(p => p.ParameterType.Name))})"); }
+                catch (Exception ex) { Log.Error($"[BossArmDefer] patch failed {type.Name}.SpawnArm: {ex.Message}"); }
+            }
+        }
+
+        // Returns false to BLOCK the deferred intro arm (replayed at the dialog-close fight commit); true otherwise.
+        private static bool CousinSpawnArm_Pre(object __instance)
+        {
+            try { return SULFURTogether.Networking.Gameplay.Boss.NetBossEncounterManager.OnLocalIntroArmSpawn(__instance); }
+            catch { return true; }
         }
 
         /// <summary>Phase 5.4-F5: prefix + postfix LuciaBossFightHelper.EyeDied(Unit). Confirmed by decompilation:

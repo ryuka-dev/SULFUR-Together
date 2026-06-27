@@ -306,21 +306,32 @@ locally; the mechanic stays host-authoritative. This is what makes a *real* dial
 - Both ends: `blocked behavior-tree StartFight … committed=False` during the dialog, then `invoked StartFight`
   only after the close. **0 Error / 0 NRE / 0 Exception. No deadlock, no overlap.**
 
-**Known remaining deviation (accepted, won't-fix for now).** Only `StartFight` is gated, not the intro `SpawnArm`,
-so the behavior tree's single intro arm (a **self-despawning presentation arm**: Log133 `damageCount=0`,
-`lifetime=13.4s`) pokes out **during** the dialog instead of at fight start. Purely cosmetic (the player is
-Cinematic-locked and can't touch it). A faithful fix would gate `SpawnArm` too, but it must coordinate with the
-RT3 boss-add sync (host broadcasts the arm as add `seq=0`; the client mirrors it) — block the client's own
-`SpawnArm` and have **only the host** replay on commit, else the arm double-spawns. Deferred.
+**Intro-arm timing (phase PF-ArmDefer, issue 1 — implemented).** Originally only `StartFight` was gated, not the
+intro `SpawnArm`, so the behavior tree's single intro arm (a **self-despawning presentation arm**: Log133
+`damageCount=0`, `lifetime=13.4s`) poked out **during** the dialog instead of at fight start. In single-player the
+dialog pauses the game (timeScale=0), freezing the behavior tree's `WaitForSeconds` so the arm only appears once the
+dialog closes; co-op's no-pause mode (Phase 5.7-NP) removed that freeze. The fix restores the vanilla timing:
 
-> **Update (phase RT3-Cousin-arms).** The arm sync half of that deferral is now done: `GoblinCousinArm` flows through
+- **Block:** `CousinHelper.SpawnArm` is prefix-patched (`BossEncounterPatches.PatchIntroArm` →
+  `NetBossEncounterManager.OnLocalIntroArmSpawn`). On both ends, while the encounter's fight loop has not begun
+  (no Submerge/Reappear/MoveToNewPool fired yet, `_cousinFightLoopStarted`) and the boss is not terminal, the
+  behavior-tree intro arm is **blocked** (`return false`). Our own commit replay runs under the reentry guard
+  (`InReentry`), so it bypasses the block; mid-fight **Reappear arms** flow normally (the loop has started by then).
+- **Replay:** `CommitFightStartLocal` (the dialog-close fight commit, host + client) invokes
+  `adapter.TryReplayIntroArm` once per key (`_introArmReplayed`) under the reentry guard → the real `SpawnArm` runs
+  at fight start (vanilla timing). With `EnableCousinArmSync` the host's replayed arm flows through the RT3-A
+  boss-add pipeline + broadcasts; the client's replayed arm binds to it → **one** puppet, no double-spawn.
+- **Late-client safety:** if the FIGHT commit reaches a client before its intro plays (Log134 race), the commit
+  replays the arm, then the client's late behavior-tree intro arm fires — but the fight loop still hasn't started,
+  so it is blocked as a duplicate (the `_cousinFightLoopStarted` gate, not `FightStarted`, is what distinguishes it
+  from a real Reappear arm).
+- Config `DeferBossIntroArm` (default on, requires `GateBossFightOnDialogClose`). Log tag `[BossArmDefer]`.
+
+> **Prior status (phase RT3-Cousin-arms).** The arm *sync* half was already done: `GoblinCousinArm` flows through
 > the RT3-A boss-add pipeline (see [Versioning.md](Versioning.md) §4 / agent memory `phase-5-5-rt-runtime-spawn-sync`),
-> so the client mirrors **one** host-authoritative puppet arm (no more double-spawn / double damage), and the client
-> mud-ball visual is the arm's own `CousinArm.ThrowProjectile` de-fanged + target-fixed via `CousinArmPatches`
-> (animation-event aligned). **Still open (issue 1):** the intro arm should appear *after* the dialog closes with the
-> vanilla delay — that requires gating the intro `SpawnArm` until the dialog-close commit (then re-triggering it),
-> which touches the verified Plan B gating and is its own iteration. The arm's pre-commit appearance does **no damage**
-> (host-routed + Cinematic-invuln), so it is cosmetic for now.
+> so the client mirrors **one** host-authoritative puppet arm, and the client mud-ball visual is the arm's own
+> `CousinArm.ThrowProjectile` de-fanged + target-fixed via `CousinArmPatches` (animation-event aligned). PF-ArmDefer
+> above closes the remaining timing half (issue 1).
 
 **Pre-existing behavior, out of scope.** When a client triggers the boss remotely, the host's faithful intro runs
 too, so the host player is pulled into the synced cutscene (Cinematic-locked) even if across the map. Plan B holds

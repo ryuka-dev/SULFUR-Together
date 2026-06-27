@@ -193,6 +193,43 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // ~1.1s after the dialog opens and overlaps it. We block StartFight until the dialog is dismissed (commit).
         public override bool GatesFightOnDialogClose(object component) => true;
 
+        // Phase PF-ArmDefer (issue 1): the behavior-tree sequence spawns the intro arm at `SpawnArm(transform.position)`
+        // ~1s after the dialog opens (U_GoblinCousin_Sequencer_1_3), 0.1s before StartFight. In single-player the dialog
+        // pauses the game so that arm only appears once the dialog closes; co-op disables the pause (Phase 5.7-NP) so the
+        // arm pokes out DURING the dialog. We defer it: the manager blocks the behavior-tree SpawnArm (pre-fight) and calls
+        // TryReplayIntroArm at the dialog-close fight commit (vanilla timing). With EnableCousinArmSync the host's replayed
+        // arm flows through the RT3-A pipeline and the client's replayed arm binds to it (one puppet, no double-spawn).
+        public override bool DefersIntroArmUntilCommit(object component) => true;
+
+        public override bool TryReplayIntroArm(object component, out string detail)
+        {
+            detail = "";
+            try
+            {
+                var owner = BossReflect.GetMember(component, "owner");
+                // Already dead? never spawn an arm onto a corpse (SpawnArm itself guards on this, but skip the call).
+                if (owner == null || BossReflect.GetMember(owner, "unitState")?.ToString() == "Dead")
+                { detail = "owner null/dead — skip"; return false; }
+
+                // Vanilla intro arm spawns at the boss's own transform position (data.transform.position) — after
+                // Introduction teleported the owner to currentPool.cousinPosition, that is the boss's current position.
+                Vector3 pos = (owner is Component oc && oc != null) ? oc.transform.position : Vector3.zero;
+
+                if (_spawnArmMethod == null)
+                    _spawnArmMethod = component.GetType().GetMethod("SpawnArm",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                if (_spawnArmMethod == null) { detail = "SpawnArm method not found"; return false; }
+
+                // SpawnArm(Vector3 position, bool despawnAutomatically = false) — provide both args for reflection.
+                _spawnArmMethod.Invoke(component, new object[] { pos, false });
+                detail = $"SpawnArm({pos:F1}) invoked";
+                return true;
+            }
+            catch (Exception ex) { detail = $"ex {ex.GetType().Name}: {ex.Message}"; return false; }
+        }
+
+        private System.Reflection.MethodInfo? _spawnArmMethod;
+
         // Phase RM (room-membership): the local player crosses "CousinTrigger" (-> CousinHelper.Trigger) to reach the
         // boss; that crossing marks them in-room. PlayerTrigger.onlyOnce is per-end, so every player who walks up to the
         // boss fires their own end's trigger -> the host learns each in-room player. (The wider room-doorway "Trigger"

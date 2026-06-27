@@ -157,6 +157,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             get { try { return Plugin.Cfg.GateBossFightOnDialogClose.Value; } catch { return false; } }
         }
+
+        private static bool DeferIntroArmActive
+        {
+            get { try { return Plugin.Cfg.DeferBossIntroArm.Value; } catch { return false; } }
+        }
         private static bool RoomMembershipActive
         {
             get { try { return Plugin.Cfg.EnableBossRoomMembership.Value; } catch { return false; } }
@@ -194,6 +199,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
+                _cousinFightLoopStarted.Clear();
+                _introArmReplayed.Clear();
                 _preFightLogged.Clear();
                 _luciaEyeConsumed.Clear();
                 _luciaEyeCycleComplete.Clear();
@@ -240,6 +247,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _bossUiAttached.Clear();
                 _lastHitVisualAt.Clear();
                 _terminalDead.Clear();
+                _cousinFightLoopStarted.Clear();
+                _introArmReplayed.Clear();
                 _preFightLogged.Clear();
                 _luciaEyeConsumed.Clear();
                 _luciaEyeCycleComplete.Clear();
@@ -873,7 +882,73 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             finally { EndApply(); }
             bool finalized = BossDialogReflect.TryFinalizeCurrentDialog(out string dlgDetail);
             Plugin.Log.Info($"[BossFightGate] committed fight start key={key} reason={reason} start[{startDetail}] dialogClosed={finalized}({dlgDetail})");
+
+            // PF-ArmDefer (issue 1): the boss's intro arm was blocked during the dialog (OnLocalIntroArmSpawn). Now that
+            // the fight is committed, replay it once — vanilla timing (the arm appears at fight start, not during the
+            // dialog). Runs under the reentry guard so its SpawnArm passes the gate. Idempotent per key. On the host the
+            // replayed arm flows through the RT3-A pipeline + broadcasts; on the client the replayed arm binds to it.
+            if (DeferIntroArmActive)
+            {
+                bool defers = false; try { defers = adapter.DefersIntroArmUntilCommit(component); } catch { }
+                if (defers)
+                {
+                    bool firstReplay; lock (_lock) { firstReplay = _introArmReplayed.Add(key); }
+                    if (firstReplay)
+                    {
+                        BeginApply();
+                        bool armed; string armDetail;
+                        try { armed = adapter.TryReplayIntroArm(component, out armDetail); }
+                        catch (Exception ex) { armed = false; armDetail = $"ex {ex.GetType().Name}: {ex.Message}"; }
+                        finally { EndApply(); }
+                        Plugin.Log.Info($"[BossArmDefer] replayed intro arm at commit key={key} ok={armed} ({armDetail})");
+                    }
+                }
+            }
             return true;
+        }
+
+        // PF-ArmDefer: encounters whose deferred intro arm we have already replayed at commit. Prevents a double replay
+        // and lets the gate block a late-client's trailing behavior-tree intro arm (the duplicate of our replay).
+        private static readonly HashSet<string> _introArmReplayed = new HashSet<string>();
+
+        private static void MarkCousinFightLoopStarted(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            lock (_lock) { _cousinFightLoopStarted.Add(key); }
+        }
+
+        /// <summary>PF-ArmDefer (issue 1) PREFIX for a deferred-intro-arm boss's arm spawn (Cousin.SpawnArm). Returns
+        /// false to BLOCK the behavior-tree INTRO arm (which co-op's no-pause lets fire DURING the dialog); the real arm
+        /// is replayed at the dialog-close fight commit (CommitFightStartLocal → TryReplayIntroArm). Mid-fight Reappear
+        /// arms (after the fight loop has begun) and our own commit replay (under the reentry guard) run normally.</summary>
+        public static bool OnLocalIntroArmSpawn(object component)
+        {
+            try
+            {
+                if (!Enabled || component == null || !DeferIntroArmActive) return true;
+                if (InReentry) return true; // our commit replay (or any host-applied step) — allow
+
+                var adapter = ResolveAdapter(component);
+                if (adapter == null) return true;
+                bool defers = false; try { defers = adapter.DefersIntroArmUntilCommit(component); } catch { }
+                if (!defers) return true;
+
+                NetMode mode = NetGameplaySyncBridge.BossMode;
+                bool joined = false; try { joined = NetClientJoinFlow.SessionJoinedHost; } catch { }
+                if (mode != NetMode.Host && !(mode == NetMode.Client && joined)) return true; // not networked
+
+                if (!TryGetEncounterKeyForBoss(component, out string key, out _)) return true;
+
+                bool loopStarted, terminal;
+                lock (_lock) { loopStarted = _cousinFightLoopStarted.Contains(key); terminal = _terminalDead.Contains(key); }
+                // Reappear arm (fight loop running) or a dying boss — let the native arm run.
+                if (loopStarted || terminal) return true;
+
+                // Pre-fight INTRO arm: defer it. Blocked here, replayed at the dialog-close fight commit.
+                if (LogOn) Plugin.Log.Info($"[BossArmDefer] blocked intro arm (deferred to fight commit) key={key} mode={mode}");
+                return false;
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossArmDefer] OnLocalIntroArmSpawn failed: {ex.GetType().Name}: {ex.Message}"); return true; }
         }
 
         // ================================================================== RM (room-membership substrate)
@@ -1348,6 +1423,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static int _bossDiscreteSeq;
         // F4 death: encounters whose boss has died (terminal). Suppresses further hits + state broadcast. Per-run.
         private static readonly HashSet<string> _terminalDead = new HashSet<string>();
+        // PF-ArmDefer: encounters whose fight loop has begun (a Submerge/Reappear/MoveToNewPool fired). After this, a
+        // Cousin SpawnArm is a mid-fight Reappear arm and must NOT be deferred — only the pre-fight INTRO arm is.
+        private static readonly HashSet<string> _cousinFightLoopStarted = new HashSet<string>();
 
         /// <summary>PREFIX for fixed-point discrete methods. Returns false to BLOCK the Client's own behaviour-tree
         /// call (LogOutput30 proved the client self-drives Submerge/MoveToNewPool/Reappear with its OWN random pool).
@@ -1382,6 +1460,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (mode == NetMode.Host)
                 {
                     if (!TryGetEncounterKeyForBoss(component, out string key, out string bossType)) return;
+                    // PF-ArmDefer: the fight loop has begun on this encounter — subsequent SpawnArm calls are mid-fight
+                    // Reappear arms, not the deferred intro arm. (Terminal "CousinDeath" is not a loop step.)
+                    if (!adapter.IsTerminalEvent(eventName)) MarkCousinFightLoopStarted(key);
                     if (!TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed)) { chap = ""; lvl = -1; }
                     adapter.BuildDiscreteEvent(component, eventName, out bool hasPos, out Vector3 pos, out string diag);
                     if (LogOn && !string.IsNullOrEmpty(diag)) Plugin.Log.Info(diag);
@@ -1410,6 +1491,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     return;
                 }
                 bool terminal = false; try { terminal = adapter.IsTerminalEvent(msg.EventName); } catch { }
+                // PF-ArmDefer: client mirrors the host's fight-loop step → arms after this are mid-fight Reappear arms.
+                if (!terminal) MarkCousinFightLoopStarted(msg.EncounterKey);
                 if (terminal)
                 {
                     bool first; lock (_lock) { first = _terminalDead.Add(msg.EncounterKey); }

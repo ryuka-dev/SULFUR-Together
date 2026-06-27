@@ -123,6 +123,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// OPENS and overlap it. When true the manager blocks StartFight until a host-authoritative dialog-close commit.</summary>
         public virtual bool GatesFightOnDialogClose(object component) => false;
 
+        /// <summary>Phase PF-ArmDefer (issue 1): default = no deferred intro arm. Cousin overrides.</summary>
+        public virtual bool DefersIntroArmUntilCommit(object component) => false;
+        public virtual bool TryReplayIntroArm(object component, out string detail)
+        { detail = "no deferred intro arm for this adapter"; return false; }
+
         /// <summary>Phase RM (room-membership): default = no room-entry source declared (membership not tracked for this
         /// boss). Bosses that participate override to name their room-entry trigger method.</summary>
         public virtual bool IsRoomEntrySource(string source) => false;

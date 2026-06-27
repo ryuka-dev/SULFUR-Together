@@ -151,6 +151,8 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableFaithfulBossIntro { get; }
         // ----- Phase PF (Plan B): gate the boss fight start on the intro dialog being dismissed (host-authoritative) -----
         public ConfigEntry<bool>   GateBossFightOnDialogClose { get; }
+        // ----- Phase PF-ArmDefer (issue 1): defer the Cousin intro arm until the dialog-close fight commit -----
+        public ConfigEntry<bool>   DeferBossIntroArm { get; }
         // ----- Phase RM: host-authoritative room-membership substrate (who is in the boss room). Observe-only for now -----
         public ConfigEntry<bool>   EnableBossRoomMembership { get; }
         // ----- Phase 5.4-E3 BossDialogCommit + Lucia + Witch state + Emperor worm -----
@@ -694,6 +696,8 @@ namespace SULFURTogether.Config
                 "Phase PF: on a joined client, instead of fake-starting the boss via direct Introduction()/StartFight() reflection (which skips the real intro dialog), set the boss's own trigger flag so its native behavior-tree intro sequence runs locally — reproducing the REAL intro animation + dialog + camera + boss bar ~99% faithfully. The fight mechanic stays host-authoritative. Cousin first.");
             GateBossFightOnDialogClose = cfg.Bind("NetworkBoss", "GateBossFightOnDialogClose", true,
                 "Phase PF (Plan B): for dialog-gated bosses (Cousin), block the behavior-tree StartFight until an in-room player dismisses the intro dialog, then start the fight host-authoritatively on every end and close all remaining boss dialogs. Restores the single-player gate (the dialog used to PAUSE the game, freezing the WaitForSeconds before StartFight) that co-op's no-pause mode removed, so the fight no longer auto-starts on top of the dialog.");
+            DeferBossIntroArm = cfg.Bind("NetworkBoss", "DeferBossIntroArm", true,
+                "Phase PF-ArmDefer (issue 1): defer the Cousin's intro arm so it appears AFTER the intro dialog closes (at fight start), matching single-player. Co-op's no-pause mode (Phase 5.7-NP) lets the behavior-tree SpawnArm fire ~1s into the dialog, so the arm pokes out during the cutscene. When on, the behavior-tree intro arm is blocked and the real arm is replayed on the dialog-close fight commit (with EnableCousinArmSync the host's replayed arm flows through the RT3-A pipeline and the client mirrors it). Cosmetic-only; mid-fight Reappear arms are unaffected. Off = legacy (arm appears during the dialog). Requires GateBossFightOnDialogClose.");
             EnableBossRoomMembership = cfg.Bind("NetworkBoss", "EnableBossRoomMembership", true,
                 "Phase RM (substrate): track which players are 'in the boss room' (host-authoritative). Each end reports when its local player crosses the boss's room-entry trigger; the host aggregates the in-room set and broadcasts it. Observe-only for now (logs '[RoomMembership]', changes no behavior) — the shared foundation for restricting the synced intro cutscene to in-room players and for the future arena lockdown (AFK exclusion).");
 
@@ -1423,6 +1427,7 @@ namespace SULFURTogether.Config
             RemoveBossDialogInteractableOnStart.Value = false;
             EnableFaithfulBossIntro.Value = true;
             GateBossFightOnDialogClose.Value = true;
+            DeferBossIntroArm.Value = true;
             EnableBossRoomMembership.Value = true;
 
             // Phase 5.4-E3 — dialog commit + Lucia + Witch state default on; Emperor worm DIAGNOSTIC on, SUPPRESSION off (reversible).

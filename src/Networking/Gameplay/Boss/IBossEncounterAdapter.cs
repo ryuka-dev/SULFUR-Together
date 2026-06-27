@@ -75,6 +75,18 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// disables pause). When true the manager blocks StartFight until a host-authoritative dialog-close commit.</summary>
         bool GatesFightOnDialogClose(object component);
 
+        /// <summary>Phase PF-ArmDefer (issue 1): true if this boss spawns a single INTRO arm/add from its behavior tree
+        /// DURING the intro dialog that, in single-player, is delayed until the dialog closes (the pause freezes the
+        /// behavior tree's WaitForSeconds). Co-op disables that pause, so the intro arm pokes out during the dialog.
+        /// When true the manager BLOCKS the behavior-tree intro arm and replays it on the dialog-close fight commit
+        /// (vanilla timing). Cousin = its SpawnArm; default = no deferred intro arm.</summary>
+        bool DefersIntroArmUntilCommit(object component);
+
+        /// <summary>Phase PF-ArmDefer: invoke the boss's REAL intro arm spawn now (the manager calls this from the
+        /// dialog-close fight commit, under the reentry guard so the SpawnArm gate lets it through). Idempotent-safe,
+        /// never throws. Default = no-op (boss has no deferred intro arm).</summary>
+        bool TryReplayIntroArm(object component, out string detail);
+
         /// <summary>Phase RM (room-membership): true if this start source marks the local player having crossed into the
         /// boss room (the room-entry trigger). Each end fires its own (PlayerTrigger.onlyOnce is per-end), so it
         /// captures every player who reaches the boss. Default = the boss's primary trigger; Cousin = "Trigger".</summary>
