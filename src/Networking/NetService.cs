@@ -1298,6 +1298,63 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- Phase LD-2a arena lockdown (membership feed)
+
+        internal void SendClientArenaEnter(Gameplay.NetClientArenaEnter msg)
+        {
+            if (_net == null || _mode != NetMode.Client || _hostPeer == null || msg == null) return;
+            if (!Plugin.Cfg.EnableArenaLockdown.Value) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientArenaEnter);
+                Gameplay.NetClientArenaEnterCodec.Write(w, msg);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] failed to send ClientArenaEnter: {ex.Message}"); }
+        }
+
+        private void HandleClientArenaEnter(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Plugin.Cfg.EnableArenaLockdown.Value) return;
+            if (!Gameplay.NetClientArenaEnterCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[ArenaLockdown] malformed ClientArenaEnter packet");
+                return;
+            }
+            if (!_peerIds.TryGetValue(peer, out var peerId)) return;
+            Gameplay.ArenaLockdownManager.HandleClientArenaEnter(msg, peerId);
+        }
+
+        /// <summary>LD-2a: the local end's current level (host's own run state).</summary>
+        internal bool TryGetLocalScene(out string chapter, out int level, out bool hasSeed, out int seed)
+        {
+            var ls = _runStates.LocalState;
+            chapter = ls.ChapterName; level = ls.LevelIndex; hasSeed = ls.HasLevelSeed; seed = ls.LevelSeed;
+            return ls.HasLevel;
+        }
+
+        /// <summary>LD-2a (host): every end (host + connected clients) currently in the given level. PeerId per end
+        /// ("host" for the local host state). Used to compute the non-in-room lockdown targets.</summary>
+        internal List<string> GetPeerIdsInLevel(string chapter, int level, bool hasSeed, int seed)
+        {
+            var result = new List<string>();
+            bool seedAuth = Plugin.Cfg.EnableLevelSeedAuthority.Value;
+            if (SceneMatch(_runStates.LocalState, chapter, level, hasSeed, seed, seedAuth)) result.Add(_runStates.LocalState.PeerId);
+            foreach (var rs in _runStates.RemoteStates)
+                if (SceneMatch(rs, chapter, level, hasSeed, seed, seedAuth)) result.Add(rs.PeerId);
+            return result;
+        }
+
+        private static bool SceneMatch(NetRunState s, string chapter, int level, bool hasSeed, int seed, bool seedAuth)
+        {
+            if (s == null || !s.HasLevel) return false;
+            if (!string.Equals(s.ChapterName, chapter, StringComparison.Ordinal)) return false;
+            if (s.LevelIndex != level) return false;
+            if (seedAuth) { if (!hasSeed || !s.HasLevelSeed) return false; if (s.LevelSeed != seed) return false; }
+            return true;
+        }
+
         // ---------------------------------------------------------------- World item-drop sync (player drops first)
         // Spawn: optimistic + peer-authoritative — the dropping peer broadcasts (Client→Host→relay to other Clients;
         // the dropper never mirrors its own). Take: host-authoritative — a Client requests, the Host grants exactly one
@@ -2378,6 +2435,9 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.TriggerDoors:
                         HandleTriggerDoors(peer, reader);
+                        break;
+                    case NetMessageType.ClientArenaEnter:
+                        HandleClientArenaEnter(peer, reader);
                         break;
                     case NetMessageType.BreakableBreak:
                         HandleBreakableBreak(peer, reader);

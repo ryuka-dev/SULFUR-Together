@@ -36,10 +36,11 @@ namespace SULFURTogether.Patches
             }
             catch (Exception ex) { Plugin.Log.Error($"[GateSync] Apply failed: {ex.Message}"); }
 
-            // Phase LD-1b: doors activated via GameObject.SetActive from a PlayerTrigger (Lucia etc.) — not a MetalGate.
+            // Phase LD-1b (door SetActive sync) + LD-2a (arena lockdown membership feed) both hook PlayerTrigger.Trigger.
             try
             {
-                if (!Plugin.Cfg.EnableTriggerDoorSync.Value) { Plugin.Log.Info("[DoorSync] disabled by config."); return; }
+                if (!Plugin.Cfg.EnableTriggerDoorSync.Value && !Plugin.Cfg.EnableArenaLockdown.Value)
+                { Plugin.Log.Info("[DoorSync] PlayerTrigger hook disabled by config."); return; }
                 var pt = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.World.PlayerTrigger")
                       ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.PlayerTrigger");
                 if (pt == null) { Plugin.Log.Warn("[DoorSync] PlayerTrigger type not found — trigger-door sync disabled."); return; }
@@ -82,6 +83,7 @@ namespace SULFURTogether.Patches
         {
             if (!__runOriginal) return;
             TriggerDoorSyncManager.CaptureLocalTrigger(__instance);
+            ArenaLockdownManager.OnLocalTriggerFired(__instance); // LD-2a: arena lockdown membership feed
         }
     }
 }

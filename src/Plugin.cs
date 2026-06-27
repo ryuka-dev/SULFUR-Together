@@ -84,6 +84,7 @@ namespace SULFURTogether
             NetPlayerLifeManager.Tick();
             Networking.Gameplay.Boss.NetBossEncounterManager.Tick();
             Networking.Gameplay.Boss.BossDynamicSpawnManifest.TickReleaseStaleGated(); // RT3-A safety: release stuck gates
+            Networking.Gameplay.ArenaLockdownManager.Tick(); // LD-2a: host arena lockdown timers
             _netService?.Tick();
         }
 

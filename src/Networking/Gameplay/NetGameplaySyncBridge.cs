@@ -94,6 +94,18 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalTriggerDoors(msg);
         }
 
+        // Phase LD-2a — arena lockdown membership + run-state queries (host membership/timer; see ArenaLockdownManager).
+        public static void SendClientArenaEnter(NetClientArenaEnter msg) => _service?.SendClientArenaEnter(msg);
+
+        public static bool TryGetLocalScene(out string chapter, out int level, out bool hasSeed, out int seed)
+        {
+            chapter = ""; level = -1; hasSeed = false; seed = 0;
+            return _service != null && _service.TryGetLocalScene(out chapter, out level, out hasSeed, out seed);
+        }
+
+        public static System.Collections.Generic.List<string> GetPeerIdsInLevel(string chapter, int level, bool hasSeed, int seed)
+            => _service?.GetPeerIdsInLevel(chapter, level, hasSeed, seed) ?? new System.Collections.Generic.List<string>();
+
         // World item-drop sync — spawn (optimistic, peer-authoritative; Client→Host→relay), take request (Client→Host),
         // removal broadcast (Host→all). See WorldPickupManager.
         public static void ReportLocalWorldPickupSpawn(NetWorldPickupSpawn msg)

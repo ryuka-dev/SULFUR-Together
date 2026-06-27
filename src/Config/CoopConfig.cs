@@ -213,6 +213,9 @@ namespace SULFURTogether.Config
         // ----- Phase LD-1b combat-room door sync, GameObject.SetActive variant (Lucia etc.) -----
         public ConfigEntry<bool>   EnableTriggerDoorSync { get; }
         public ConfigEntry<bool>   LogTriggerDoorSync { get; }
+        // ----- Phase LD-2 FF14-style arena lockdown (host-authoritative membership + timer; LD-2a observe-only) -----
+        public ConfigEntry<bool>   EnableArenaLockdown { get; }
+        public ConfigEntry<bool>   LogArenaLockdown { get; }
 
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
         public ConfigEntry<bool>   EnableWorldItemDropSync { get; }
@@ -865,6 +868,15 @@ namespace SULFURTogether.Config
             LogTriggerDoorSync = cfg.Bind("Destructibles", "LogTriggerDoorSync", true,
                 "Phase LD-1b: verbose log for trigger-door sync (capture / broadcast / mirror match).");
 
+            // Phase LD-2: FF14-style arena lockdown. A player crossing a combat-room seal trigger is "in-room"; the first
+            // cross anchors a timer; after 5s the non-in-room players in that level are force-sealed, after 10s teleported
+            // in (confirm popup). LD-2a is host-authoritative MEMBERSHIP + TIMER, DECISION-LOGGING ONLY (no seal/teleport
+            // yet) so the in-room set + timing can be verified before the barrier/teleport effects are wired.
+            EnableArenaLockdown = cfg.Bind("NetworkBoss", "EnableArenaLockdown", true,
+                "Phase LD-2a: FF14-style arena lockdown — host tracks who crossed each combat-room seal trigger (in-room) and runs the t0/+5s/+10s timeline. THIS BUILD ONLY LOGS the decisions ('[ArenaLockdown]', who would be sealed/teleported); it does not yet seal doors or teleport anyone (LD-2b/c). Reversible.");
+            LogArenaLockdown = cfg.Bind("NetworkBoss", "LogArenaLockdown", true,
+                "Phase LD-2a: verbose log for arena lockdown membership (local crossings, in-room set, seal/teleport decisions).");
+
             // World item-drop sync: items that appear in the world are mirrored across peers. Spawn is optimistic +
             // peer-authoritative (instant local drop, then broadcast); take is host-authoritative (first picker wins, the
             // item vanishes for everyone and only the winner receives it). The DIY gun state (attachments / enchantments /
@@ -1513,6 +1525,9 @@ namespace SULFURTogether.Config
             // Phase LD-1b — combat-room door (SetActive variant, Lucia) sync default on.
             EnableTriggerDoorSync.Value = true;
             LogTriggerDoorSync.Value = true;
+            // Phase LD-2a — arena lockdown membership + timer (decision-logging only) default on.
+            EnableArenaLockdown.Value = true;
+            LogArenaLockdown.Value = true;
             // World item-drop sync default on (player-thrown items); shared-loot widening stays off until host-roll exists.
             EnableWorldItemDropSync.Value = true;
             LogWorldItemDropSync.Value = true;

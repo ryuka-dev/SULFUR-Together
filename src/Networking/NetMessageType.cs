@@ -223,5 +223,10 @@ namespace SULFURTogether.Networking
         // read its own onTriggerEvents to get the local door references, and SetActive them. Same Client→Host→relay
         // topology as GateState; the firing peer never mirrors its own.
         TriggerDoors = 54,
+
+        // Phase LD-2a arena lockdown membership feed (Client→Host): "my local player crossed an arena seal trigger at
+        // this position." The host builds the per-arena in-room set + lockdown timer (first cross = t0) from these; the
+        // host's own crossings are reported locally. Foundation for the FF14 force-seal + teleport of out-of-room players.
+        ClientArenaEnter = 55,
     }
 }
