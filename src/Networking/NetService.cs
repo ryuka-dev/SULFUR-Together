@@ -2881,12 +2881,22 @@ namespace SULFURTogether.Networking
             if (!NetSceneName.SameScene(host.ChapterName, host.LevelIndex, clientChapter, clientLevel))
                 NetLogger.Info($"[TransitionRelay] cross-scene lead from {peerId}: client={clientChapter}:{clientLevel} host={host.ChapterName}:{host.LevelIndex} target={chapter}:{level}");
 
-            // Already at the target — the in-flight / finalized broadcast already brings the client; do nothing.
-            if (NetSceneName.SameScene(host.ChapterName, host.LevelIndex, chapter, level))
+            // Phase F3-Reload: a same-scene relay from a linked client is an explicit RELOAD-IN-PLACE (F3 to the level
+            // both ends are already in). The client's gate now relays + waits for us to RE-LEAD instead of self-
+            // reloading off our stale "I'm here" request (which diverged into its own fresh instance — Log147). Lead
+            // the reload so BOTH regenerate the level together (resets an in-progress fight, by design — the user's
+            // chosen behaviour). A client merely catching up to our scene follows our existing broadcast and never
+            // relays, so a same-scene relay reaching us is always an explicit reload.
+            bool reloadInPlace = NetSceneName.SameScene(host.ChapterName, host.LevelIndex, chapter, level);
+            bool reloadInPlaceEnabled; try { reloadInPlaceEnabled = Plugin.Cfg.EnableClientReloadInPlaceRelay.Value; } catch { reloadInPlaceEnabled = false; }
+            if (reloadInPlace && !reloadInPlaceEnabled)
             {
-                NetLogger.Info($"[TransitionRelay] ignore from {peerId}: host already at target {chapter}:{level}");
+                // Legacy: the in-flight / finalized broadcast already brings the client; do nothing.
+                NetLogger.Info($"[TransitionRelay] ignore from {peerId}: host already at target {chapter}:{level} (reload-in-place off)");
                 return;
             }
+            if (reloadInPlace)
+                NetLogger.Info($"[TransitionRelay] reload-in-place lead from {peerId}: host re-generating current level {chapter}:{level}");
 
             // Host busy loading — let the in-flight transition settle; the client follows it.
             if (!string.IsNullOrEmpty(host.GameState) && host.GameState.ToLowerInvariant().Contains("load"))

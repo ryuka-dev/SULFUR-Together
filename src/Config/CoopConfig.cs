@@ -120,6 +120,10 @@ namespace SULFURTogether.Config
         // (the transport). On timeout the client falls back to advancing locally so it is never stuck.
         public ConfigEntry<bool>   AllowClientInitiatedLevelLoad { get; }
         public ConfigEntry<float>  ClientInitiatedLoadTimeoutSeconds { get; }
+        // Phase F3-Reload: when a linked client F3's to the level both ends are ALREADY in (reload-in-place), the
+        // client must NOT self-reload off the host's stale "I'm here" request (that diverged — Log147) — it relays
+        // and waits for the host to RE-LEAD the reload so both regenerate together.
+        public ConfigEntry<bool>   EnableClientReloadInPlaceRelay { get; }
 
         // Phase 5.6-LK: explicit "联机状态 / Online-Linked state". The master switch for whether the mod's
         // multiplayer behavior is active. CLIENT default OFF — the player presses ManualClientSceneFollowKey
@@ -660,6 +664,8 @@ namespace SULFURTogether.Config
                 "Allow the client to load the next level. When a joined client walks into an in-run NextLevelTrigger (CompleteLevel — the sub-level advance that does NOT go through GoToLevel), instead of generating its own level the client shows a native loading fade, tells the host, and the host LEADS the transition so everyone advances together. Requires EnableClientTransitionRelay. On timeout the client advances locally so it is never stuck.");
             ClientInitiatedLoadTimeoutSeconds = cfg.Bind("NetworkSceneAuthority", "ClientInitiatedLoadTimeoutSeconds", 15f,
                 "How long a client-initiated level load waits for the host to lead before falling back to advancing locally (so an unresponsive host never leaves the client stuck behind a black loading fade).");
+            EnableClientReloadInPlaceRelay = cfg.Bind("NetworkSceneAuthority", "EnableClientReloadInPlaceRelay", true,
+                "Phase F3-Reload: fix the client F3-ing to the level both ends are already in (reload-in-place). Without this the client self-reloads off the host's stale scene request and diverges into its own fresh instance (Log147: laggy, link breaks, save persists the split). When on, the client relays the reload to the host and waits; the host RE-LEADS the reload so both regenerate the level together (this resets an in-progress fight, by design). Off = legacy (client self-reloads in place). Requires EnableClientTransitionRelay.");
             ClientLinkedByDefault = cfg.Bind("NetworkSceneAuthority", "ClientLinkedByDefault", false,
                 "联机状态: whether the CLIENT starts LINKED (joining/following the host). Default false so an in-progress solo run is never hijacked — the player presses ManualClientSceneFollowKey (PageDown) to link and ClientUnlinkKey to unlink.");
             HostLinkedByDefault = cfg.Bind("NetworkSceneAuthority", "HostLinkedByDefault", true,
@@ -1401,6 +1407,7 @@ namespace SULFURTogether.Config
             EnableClientTransitionRelay.Value = true;
             AllowClientInitiatedLevelLoad.Value = true;
             ClientInitiatedLoadTimeoutSeconds.Value = 15f;
+            EnableClientReloadInPlaceRelay.Value = true;
             ClientLinkedByDefault.Value = false;
             HostLinkedByDefault.Value = true;
             ClientUnlinkKey.Value = new KeyboardShortcut(KeyCode.PageUp);

@@ -48,6 +48,20 @@ namespace SULFURTogether.Networking
         private static float _nextRelayTime;
         private static int   _relayAttempt;
 
+        // Phase F3-Reload: a client-led transition whose target is the scene the client is ALREADY in (F3 reload-in-
+        // place). Such a target matches the host's STALE "I'm here" request, so without a freshness check the gate
+        // self-releases and reloads locally — diverging from the host's live instance (Log147). When this is set we
+        // require the host's release request to be FRESH (received after _clientLedEpoch), i.e. the host actually
+        // re-led the reload. A normal MOVE to a different scene keeps the old behaviour (no epoch).
+        private static bool  _clientLedReloadInPlace;
+        private static float _clientLedEpoch;
+        // The seed the client is reloading FROM (its current level seed at F3 time). A reload-in-place only releases
+        // on a host request carrying a DIFFERENT seed — proof the host actually RE-GENERATED. The host's reply to our
+        // gen-input request echoes its CURRENT (same) seed with a fresh timestamp, so a timestamp-only check released
+        // us prematurely on the stale seed (Log149: client stayed one seed behind the host). Seed-change is the signal.
+        private static bool  _clientLedReloadFromHasSeed;
+        private static int   _clientLedReloadFromSeed;
+
         // Phase 5.6-CL: this combat wait was started by the client walking into an in-run NextLevelTrigger
         // (CompleteLevel). On timeout it must advance LOCALLY (the one-shot trigger is already consumed, so the
         // player would otherwise be stuck) rather than stay blocked forever. _clientInitiatedFallback runs the
@@ -157,6 +171,10 @@ namespace SULFURTogether.Networking
             _nextAutoFollowTime = 0f;
             _clientInitiated = false;
             _clientInitiatedFallback = null;
+            _clientLedReloadInPlace = false;
+            _clientLedEpoch = 0f;
+            _clientLedReloadFromHasSeed = false;
+            _clientLedReloadFromSeed = 0;
             // Safety net: never leave the client stuck behind the black loading fade on a mode change / disconnect.
             if (NetLoadingFade.Active) NetLoadingFade.Hide();
         }
@@ -262,8 +280,22 @@ namespace SULFURTogether.Networking
             _clientInitiated = true;
             _clientInitiatedFallback = localFallback;
 
+            // Phase F3-Reload: is the target the scene we are ALREADY in? (F3 reload-in-place vs a real move). The
+            // local run state at this point still reads the CURRENT scene (the GoToLevel prefix runs before the load).
+            _clientLedEpoch = Now();
+            _clientLedReloadFromHasSeed = false;
+            _clientLedReloadFromSeed = 0;
+            bool sameScene = NetRunStateBridge.TryGetLocalRunState(out var curRun) && curRun.HasLevel
+                && NetSceneName.SameScene(curRun.ChapterName, curRun.LevelIndex, chapter, level);
+            _clientLedReloadInPlace = ReloadInPlaceRelayEnabled() && sameScene;
+            if (_clientLedReloadInPlace && curRun.HasLevelSeed)
+            {
+                _clientLedReloadFromHasSeed = true;
+                _clientLedReloadFromSeed = curRun.LevelSeed;
+            }
+
             ClientLoadGateInterceptedCombat++;
-            Plugin.Log.Info($"[ClientLoadGate] intercepted client-led {kindLabel} transition target={_pendingChapter}:{_pendingLevel} loadingMode={_pendingLoadingMode} spawn={_pendingSpawn} reason=waiting-host-lead connected={_connectedToHost}");
+            Plugin.Log.Info($"[ClientLoadGate] intercepted client-led {kindLabel} transition target={_pendingChapter}:{_pendingLevel} loadingMode={_pendingLoadingMode} spawn={_pendingSpawn} reason=waiting-host-lead reloadInPlace={_clientLedReloadInPlace} connected={_connectedToHost}");
         }
 
         private static void LogBypass(string chapter, int levelIndex, string loadingMode, string reason)
@@ -903,7 +935,19 @@ namespace SULFURTogether.Networking
         {
             var r = _latestHostRequest;
             if (r == null || !r.HasTargetScene || !r.HasLevelSeed) return false;
-            return NetSceneName.SameScene(r.ChapterName, r.LevelIndex, _pendingChapter, _pendingLevel);
+            if (!NetSceneName.SameScene(r.ChapterName, r.LevelIndex, _pendingChapter, _pendingLevel)) return false;
+            // Phase F3-Reload: for a reload-in-place (F3 to the scene we are already in), only release once the host
+            // has ACTUALLY re-generated — its request carries a DIFFERENT seed than the one we are reloading FROM.
+            // The host's reply to our gen-input request echoes its CURRENT (same) seed with a fresh timestamp, so a
+            // timestamp/epoch check alone released us prematurely on the stale seed (Log149: client stayed one seed
+            // behind the host). Match the host's NEW-seed reload broadcast; never the same-seed echo. A real MOVE to a
+            // different scene keeps releasing on any matching request.
+            if (_clientLedReloadInPlace)
+            {
+                if (_latestHostRequestAt < _clientLedEpoch) return false;     // pre-F3 stale request
+                if (_clientLedReloadFromHasSeed && r.LevelSeed == _clientLedReloadFromSeed) return false; // host hasn't re-rolled yet
+            }
+            return true;
         }
 
         // Phase 5.6-DL P4: true when the latest host input carries a seed AND was received AFTER this death —
@@ -922,6 +966,12 @@ namespace SULFURTogether.Networking
         private static bool GateDeathRespawnEnabled()
         {
             try { return Plugin.Cfg.ClientGateDeathRespawnUntilHostHub.Value; }
+            catch { return false; }
+        }
+
+        private static bool ReloadInPlaceRelayEnabled()
+        {
+            try { return Plugin.Cfg.EnableClientReloadInPlaceRelay.Value && Plugin.Cfg.EnableClientTransitionRelay.Value; }
             catch { return false; }
         }
 
