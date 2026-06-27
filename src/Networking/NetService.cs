@@ -636,6 +636,14 @@ namespace SULFURTogether.Networking
             Gameplay.Boss.NetBossEncounterManager.HandleHostRoomMembership(msg);
         }
 
+        // Phase RT3-Cousin-arms: enumerate every in-scene remote player's world position (recent, same-scene). Used
+        // client-side to spawn visual-only arm mud balls toward team-mates (the client has no ghost Units for them).
+        internal void ForEachRemotePlayerPosition(System.Action<UnityEngine.Vector3> action)
+        {
+            if (action == null) return;
+            _visualProxies.ForEachInScenePlayer((peerId, pos) => action(pos), Now(), Plugin.Cfg.RemotePlayerVisualTimeoutSeconds.Value);
+        }
+
         internal void BroadcastHostBossDynamicSpawn(Gameplay.Boss.NetBossDynamicSpawn msg)
         {
             if (_mode != NetMode.Host || _net == null) return;

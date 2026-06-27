@@ -5,6 +5,11 @@ using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 using SULFURTogether.Networking;
+using SULFURTogether.Networking.Gameplay;
+using PerfectRandom.Sulfur.Core;
+using PerfectRandom.Sulfur.Core.Items;
+using PerfectRandom.Sulfur.Core.Stats;
+using PerfectRandom.Sulfur.Core.Units;
 
 namespace SULFURTogether.Patches
 {
@@ -13,29 +18,37 @@ namespace SULFURTogether.Patches
     /// mirror it visually (de-fanged).
     ///
     /// Vanilla <c>CousinArm.ThrowProjectile()</c> (fired from a throw ANIMATION EVENT) lobs ONE physical mud ball at
-    /// <c>npc.AiAgent.target</c> — the single nearest player (GetClosestPlayer). The co-op design (user spec) is a
-    /// group attack: the arm throws one physical ball at EVERY player. Because the balls are physical (not homing),
-    /// players standing in a line all get hit by the front-most one.
+    /// <c>npc.AiAgent.target</c> — the single nearest player. The co-op design (user spec) is a group attack: one
+    /// physical ball at EVERY player; because the balls are physical (not homing), players in a line are all hit by the
+    /// front-most one.
     ///
-    /// We patch <c>ThrowProjectile</c>: instead of the one native throw we loop over <c>GameManager.Players</c> and run
-    /// the REAL throw once per player (re-invoking the method under a reentrancy flag, so the ball uses the arm's own
-    /// barrel/arc/visual). Because the call originates from the animation event, every ball stays aligned with the
-    /// throw animation. On the HOST each ball deals real damage (host-authoritative; a ball aimed at a remote player
-    /// hits that player's target-proxy and routes to the client). On the CLIENT every ball is de-fanged (damage 0) —
-    /// purely the visual; the client's GameManager.Players includes the local player plus the host's ghost proxy.
+    /// We patch <c>ThrowProjectile</c> and loop over the players:
+    ///  - HOST: re-invoke the REAL throw once per <c>GameManager.Players</c> entry (host + ghost proxies of clients) so
+    ///    each ball deals real, host-authoritative damage (a ball aimed at a remote player hits its target-proxy and
+    ///    routes to the client). Reentrancy flag lets us reuse the native method per target.
+    ///  - CLIENT: <c>GameManager.Players</c> only has the local player (ghosts are host-only). We re-invoke the real
+    ///    throw at the local player (de-fanged) AND, because there is no Unit for remote players client-side, we spawn a
+    ///    VISUAL-ONLY ball (the arm's own <c>visualProjectile</c>, damage 0) toward each remote player's proxy position,
+    ///    so a client sees the boss attacking everyone — not just itself. Damage stays host-authoritative.
+    ///
+    /// Because the call originates from the animation event, every ball stays aligned with the throw animation.
     /// </summary>
     internal static class CousinArmPatches
     {
         private static Type? _cousinArmType;
-        private static FieldInfo? _npcField;       // CousinArm.npc
-        private static FieldInfo? _damageField;    // CousinArm.damage
-        private static MethodInfo? _throwMethod;   // CousinArm.ThrowProjectile
+        private static FieldInfo? _npcField;        // CousinArm.npc
+        private static FieldInfo? _damageField;     // CousinArm.damage
+        private static FieldInfo? _barrelField;     // CousinArm.barrelTransform
+        private static FieldInfo? _heightCurveField;// CousinArm.throwHeightCurve
+        private static FieldInfo? _forceCurveField; // CousinArm.throwForceCurve
+        private static FieldInfo? _visualField;     // CousinArm.visualProjectile
+        private static FieldInfo? _prefabOnHitField;// CousinArm.prefabOnHit
+        private static MethodInfo? _throwMethod;    // CousinArm.ThrowProjectile
         private static FieldInfo? _aiAgentTargetField;
         private static FieldInfo? _playerUnitField; // Player.playerUnit
         private static Type? _gmType;
         private static PropertyInfo? _gmInstance;
         private static PropertyInfo? _gmPlayers;
-        private static PropertyInfo? _gmPlayerUnit;
 
         private static bool _inThrowLoop;
         private static float _lastLogAt;
@@ -57,17 +70,21 @@ namespace SULFURTogether.Patches
 
             _npcField = _cousinArmType.GetField("npc", BF);
             _damageField = _cousinArmType.GetField("damage", BF);
+            _barrelField = _cousinArmType.GetField("barrelTransform", BF);
+            _heightCurveField = _cousinArmType.GetField("throwHeightCurve", BF);
+            _forceCurveField = _cousinArmType.GetField("throwForceCurve", BF);
+            _visualField = _cousinArmType.GetField("visualProjectile", BF);
+            _prefabOnHitField = _cousinArmType.GetField("prefabOnHit", BF);
             _throwMethod = _cousinArmType.GetMethod("ThrowProjectile", BF, null, Type.EmptyTypes, null);
 
             _gmType = FindGameType("PerfectRandom.Sulfur.Core.GameManager") ?? FindGameType("GameManager");
             _gmInstance = _gmType?.GetProperty("Instance", BindingFlags.Static | BindingFlags.Public | BindingFlags.FlattenHierarchy);
             _gmPlayers = _gmType?.GetProperty("Players", BindingFlags.Instance | BindingFlags.Public);
-            _gmPlayerUnit = _gmType?.GetProperty("PlayerUnit", BindingFlags.Instance | BindingFlags.Public);
 
             if (_throwMethod == null) { Plugin.Log.Info("[ArmThrow] CousinArm.ThrowProjectile not found."); return; }
 
             var pre = new HarmonyMethod(typeof(CousinArmPatches).GetMethod(nameof(ThrowProjectile_Pre), BindingFlags.Static | BindingFlags.NonPublic));
-            try { harmony.Patch(_throwMethod, prefix: pre); Plugin.Log.Info($"[ArmThrow] patched CousinArm.ThrowProjectile (npc={_npcField != null} damage={_damageField != null} players={_gmPlayers != null})"); }
+            try { harmony.Patch(_throwMethod, prefix: pre); Plugin.Log.Info($"[ArmThrow] patched CousinArm.ThrowProjectile (npc={_npcField != null} barrel={_barrelField != null} visual={_visualField != null} players={_gmPlayers != null})"); }
             catch (Exception ex) { Plugin.Log.Error($"[ArmThrow] patch CousinArm.ThrowProjectile failed: {ex.Message}"); }
         }
 
@@ -80,7 +97,7 @@ namespace SULFURTogether.Patches
                 if (__instance == null || !Plugin.Cfg.EnableCousinArmSync.Value) return true;
                 bool client = NetConfig.GetMode() == NetMode.Client;
 
-                // Client: de-fang every throw this arm makes (visual only; damage stays host-authoritative).
+                // Client: de-fang every real throw this arm makes (visual only; damage stays host-authoritative).
                 if (client) { try { _damageField?.SetValue(__instance, 0f); } catch { } }
 
                 object? npc = _npcField?.GetValue(__instance);
@@ -91,50 +108,101 @@ namespace SULFURTogether.Patches
                 if (_aiAgentTargetField == null) return true;
 
                 var units = GatherPlayerUnits();
-                if (units.Count == 0)
+                int thrown = 0;
+                if (units.Count > 0)
+                {
+                    object? prevTarget = _aiAgentTargetField.GetValue(aiAgent);
+                    _inThrowLoop = true;
+                    try
+                    {
+                        foreach (var u in units)
+                        {
+                            if (u == null) continue;
+                            try { _aiAgentTargetField.SetValue(aiAgent, u); } catch { continue; }
+                            try { _throwMethod!.Invoke(__instance, null); thrown++; }
+                            catch (Exception ex) { Plugin.Log.Warn($"[ArmThrow] per-player throw failed: {ex.GetType().Name}: {ex.Message}"); }
+                        }
+                    }
+                    finally
+                    {
+                        _inThrowLoop = false;
+                        try { _aiAgentTargetField.SetValue(aiAgent, prevTarget); } catch { }
+                    }
+                }
+                else
                 {
                     // No player list resolved — fall back to the native single throw (ensure it has a target).
                     object? cur = _aiAgentTargetField.GetValue(aiAgent);
-                    if (cur == null || (cur is UnityEngine.Object uo && uo == null))
-                    {
-                        object? lp = ResolveLocalPlayerUnit();
-                        if (lp != null) { try { _aiAgentTargetField.SetValue(aiAgent, lp); } catch { } }
-                    }
-                    return true;
+                    if (cur == null || (cur is UnityEngine.Object uo && uo == null)) return true;
                 }
 
-                object? prevTarget = _aiAgentTargetField.GetValue(aiAgent);
-                int thrown = 0;
-                _inThrowLoop = true;
-                try
+                // CLIENT: GameManager.Players only had the local player (ghosts are host-only), so the loop above threw
+                // one ball at us. Add a visual-only ball toward each remote player's proxy position so the client sees the
+                // boss attacking everyone. (The host already covers all players via its ghost Players entries above.)
+                int remoteVisual = 0;
+                if (client)
                 {
-                    foreach (var u in units)
+                    object instCapture = __instance;
+                    object? npcCapture = npc;
+                    NetGameplaySyncBridge.ForEachRemotePlayerPosition(pos =>
                     {
-                        if (u == null) continue;
-                        try { _aiAgentTargetField.SetValue(aiAgent, u); }
-                        catch { continue; }
-                        try { _throwMethod!.Invoke(__instance, null); thrown++; }
-                        catch (Exception ex) { Plugin.Log.Warn($"[ArmThrow] per-player throw failed: {ex.GetType().Name}: {ex.Message}"); }
-                    }
-                }
-                finally
-                {
-                    _inThrowLoop = false;
-                    try { _aiAgentTargetField.SetValue(aiAgent, prevTarget); } catch { }
+                        if (ClientVisualThrowAt(instCapture, npcCapture, pos)) remoteVisual++;
+                    });
                 }
 
                 if (Plugin.Cfg.LogBossDynamicSpawn.Value)
                 {
                     float now = Time.realtimeSinceStartup;
-                    if (now - _lastLogAt > 0.5f) { _lastLogAt = now; Plugin.Log.Info($"[ArmThrow] {(client ? "client visual" : "host")} AoE throw players={units.Count} thrown={thrown}"); }
+                    if (now - _lastLogAt > 0.5f) { _lastLogAt = now; Plugin.Log.Info($"[ArmThrow] {(client ? "client" : "host")} AoE throw players={units.Count} thrown={thrown} remoteVisual={remoteVisual}"); }
                 }
                 return false; // we issued all throws; skip the native single throw
             }
             catch (Exception ex) { Plugin.Log.Warn($"[ArmThrow] ThrowProjectile_Pre failed: {ex.GetType().Name}: {ex.Message}"); return true; }
         }
 
-        // Every player's damageable Unit (GameManager.Players[i].playerUnit). Host: local + ghost proxies of clients;
-        // Client: local + the host's ghost proxy.
+        // Client-only: spawn a visual-only mud ball (the arm's own visualProjectile, 0 damage) on a ballistic arc toward
+        // a world position. Replicates the math of CousinArm.ThrowProjectile so the arc + visual match, minus damage.
+        private static bool ClientVisualThrowAt(object cousinArm, object? npcObj, Vector3 targetPos)
+        {
+            try
+            {
+                var barrel = _barrelField?.GetValue(cousinArm) as Transform;
+                var heightCurve = _heightCurveField?.GetValue(cousinArm) as AnimationCurve;
+                var forceCurve = _forceCurveField?.GetValue(cousinArm) as AnimationCurve;
+                var visual = _visualField?.GetValue(cousinArm) as ProjectileCustomVisuals;
+                var prefabOnHit = _prefabOnHitField?.GetValue(cousinArm) as AutoPooledObject;
+                if (barrel == null || heightCurve == null || forceCurve == null) return false;
+                var npc = npcObj as Unit;
+                if (npc == null) return false;
+
+                const float capsuleHeightFallback = 2f; // we don't resolve each remote proxy's collider; vanilla default
+                Vector3 aimAt = targetPos + Vector3.up * capsuleHeightFallback;
+                float time = Vector3.Distance(barrel.position, targetPos);
+                float h = heightCurve.Evaluate(time);
+                Vector3 normalized = (aimAt + Vector3.up * h - barrel.position).normalized;
+
+                var ray = new ProjectileRay(barrel.position, ProjectileTypes.Custom);
+                ray.gravity = ProjectileRay.GRAVITY;
+                ray.radius = 0.05f;
+                ray.startTime = Time.time;
+                ray.velocity = forceCurve.Evaluate(time) * normalized;
+                var hitmesh = GetMember(npcObj!, "hitmeshCollider") as Collider; // hitmeshCollider lives on Npc (Gameplay)
+                ray.ownerInstID = hitmesh != null ? hitmesh.GetInstanceID() : 0;
+                ray.drawDefaultBullet = false;
+
+                var data = new ProjectileData
+                {
+                    explicitDamage = 0f,
+                    spawnOnDestroy = prefabOnHit,
+                    damageType = DamageTypes.Normal,
+                    sourceUnit = npc,
+                };
+                ProjectileSystem.Instance.StartProjectile(ray, data, visual);
+                return true;
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[ArmThrow] client visual throw-at failed: {ex.GetType().Name}: {ex.Message}"); return false; }
+        }
+
         private static readonly List<object> _unitScratch = new List<object>(4);
         private static List<object> GatherPlayerUnits()
         {
@@ -155,12 +223,6 @@ namespace SULFURTogether.Patches
             }
             catch { }
             return _unitScratch;
-        }
-
-        private static object? ResolveLocalPlayerUnit()
-        {
-            try { var gm = _gmInstance?.GetValue(null); return gm == null ? null : _gmPlayerUnit?.GetValue(gm); }
-            catch { return null; }
         }
 
         private static object? GetMember(object obj, string name)

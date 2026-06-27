@@ -168,6 +168,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastHostBossDynamicSpawn(SULFURTogether.Networking.Gameplay.Boss.NetBossDynamicSpawn msg)
             => _service?.BroadcastHostBossDynamicSpawn(msg);
 
+        // Phase RT3-Cousin-arms: client-side enumeration of remote player positions (for visual-only arm balls).
+        public static void ForEachRemotePlayerPosition(System.Action<UnityEngine.Vector3> action)
+            => _service?.ForEachRemotePlayerPosition(action);
+
         // Phase 5.4-F BossDamageAuthority.
         public static void SendClientBossHitRequest(SULFURTogether.Networking.Gameplay.Boss.NetClientBossHitRequest req)
             => _service?.SendClientBossHitRequest(req);
