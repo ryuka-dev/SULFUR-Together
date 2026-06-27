@@ -3333,6 +3333,9 @@ namespace SULFURTogether.Networking.Gameplay
             window.RootReplayed = true;
             _clientCombatRootReplays++;
             Plugin.Log.Info($"[EnemyIntent] Client root-replay npcId={record.NpcId} seq={window.Sequence} kind={kind} method={method} actor={record.Snapshot?.ActorName ?? "?"}");
+            // Phase RT3-Cousin-arms: the Cousin arm's mud-ball visual is produced by its own animation-event throw
+            // (CousinArmPatches.ThrowProjectile_Pre fixes up the target + zeroes damage on the client). The
+            // SetRangedAttacking replay above plays that animation, so the throw stays aligned with the animation.
         }
 
         private static void PruneExpiredAuthorizedIntentWindows(float now)

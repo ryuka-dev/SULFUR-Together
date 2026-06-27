@@ -11,6 +11,7 @@ namespace SULFURTogether.Patches
             LevelGenTracePatches.Apply(harmony);
             BossEncounterPatches.Apply(harmony);
             BossSpawnPatches.Apply(harmony);
+            CousinArmPatches.Apply(harmony);
             DeathSpawnSyncPatches.Apply(harmony);
             WeaponFirePatches.Apply(harmony);
             BreakablePatches.Apply(harmony);

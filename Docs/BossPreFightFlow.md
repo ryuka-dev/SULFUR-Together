@@ -313,6 +313,15 @@ Cinematic-locked and can't touch it). A faithful fix would gate `SpawnArm` too, 
 RT3 boss-add sync (host broadcasts the arm as add `seq=0`; the client mirrors it) — block the client's own
 `SpawnArm` and have **only the host** replay on commit, else the arm double-spawns. Deferred.
 
+> **Update (phase RT3-Cousin-arms).** The arm sync half of that deferral is now done: `GoblinCousinArm` flows through
+> the RT3-A boss-add pipeline (see [Versioning.md](Versioning.md) §4 / agent memory `phase-5-5-rt-runtime-spawn-sync`),
+> so the client mirrors **one** host-authoritative puppet arm (no more double-spawn / double damage), and the client
+> mud-ball visual is the arm's own `CousinArm.ThrowProjectile` de-fanged + target-fixed via `CousinArmPatches`
+> (animation-event aligned). **Still open (issue 1):** the intro arm should appear *after* the dialog closes with the
+> vanilla delay — that requires gating the intro `SpawnArm` until the dialog-close commit (then re-triggering it),
+> which touches the verified Plan B gating and is its own iteration. The arm's pre-commit appearance does **no damage**
+> (host-routed + Cinematic-invuln), so it is cosmetic for now.
+
 **Pre-existing behavior, out of scope.** When a client triggers the boss remotely, the host's faithful intro runs
 too, so the host player is pulled into the synced cutscene (Cinematic-locked) even if across the map. Plan B holds
 that lock until *someone* dismisses the dialog. This is the room-membership problem (§3b #2) — addressed by the

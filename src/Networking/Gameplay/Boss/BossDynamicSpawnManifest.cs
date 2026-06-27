@@ -231,7 +231,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 SpawnsBound++;
                 Plugin.Log.Info($"[BossSpawn] BOUND slot={slot} seq={seq} hostUnitId={(string.IsNullOrEmpty(he.Msg.AddUnitId) ? "?" : he.Msg.AddUnitId)} localUnitId={(string.IsNullOrEmpty(la.UnitId) ? "?" : la.UnitId)} localInst={la.InstanceId} hostPos={he.Msg.Position:F1} localPos={la.Pos:F1}");
                 // RT3: drive the client's existing local add as a host puppet (transform / attack / death by host
-                // SpawnIndex). Skip special units that have dedicated systems (LuciaEye=F5, CousinArm) to avoid conflicts.
+                // SpawnIndex). Skip special units that have dedicated systems (LuciaEye=F5; GoblinCousinArm only while
+                // EnableCousinArmSync is off — see IsSpecialAdd) to avoid conflicts.
                 if (RuntimeSyncEnabled() && he.Msg.HostSpawnIndex > 0 && !IsSpecialAdd(he.Msg.AddType))
                 {
                     bool bound = NetGameplayProbeManager.RegisterMirroredRuntimeSpawn(la.Unit, he.Msg.HostSpawnIndex);
@@ -422,9 +423,25 @@ namespace SULFURTogether.Networking.Gameplay.Boss
               || float.IsInfinity(v.x) || float.IsInfinity(v.y) || float.IsInfinity(v.z));
 
         // Boss-owned spawns handled by dedicated systems — must NOT also be driven as generic runtime puppets:
-        //   BlackGuildLuciaEye (Lucia eye count/death authority, F5/F6) ; GoblinCousinArm (Cousin special arm).
-        private static readonly HashSet<string> _specialAdds = new HashSet<string> { "BlackGuildLuciaEye", "GoblinCousinArm" };
-        private static bool IsSpecialAdd(string addType) => addType != null && _specialAdds.Contains(addType);
+        //   BlackGuildLuciaEye (Lucia eye count/death authority, F5/F6).
+        private static readonly HashSet<string> _specialAdds = new HashSet<string> { "BlackGuildLuciaEye" };
+
+        // Phase RT3-Cousin-arms: GoblinCousinArm was historically in _specialAdds, but no dedicated arm system was ever
+        // built (the exclusion predated the mature RT3-A pipeline). Excluding it left each end running its own
+        // un-suppressed arm — double-spawn + double damage (client local throw + host-routed) + desynced timing. With
+        // EnableCousinArmSync the arm flows through the normal RT3-A pipeline like henchmen: the client local arm binds to
+        // host[seq] and becomes a mirrored puppet, so Npc.SetRangedAttacking is suppressed (the throw is a ranged-attack
+        // animation event) and the client no longer fires its own mud balls. Damage stays host-authoritative physical.
+        // When the toggle is off, the arm stays special-excluded (legacy behaviour).
+        private static bool IsSpecialAdd(string addType)
+        {
+            if (addType == null) return false;
+            if (_specialAdds.Contains(addType)) return true;
+            if (addType == "GoblinCousinArm") return !CousinArmSyncEnabled();
+            return false;
+        }
+
+        private static bool CousinArmSyncEnabled() { try { return Plugin.Cfg.EnableCousinArmSync.Value; } catch { return false; } }
 
         private static int ReadUnitIdValueFromUnit(object spawnedUnit)
         {

@@ -160,6 +160,8 @@ namespace SULFURTogether.Config
         // ----- Phase 5.4-E4 Boss dynamic spawn manifest -----
         public ConfigEntry<bool>   EnableBossDynamicSpawnManifest { get; }
         public ConfigEntry<bool>   LogBossDynamicSpawn { get; }
+        // ----- Phase RT3-Cousin-arms: route GoblinCousinArm through the standard RT3-A boss-add pipeline -----
+        public ConfigEntry<bool>   EnableCousinArmSync { get; }
         // ----- Phase 5.4-F BossDamageAuthority -----
         public ConfigEntry<bool>   EnableBossDamageAuthority { get; }
         // ----- Phase 5.4-F2 BossStartPresentation -----
@@ -471,6 +473,8 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableRemotePlayerInPlayersList { get; }
         public ConfigEntry<bool>   EnableGhostPlayerHitbox { get; }
         public ConfigEntry<bool>   LogRemotePlayerRegistry { get; }
+        // ----- Ghost-during-load freeze fix (LevelGeneration.ShowLevelNode NRE) -----
+        public ConfigEntry<bool>   SuppressGhostsWhileLoading { get; }
 
         public CoopConfig(ConfigFile cfg)
         {
@@ -708,6 +712,15 @@ namespace SULFURTogether.Config
                 "Phase 5.4-E4: capture boss-spawned runtime sub-entities (via UnitSO.SpawnUnit) into a host-authoritative manifest and classify client binding. Foundation only — never destroys or force-syncs this phase.");
             LogBossDynamicSpawn = cfg.Bind("NetworkBoss", "LogBossDynamicSpawn", true,
                 "Phase 5.4-E4: log each boss dynamic spawn + binding result (bound / host-only / client-extra).");
+
+            // Phase RT3-Cousin-arms: GoblinCousinArm was historically special-excluded from the RT3-A boss-add pipeline
+            // (a stale placeholder — no dedicated arm system was ever built, unlike the LuciaEye). That left each end
+            // running its own un-suppressed arm: double-spawn, double damage (local throw + host-routed), desynced timing.
+            // When enabled, arms flow through the normal pipeline like henchmen (host spawns+broadcasts, client local arm
+            // binds to host[seq] -> mirrored puppet, combat suppressed). Arm projectile damage stays host-authoritative
+            // physical (host throws real mud balls; they hit the host player / remote-player proxies by collision).
+            EnableCousinArmSync = cfg.Bind("NetworkBoss", "EnableCousinArmSync", true,
+                "Phase RT3-Cousin-arms: sync GoblinCousinArm through the RT3-A boss-add pipeline (host-authoritative spawn + client mirrored puppet, combat suppressed) instead of leaving each end to run its own arm. Fixes double-spawn / double damage. Off = legacy per-end independent arms. Reversible.");
 
             // Phase 5.4-F: route a client's hit on a boss MAIN BODY to the Host's real Unit.ReceiveDamage so the boss
             // mechanic (onDamageRecieved) advances host-side, instead of the client locally deducting HP that the host
@@ -1343,6 +1356,11 @@ namespace SULFURTogether.Config
                 "Plan B item ① (HOST, default OFF; needs EnableRemotePlayerInPlayersList AND EnableDamageProbe — the A3 forward Unit_ReceiveDamage_Pre lives inside the damage probe prefix): give the headless ghost a Hitmesh on the enemy attack layer so enemy hits land on it and route to the client's real player via that forward. OFF = enemies path to the ghost but swing through it (client unharmed). Reversible.");
             LogRemotePlayerRegistry = cfg.Bind("PlayerRegistry", "LogRemotePlayerRegistry", true,
                 "Plan B: verbose log for the headless Player registry + activation pass (create/update/destroy/register/activate).");
+            SuppressGhostsWhileLoading = cfg.Bind("PlayerRegistry", "SuppressGhostsWhileLoading", true,
+                "Freeze fix: do NOT register/keep headless ghost Players while the host is loading a level (GameState Loading/Uninitialized). " +
+                "Vanilla LevelGeneration.ShowLevelNode iterates GameManager.Players and dereferences each one's weaponCamera/playerCamera; a " +
+                "camera-less ghost re-registered mid-load throws a NullReferenceException that kills the generation coroutine -> the loading " +
+                "screen hangs at the final step (17/17). Ghosts are only needed during active gameplay; they re-register once the level is Running. Reversible.");
 
             ApplyUnpublishedDevelopmentDefaults(cfg);
         }
@@ -1415,6 +1433,8 @@ namespace SULFURTogether.Config
             // Phase 5.4-E4 — boss dynamic spawn manifest diagnostics default on.
             EnableBossDynamicSpawnManifest.Value = true;
             LogBossDynamicSpawn.Value = true;
+            // Phase RT3-Cousin-arms — route GoblinCousinArm through the RT3-A boss-add pipeline default on.
+            EnableCousinArmSync.Value = true;
 
             // Phase 5.4-F — boss main-body damage authority default on.
             EnableBossDamageAuthority.Value = true;
