@@ -58,6 +58,21 @@ namespace SULFURTogether.Networking.Gameplay
         private static bool ActivationEnabled { get { try { return Plugin.Cfg.EnableMultiPlayerNpcActivation.Value; } catch { return false; } } }
         private static bool LogOn { get { try { return Plugin.Cfg.LogRemotePlayerRegistry.Value; } catch { return false; } } }
 
+        // Freeze fix: the host is mid level-load (ShowLevelNode would NRE on a camera-less ghost in GameManager.Players).
+        // Only "Loading"/"Uninitialized" are treated as load — NOT "Cinematic" (that is in-level gameplay where the ghost
+        // must keep targeting). Returns false on any failure so the registry behaves as before if state is unreadable.
+        private static bool IsHostLoading()
+        {
+            try
+            {
+                if (!Plugin.Cfg.SuppressGhostsWhileLoading.Value) return false;
+                if (!NetRunStateBridge.TryGetLocalRunState(out var rs) || rs == null) return false;
+                string gs = (rs.GameState ?? "").Trim();
+                return gs == "Loading" || gs == "Uninitialized";
+            }
+            catch { return false; }
+        }
+
         // ---- reflection cache ----
         private static bool _resolveAttempted, _resolveOk;
         private static Type? _unitType, _playerType, _npcType;
@@ -77,7 +92,12 @@ namespace SULFURTogether.Networking.Gameplay
         /// maintain a headless Player per in-scene alive remote player.</summary>
         public void Tick(NetRemotePlayerProxyManager visualProxies, float now, float maxAgeSeconds)
         {
-            bool registry = RegistryEnabled && EnsureResolved();
+            // Freeze fix: while the host is loading a level, do not maintain ghost Players. Vanilla
+            // LevelGeneration.ShowLevelNode (the final generation step) iterates GameManager.Players and dereferences
+            // every entry's weaponCamera/playerCamera; a camera-less ghost re-registered mid-load throws an NRE that
+            // kills the generation coroutine -> the loading screen hangs at 17/17 (LogOutput139/140). Ghosts only matter
+            // during active gameplay and re-register the moment the level is Running again.
+            bool registry = RegistryEnabled && EnsureResolved() && !IsHostLoading();
 
             // One pass: refresh the activation buffer (the postfix reads it) and, if enabled,
             // create/update a ghost Player per in-scene alive remote player.
