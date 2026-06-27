@@ -109,15 +109,26 @@ boss-room entry trigger, hold the intro (block `EventStarted`/`Trigger`/`OnStart
 *committing*) until the host confirms all live players are present in the same boss scene+seed. Only
 then does the host broadcast "begin intro" and both ends run the start chain together.
 
-### G-B. Room sealing diverges (presentation suppressed on client)
-The blockade SetActive calls fire from **animation events** in the intro/death animators. With
-`EnableBossClientPresentation=false` (5.4-F3, default) the client's intro animation chain does not fully
-run, so `churchEntranceBlockade` / `blockadesToActivateAfterFight` may be left in the wrong state on the
-client (room visually open while host has it sealed, or vice-versa).
+### G-B. Room sealing diverges (presentation suppressed on client) — ❌ REJECTED, not a real gap (Log151/152)
+**Original hypothesis:** the blockade SetActive calls fire from **animation events** in the intro/death
+animators. With `EnableBossClientPresentation=false` (5.4-F3, default) the client's intro animation chain
+does not fully run, so `churchEntranceBlockade` / `blockadesToActivateAfterFight` may be left in the wrong
+state on the client.
 
-**Fix direction:** treat room-seal as a **host-authoritative discrete event** (like Cousin pools): host
-broadcasts seal/unseal of a named blockade; client mirrors `SetActive` directly (bypassing the animation
-event it never receives). Reuse the `HostBossDiscreteEvent(36)` channel or add a dedicated one.
+**Outcome — this gap does not exist.** PF-2 (room-seal mirror) was built and tested, then reverted. Two
+findings disproved the hypothesis:
+- A real Witch fight (Log152, `Act_03_EndChurch`) showed the seal-driver methods
+  (`WitchAnimationControl.LookAtWitch / EnableChurchBlockade / EnableOutsideTrigger`) **never fire at
+  runtime** — not on the host, not even caught by the read-only lifecycle probe. There is nothing to mirror.
+- The Witch arena is **inherently enclosed and entered by teleport** (`TeleportPlayerTo`, element ④ — which
+  already works). There is no door that *locks during the fight*; `churchEntranceBlockade` is handled by
+  scenery/cutscene timing outside the live fight flow, not as a per-fight seal.
+- Cousin already has no vanilla blockade (Log121 `[ArenaDoor]`=0).
+
+So no SULFUR boss uses a live, divergent in-fight room seal. The PF-2 work (host-authoritative seal
+broadcast on `HostBossDiscreteEvent(36)` with `EventName="Seal:<id>:<0|1>"` + client `SetActive` mirror)
+was `git restore`-reverted. **Do not rebuild it.** A genuine "seal the room" feature is the FF14 arena
+lockdown (§3b), which spawns its *own* barrier rather than mirroring a vanilla one.
 
 ### G-C. Multi-player teleport target (single point → overlap)
 `TeleportPlayerTo` moves to a single `playerPoint*`. With 2–4 players all teleporting to the same point
@@ -138,7 +149,7 @@ matching unlock on every exit path (including failure/timeout).
 |-------|-------|------|
 | **PF-0 Convergence probe** ✅ | Read-only. Logs local-vs-remote scene+seed convergence at every boss pre-fight start entrypoint, plus Witch room-seal timing. Answers section-4 open questions before PF-1/PF-2 are built. | None (diagnostic) |
 | **PF-1 Convergence gate** | Host-authoritative "all players present in boss scene+seed" barrier at the boss-room entry; hold intro until converged or timeout; guaranteed unlock on every exit. Fixes the infinite-dialog root cause (G-A/G-D). | High (touches start path) |
-| **PF-2 Room-seal mirror** | Host broadcasts blockade seal/unseal as a discrete event; client mirrors `SetActive` directly, independent of the suppressed animation chain (G-B). Per-boss blockade registry (Witch first). | Medium |
+| ~~**PF-2 Room-seal mirror**~~ ❌ REJECTED | Built + tested + reverted. The seal-driver animation events never fire in a real Witch fight and the arena is teleport-in/enclosed — G-B is not a real gap. Do not rebuild. See G-B above. | — |
 | **PF-3 Teleport co-op polish** | Verify per-phase `TeleportPlayerTo` follows on the client; add optional per-slot offset so players don't stack (G-C). | Low |
 
 Each phase is config-gated and falls back to current behavior when off. Validate one boss end-to-end
@@ -171,6 +182,49 @@ authority the scene system uses). Room-seal timing reuses the existing lifecycle
 
 > Decision gate: only build PF-1/PF-2 after the probe shows whether the client actually races ahead (SEED-SPLIT) and
 > whether the seal events diverge.
+
+## 3b-LD1. Generic combat-room gate sync (MetalGate) — implemented + deployed (awaiting verify)
+
+**Corrected understanding (Inspector evidence from the user, supersedes the "Cousin needs a mod barrier" note below).**
+The `[ArenaDoor]` probe (3b) only hooked `DoorBlocker.CloseDoor`, so its zero hits meant "not a DoorBlocker", **not**
+"no door". The real combat-room seal is a **`MetalGate`** (`PerfectRandom.Sulfur.Gameplay.Mechanisms.MetalGate.MetalGate`)
+closed by a **`PlayerTrigger`** the entering player crosses: `PlayerTrigger(On Enter, Only Once).OnTriggerEvents →
+MetalGate.Close()` (+ `MusicTrigger.StopMusic`). This is a **generic SULFUR mechanic** — boss arenas *and* ordinary
+elite rooms use it (per the user). So no mod-spawned barrier is needed; we drive the **native** gate.
+
+Inspector facts: the example gate has `startClosed=false` (opens by default, the trigger closes it on entry), its script
+`boxCollider` field is **unassigned** and `disableNavOnClose=false`, so `MetalGate.Close()` here reduces to
+`animator.SetBool("Closed", true)` — the physical block is the animated door mesh's own collider. `Close()`/`Open()`/
+`ToggleDoor()` are all **public**. The user confirmed gates are **per-end independent** (each end's local `PlayerTrigger`
+only closes its own gate), so an out-of-room / AFK player's gate is left open → the desync to fix.
+
+**LD-1 (this build) — peer-authoritative gate mirror** (modeled on Phase 5.7-BR Breakable sync):
+- Chokepoint: `MetalGate.Close()` / `Open()` postfix (every state change — PlayerTrigger seal, `MetalGateTrigger`,
+  `AllDeadTrigger` open, `startClosed` init, witch car-chase — routes through these). `Awake` postfix registers the gate
+  + its static world position. `MetalGate` is in the unreferenced Gameplay assembly → resolved + invoked by **reflection**.
+- Networking: `NetGateState { pos, closed }` on `NetMessageType.GateState(53)`, same Client→Host→relay topology as
+  `BreakableBreak`; the firing peer never mirrors its own. Receivers `FindMatch` the nearest local gate (≤1 m) and call
+  the same `Close()`/`Open()` under a reentry guard (`GateSyncManager.IsApplyingMirror`) so the mirrored call doesn't
+  re-broadcast. Per-gate `_lastState` skips redundant same-state sends (e.g. `OnEnable` re-close).
+- Files: `NetGateState(.cs/Codec)`, `GateSyncManager`, `MetalGatePatches`, wired through `NetGameplaySyncBridge` /
+  `NetService` (Broadcast/Send/Handle/Relay + dispatch) / `PatchBootstrap`; registry cleared on level change next to the
+  breakable clear. Config `EnableGateSync` (default on), log tag `[GateSync]`.
+- **Music NOT synced yet** (`MusicTrigger.StopMusic` is a separate subsystem; a client that never crosses won't hear the
+  boss music — real bug, handled separately). FF14 popup/teleport = LD-2, layered on this.
+- **Status:** built + deployed + **verified (Log153/154, partial multi-boss)** — bidirectional sync confirmed for
+  GraveyardGate / MetalGate / TreeGate / Big Door (all MetalGate under the hood); Emperor (same-trigger dialog+lock)
+  syncs fine. Known items:
+  - **Edge:** the client missed one host "Big Door" close (`no gate near` — its matching gate wasn't registered / >1 m
+    at that instant; same late-spawn race as BreakableBreak). Hardening TODO: queue unmatched gate events and apply on
+    the gate's `Awake` register (a door left open on one end matters more than a missed barrel).
+  - **Lucia is NOT covered (needs separate adaptation):** its door is a `GameObject "Doors"` toggled via
+    `PlayerTrigger_StartEvent.OnTriggerEvents → GameObject.SetActive(Doors, true)` (alongside `Npc.Interact` for the
+    dialog + `MusicTrigger.StartMusic`), not a `MetalGate.Close()`. LD-1's MetalGate hook can't see a `SetActive`. Sync
+    it by tying to the Lucia encounter start (host-authoritative) → `SetActive` the door on every end.
+  - **Desert sandstorm wall:** reported as syncing now, but Log154 `[GateSync]` shows only GraveyardGate — the sand
+    encirclement is likely the existing desert-boss start sync (5.4-F), not LD-1. Needs a clean desert re-test.
+  - **Unrelated (not ours):** `Act_03_Canyon:1` ("Canyon2") crashes with an Addressables `InvalidKeyException` (missing
+    GUID 8e87dcbc…) — reproduced identically WITHOUT the coop mod (Log155). Vanilla/modpack content bug.
 
 ## 3b. Arena Lockdown (FF14-style boss gate) — feature design
 

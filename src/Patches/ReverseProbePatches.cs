@@ -238,6 +238,7 @@ namespace SULFURTogether.Patches
                 NetLevelSeed.BeginLevelTransition(__instance, "GameManager.GoToLevel");
                 NetGameplayProbeManager.ClearLevelScoped("GameManager.GoToLevel");
                 SULFURTogether.Networking.Gameplay.BreakableBreakManager.Clear(); // Phase 5.7-BR drop prev level's breakable registry
+                SULFURTogether.Networking.Gameplay.GateSyncManager.Clear();        // Phase LD-1 drop prev level's gate registry
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
                 string chapterName = chapterSO?.ToString() ?? "<unknown>";
                 string loadingModeName = loadingMode?.ToString() ?? "";
@@ -459,6 +460,7 @@ namespace SULFURTogether.Patches
                 ReverseProbeKnownObjects.ClearLevelScopedObjects();
                 NetGameplayProbeManager.ClearLevelScoped("GameManager.ClearLevel");
                 SULFURTogether.Networking.Gameplay.BreakableBreakManager.Clear(); // Phase 5.7-BR drop prev level's breakable registry
+                SULFURTogether.Networking.Gameplay.GateSyncManager.Clear();        // Phase LD-1 drop prev level's gate registry
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
                 NetRunStateBridge.ReportClearLevel();
                 Log.Info("[GM] ClearLevel <<");

@@ -206,5 +206,15 @@ namespace SULFURTogether.Networking
         ClientRoomEnter = 51,
         // Host→All: the authoritative in-room player-id set for boss room X (event-driven, sent on membership change).
         HostRoomMembership = 52,
+
+        // Phase LD-1 generic combat-room gate (MetalGate) sync. Any peer → all others: "a gate at this deterministic
+        // world position just closed/opened." MetalGate.Close()/Open() is the single chokepoint (PlayerTrigger room-seal,
+        // MetalGateTrigger, AllDeadTrigger open, startClosed init, witch car-chase — all route through it). Gates are
+        // per-end independent (each end's local PlayerTrigger only closes its own), so without this an AFK / out-of-room
+        // player's gate never matches the others. Receivers find the nearest local MetalGate to the key and call the
+        // same Close()/Open() (animation/collider/navmesh — whatever that gate does, reproduced identically). Peer-
+        // authoritative effect mirror, same Client→Host→relay topology as BreakableBreak. Foundation for the FF14 arena
+        // lockdown (LD-2 adds host-authoritative seal of out-of-room players + popup + teleport on top).
+        GateState = 53,
     }
 }

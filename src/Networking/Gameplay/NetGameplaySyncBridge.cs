@@ -80,6 +80,14 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalBreakableBreak(msg);
         }
 
+        // Phase LD-1 — generic combat-room gate (MetalGate) open/close channel. The peer that changed a gate reports it;
+        // NetService stamps PeerId + scene context and routes it (Client→Host→relay to other Clients; firing peer never
+        // mirrors its own). See GateSyncManager.
+        public static void ReportLocalGateState(NetGateState msg)
+        {
+            _service?.BroadcastLocalGateState(msg);
+        }
+
         // World item-drop sync — spawn (optimistic, peer-authoritative; Client→Host→relay), take request (Client→Host),
         // removal broadcast (Host→all). See WorldPickupManager.
         public static void ReportLocalWorldPickupSpawn(NetWorldPickupSpawn msg)

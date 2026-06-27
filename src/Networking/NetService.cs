@@ -1126,6 +1126,93 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- Phase LD-1 combat-room gate (MetalGate) sync
+        // Same topology as BreakableBreak: the peer that opened/closed a gate reports it; the Host stamps the PeerId,
+        // mirrors it locally (same scene) and relays to all other clients. The firing peer never mirrors its own.
+
+        internal void BroadcastLocalGateState(Gameplay.NetGateState msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnableGateSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendGateState(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendGateState(_hostPeer, msg);
+            }
+        }
+
+        private void SendGateState(NetPeer peer, Gameplay.NetGateState msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.GateState);
+                Gameplay.NetGateStateCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[GateSync] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleGateState(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableGateSync.Value) return;
+            if (!Gameplay.NetGateStateCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[GateSync] malformed GateState packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId))
+                {
+                    if (Plugin.Cfg.EnableDebugLog.Value)
+                        NetLogger.Debug($"[GateSync] ignoring gate from unregistered peer {peer.Address}");
+                    return;
+                }
+                msg.PeerId = peerId;
+
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.GateSyncManager.ApplyRemoteGate(msg);
+
+                RelayGateStateToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.PeerId == _runStates.LocalState.PeerId) return; // never mirror my own change
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.GateSyncManager.ApplyRemoteGate(msg);
+            }
+        }
+
+        private void RelayGateStateToOtherClients(NetPeer sourcePeer, Gameplay.NetGateState msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendGateState(client, msg);
+            }
+        }
+
         // ---------------------------------------------------------------- World item-drop sync (player drops first)
         // Spawn: optimistic + peer-authoritative — the dropping peer broadcasts (Client→Host→relay to other Clients;
         // the dropper never mirrors its own). Take: host-authoritative — a Client requests, the Host grants exactly one
@@ -2201,6 +2288,9 @@ namespace SULFURTogether.Networking
                         HandlePlayerHeldWeapon(peer, reader);
                         break;
 
+                    case NetMessageType.GateState:
+                        HandleGateState(peer, reader);
+                        break;
                     case NetMessageType.BreakableBreak:
                         HandleBreakableBreak(peer, reader);
                         break;

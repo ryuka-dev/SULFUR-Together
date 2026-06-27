@@ -207,6 +207,9 @@ namespace SULFURTogether.Config
         // ----- Phase 5.7-BR in-scene destructible (Breakable) sync -----
         public ConfigEntry<bool>   EnableBreakableSync { get; }
         public ConfigEntry<bool>   LogBreakableSync { get; }
+        // ----- Phase LD-1 generic combat-room gate (MetalGate) open/close sync -----
+        public ConfigEntry<bool>   EnableGateSync { get; }
+        public ConfigEntry<bool>   LogGateSync { get; }
 
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
         public ConfigEntry<bool>   EnableWorldItemDropSync { get; }
@@ -841,6 +844,15 @@ namespace SULFURTogether.Config
                 "Phase 5.7-BR: mirror in-scene destructible (Breakable) destruction across peers so a barrel/crate/glass broken by any player shatters on every screen. Effect mirror; loot stays per-peer. Reversible.");
             LogBreakableSync = cfg.Bind("Destructibles", "LogBreakableSync", true,
                 "Phase 5.7-BR: verbose log for destructible sync (capture / broadcast / mirror match).");
+
+            // Phase LD-1: sync combat-room gates (MetalGate). SULFUR seals combat rooms (boss arenas AND ordinary elite
+            // rooms) with a MetalGate closed by a PlayerTrigger the entering player crosses; gates are per-end independent
+            // so an out-of-room / AFK player's gate is left open. Each peer's MetalGate.Close()/Open() is broadcast and
+            // mirrored by position on the others. Foundation for the FF14-style arena lockdown.
+            EnableGateSync = cfg.Bind("Destructibles", "EnableGateSync", true,
+                "Phase LD-1: mirror combat-room gate (MetalGate) open/close across peers so a door closed/opened on one end (entering a boss/elite room, room cleared) matches on every screen. Effect mirror (the same Close()/Open() — animation/collider/navmesh). Reversible. Foundation for the FF14 arena lockdown.");
+            LogGateSync = cfg.Bind("Destructibles", "LogGateSync", true,
+                "Phase LD-1: verbose log for gate sync (capture / broadcast / mirror match).");
 
             // World item-drop sync: items that appear in the world are mirrored across peers. Spawn is optimistic +
             // peer-authoritative (instant local drop, then broadcast); take is host-authoritative (first picker wins, the
@@ -1484,6 +1496,9 @@ namespace SULFURTogether.Config
             // Phase 5.7-BR — in-scene destructible (Breakable) sync default on.
             EnableBreakableSync.Value = true;
             LogBreakableSync.Value = true;
+            // Phase LD-1 — combat-room gate (MetalGate) sync default on.
+            EnableGateSync.Value = true;
+            LogGateSync.Value = true;
             // World item-drop sync default on (player-thrown items); shared-loot widening stays off until host-roll exists.
             EnableWorldItemDropSync.Value = true;
             LogWorldItemDropSync.Value = true;
