@@ -92,6 +92,45 @@ namespace SULFURTogether.Networking.Gameplay
 
         public static bool IsSealed(Vector3 arenaPos) => _barriers.ContainsKey(Key(arenaPos));
 
+        /// <summary>LD-2d: close the arena's door(s) for real when the grace period ends, by replaying the seal trigger's
+        /// own action on its door target — <c>MetalGate.Close()</c> or <c>SetActive(true)</c>. Resolved directly from the
+        /// trigger's <c>onTriggerEvents</c> (the same path that finds the barrier anchor), so it works regardless of the
+        /// gate registry / positions. Returns how many doors were closed.</summary>
+        public static int CloseArenaDoorsLocal(Vector3 arenaPos)
+        {
+            int n = 0;
+            try
+            {
+                object trigger = FindMatchTrigger(arenaPos);
+                if (trigger == null) return 0;
+                if (_eventField == null)
+                    _eventField = trigger.GetType().GetField("onTriggerEvents", BindingFlags.Public | BindingFlags.Instance);
+                if (!(_eventField?.GetValue(trigger) is UnityEventBase evt)) return 0;
+
+                int cnt = evt.GetPersistentEventCount();
+                for (int i = 0; i < cnt; i++)
+                {
+                    string method = evt.GetPersistentMethodName(i);
+                    var target = evt.GetPersistentTarget(i);
+                    if (target == null) continue;
+
+                    if (string.Equals(method, "Close", StringComparison.Ordinal)
+                        && target.GetType().Name.IndexOf("MetalGate", StringComparison.Ordinal) >= 0)
+                    {
+                        if (GateSyncManager.CloseGate(target)) n++;
+                    }
+                    else if (string.Equals(method, "SetActive", StringComparison.Ordinal))
+                    {
+                        GameObject go = target as GameObject ?? (target as Component)?.gameObject;
+                        if (go != null && go.name.IndexOf("door", StringComparison.OrdinalIgnoreCase) >= 0)
+                        { if (!go.activeSelf) go.SetActive(true); n++; }
+                    }
+                }
+            }
+            catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] CloseArenaDoorsLocal failed: {ex.Message}"); }
+            return n;
+        }
+
         public static void Clear()
         {
             foreach (var kv in _barriers)

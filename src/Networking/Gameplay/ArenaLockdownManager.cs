@@ -246,15 +246,17 @@ namespace SULFURTogether.Networking.Gameplay
                 switch (kind)
                 {
                     case ArenaCommandKind.Notify:
-                        // t0 heads-up only (no side effect). Player-facing → localize (Docs/Localization.md).
-                        Toast("Arena Lockdown", "A teammate started the arena fight.");
+                        // t0 heads-up: with grace mode the door stays open ~5 s, so invite the player to run in.
+                        // Player-facing → localize (Docs/Localization.md).
+                        Toast("Arena Lockdown", "A teammate entered the arena — head in now to join them!");
                         break;
 
                     case ArenaCommandKind.CloseDoor:
-                        // Grace over: end the local hold and close the gate that was kept open for real.
+                        // Grace over: end the local hold and close the door for real (replay the trigger's seal action
+                        // on its actual door target — robust regardless of gate registry/position).
                         EndLocalGrace(arenaPos);
-                        bool closedGate = GateSyncManager.CloseLocalGateNear(arenaPos);
-                        if (LogOn) NetLogger.Info($"[ArenaLockdown] CloseDoor arena={Key(arenaPos)} closedGate={closedGate}");
+                        int closedDoors = ArenaBarrierManager.CloseArenaDoorsLocal(arenaPos);
+                        if (LogOn) NetLogger.Info($"[ArenaLockdown] CloseDoor arena={Key(arenaPos)} closedDoors={closedDoors}");
                         break;
 
                     case ArenaCommandKind.Seal:

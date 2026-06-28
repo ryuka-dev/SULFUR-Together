@@ -48,7 +48,7 @@ cover our strings.
 | 1 | `Press [{key}] to enter the arena` | `ArenaLockdownManager.cs` (LD-2c popup banner, via `ShowPrompt`) | `{key}` = `ArenaEnterConfirmKey`. Shown to the out-of-room player at t0+10 s. |
 | 2 | `DOWNED\nWaiting for a teammate to revive you` | `NetPlayerLifeManager.DrawCenterPrompt` | IMGUI center prompt while locally downed. |
 | 3 | `Hold [{key}] to revive {name}\n{dist}m  {pct}%` | `NetPlayerLifeManager.DrawCenterPrompt` | IMGUI revive prompt; interpolates key/name/distance/progress. |
-| 4 | title `Arena Lockdown` / msg `A teammate started the arena fight.` | `ArenaLockdownManager.cs` (LD-2c `Notify` toast, t0, via `ShowToast`) | Heads-up toast to out-of-room players when the lockdown starts. |
+| 4 | title `Arena Lockdown` / msg `A teammate entered the arena — head in now to join them!` | `ArenaLockdownManager.cs` (LD-2c `Notify` toast, t0, via `ShowToast`) | Heads-up at t0; LD-2d grace keeps the door open ~5 s, so it invites the player to run in. |
 | 5 | title `Arena Lockdown` / msg `You've been sealed out — you'll be brought in shortly.` | `ArenaLockdownManager.cs` (LD-2c `Seal` toast, t0+5 s) | Explains the otherwise-invisible barrier. |
 | 6 | title `Arena` / msg `Entering the arena.` | `ArenaLockdownManager.cs` (LD-2c teleport toast) | Fired on teleport-in (confirm / boss-death release). |
 

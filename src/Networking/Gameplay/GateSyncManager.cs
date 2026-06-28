@@ -127,30 +127,18 @@ namespace SULFURTogether.Networking.Gameplay
             catch (Exception ex) { NetLogger.Warn($"[GateSync] mirror failed: {ex.Message}"); }
         }
 
-        /// <summary>LD-2d: close the nearest local gate to <paramref name="pos"/> for real (used when the grace period
-        /// ends — the gate was kept open during grace and is now closed). Real <c>MetalGate.Close()</c>, so its postfix
-        /// captures + syncs as normal. Returns true if a gate was found and closed.</summary>
-        public static bool CloseLocalGateNear(Vector3 pos, float radius = 12f)
+        /// <summary>LD-2d: close a SPECIFIC MetalGate instance for real (used when the grace period ends — the gate was
+        /// kept open during grace and is now closed). The gate object is resolved directly from the seal trigger's event
+        /// (robust, unlike a registry/position lookup). Real <c>Close()</c>, so its postfix captures + syncs as normal.</summary>
+        public static bool CloseGate(object gate)
         {
             try
             {
-                if (!ResolveMethods()) return false;
-                // pos is the seal trigger's position; the gate it controls is co-located but a different object, so use a
-                // generous radius (not the 1 m same-gate FindMatch epsilon).
-                Component best = null; float bestSqr = radius * radius; List<Component> dead = null;
-                foreach (var kv in _registry)
-                {
-                    Component c = kv.Key;
-                    if (c == null) { (dead ??= new List<Component>()).Add(c); continue; }
-                    float sqr = (kv.Value - pos).sqrMagnitude;
-                    if (sqr <= bestSqr) { bestSqr = sqr; best = c; }
-                }
-                if (dead != null) foreach (var d in dead) { _registry.Remove(d); _lastState.Remove(d); }
-                if (best == null) return false;
-                _closeMethod.Invoke(best, null);
+                if (gate == null || !ResolveMethods()) return false;
+                _closeMethod.Invoke(gate, null);
                 return true;
             }
-            catch (Exception ex) { NetLogger.Warn($"[GateSync] CloseLocalGateNear failed: {ex.Message}"); return false; }
+            catch (Exception ex) { NetLogger.Warn($"[GateSync] CloseGate failed: {ex.Message}"); return false; }
         }
 
         // ----------------------------------------------------------------- helpers
