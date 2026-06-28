@@ -707,7 +707,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             lock (_lock) { if (!_dialogCommitBroadcast.Add(key)) return; }
             var msg = BuildDialogCommit(key, component, in ctx, source);
-            MarkDialogSessionStarted(key, msg, playedLocally: true); // RM-2b: host originated → host is in-room, intro played natively
+            // RM-2b: only mark the cutscene "played locally" if THIS end is actually in-room. The host calls this both when
+            // it ORIGINATED (host walked in → in-room → played natively) AND when RELAYING a client's commit (host may be
+            // out-of-room → must NOT be marked played, or it skips the forced boss appearance + catch-up).
+            MarkDialogSessionStarted(key, msg, playedLocally: LocalInRoom(key));
             BossDialogCommitBroadcast++;
             Plugin.Log.Info($"[BossDialogCommit] host confirmed + broadcasting {msg.ToCompact()} speakable={BossDialogReflect.CurrentSpeakableName()}");
             NetGameplaySyncBridge.BroadcastHostBossDialogCommit(msg);
@@ -717,7 +720,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             lock (_lock) { if (!_clientRequested.Add(key)) return; }
             var msg = BuildDialogCommit(key, component, in ctx, source);
-            MarkDialogSessionStarted(key, msg, playedLocally: true); // RM-2b: client originated → its player is in-room, intro played natively
+            MarkDialogSessionStarted(key, msg, playedLocally: LocalInRoom(key)); // RM-2b: client originated → in-room → played natively
             BossDialogCommitRequested++;
             Plugin.Log.Info($"[BossDialogCommit] request {msg.ToCompact()} speakable={BossDialogReflect.CurrentSpeakableName()}");
             NetGameplaySyncBridge.SendClientBossDialogCommitRequest(msg);
