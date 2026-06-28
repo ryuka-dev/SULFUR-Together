@@ -888,6 +888,50 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (Exception ex) { Plugin.Log.Warn($"[BossDialogCutscene] OnLocalTeleportedIntoArena failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
+        // ---- RM-2b: suppress the player-facing intro cutscene (camera turn + Cinematic lock + dialog) for an OUT-OF-ROOM
+        // player, even when the boss's NATIVE behavior tree runs the intro (it can fire on this end once the boss is woken
+        // near a remote player). The boss still APPEARS (Introduction's teleport-to-pool + rise anim run); only the local
+        // player's camera/controller-lock/dialog are no-op'd by the patches that read IsSuppressingBossCutscene.
+        private static bool _suppressBossCutscene;
+        public static bool IsSuppressingBossCutscene => _suppressBossCutscene;
+        public static void SetSuppressBossCutscene(bool on) => _suppressBossCutscene = on;
+
+        /// <summary>RM-2b: cutscene-gated AND the local player is OUT of this boss's room → suppress its intro effects.</summary>
+        public static bool IsLocalOutOfRoomForBoss(object component)
+        {
+            try
+            {
+                if (!CutsceneGateActive || component == null) return false;
+                if (!TryGetEncounterKeyForBoss(component, out string key, out _)) return false;
+                return !LocalInRoom(key);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>RM-2b: block the boss dialog (Npc.Interact) on THIS end when cutscene-gated and the local player is out
+        /// of the room for the gated boss whose health unit is <paramref name="npc"/>.</summary>
+        public static bool ShouldBlockBossDialogNpc(object npc)
+        {
+            try
+            {
+                if (!CutsceneGateActive || npc == null) return false;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (!(e.Component is UnityEngine.Object uo) || uo == null) continue;
+                        try { if (!e.Adapter.GatesFightOnDialogClose(e.Component)) continue; } catch { continue; }
+                        object healthUnit = null; try { healthUnit = e.Adapter.GetHealthUnit(e.Component); } catch { }
+                        if (healthUnit != null && ReferenceEquals(healthUnit, npc))
+                            return !(_roomEnterReported.Contains(kv.Key) || _localTeleportedIn.Contains(kv.Key));
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
         // ================================================================== PF (Plan B): dialog-close-gated fight start
 
         /// <summary>Phase PF (Plan B): the dialog-flow hook saw a BOSS Npc open its dialog. If it belongs to a gated
@@ -1002,8 +1046,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     bool deferred; lock (_lock) { deferred = CutsceneGateActive && !_cutscenePlayed.Contains(key); }
                     if (deferred)
                     {
-                        BossReflect.TryInvoke(component, "Introduction", out string introDetail);
-                        Plugin.Log.Info($"[BossDialogCutscene] forced boss appearance (out-of-room) key={key}: {introDetail}");
+                        // Suppress the player-facing effects so the forced appearance doesn't drag THIS (out-of-room)
+                        // player's camera or lock them — only the boss's own appearance (teleport-to-pool + rise) runs.
+                        SetSuppressBossCutscene(true);
+                        try { BossReflect.TryInvoke(component, "Introduction", out string introDetail); Plugin.Log.Info($"[BossDialogCutscene] forced boss appearance (out-of-room) key={key}: {introDetail}"); }
+                        finally { SetSuppressBossCutscene(false); }
                     }
                     BossReflect.TryInvoke(component, "StartFight", out startDetail);
                 }

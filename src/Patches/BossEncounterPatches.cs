@@ -101,6 +101,7 @@ namespace SULFURTogether.Patches
             // DialogController.SetCurrentSpeakable) to confirm whether the Cousin fight starts via a trigger volume
             // (direct boss start, no dialog) or via the boss dialog's Attack option — before wiring the dialog sync.
             PatchDialogFlowProbe(harmony);
+            ApplyCutsceneSuppressionPatches(harmony); // RM-2b: no camera/lock/dialog for out-of-room players
 
             // Phase 5.4-E2: lifecycle probe + Emperor type discovery (diagnostic only).
             ApplyLifecycleProbe(harmony);
@@ -493,7 +494,9 @@ namespace SULFURTogether.Patches
                 {
                     var interact = AccessTools.GetDeclaredMethods(npc)
                         .FirstOrDefault(m => m.Name == "Interact" && !m.IsStatic && m.GetParameters().Length == 1);
-                    if (interact != null) harmony.Patch(interact, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(NpcInteract_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    if (interact != null) harmony.Patch(interact,
+                        prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(NpcInteract_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
+                        postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(NpcInteract_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                     Log.Info($"[DialogFlow] patched Npc.Interact(Player)({interact != null})");
                 }
                 var dc = FindType("DialogController", "PerfectRandom.Sulfur.Core.DialogController");
@@ -514,11 +517,89 @@ namespace SULFURTogether.Patches
             catch (Exception ex) { Log.Error($"[DialogFlow] probe patch failed: {ex.Message}"); }
         }
 
+        // RM-2b: block the boss dialog for an OUT-OF-ROOM player (the boss appears but they get no dialog cutscene).
+        private static bool NpcInteract_Pre(object __instance)
+        {
+            try { if (NetBossEncounterManager.ShouldBlockBossDialogNpc(__instance)) return false; } catch { }
+            return true;
+        }
+
         private static void NpcInteract_Post(object __instance, bool __runOriginal)
         {
             SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnNpcInteract(__instance, __runOriginal);
             // Phase PF (Plan B): a boss Npc opened its dialog → arm the dialog-close fight commit for its encounter.
             if (__runOriginal) NetBossEncounterManager.NotifyBossDialogOpened(__instance);
+        }
+
+        // ================================================================== RM-2b: out-of-room intro effect suppression
+
+        /// <summary>Patch the boss-intro player-facing effects so they no-op while a local OUT-OF-ROOM player is in a boss
+        /// Introduction: the camera turn + the Cinematic controller/invulnerability lock. The boss still appears; the
+        /// out-of-room player is not dragged into the cutscene. Plus a prefix/postfix on CousinHelper.Introduction that
+        /// raises the suppression window around the native (or forced) intro. Gated by GateBossDialogToInRoom.</summary>
+        private static void ApplyCutsceneSuppressionPatches(Harmony harmony)
+        {
+            if (!Plugin.Cfg.GateBossDialogToInRoom.Value) { Log.Info("[BossDialogCutscene] suppression patches off (GateBossDialogToInRoom=false)"); return; }
+            try
+            {
+                // Raise/lower the suppression window around CousinHelper.Introduction (covers the native behavior-tree intro
+                // when the boss is woken near a remote player; the forced-appearance path sets the flag itself).
+                var cousin = FindType("CousinHelper", "PerfectRandom.Sulfur.Gameplay.CousinHelper", "PerfectRandom.Sulfur.Core.CousinHelper");
+                var intro = cousin == null ? null : AccessTools.Method(cousin, "Introduction", Type.EmptyTypes);
+                if (intro != null)
+                    harmony.Patch(intro,
+                        prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(BossIntroSuppress_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
+                        postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(BossIntroSuppress_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[BossDialogCutscene] patched CousinHelper.Introduction suppression ({intro != null})");
+
+                var gm = FindType("GameManager", "PerfectRandom.Sulfur.Core.GameManager");
+                if (gm != null)
+                {
+                    foreach (var name in new[] { "ModifyControllerLock", "ModifyPlayerInvulnerability" })
+                    {
+                        var mi = AccessTools.GetDeclaredMethods(gm).FirstOrDefault(m => m.Name == name && m.GetParameters().Length == 2);
+                        if (mi != null) harmony.Patch(mi, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(CinematicLock_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                        Log.Info($"[BossDialogCutscene] patched GameManager.{name}({mi != null})");
+                    }
+                }
+
+                var ps = FindType("PlayerScript", "PerfectRandom.Sulfur.Core.PlayerScript", "PerfectRandom.Sulfur.Core.Units.PlayerScript");
+                var rot = ps == null ? null : AccessTools.GetDeclaredMethods(ps).FirstOrDefault(m => m.Name == "RotateCameraTowardsPosition");
+                if (rot != null) harmony.Patch(rot, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(RotateCamera_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[BossDialogCutscene] patched PlayerScript.RotateCameraTowardsPosition({rot != null})");
+            }
+            catch (Exception ex) { Log.Error($"[BossDialogCutscene] suppression patch failed: {ex.Message}"); }
+        }
+
+        private static void BossIntroSuppress_Pre(object __instance)
+        {
+            try { if (NetBossEncounterManager.IsLocalOutOfRoomForBoss(__instance)) NetBossEncounterManager.SetSuppressBossCutscene(true); } catch { }
+        }
+        private static void BossIntroSuppress_Post()
+        {
+            try { NetBossEncounterManager.SetSuppressBossCutscene(false); } catch { }
+        }
+
+        // Skip the Cinematic controller/invulnerability lock while suppressing an out-of-room boss cutscene (only the
+        // "lock on" with the Cinematic padlock — leave unlocks and other padlocks alone).
+        private static bool CinematicLock_Pre(object[] __args)
+        {
+            try
+            {
+                if (!NetBossEncounterManager.IsSuppressingBossCutscene) return true;
+                if (__args == null || __args.Length < 2) return true;
+                bool on = __args[1] is bool b && b;
+                bool cinematic = __args[0] != null && __args[0].ToString() == "Cinematic";
+                if (on && cinematic) return false; // skip the lock
+            }
+            catch { }
+            return true;
+        }
+
+        private static bool RotateCamera_Pre()
+        {
+            try { if (NetBossEncounterManager.IsSuppressingBossCutscene) return false; } catch { }
+            return true;
         }
 
         private static void SetCurrentSpeakable_Post(object speakable)
