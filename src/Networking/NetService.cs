@@ -1326,6 +1326,36 @@ namespace SULFURTogether.Networking
             Gameplay.ArenaLockdownManager.HandleClientArenaEnter(msg, peerId);
         }
 
+        /// <summary>LD-2b/c (host): broadcast an arena-lockdown command to all clients. The host applies its own
+        /// ("host") target locally before calling this; each client self-filters on its peer id.</summary>
+        internal void BroadcastArenaCommand(Gameplay.NetArenaCommand msg)
+        {
+            if (_mode != NetMode.Host || _net == null || msg == null) return;
+            if (!Plugin.Cfg.EnableArenaLockdown.Value || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.ArenaCommand);
+                    Gameplay.NetArenaCommandCodec.Write(w, msg);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] failed to broadcast ArenaCommand: {ex.Message}"); }
+            }
+        }
+
+        private void HandleArenaCommand(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Plugin.Cfg.EnableArenaLockdown.Value) return;
+            if (!Gameplay.NetArenaCommandCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[ArenaLockdown] malformed ArenaCommand packet");
+                return;
+            }
+            Gameplay.ArenaLockdownManager.HandleArenaCommand(msg, LocalPeerId);
+        }
+
         /// <summary>LD-2a: the local end's current level (host's own run state).</summary>
         internal bool TryGetLocalScene(out string chapter, out int level, out bool hasSeed, out int seed)
         {
@@ -2438,6 +2468,9 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.ClientArenaEnter:
                         HandleClientArenaEnter(peer, reader);
+                        break;
+                    case NetMessageType.ArenaCommand:
+                        HandleArenaCommand(peer, reader);
                         break;
                     case NetMessageType.BreakableBreak:
                         HandleBreakableBreak(peer, reader);

@@ -213,9 +213,10 @@ namespace SULFURTogether.Config
         // ----- Phase LD-1b combat-room door sync, GameObject.SetActive variant (Lucia etc.) -----
         public ConfigEntry<bool>   EnableTriggerDoorSync { get; }
         public ConfigEntry<bool>   LogTriggerDoorSync { get; }
-        // ----- Phase LD-2 FF14-style arena lockdown (host-authoritative membership + timer; LD-2a observe-only) -----
+        // ----- Phase LD-2 FF14-style arena lockdown (host-authoritative membership + timer + force-seal barrier + teleport) -----
         public ConfigEntry<bool>   EnableArenaLockdown { get; }
         public ConfigEntry<bool>   LogArenaLockdown { get; }
+        public ConfigEntry<KeyboardShortcut> ArenaEnterConfirmKey { get; }
 
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
         public ConfigEntry<bool>   EnableWorldItemDropSync { get; }
@@ -869,13 +870,15 @@ namespace SULFURTogether.Config
                 "Phase LD-1b: verbose log for trigger-door sync (capture / broadcast / mirror match).");
 
             // Phase LD-2: FF14-style arena lockdown. A player crossing a combat-room seal trigger is "in-room"; the first
-            // cross anchors a timer; after 5s the non-in-room players in that level are force-sealed, after 10s teleported
-            // in (confirm popup). LD-2a is host-authoritative MEMBERSHIP + TIMER, DECISION-LOGGING ONLY (no seal/teleport
-            // yet) so the in-room set + timing can be verified before the barrier/teleport effects are wired.
+            // cross anchors a timer; after 5s the non-in-room players in that level are force-sealed with an invisible
+            // two-way barrier at their local door (LD-2b), after 10s they get a confirm prompt → on confirm (or on boss
+            // death) they teleport in and the barrier drops (LD-2c). Host-authoritative membership + timer.
             EnableArenaLockdown = cfg.Bind("NetworkBoss", "EnableArenaLockdown", true,
-                "Phase LD-2a: FF14-style arena lockdown — host tracks who crossed each combat-room seal trigger (in-room) and runs the t0/+5s/+10s timeline. THIS BUILD ONLY LOGS the decisions ('[ArenaLockdown]', who would be sealed/teleported); it does not yet seal doors or teleport anyone (LD-2b/c). Reversible.");
+                "Phase LD-2: FF14-style arena lockdown — host tracks who crossed each combat-room seal trigger (in-room) and runs the t0/+5s/+10s timeline. At +5s non-in-room ends raise an invisible two-way barrier at their local door (anti-cheat); at +10s they get a confirm prompt → teleport in on confirm or boss death, dropping the barrier. Reversible.");
             LogArenaLockdown = cfg.Bind("NetworkBoss", "LogArenaLockdown", true,
-                "Phase LD-2a: verbose log for arena lockdown membership (local crossings, in-room set, seal/teleport decisions).");
+                "Phase LD-2: verbose log for arena lockdown (local crossings, in-room set, seal/popup/release/teleport).");
+            ArenaEnterConfirmKey = cfg.Bind("NetworkBoss", "ArenaEnterConfirmKey", new KeyboardShortcut(KeyCode.Return),
+                "Phase LD-2c: key an out-of-room player presses to confirm teleporting into a locked-down arena (the confirm prompt). Default Enter.");
 
             // World item-drop sync: items that appear in the world are mirrored across peers. Spawn is optimistic +
             // peer-authoritative (instant local drop, then broadcast); take is host-authoritative (first picker wins, the
@@ -1525,9 +1528,10 @@ namespace SULFURTogether.Config
             // Phase LD-1b — combat-room door (SetActive variant, Lucia) sync default on.
             EnableTriggerDoorSync.Value = true;
             LogTriggerDoorSync.Value = true;
-            // Phase LD-2a — arena lockdown membership + timer (decision-logging only) default on.
+            // Phase LD-2 — arena lockdown membership + timer + force-seal barrier + teleport default on.
             EnableArenaLockdown.Value = true;
             LogArenaLockdown.Value = true;
+            ArenaEnterConfirmKey.Value = new KeyboardShortcut(KeyCode.Return);
             // World item-drop sync default on (player-thrown items); shared-loot widening stays off until host-roll exists.
             EnableWorldItemDropSync.Value = true;
             LogWorldItemDropSync.Value = true;

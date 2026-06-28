@@ -228,5 +228,11 @@ namespace SULFURTogether.Networking
         // this position." The host builds the per-arena in-room set + lockdown timer (first cross = t0) from these; the
         // host's own crossings are reported locally. Foundation for the FF14 force-seal + teleport of out-of-room players.
         ClientArenaEnter = 55,
+
+        // Phase LD-2b/c arena-lockdown command (Host→all clients). The host computes each arena's non-in-room targets and
+        // tells those specific ends to Seal (raise the invisible two-way barrier, t0+5 s), Popup (confirm prompt + arm
+        // teleport, t0+10 s), or Release (boss death / fight over → force teleport in + drop the barrier). A receiving end
+        // acts only when its local peer id is in the target list; the host applies its own ("host") target locally.
+        ArenaCommand = 56,
     }
 }

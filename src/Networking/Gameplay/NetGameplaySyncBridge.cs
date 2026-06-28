@@ -97,6 +97,9 @@ namespace SULFURTogether.Networking.Gameplay
         // Phase LD-2a — arena lockdown membership + run-state queries (host membership/timer; see ArenaLockdownManager).
         public static void SendClientArenaEnter(NetClientArenaEnter msg) => _service?.SendClientArenaEnter(msg);
 
+        // Phase LD-2b/c — host-authoritative arena-lockdown command (Host→clients): Seal / Popup / Release.
+        public static void BroadcastArenaCommand(NetArenaCommand msg) => _service?.BroadcastArenaCommand(msg);
+
         public static bool TryGetLocalScene(out string chapter, out int level, out bool hasSeed, out int seed)
         {
             chapter = ""; level = -1; hasSeed = false; seed = 0;

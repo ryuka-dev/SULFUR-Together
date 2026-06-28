@@ -83,6 +83,10 @@ namespace SULFURTogether.Networking.Gameplay
                 });
 
                 if (LogOn) NetLogger.Info($"[GateSync] capture name={c.name} {(closed ? "CLOSE" : "OPEN")} pos={key}");
+
+                // LD-2c: a gate re-opening (AllDeadTrigger = all enemies dead / boss died) is the host's "fight over"
+                // signal — release any arena lockdown near it (let still-out-of-room players in, drop the barrier).
+                if (!closed) ArenaLockdownManager.OnGateOpened(key);
             }
             catch (Exception ex) { NetLogger.Warn($"[GateSync] capture failed: {ex.Message}"); }
         }
@@ -115,6 +119,10 @@ namespace SULFURTogether.Networking.Gameplay
                 _lastState[target] = m.Closed;
 
                 if (LogOn) NetLogger.Info($"[GateSync] mirror peer={m.PeerId} {(m.Closed ? "CLOSE" : "OPEN")} name={target.name} near {m.Position}");
+
+                // LD-2c: an in-room client's gate re-opening is mirrored here on the host — same "fight over" release
+                // signal as a local open (covers the case where the host is the out-of-room one).
+                if (!m.Closed) ArenaLockdownManager.OnGateOpened(m.Position);
             }
             catch (Exception ex) { NetLogger.Warn($"[GateSync] mirror failed: {ex.Message}"); }
         }
