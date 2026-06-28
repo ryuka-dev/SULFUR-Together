@@ -1398,7 +1398,7 @@ namespace SULFURTogether.Config
 
             // ----- Plan B: multiplayer enemy activation + headless Player registry -----
             EnableMultiPlayerNpcActivation = cfg.Bind("PlayerRegistry", "EnableMultiPlayerNpcActivation", false,
-                "Plan B (HOST, EXPERIMENTAL, default OFF): patch NpcUpdateManager.LateUpdate so enemies also wake near a REMOTE player, not just the host. Fixes 'client walks ahead of a stationary host → enemies stay inert statues'. Reversible.");
+                "Plan B (BOTH ends): patch NpcUpdateManager.LateUpdate so enemies also wake near a REMOTE player, not just the local one. Host feeds the buffer from its ghost registry; the client feeds it from its remote-player proxies (no ghosts — its enemies are host-driven puppets). Fixes 'a player walks ahead of a stationary teammate → enemies near the teammate stay inert statues' on BOTH the host and the client. Reversible.");
             MultiPlayerNpcActivationDistance = cfg.Bind("PlayerRegistry", "MultiPlayerNpcActivationDistance", 60f,
                 new ConfigDescription("Plan B: an inactive NPC within this distance of any remote player is activated (SetActive+ActivateBehaviour). The vanilla host gate uses npcActiveDistanceToPlayer (default 200); 60 keeps the wake bubble local to the client.",
                     new AcceptableValueRange<float>(10f, 200f)));
@@ -1482,6 +1482,8 @@ namespace SULFURTogether.Config
             DeferBossIntroArm.Value = true;
             EnableBossRoomMembership.Value = true;
             GateBossDialogToInRoom.Value = true;
+            // Symmetric NPC activation near remote players (both host + client). Validated host-side (Log93/94).
+            EnableMultiPlayerNpcActivation.Value = true;
 
             // Phase 5.4-E3 — dialog commit + Lucia + Witch state default on; Emperor worm DIAGNOSTIC on, SUPPRESSION off (reversible).
             EnableEmperorWormDiagnostics.Value = true;

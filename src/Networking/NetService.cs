@@ -220,6 +220,10 @@ namespace SULFURTogether.Networking
             // remote-position buffer the NpcUpdateManager.LateUpdate activation postfix reads.
             if (_mode == NetMode.Host)
                 PlayerRegistry.Tick(_visualProxies, Now(), Plugin.Cfg.RemotePlayerVisualTimeoutSeconds.Value);
+            // Symmetric activation: the CLIENT feeds the same buffer from its remote-player proxies (host + other clients)
+            // so enemies near them wake on the client too (no ghost registry — its enemies are host-driven puppets).
+            else if (_mode == NetMode.Client)
+                Gameplay.RemotePlayerRegistryManager.RefreshActivationBuffer(_visualProxies, Now(), Plugin.Cfg.RemotePlayerVisualTimeoutSeconds.Value);
 
             // WS-2: broadcast local held weapon on change + rebuild/attach remote weapon models.
             if (_mode != NetMode.Off)

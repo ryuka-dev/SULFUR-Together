@@ -121,6 +121,22 @@ namespace SULFURTogether.Networking.Gameplay
 
         public int GhostCount => _ghosts.Count;
 
+        /// <summary>CLIENT (symmetric activation): refresh ONLY the remote-position buffer the activation postfix reads —
+        /// no ghost Player registry. A client's enemies are host-driven puppets, so it doesn't need detection ghosts; it
+        /// only needs the NPC GameObjects near a remote player (the host / other clients) woken so they can be puppeted
+        /// and rendered instead of staying disabled (frozen "木桩"). Fixes the activation asymmetry where the vanilla wake
+        /// LOD only considers the client's own local player.</summary>
+        public static void RefreshActivationBuffer(NetRemotePlayerProxyManager visualProxies, float now, float maxAgeSeconds)
+        {
+            if (!ActivationEnabled || visualProxies == null) return;
+            _remotePositions.Clear();
+            visualProxies.ForEachInScenePlayer((peerId, pos) =>
+            {
+                if (NetPlayerLifeManager.IsPeerDownOrDead(peerId)) return;
+                _remotePositions.Add(pos);
+            }, now, maxAgeSeconds);
+        }
+
         private void UpdateOrCreate(string peerId, Vector3 pos, float now)
         {
             if (_ghosts.TryGetValue(peerId, out var g))
