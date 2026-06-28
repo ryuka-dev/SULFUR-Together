@@ -104,6 +104,16 @@ namespace SULFURTogether
                 ArenaLockdownManager.ShowPrompt = text => show.Invoke(null, new object[] { text });
                 ArenaLockdownManager.HidePrompt = () => hide.Invoke(null, null);
                 Log.Info("[ArenaLockdown] confirm prompt wired to SULFUR Native UI Lib banner (SulfurPopupApi).");
+
+                // LD-2c wait toasts (UI lib 0.9.0). Optional — absent → toasts are logged only.
+                var toastType = AccessTools.TypeByName("Ryuka.Sulfur.NativeUI.SulfurToastApi");
+                var showToast = toastType == null ? null : AccessTools.Method(toastType, "Show", new[] { typeof(string), typeof(string) });
+                if (showToast != null)
+                {
+                    ArenaLockdownManager.ShowToast = (title, msg) => showToast.Invoke(null, new object[] { title, msg });
+                    Log.Info("[ArenaLockdown] status toasts wired to SULFUR Native UI Lib (SulfurToastApi).");
+                }
+                else Log.Info("[ArenaLockdown] SulfurToastApi not present — status toasts logged only.");
             }
             catch (Exception ex)
             {

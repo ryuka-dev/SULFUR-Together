@@ -54,6 +54,11 @@ namespace SULFURTogether.Networking.Gameplay
         public static Action<string> ShowPrompt;
         public static Action         HidePrompt;
 
+        /// <summary>LD-2c transient status toast seam (title, message) for the lockdown wait — a teammate entered /
+        /// you've been sealed / entering. Defaults to logging only; SULFUR Native UI Lib's SulfurToastApi can be
+        /// wired in. PLAYER-FACING text → must be localized (see Docs/Localization.md).</summary>
+        public static Action<string, string> ShowToast;
+
         private static bool Enabled
         {
             get { try { return Plugin.Cfg.EnableArenaLockdown.Value; } catch { return false; } }
@@ -105,14 +110,19 @@ namespace SULFURTogether.Networking.Gameplay
         {
             if (!NetGameplaySyncBridge.IsHost) return;
             string key = Key(pos);
+            bool created = false;
             if (!_locks.TryGetValue(key, out var ld))
             {
                 ld = new Lockdown { Pos = pos, T0 = Time.unscaledTime, Chapter = chap, Level = lvl, HasSeed = hasSeed, Seed = seed };
                 _locks[key] = ld;
+                created = true;
                 NetLogger.Info($"[ArenaLockdown] START arena={key} level={chap}:{lvl} seed={(hasSeed ? seed.ToString() : "?")} t0 by {peerId}");
             }
             if (ld.InRoom.Add(peerId))
                 NetLogger.Info($"[ArenaLockdown] in-room += {peerId} arena={key} members=[{string.Join(",", ld.InRoom)}]");
+
+            // t0: heads-up toast to the out-of-room players (after the first crosser is in InRoom, so they're excluded).
+            if (created) IssueCommand(ld, ArenaCommandKind.Notify);
         }
 
         /// <summary>Driven from Plugin.Update on EVERY end: host runs the lockdown timers; every end polls its own
@@ -184,8 +194,15 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 switch (kind)
                 {
+                    case ArenaCommandKind.Notify:
+                        // t0 heads-up only (no side effect). Player-facing → localize (Docs/Localization.md).
+                        Toast("Arena Lockdown", "A teammate started the arena fight.");
+                        break;
+
                     case ArenaCommandKind.Seal:
                         ArenaBarrierManager.Seal(arenaPos);
+                        // Explain the otherwise-invisible barrier. Player-facing → localize.
+                        Toast("Arena Lockdown", "You've been sealed out — you'll be brought in shortly.");
                         break;
 
                     case ArenaCommandKind.Popup:
@@ -205,6 +222,14 @@ namespace SULFURTogether.Networking.Gameplay
                 }
             }
             catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] ApplyLocalCommand({kind}) failed: {ex.Message}"); }
+        }
+
+        /// <summary>Show a transient status toast (Native UI Lib if wired, else log). Text is PLAYER-FACING — keep it
+        /// in the localization registry (Docs/Localization.md).</summary>
+        private static void Toast(string title, string message)
+        {
+            if (ShowToast != null) { try { ShowToast(title, message); return; } catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] ShowToast failed: {ex.Message}"); } }
+            if (LogOn) NetLogger.Info($"[ArenaLockdown] toast (UI deferred): {title} — {message}");
         }
 
         /// <summary>Every end: poll the confirm key while a teleport is armed.</summary>
@@ -233,6 +258,8 @@ namespace SULFURTogether.Networking.Gameplay
                     if (tp != null) tp.Invoke(unit, new object[] { dest });
                     else if (unit is Component c && c != null) c.transform.position = dest;
                     NetLogger.Info($"[ArenaLockdown] teleported local player into arena ({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0})");
+                    // Player-facing → localize (Docs/Localization.md).
+                    Toast("Arena", "Entering the arena.");
                 }
                 else NetLogger.Warn("[ArenaLockdown] teleport: local player unit missing");
             }

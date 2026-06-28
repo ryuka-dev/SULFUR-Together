@@ -48,15 +48,13 @@ cover our strings.
 | 1 | `Press [{key}] to enter the arena` | `ArenaLockdownManager.cs` (LD-2c popup banner, via `ShowPrompt`) | `{key}` = `ArenaEnterConfirmKey`. Shown to the out-of-room player at t0+10 s. |
 | 2 | `DOWNED\nWaiting for a teammate to revive you` | `NetPlayerLifeManager.DrawCenterPrompt` | IMGUI center prompt while locally downed. |
 | 3 | `Hold [{key}] to revive {name}\n{dist}m  {pct}%` | `NetPlayerLifeManager.DrawCenterPrompt` | IMGUI revive prompt; interpolates key/name/distance/progress. |
+| 4 | title `Arena Lockdown` / msg `A teammate started the arena fight.` | `ArenaLockdownManager.cs` (LD-2c `Notify` toast, t0, via `ShowToast`) | Heads-up toast to out-of-room players when the lockdown starts. |
+| 5 | title `Arena Lockdown` / msg `You've been sealed out — you'll be brought in shortly.` | `ArenaLockdownManager.cs` (LD-2c `Seal` toast, t0+5 s) | Explains the otherwise-invisible barrier. |
+| 6 | title `Arena` / msg `Entering the arena.` | `ArenaLockdownManager.cs` (LD-2c teleport toast) | Fired on teleport-in (confirm / boss-death release). |
 
 ### Planned, not yet written (register here when added)
 
-- **LD-2 lockdown wait toasts** — `SulfurToastApi.Show(...)` (UI lib 0.9.0) for
-  transient status during the 5 s / 10 s lockdown wait (e.g. "a teammate started the
-  arena fight — sealing", "entering the arena"). **Intentionally not wired yet**:
-  wiring it now would add more hardcoded player-facing English ahead of the
-  localization layer. Wire it together with (or after) localization, and register
-  each toast string in the table above.
+- _(none at present)_
 
 ---
 

@@ -13,6 +13,7 @@ namespace SULFURTogether.Networking.Gameplay
         Seal     = 1, // LD-2b t0+5 s: raise the invisible two-way barrier at the local door.
         Popup    = 2, // LD-2c t0+10 s: show the confirm prompt + arm teleport (enter on confirm / boss death).
         Release  = 3, // LD-2c boss death / fight over: force teleport in + drop the barrier.
+        Notify   = 4, // LD-2c t0: heads-up status toast only (a teammate entered the arena), no side effect.
     }
 
     internal sealed class NetArenaCommand
