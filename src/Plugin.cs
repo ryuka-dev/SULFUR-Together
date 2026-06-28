@@ -11,6 +11,9 @@ using SULFURTogether.ReverseProbe;
 namespace SULFURTogether
 {
     [BepInPlugin(ModInfo.GUID, ModInfo.Name, ModInfo.Version)]
+    // LD-2c popup: optional native banner from SULFUR Native UI Lib. Soft — the mod runs fine without it
+    // (the arena-lockdown prompt just logs and confirm still works via the key); when present it provides the visual.
+    [BepInDependency("ryuka.sulfur.nativeui", BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
         public static Plugin     Instance { get; private set; } = null!;
@@ -29,6 +32,8 @@ namespace SULFURTogether
             Log.Info("[Build] Phase 5.7-DS2: host-authoritative SpawnMinions sync (spawnMinionsOnDeath) — host tags the parent UnitSO so the async minion spawns broadcast via the runtime pipeline; client suppresses its local SpawnMinions and mirrors. Fixes LogOutput118 'never bound, late-bind failed' on a GoblinYoung minion wave. + BatchedNPCRaycasts.LateUpdate finalizer swallows the roster/Players index race (1× IndexOutOfRange during runtime spawns). gates EnableMinionSpawnSync / EnableDestroyedUnitListSweep 2026-06-25");
             var harmony = new Harmony(ModInfo.GUID);
             PatchBootstrap.ApplyAll(harmony);
+
+            WireArenaLockdownPopup();
 
             // Phase 2 network — dead when EnableNetworking=false or NetworkMode=Off
             try
@@ -73,6 +78,37 @@ namespace SULFURTogether
             Log.Info($"[Config] EnableHostOnlyEnemyTargetAuthority={Cfg.EnableHostOnlyEnemyTargetAuthority.Value} | EnemyProjectileVisualMirrorEnabled={Cfg.EnemyProjectileVisualMirrorEnabled.Value} | EnemyProjectileVisualMirrorUseNativeShootReplay={Cfg.EnemyProjectileVisualMirrorUseNativeShootReplay.Value} | EnableGenericHostCombatAnimatorStateMirror={Cfg.EnableGenericHostCombatAnimatorStateMirror.Value} | EnableHostAuthoritativeEnemyRangedDamage={Cfg.EnableHostAuthoritativeEnemyRangedDamage.Value} | EnableClientEnemyIntentDrivenMotion={Cfg.EnableClientEnemyIntentDrivenMotion.Value} | EnemyIntentCorrectionDistance={Cfg.EnemyIntentCorrectionDistance.Value} | EnemyIntentHardSnapDistance={Cfg.EnemyIntentHardSnapDistance.Value} | LogEnemyTargetAuthority={Cfg.LogEnemyTargetAuthority.Value} | EnemyTargetAuthorityProbeIntervalSeconds={Cfg.EnemyTargetAuthorityProbeIntervalSeconds.Value} | EnableEnemyCombatProbe={Cfg.EnableEnemyCombatProbe.Value} | LogEnemyCombatProbe={Cfg.LogEnemyCombatProbe.Value} | EnemyHostProjectileHitRadius={Cfg.EnemyHostProjectileHitRadius.Value} | EnemyHostProjectileDamage={Cfg.EnemyHostProjectileDamage.Value}");
             Log.Info($"[Config] EnableEnemyStateSnapshotDeltaCompression={Cfg.EnableEnemyStateSnapshotDeltaCompression.Value} | EnemyStateSnapshotHeartbeatSeconds={Cfg.EnemyStateSnapshotHeartbeatSeconds.Value} | EnemyStateSnapshotPositionDeltaThreshold={Cfg.EnemyStateSnapshotPositionDeltaThreshold.Value} | EnemyStateSnapshotRotationDeltaThresholdDegrees={Cfg.EnemyStateSnapshotRotationDeltaThresholdDegrees.Value} | EnemyStateSnapshotAnimationTimeDeltaThreshold={Cfg.EnemyStateSnapshotAnimationTimeDeltaThreshold.Value}");
             Log.Info("Ready.");
+        }
+
+        /// <summary>LD-2c: wire the arena-lockdown confirm prompt to SULFUR Native UI Lib's banner if that mod is
+        /// loaded (soft dependency, resolved by reflection so we don't hard-link the assembly). The lib exposes
+        /// <c>Ryuka.Sulfur.NativeUI.SulfurPopupApi.ShowBanner(string)/HideBanner()</c>. Absent → the seam stays null
+        /// and the prompt is logged only; confirm still works via the key.</summary>
+        private void WireArenaLockdownPopup()
+        {
+            try
+            {
+                var apiType = AccessTools.TypeByName("Ryuka.Sulfur.NativeUI.SulfurPopupApi");
+                if (apiType == null)
+                {
+                    Log.Info("[ArenaLockdown] SULFUR Native UI Lib not present — confirm prompt will be logged only (UI optional).");
+                    return;
+                }
+                var show = AccessTools.Method(apiType, "ShowBanner", new[] { typeof(string) });
+                var hide = AccessTools.Method(apiType, "HideBanner", Type.EmptyTypes);
+                if (show == null || hide == null)
+                {
+                    Log.Warn("[ArenaLockdown] SulfurPopupApi found but ShowBanner/HideBanner missing — prompt logged only.");
+                    return;
+                }
+                ArenaLockdownManager.ShowPrompt = text => show.Invoke(null, new object[] { text });
+                ArenaLockdownManager.HidePrompt = () => hide.Invoke(null, null);
+                Log.Info("[ArenaLockdown] confirm prompt wired to SULFUR Native UI Lib banner (SulfurPopupApi).");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[ArenaLockdown] failed to wire Native UI Lib popup: {ex.Message}");
+            }
         }
 
         private void Update()
