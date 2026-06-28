@@ -137,6 +137,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static readonly Dictionary<string, HashSet<string>> _roomMembers = new Dictionary<string, HashSet<string>>();        // host-authoritative: key -> player ids
         private static readonly Dictionary<string, HashSet<string>> _roomMembersClientView = new Dictionary<string, HashSet<string>>(); // client cache of last host broadcast
         private static readonly HashSet<string> _roomEnterReported = new HashSet<string>();                                          // per-end once-per-key (room entry reported)
+        // Phase RM-2b: scope the synced intro cutscene to IN-ROOM players. A "dialog session" is active per encounter from
+        // the intro trigger until the fight commits; only ends whose local player is in-room play the cutscene, and a late
+        // entrant (walked in OR teleported in by the lockdown) catches it up while the session is still active.
+        private static readonly HashSet<string> _dialogSessionActive = new HashSet<string>();                                       // per-key: intro session open (until fight commit)
+        private static readonly HashSet<string> _cutscenePlayed = new HashSet<string>();                                            // per-key: THIS end already played the intro cutscene
+        private static readonly HashSet<string> _localTeleportedIn = new HashSet<string>();                                         // per-key: lockdown teleported the local player in (counts as in-room)
+        private static readonly Dictionary<string, NetBossDialogCommit> _lastIntroCommit = new Dictionary<string, NetBossDialogCommit>(); // per-key: last intro commit (to replay on catch-up)
         private static int _bossStateRevision;
         // E4.2: client-side per-key "boss bar already attached" guard.
         private static readonly HashSet<string> _bossUiAttached = new HashSet<string>();
@@ -186,6 +193,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _dialogCommitBroadcast.Clear();
                 _dialogCommitApplied.Clear();
                 _dialogInteractableRemoved.Clear();
+                _dialogSessionActive.Clear();
+                _cutscenePlayed.Clear();
+                _localTeleportedIn.Clear();
+                _lastIntroCommit.Clear();
                 _dialogOpenKey = null;
                 if (fullSession)
                 {
@@ -237,6 +248,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _dialogCommitBroadcast.Clear();
                 _dialogCommitApplied.Clear();
                 _dialogInteractableRemoved.Clear();
+                _dialogSessionActive.Clear();
+                _cutscenePlayed.Clear();
+                _localTeleportedIn.Clear();
+                _lastIntroCommit.Clear();
                 _dialogOpenKey = null;
                 _fightCommitted.Clear();
                 _fightCommitRequested.Clear();
@@ -692,6 +707,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             lock (_lock) { if (!_dialogCommitBroadcast.Add(key)) return; }
             var msg = BuildDialogCommit(key, component, in ctx, source);
+            MarkDialogSessionStarted(key, msg, playedLocally: true); // RM-2b: host originated → host is in-room, intro played natively
             BossDialogCommitBroadcast++;
             Plugin.Log.Info($"[BossDialogCommit] host confirmed + broadcasting {msg.ToCompact()} speakable={BossDialogReflect.CurrentSpeakableName()}");
             NetGameplaySyncBridge.BroadcastHostBossDialogCommit(msg);
@@ -701,6 +717,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             lock (_lock) { if (!_clientRequested.Add(key)) return; }
             var msg = BuildDialogCommit(key, component, in ctx, source);
+            MarkDialogSessionStarted(key, msg, playedLocally: true); // RM-2b: client originated → its player is in-room, intro played natively
             BossDialogCommitRequested++;
             Plugin.Log.Info($"[BossDialogCommit] request {msg.ToCompact()} speakable={BossDialogReflect.CurrentSpeakableName()}");
             NetGameplaySyncBridge.SendClientBossDialogCommitRequest(msg);
@@ -746,7 +763,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // Host applies the commit authoritatively (finalize host dialog if any + ensure started once),
                 // then broadcasts the commit to all clients. Reentry guard so the StartFight isn't blocked/re-requested.
                 BeginApply();
-                try { adapter.TryApplyDialogCommit(component, msg, out string d); if (LogOn) Plugin.Log.Info($"[BossDialogCommit] host applied own commit key={msg.EncounterKey}: {d}"); }
+                try { ApplyIntroCutsceneGated(msg.EncounterKey, adapter, component, msg, out string d); if (LogOn) Plugin.Log.Info($"[BossDialogCommit] host applied own commit key={msg.EncounterKey}: {d}"); }
                 finally { EndApply(); }
 
                 // Fix A (root): the fight is committed (client-initiated) — remove the host's own boss dialog
@@ -775,6 +792,97 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 Plugin.Log.Info($"[BossDialogFix] removed boss dialog interactable ({ctx}) key={key} ok={ok}: {detail}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossDialogFix] interactable removal failed key={key}: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // ================================================================== RM-2b: intro cutscene gated to in-room
+
+        private static bool CutsceneGateActive
+        {
+            get { try { return Enabled && Plugin.Cfg.GateBossDialogToInRoom.Value && Plugin.Cfg.EnableFaithfulBossIntro.Value; } catch { return false; } }
+        }
+
+        /// <summary>RM-2b: has THIS end's local player entered the boss room (crossed the room-entry trigger, or been
+        /// teleported in by the arena lockdown)? Drives whether this end plays the synced intro cutscene.</summary>
+        private static bool LocalInRoom(string key)
+        {
+            lock (_lock) { return _roomEnterReported.Contains(key) || _localTeleportedIn.Contains(key); }
+        }
+
+        /// <summary>RM-2b: mark the intro dialog session open for a key (so late entrants can catch up). The originating
+        /// end played the cutscene natively, so it is also marked played.</summary>
+        private static void MarkDialogSessionStarted(string key, NetBossDialogCommit msg, bool playedLocally)
+        {
+            if (!CutsceneGateActive || string.IsNullOrEmpty(key)) return;
+            lock (_lock)
+            {
+                _dialogSessionActive.Add(key);
+                if (msg != null) _lastIntroCommit[key] = msg;
+                if (playedLocally) _cutscenePlayed.Add(key);
+            }
+        }
+
+        /// <summary>RM-2b: apply the intro cutscene replay (TryApplyDialogCommit) ONLY if this end is in-room; otherwise
+        /// defer it (the out-of-room end is not pulled into the cutscene / camera lock). Tracks the session either way so
+        /// a later entry can catch up. Caller wraps BeginApply/EndApply.</summary>
+        private static bool ApplyIntroCutsceneGated(string key, IBossEncounterAdapter adapter, object component, NetBossDialogCommit msg, out string detail)
+        {
+            lock (_lock) { _dialogSessionActive.Add(key); if (msg != null) _lastIntroCommit[key] = msg; }
+
+            if (CutsceneGateActive && !LocalInRoom(key))
+            {
+                detail = "deferred — out-of-room (cutscene gated to in-room)";
+                Plugin.Log.Info($"[BossDialogCutscene] {detail} key={key}");
+                return true; // intentionally skipped, not a failure
+            }
+
+            bool ok = adapter.TryApplyDialogCommit(component, msg, out detail);
+            lock (_lock) { _cutscenePlayed.Add(key); }
+            return ok;
+        }
+
+        /// <summary>RM-2b: a late entrant (walked in or got teleported in) — if the dialog session is still active and we
+        /// haven't played the cutscene, replay the intro now so they catch up. No-op once the fight has committed.</summary>
+        private static void TryCatchUpCutscene(string key)
+        {
+            try
+            {
+                if (!CutsceneGateActive) return;
+                NetBossDialogCommit msg;
+                lock (_lock)
+                {
+                    if (!_dialogSessionActive.Contains(key) || _cutscenePlayed.Contains(key)) return; // ended or already played
+                    if (!(_roomEnterReported.Contains(key) || _localTeleportedIn.Contains(key))) return; // not in-room yet
+                    if (!_lastIntroCommit.TryGetValue(key, out msg)) return;
+                }
+                if (!TryFindLocalEncounter(key, out var adapter, out var component)) return;
+                OpenContinuation(key, adapter, component, "cutscene-catchup");
+                lock (_lock) { _appliedStart.Add(key); _cutscenePlayed.Add(key); }
+                BeginApply();
+                string d;
+                try { adapter.TryApplyDialogCommit(component, msg, out d); }
+                finally { EndApply(); }
+                Plugin.Log.Info($"[BossDialogCutscene] catch-up intro key={key}: {d}");
+                try { adapter.OnClientPresentationStart(component); } catch { }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogCutscene] catch-up failed key={key}: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>RM-2b: the arena lockdown teleported the local player into the arena. Treat it as a room entry: if a
+        /// dialog session is still active for an in-scene gated boss, catch up its cutscene. (Usually the fight has already
+        /// started by teleport time, so this is a no-op then.)</summary>
+        public static void OnLocalTeleportedIntoArena()
+        {
+            try
+            {
+                if (!CutsceneGateActive) return;
+                string[] keys; lock (_lock) { keys = _dialogSessionActive.Where(k => !_cutscenePlayed.Contains(k)).ToArray(); }
+                foreach (var key in keys)
+                {
+                    lock (_lock) { _localTeleportedIn.Add(key); }
+                    TryCatchUpCutscene(key);
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogCutscene] OnLocalTeleportedIntoArena failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         // ================================================================== PF (Plan B): dialog-close-gated fight start
@@ -875,7 +983,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// the encounter committed. Idempotent per key. Never throws.</summary>
         private static bool CommitFightStartLocal(string key, IBossEncounterAdapter adapter, object component, string reason)
         {
-            lock (_lock) { if (!_fightCommitted.Add(key)) return false; }
+            lock (_lock) { if (!_fightCommitted.Add(key)) return false; _dialogSessionActive.Remove(key); } // RM-2b: session ended → no more cutscene catch-up
             string startDetail = "already-started";
             BeginApply();
             try { if (!SafeStarted(adapter, component)) BossReflect.TryInvoke(component, "StartFight", out startDetail); }
@@ -960,6 +1068,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try
             {
                 lock (_lock) { if (!_roomEnterReported.Add(key)) return; }
+                TryCatchUpCutscene(key); // RM-2b: late entrant walked in while the dialog session is active → catch up the cutscene
                 if (mode == NetMode.Host)
                 {
                     MarkInRoom(key, HostPlayerId, source);
@@ -1091,7 +1200,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
                 BeginApply();
                 bool ok; string detail;
-                try { ok = adapter.TryApplyDialogCommit(component, msg, out detail); }
+                try { ok = ApplyIntroCutsceneGated(msg.EncounterKey, adapter, component, msg, out detail); }
                 finally { EndApply(); }
 
                 if (ok)

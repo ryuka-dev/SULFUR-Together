@@ -376,6 +376,9 @@ namespace SULFURTogether.Networking.Gameplay
             _doorwayCrossings.TryGetValue(k, out int dc);
             if (dc % 2 == 0) _doorwayCrossings[k] = dc + 1;
             ReportLocalInRoom(arenaPos);
+            // RM-2b: teleported into the arena counts as entering the boss room — catch up the intro dialog if its
+            // session is still active (usually the fight already started by now, so this is a no-op then).
+            try { Boss.NetBossEncounterManager.OnLocalTeleportedIntoArena(); } catch { }
         }
 
         /// <summary>HOST: a gate near an arena re-opened (AllDeadTrigger = all enemies dead / boss died). Release the
