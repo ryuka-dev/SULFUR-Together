@@ -986,7 +986,25 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             lock (_lock) { if (!_fightCommitted.Add(key)) return false; _dialogSessionActive.Remove(key); } // RM-2b: session ended → no more cutscene catch-up
             string startDetail = "already-started";
             BeginApply();
-            try { if (!SafeStarted(adapter, component)) BossReflect.TryInvoke(component, "StartFight", out startDetail); }
+            try
+            {
+                if (!SafeStarted(adapter, component))
+                {
+                    // RM-2b: if this end DEFERRED the intro cutscene (out-of-room), the boss never played its appearance
+                    // (Introduction), so it would stay hidden/unfightable after StartFight. Run Introduction now so the
+                    // boss actually appears — it's idempotent (the boss's own introPlayed guard makes it a no-op on
+                    // in-room ends), uses a deterministic pool (GetClosestPool is boss-position based, not player), and the
+                    // Cinematic lock it sets is immediately released by StartFight below (net-zero — the out-of-room
+                    // player isn't held; only a brief camera turn toward the boss).
+                    bool deferred; lock (_lock) { deferred = CutsceneGateActive && !_cutscenePlayed.Contains(key); }
+                    if (deferred)
+                    {
+                        BossReflect.TryInvoke(component, "Introduction", out string introDetail);
+                        Plugin.Log.Info($"[BossDialogCutscene] forced boss appearance (out-of-room) key={key}: {introDetail}");
+                    }
+                    BossReflect.TryInvoke(component, "StartFight", out startDetail);
+                }
+            }
             finally { EndApply(); }
             bool finalized = BossDialogReflect.TryFinalizeCurrentDialog(out string dlgDetail);
             Plugin.Log.Info($"[BossFightGate] committed fight start key={key} reason={reason} start[{startDetail}] dialogClosed={finalized}({dlgDetail})");
