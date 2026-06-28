@@ -36,10 +36,16 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static readonly Dictionary<string, Lockdown> _locks = new Dictionary<string, Lockdown>();
 
+        // LD-2d grace: arenas (key→trigger pos) where THIS end is holding its combat-room gate OPEN during the grace
+        // window so teammates can still walk in. Closed (for real) when the host's CloseDoor command lands at t0+5 s.
+        private static readonly Dictionary<string, Vector3> _localGrace = new Dictionary<string, Vector3>();
+
         private const float SealDelaySeconds     = 5f;
         private const float TeleportDelaySeconds = 10f;
         // How close a gate-open (boss death / AllDeadTrigger) must be to an arena to count as "this fight ended".
         private const float GateReleaseRadius    = 10f;
+        // Trigger→gate proximity: the seal trigger and the gate it controls are co-located but distinct objects.
+        private const float GraceGateRadius      = 12f;
 
         private static FieldInfo _eventField;
         private static bool _eventFieldResolved;
@@ -66,6 +72,47 @@ namespace SULFURTogether.Networking.Gameplay
         private static bool LogOn
         {
             get { try { return Plugin.Cfg.LogArenaLockdown.Value; } catch { return false; } }
+        }
+        private static bool GraceEnabled
+        {
+            get { try { return Plugin.Cfg.EnableArenaGracePeriod.Value; } catch { return false; } }
+        }
+
+        // ----------------------------------------------------------------- LD-2d grace (keep the gate open ~5 s)
+
+        /// <summary>PlayerTrigger.Trigger PREFIX: if this is a seal trigger, start a local grace window BEFORE the
+        /// trigger's events fire, so the same-frame <c>MetalGate.Close()</c> is blocked (the gate stays open until the
+        /// host's t0+5 s CloseDoor). Reports in-room stays in the postfix (OnLocalTriggerFired) — grace only defers the
+        /// door, not membership.</summary>
+        public static void BeginLocalGraceIfSeal(object trigger)
+        {
+            try
+            {
+                if (!Enabled || !GraceEnabled || !NetGameplaySyncBridge.IsSessionActive) return;
+                if (!IsSealTrigger(trigger, out Vector3 pos)) return;
+                string key = Key(pos);
+                if (_localGrace.ContainsKey(key)) return;
+                _localGrace[key] = pos;
+                if (LogOn) NetLogger.Info($"[ArenaLockdown] grace begin arena={key} (gate held open ~{SealDelaySeconds:0}s)");
+            }
+            catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] BeginLocalGrace failed: {ex.Message}"); }
+        }
+
+        /// <summary>MetalGate.Close PREFIX: true if a grace window is active near this gate (→ block the close so the
+        /// gate stays open during grace).</summary>
+        public static bool IsGateInLocalGrace(Vector3 gatePos)
+        {
+            if (_localGrace.Count == 0) return false;
+            float r2 = GraceGateRadius * GraceGateRadius;
+            foreach (var kv in _localGrace)
+                if ((kv.Value - gatePos).sqrMagnitude <= r2) return true;
+            return false;
+        }
+
+        private static void EndLocalGrace(Vector3 arenaPos)
+        {
+            string key = Key(arenaPos);
+            if (_localGrace.Remove(key) && LogOn) NetLogger.Info($"[ArenaLockdown] grace end arena={key}");
         }
 
         // ----------------------------------------------------------------- local entry (PlayerTrigger.Trigger postfix)
@@ -146,6 +193,8 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!ld.SealFired && el >= SealDelaySeconds)
                 {
                     ld.SealFired = true;
+                    // Grace over: close the gate that was held open for everyone in the level, then barrier the out-of-room.
+                    if (GraceEnabled) IssueCommand(ld, ArenaCommandKind.CloseDoor);
                     IssueCommand(ld, ArenaCommandKind.Seal);
                 }
                 if (!ld.TeleportFired && el >= TeleportDelaySeconds)
@@ -160,7 +209,9 @@ namespace SULFURTogether.Networking.Gameplay
         /// locally). Real-time: a player who has since entered drops out of the target set.</summary>
         private static void IssueCommand(Lockdown ld, ArenaCommandKind kind)
         {
-            var targets = ComputeNonInRoom(ld);
+            // CloseDoor closes every end's door (in-room close behind them; out-of-room close + barrier). Everything
+            // else (Notify/Seal/Popup/Release) targets only the out-of-room players.
+            var targets = kind == ArenaCommandKind.CloseDoor ? ComputeAllInLevel(ld) : ComputeNonInRoom(ld);
             if (targets.Count == 0)
             {
                 if (LogOn) NetLogger.Info($"[ArenaLockdown] {kind} arena={Key(ld.Pos)} — no non-in-room targets, skip");
@@ -197,6 +248,13 @@ namespace SULFURTogether.Networking.Gameplay
                     case ArenaCommandKind.Notify:
                         // t0 heads-up only (no side effect). Player-facing → localize (Docs/Localization.md).
                         Toast("Arena Lockdown", "A teammate started the arena fight.");
+                        break;
+
+                    case ArenaCommandKind.CloseDoor:
+                        // Grace over: end the local hold and close the gate that was kept open for real.
+                        EndLocalGrace(arenaPos);
+                        bool closedGate = GateSyncManager.CloseLocalGateNear(arenaPos);
+                        if (LogOn) NetLogger.Info($"[ArenaLockdown] CloseDoor arena={Key(arenaPos)} closedGate={closedGate}");
                         break;
 
                     case ArenaCommandKind.Seal:
@@ -306,6 +364,10 @@ namespace SULFURTogether.Networking.Gameplay
             return endsInLevel.Where(id => !ld.InRoom.Contains(id)).ToList();
         }
 
+        /// <summary>Every end in the arena's level (CloseDoor targets — everyone closes their door when grace ends).</summary>
+        private static List<string> ComputeAllInLevel(Lockdown ld)
+            => NetGameplaySyncBridge.GetPeerIdsInLevel(ld.Chapter, ld.Level, ld.HasSeed, ld.Seed);
+
         // ----------------------------------------------------------------- local player resolution
 
         private static object ResolveLocalPlayerUnit()
@@ -371,6 +433,7 @@ namespace SULFURTogether.Networking.Gameplay
         public static void Clear()
         {
             _locks.Clear();
+            _localGrace.Clear();
             ArenaBarrierManager.Clear();
             _armed = false;
             if (HidePrompt != null) { try { HidePrompt(); } catch { } }

@@ -14,6 +14,7 @@ namespace SULFURTogether.Networking.Gameplay
         Popup    = 2, // LD-2c t0+10 s: show the confirm prompt + arm teleport (enter on confirm / boss death).
         Release  = 3, // LD-2c boss death / fight over: force teleport in + drop the barrier.
         Notify   = 4, // LD-2c t0: heads-up status toast only (a teammate entered the arena), no side effect.
+        CloseDoor = 5, // LD-2d t0+5 s: grace over — close the local combat-room gate that was kept open during grace.
     }
 
     internal sealed class NetArenaCommand

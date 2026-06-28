@@ -217,6 +217,7 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableArenaLockdown { get; }
         public ConfigEntry<bool>   LogArenaLockdown { get; }
         public ConfigEntry<KeyboardShortcut> ArenaEnterConfirmKey { get; }
+        public ConfigEntry<bool>   EnableArenaGracePeriod { get; }
 
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
         public ConfigEntry<bool>   EnableWorldItemDropSync { get; }
@@ -879,6 +880,8 @@ namespace SULFURTogether.Config
                 "Phase LD-2: verbose log for arena lockdown (local crossings, in-room set, seal/popup/release/teleport).");
             ArenaEnterConfirmKey = cfg.Bind("NetworkBoss", "ArenaEnterConfirmKey", new KeyboardShortcut(KeyCode.Return),
                 "Phase LD-2c: key an out-of-room player presses to confirm teleporting into a locked-down arena (the confirm prompt). Default Enter.");
+            EnableArenaGracePeriod = cfg.Bind("NetworkBoss", "EnableArenaGracePeriod", true,
+                "Phase LD-2d: grace mode. The vanilla combat-room gate normally slams shut the instant the first player crosses; with this on, the gate is kept OPEN for the seal delay (~5 s) so teammates can still walk in together, then it closes + the barrier goes up. MetalGate arenas only (SetActive-door arenas like Lucia still close at t0). Off = old instant close. Reversible.");
 
             // World item-drop sync: items that appear in the world are mirrored across peers. Spawn is optimistic +
             // peer-authoritative (instant local drop, then broadcast); take is host-authoritative (first picker wins, the
@@ -1532,6 +1535,7 @@ namespace SULFURTogether.Config
             EnableArenaLockdown.Value = true;
             LogArenaLockdown.Value = true;
             ArenaEnterConfirmKey.Value = new KeyboardShortcut(KeyCode.Return);
+            EnableArenaGracePeriod.Value = true;
             // World item-drop sync default on (player-thrown items); shared-loot widening stays off until host-roll exists.
             EnableWorldItemDropSync.Value = true;
             LogWorldItemDropSync.Value = true;

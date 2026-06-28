@@ -32,6 +32,13 @@ namespace SULFURTogether.Patches
                 Patch(harmony, type, "Close", nameof(MetalGate_Close_Post));
                 Patch(harmony, type, "Open",  nameof(MetalGate_Open_Post));
 
+                // LD-2d grace: block a gate's close while a grace window is active near it (held open ~5 s so teammates
+                // can still walk in); the host's CloseDoor closes it for real at t0+5 s.
+                var close = AccessTools.DeclaredMethod(type, "Close", Type.EmptyTypes);
+                if (close != null)
+                    harmony.Patch(close, prefix: new HarmonyMethod(
+                        typeof(MetalGatePatches).GetMethod(nameof(MetalGate_Close_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+
                 Plugin.Log.Info("[GateSync] Patched MetalGate.Awake/Close/Open (combat-room gate sync).");
             }
             catch (Exception ex) { Plugin.Log.Error($"[GateSync] Apply failed: {ex.Message}"); }
@@ -46,8 +53,11 @@ namespace SULFURTogether.Patches
                 if (pt == null) { Plugin.Log.Warn("[DoorSync] PlayerTrigger type not found — trigger-door sync disabled."); return; }
                 var trig = AccessTools.Method(pt, "Trigger", new[] { typeof(UnityEngine.GameObject) });
                 if (trig == null) { Plugin.Log.Warn("[DoorSync] PlayerTrigger.Trigger(GameObject) not found (skipped)."); return; }
-                harmony.Patch(trig, postfix: new HarmonyMethod(
-                    typeof(MetalGatePatches).GetMethod(nameof(PlayerTrigger_Trigger_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                harmony.Patch(trig,
+                    prefix: new HarmonyMethod(
+                        typeof(MetalGatePatches).GetMethod(nameof(PlayerTrigger_Trigger_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
+                    postfix: new HarmonyMethod(
+                        typeof(MetalGatePatches).GetMethod(nameof(PlayerTrigger_Trigger_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 Plugin.Log.Info("[DoorSync] Patched PlayerTrigger.Trigger (SetActive-door sync).");
             }
             catch (Exception ex) { Plugin.Log.Error($"[DoorSync] Apply failed: {ex.Message}"); }
@@ -77,6 +87,27 @@ namespace SULFURTogether.Patches
         {
             if (!__runOriginal) return;
             GateSyncManager.CaptureLocalGate(__instance, closed: false);
+        }
+
+        // LD-2d: block the gate's close while a grace window is active near it (the gate stays open during grace). The
+        // close postfix sees __runOriginal=false and so never captures/broadcasts — no extra sync needed.
+        private static bool MetalGate_Close_Pre(object __instance)
+        {
+            try
+            {
+                if (__instance is UnityEngine.Component c && c != null
+                    && ArenaLockdownManager.IsGateInLocalGrace(c.transform.position))
+                    return false; // hold the gate open; host's CloseDoor closes it at t0+5 s
+            }
+            catch { }
+            return true;
+        }
+
+        // LD-2d: start the local grace window BEFORE the trigger fires its events, so the same-frame MetalGate.Close()
+        // is blocked. Membership is still reported in the postfix below (grace only defers the door).
+        private static void PlayerTrigger_Trigger_Pre(object __instance)
+        {
+            ArenaLockdownManager.BeginLocalGraceIfSeal(__instance);
         }
 
         private static void PlayerTrigger_Trigger_Post(object __instance, bool __runOriginal)
