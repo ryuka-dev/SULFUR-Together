@@ -59,6 +59,16 @@ namespace SULFURTogether.Patches
                     postfix: new HarmonyMethod(
                         typeof(MetalGatePatches).GetMethod(nameof(PlayerTrigger_Trigger_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 Plugin.Log.Info("[DoorSync] Patched PlayerTrigger.Trigger (SetActive-door sync).");
+
+                // LD-2e: attach a doorway-crossing sensor to seal triggers at Start (present before the first crossing,
+                // so traversal parity = in/out is counted from the beginning).
+                if (Plugin.Cfg.EnableArenaLockdown.Value)
+                {
+                    var start = AccessTools.DeclaredMethod(pt, "Start", Type.EmptyTypes);
+                    if (start != null)
+                        harmony.Patch(start, postfix: new HarmonyMethod(
+                            typeof(MetalGatePatches).GetMethod(nameof(PlayerTrigger_Start_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                }
             }
             catch (Exception ex) { Plugin.Log.Error($"[DoorSync] Apply failed: {ex.Message}"); }
         }
@@ -108,6 +118,13 @@ namespace SULFURTogether.Patches
         private static void PlayerTrigger_Trigger_Pre(object __instance)
         {
             ArenaLockdownManager.BeginLocalGraceIfSeal(__instance);
+        }
+
+        // LD-2e: attach the doorway-crossing sensor when a seal trigger starts (counts in/out parity from the first pass).
+        private static void PlayerTrigger_Start_Post(object __instance, bool __runOriginal)
+        {
+            if (!__runOriginal) return;
+            ArenaLockdownManager.AttachDoorwaySensorIfSeal(__instance);
         }
 
         private static void PlayerTrigger_Trigger_Post(object __instance, bool __runOriginal)

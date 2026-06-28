@@ -40,9 +40,12 @@ namespace SULFURTogether.Networking.Gameplay
         // window so teammates can still walk in. Closed (for real) when the host's CloseDoor command lands at t0+5 s.
         private static readonly Dictionary<string, Vector3> _localGrace = new Dictionary<string, Vector3>();
 
-        // LD-2e: arenas (key) whose seal trigger THIS end's local player has crossed. With the t+5/t+10 position check it
-        // makes in/out a real-time local decision: crossed-and-still-near = in; never crossed, or crossed-then-left = out.
+        // LD-2e: arenas (key) whose seal trigger THIS end's local player has crossed at least once (fallback in/out when
+        // no doorway sensor data exists).
         private static readonly HashSet<string> _localCrossed = new HashSet<string>();
+
+        // LD-2e: per-arena count of doorway traversals by THIS end's local player (ArenaDoorwaySensor). Odd = inside.
+        private static readonly Dictionary<string, int> _doorwayCrossings = new Dictionary<string, int>();
 
         private const float SealDelaySeconds     = 5f;
         private const float TeleportDelaySeconds = 10f;
@@ -366,8 +369,12 @@ namespace SULFURTogether.Networking.Gameplay
                 _armed = false;
                 if (HidePrompt != null) { try { HidePrompt(); } catch { } }
             }
-            // Now inside: mark crossed (so a later in/out check counts us in) + tell the host.
-            _localCrossed.Add(Key(arenaPos));
+            // Now inside (teleported, not walked through the door): mark crossed + force parity ODD = inside, so a later
+            // walk-OUT toggles to outside correctly. Then tell the host.
+            string k = Key(arenaPos);
+            _localCrossed.Add(k);
+            _doorwayCrossings.TryGetValue(k, out int dc);
+            if (dc % 2 == 0) _doorwayCrossings[k] = dc + 1;
             ReportLocalInRoom(arenaPos);
         }
 
@@ -406,29 +413,52 @@ namespace SULFURTogether.Networking.Gameplay
         private static List<string> ComputeAllInLevel(Lockdown ld)
             => NetGameplaySyncBridge.GetPeerIdsInLevel(ld.Chapter, ld.Level, ld.HasSeed, ld.Seed);
 
-        /// <summary>LD-2e real-time, event-driven in/out: the local player counts as INSIDE only if it crossed this
-        /// arena's seal trigger AND is still within <see cref="Plugin.Cfg.ArenaInsideRadius"/> of the anchor. Evaluated
-        /// once per command (t+5 seal, t+10 popup, boss-death release) — not polled. So a player who crossed then ran
-        /// back out is correctly treated as out (barrier + popup), and one who never crossed is always out.</summary>
+        /// <summary>LD-2e real-time, event-driven in/out via DOORWAY-CROSSING PARITY (user-chosen): the local player is
+        /// inside iff it has traversed this arena's doorway an odd number of times (in / out / in …). Counted by
+        /// <see cref="ArenaDoorwaySensor"/> on the seal trigger — a pure event, independent of distance / arena shape.
+        /// Evaluated when a command lands (t+5 seal, t+10 popup, boss-death release). Falls back to "did the local player
+        /// cross at all" only if no sensor data exists (e.g. the seal trigger had no Start hook).</summary>
         private static bool IsEffectivelyInArena(Vector3 arenaPos)
         {
-            if (!_localCrossed.Contains(Key(arenaPos))) return false;
-            return IsLocalPlayerInArena(arenaPos);
+            string key = Key(arenaPos);
+            if (_doorwayCrossings.TryGetValue(key, out int count))
+                return (count % 2) == 1; // odd = inside, even = outside (authoritative when known)
+            return _localCrossed.Contains(key); // no sensor data → best-effort: crossed once ⇒ assume inside
         }
 
-        private static bool IsLocalPlayerInArena(Vector3 arenaPos)
+        /// <summary>Called by <see cref="ArenaDoorwaySensor"/> each time the local player fully passes through the
+        /// doorway. Toggles the inside/outside parity for that arena.</summary>
+        public static void OnLocalDoorwayTraversed(string arenaKey, Vector3 arenaPos)
+        {
+            _doorwayCrossings.TryGetValue(arenaKey, out int c);
+            c += 1;
+            _doorwayCrossings[arenaKey] = c;
+            if (LogOn) NetLogger.Info($"[ArenaLockdown] doorway traversal arena={arenaKey} count={c} inside={(c % 2 == 1)}");
+        }
+
+        /// <summary>Local player's root transform (for the doorway sensor to match its own player and ignore remote ghosts).</summary>
+        public static Transform LocalPlayerRoot()
+        {
+            try { return ResolveLocalPlayerUnit() is Component c && c != null ? c.transform.root : null; }
+            catch { return null; }
+        }
+
+        /// <summary>PlayerTrigger.Start hook: if this is a seal trigger, attach a doorway sensor so traversals are counted
+        /// from the very first crossing (parity starts at 0 = outside).</summary>
+        public static void AttachDoorwaySensorIfSeal(object trigger)
         {
             try
             {
-                if (ResolveLocalPlayerUnit() is Component c && c != null)
-                {
-                    float r = 18f;
-                    try { r = Plugin.Cfg.ArenaInsideRadius.Value; } catch { }
-                    return (c.transform.position - arenaPos).sqrMagnitude <= r * r;
-                }
+                if (!Enabled || !NetGameplaySyncBridge.IsSessionActive) return;
+                if (!(trigger is Component c) || c == null) return;
+                if (!IsSealTrigger(trigger, out Vector3 pos)) return;
+                if (c.GetComponent<ArenaDoorwaySensor>() != null) return; // already attached
+                var sensor = c.gameObject.AddComponent<ArenaDoorwaySensor>();
+                sensor.ArenaKey = Key(pos);
+                sensor.ArenaPos = pos;
+                if (LogOn) NetLogger.Info($"[ArenaLockdown] doorway sensor attached arena={Key(pos)}");
             }
-            catch { }
-            return false; // unknown position → treat as outside (safer: they get the popup to enter)
+            catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] AttachDoorwaySensor failed: {ex.Message}"); }
         }
 
         // ----------------------------------------------------------------- local player resolution
@@ -498,6 +528,7 @@ namespace SULFURTogether.Networking.Gameplay
             _locks.Clear();
             _localGrace.Clear();
             _localCrossed.Clear();
+            _doorwayCrossings.Clear();
             ArenaBarrierManager.Clear();
             _armed = false;
             if (HidePrompt != null) { try { HidePrompt(); } catch { } }
