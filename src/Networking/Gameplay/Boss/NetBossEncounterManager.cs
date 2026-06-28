@@ -196,17 +196,20 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _dialogCommitBroadcast.Clear();
                 _dialogCommitApplied.Clear();
                 _dialogInteractableRemoved.Clear();
-                _dialogSessionActive.Clear();
-                _cutscenePlayed.Clear();
-                _localTeleportedIn.Clear();
-                _lastIntroCommit.Clear();
-                _introRanWhileOutOfRoom.Clear();
                 _dialogOpenKey = null;
                 if (fullSession)
                 {
                     _fightCommitted.Clear();
                     _fightCommitRequested.Clear();
                     _fightCommitBroadcast.Clear();
+                    // RM-2b dialog-session state is per-encounter (chapter:level:seed) like the fight-commit maps — it MUST
+                    // survive same-level state churn (Reset(fullSession:false)), else a mid-encounter Reset wipes the active
+                    // dialog session and a late entrant's catch-up finds nothing. Only a real level change clears it.
+                    _dialogSessionActive.Clear();
+                    _cutscenePlayed.Clear();
+                    _localTeleportedIn.Clear();
+                    _lastIntroCommit.Clear();
+                    _introRanWhileOutOfRoom.Clear();
                     _roomMembers.Clear();
                     _roomMembersClientView.Clear();
                     _roomEnterReported.Clear();
