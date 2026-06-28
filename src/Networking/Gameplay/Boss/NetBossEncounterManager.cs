@@ -144,6 +144,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static readonly HashSet<string> _cutscenePlayed = new HashSet<string>();                                            // per-key: THIS end already played the intro cutscene
         private static readonly HashSet<string> _localTeleportedIn = new HashSet<string>();                                         // per-key: lockdown teleported the local player in (counts as in-room)
         private static readonly Dictionary<string, NetBossDialogCommit> _lastIntroCommit = new Dictionary<string, NetBossDialogCommit>(); // per-key: last intro commit (to replay on catch-up)
+        // Per-key: the boss intro already RAN on this end while OUT of the room (effects suppressed, dialog blocked) → the
+        // boss has appeared (introPlayed=true) so a catch-up can't re-TriggerIntro; it must open the dialog DIRECTLY.
+        private static readonly HashSet<string> _introRanWhileOutOfRoom = new HashSet<string>();
         private static int _bossStateRevision;
         // E4.2: client-side per-key "boss bar already attached" guard.
         private static readonly HashSet<string> _bossUiAttached = new HashSet<string>();
@@ -197,6 +200,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _cutscenePlayed.Clear();
                 _localTeleportedIn.Clear();
                 _lastIntroCommit.Clear();
+                _introRanWhileOutOfRoom.Clear();
                 _dialogOpenKey = null;
                 if (fullSession)
                 {
@@ -252,6 +256,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _cutscenePlayed.Clear();
                 _localTeleportedIn.Clear();
                 _lastIntroCommit.Clear();
+                _introRanWhileOutOfRoom.Clear();
                 _dialogOpenKey = null;
                 _fightCommitted.Clear();
                 _fightCommitRequested.Clear();
@@ -858,8 +863,18 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     if (!_lastIntroCommit.TryGetValue(key, out msg)) return;
                 }
                 if (!TryFindLocalEncounter(key, out var adapter, out var component)) return;
+                bool introRanOOR; lock (_lock) { introRanOOR = _introRanWhileOutOfRoom.Contains(key); _appliedStart.Add(key); _cutscenePlayed.Add(key); }
+
+                // The boss already appeared while we were out-of-room (intro ran, dialog blocked) → TriggerIntro would
+                // no-op (introPlayed set). Open the dialog DIRECTLY now that we're in-room.
+                if (introRanOOR)
+                {
+                    TryOpenBossDialogLocally(key);
+                    Plugin.Log.Info($"[BossDialogCutscene] catch-up (boss already appeared) key={key} → opened dialog directly");
+                    return;
+                }
+
                 OpenContinuation(key, adapter, component, "cutscene-catchup");
-                lock (_lock) { _appliedStart.Add(key); _cutscenePlayed.Add(key); }
                 BeginApply();
                 string d;
                 try { adapter.TryApplyDialogCommit(component, msg, out d); }
@@ -906,6 +921,47 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 return !LocalInRoom(key);
             }
             catch { return false; }
+        }
+
+        /// <summary>RM-2b: record that the boss intro ran on this end while out-of-room (boss appeared, dialog blocked).
+        /// A later catch-up must open the dialog directly (TriggerIntro would no-op — introPlayed is already set).</summary>
+        public static void MarkIntroRanOutOfRoom(object component)
+        {
+            try { if (TryGetEncounterKeyForBoss(component, out string key, out _)) lock (_lock) { _introRanWhileOutOfRoom.Add(key); } }
+            catch { }
+        }
+
+        /// <summary>RM-2b: open the boss dialog directly on THIS end (used by catch-up when the boss already appeared
+        /// out-of-room, so the native intro won't re-open it). Invokes the boss health unit's Interact with the local
+        /// player; NotifyBossDialogOpened (postfix) then arms the dialog-close fight commit as usual.</summary>
+        private static void TryOpenBossDialogLocally(string key)
+        {
+            try
+            {
+                if (!TryFindLocalEncounter(key, out var adapter, out var component)) return;
+                object healthUnit = null; try { healthUnit = adapter.GetHealthUnit(component); } catch { }
+                if (healthUnit == null) return;
+                var interact = HarmonyLib.AccessTools.Method(healthUnit.GetType(), "Interact");
+                if (interact == null) return;
+                object[] args = interact.GetParameters().Length == 1 ? new[] { ResolveLocalPlayerObject() } : System.Array.Empty<object>();
+                BeginApply();
+                try { interact.Invoke(healthUnit, args); } finally { EndApply(); }
+                Plugin.Log.Info($"[BossDialogCutscene] catch-up opened boss dialog directly key={key}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogCutscene] direct dialog open failed key={key}: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static object ResolveLocalPlayerObject()
+        {
+            try
+            {
+                var gmType = HarmonyLib.AccessTools.TypeByName("PerfectRandom.Sulfur.Core.GameManager");
+                var gm = gmType == null ? null : HarmonyLib.AccessTools.Property(gmType, "Instance")?.GetValue(null, null);
+                if (gm == null) return null;
+                return HarmonyLib.AccessTools.Property(gmType, "PlayerObject")?.GetValue(gm, null)
+                       ?? HarmonyLib.AccessTools.Field(gmType, "PlayerObject")?.GetValue(gm);
+            }
+            catch { return null; }
         }
 
         /// <summary>RM-2b: block the boss dialog (Npc.Interact) on THIS end when cutscene-gated and the local player is out

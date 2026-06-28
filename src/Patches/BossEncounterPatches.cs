@@ -563,17 +563,26 @@ namespace SULFURTogether.Patches
                     }
                 }
 
-                var ps = FindType("PlayerScript", "PerfectRandom.Sulfur.Core.PlayerScript", "PerfectRandom.Sulfur.Core.Units.PlayerScript");
-                var rot = ps == null ? null : AccessTools.GetDeclaredMethods(ps).FirstOrDefault(m => m.Name == "RotateCameraTowardsPosition");
-                if (rot != null) harmony.Patch(rot, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(RotateCamera_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
-                Log.Info($"[BossDialogCutscene] patched PlayerScript.RotateCameraTowardsPosition({rot != null})");
+                // RotateCameraTowardsPosition is declared on Player (GameManager.PlayerScript returns a Player), NOT a
+                // "PlayerScript" type. Patch every overload.
+                var ps = FindType("Player", "PerfectRandom.Sulfur.Core.Units.Player", "PerfectRandom.Sulfur.Core.Player");
+                var rots = ps == null ? System.Array.Empty<MethodInfo>() : AccessTools.GetDeclaredMethods(ps).Where(m => m.Name == "RotateCameraTowardsPosition").ToArray();
+                foreach (var rot in rots)
+                    harmony.Patch(rot, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(RotateCamera_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[BossDialogCutscene] patched Player.RotateCameraTowardsPosition x{rots.Length}");
             }
             catch (Exception ex) { Log.Error($"[BossDialogCutscene] suppression patch failed: {ex.Message}"); }
         }
 
         private static void BossIntroSuppress_Pre(object __instance)
         {
-            try { if (NetBossEncounterManager.IsLocalOutOfRoomForBoss(__instance)) NetBossEncounterManager.SetSuppressBossCutscene(true); } catch { }
+            try
+            {
+                if (!NetBossEncounterManager.IsLocalOutOfRoomForBoss(__instance)) return;
+                NetBossEncounterManager.SetSuppressBossCutscene(true);
+                NetBossEncounterManager.MarkIntroRanOutOfRoom(__instance); // so a later catch-up opens the dialog directly
+            }
+            catch { }
         }
         private static void BossIntroSuppress_Post()
         {
