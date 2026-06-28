@@ -865,23 +865,19 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (!TryFindLocalEncounter(key, out var adapter, out var component)) return;
                 lock (_lock) { _appliedStart.Add(key); _cutscenePlayed.Add(key); }
 
-                // If the boss has ALREADY appeared (introPlayed — native intro ran out-of-room, dialog blocked), TriggerIntro
-                // would no-op, so open the dialog DIRECTLY now that we're in-room. Read the boss's REAL state (not just our
-                // out-of-room flag, which can miss a native intro that ran before the key was known).
+                // Make the boss APPEAR locally if it hasn't (introPlayed false → run the native intro). The native intro's
+                // built-in dialog STEP is unreliable on a LATE trigger (Log167: Introduction → StartFight, the Npc.Interact
+                // step is skipped), so ALWAYS open the dialog DIRECTLY — that's the path that reliably shows it.
                 bool appeared = false; try { appeared = BossReflect.TryGetBool(component, "introPlayed", out bool ip) && ip; } catch { }
-                if (appeared)
+                if (!appeared)
                 {
-                    TryOpenBossDialogLocally(key);
-                    Plugin.Log.Info($"[BossDialogCutscene] catch-up (boss already appeared) key={key} → opened dialog directly");
-                    return;
+                    OpenContinuation(key, adapter, component, "cutscene-catchup");
+                    BeginApply();
+                    try { adapter.TryApplyDialogCommit(component, msg, out string d); Plugin.Log.Info($"[BossDialogCutscene] catch-up appear key={key}: {d}"); }
+                    finally { EndApply(); }
                 }
-
-                OpenContinuation(key, adapter, component, "cutscene-catchup");
-                BeginApply();
-                string d;
-                try { adapter.TryApplyDialogCommit(component, msg, out d); }
-                finally { EndApply(); }
-                Plugin.Log.Info($"[BossDialogCutscene] catch-up intro key={key}: {d}");
+                TryOpenBossDialogLocally(key);
+                Plugin.Log.Info($"[BossDialogCutscene] catch-up dialog key={key} (boss appeared={appeared})");
                 try { adapter.OnClientPresentationStart(component); } catch { }
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossDialogCutscene] catch-up failed key={key}: {ex.GetType().Name}: {ex.Message}"); }
