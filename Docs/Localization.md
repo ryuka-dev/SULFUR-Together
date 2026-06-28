@@ -51,6 +51,7 @@ cover our strings.
 | 4 | title `Arena Lockdown` / msg `A teammate entered the arena — head in now to join them!` | `ArenaLockdownManager.cs` (LD-2c `Notify` toast, t0, via `ShowToast`) | Heads-up at t0; LD-2d grace keeps the door open ~5 s, so it invites the player to run in. |
 | 5 | title `Arena Lockdown` / msg `You've been sealed out — you'll be brought in shortly.` | `ArenaLockdownManager.cs` (LD-2c `Seal` toast, t0+5 s) | Explains the otherwise-invisible barrier. |
 | 6 | title `Arena` / msg `Entering the arena.` | `ArenaLockdownManager.cs` (LD-2c teleport toast) | Fired on teleport-in (confirm / boss-death release). |
+| 7 | title `Arena Lockdown` / msg `You entered the arena — the gate seals in a few seconds; teammates can still run in.` | `ArenaLockdownManager.cs` (LD-2e `NotifyEntered` toast, t0) | Heads-up to the player(s) who entered first. |
 
 ### Planned, not yet written (register here when added)
 

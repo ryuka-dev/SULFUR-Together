@@ -40,6 +40,10 @@ namespace SULFURTogether.Networking.Gameplay
         // window so teammates can still walk in. Closed (for real) when the host's CloseDoor command lands at t0+5 s.
         private static readonly Dictionary<string, Vector3> _localGrace = new Dictionary<string, Vector3>();
 
+        // LD-2e: arenas (key) whose seal trigger THIS end's local player has crossed. With the t+5/t+10 position check it
+        // makes in/out a real-time local decision: crossed-and-still-near = in; never crossed, or crossed-then-left = out.
+        private static readonly HashSet<string> _localCrossed = new HashSet<string>();
+
         private const float SealDelaySeconds     = 5f;
         private const float TeleportDelaySeconds = 10f;
         // How close a gate-open (boss death / AllDeadTrigger) must be to an arena to count as "this fight ended".
@@ -126,6 +130,7 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!IsSealTrigger(trigger, out Vector3 pos)) return;
 
                 if (LogOn) NetLogger.Info($"[ArenaLockdown] local crossed seal trigger arena=({pos.x:0.0},{pos.y:0.0},{pos.z:0.0})");
+                _localCrossed.Add(Key(pos)); // LD-2e: remember this end's player crossed (gates the t+5/t+10 in/out check)
                 ReportLocalInRoom(pos);
             }
             catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] OnLocalTriggerFired failed: {ex.Message}"); }
@@ -168,8 +173,13 @@ namespace SULFURTogether.Networking.Gameplay
             if (ld.InRoom.Add(peerId))
                 NetLogger.Info($"[ArenaLockdown] in-room += {peerId} arena={key} members=[{string.Join(",", ld.InRoom)}]");
 
-            // t0: heads-up toast to the out-of-room players (after the first crosser is in InRoom, so they're excluded).
-            if (created) IssueCommand(ld, ArenaCommandKind.Notify);
+            // t0: heads-up toasts — the first crosser(s) get NotifyEntered ("you started it"), everyone else gets
+            // Notify ("a teammate entered — come in"). Issued once, when the lockdown is created.
+            if (created)
+            {
+                IssueCommand(ld, ArenaCommandKind.NotifyEntered);
+                IssueCommand(ld, ArenaCommandKind.Notify);
+            }
         }
 
         /// <summary>Driven from Plugin.Update on EVERY end: host runs the lockdown timers; every end polls its own
@@ -209,12 +219,25 @@ namespace SULFURTogether.Networking.Gameplay
         /// locally). Real-time: a player who has since entered drops out of the target set.</summary>
         private static void IssueCommand(Lockdown ld, ArenaCommandKind kind)
         {
-            // CloseDoor closes every end's door (in-room close behind them; out-of-room close + barrier). Everything
-            // else (Notify/Seal/Popup/Release) targets only the out-of-room players.
-            var targets = kind == ArenaCommandKind.CloseDoor ? ComputeAllInLevel(ld) : ComputeNonInRoom(ld);
+            // CloseDoor/Seal/Popup/Release go to EVERY end in the level — each self-decides in/out by its own local
+            // player position (LD-2e real-time check), so a player who left within the window is sealed/offered the popup.
+            // NotifyEntered → the first crosser(s); Notify → everyone not yet in-room.
+            List<string> targets;
+            switch (kind)
+            {
+                case ArenaCommandKind.CloseDoor:
+                case ArenaCommandKind.Seal:
+                case ArenaCommandKind.Popup:
+                case ArenaCommandKind.Release:
+                    targets = ComputeAllInLevel(ld); break;
+                case ArenaCommandKind.NotifyEntered:
+                    targets = ld.InRoom.ToList(); break;
+                default: // Notify
+                    targets = ComputeNonInRoom(ld); break;
+            }
             if (targets.Count == 0)
             {
-                if (LogOn) NetLogger.Info($"[ArenaLockdown] {kind} arena={Key(ld.Pos)} — no non-in-room targets, skip");
+                if (LogOn) NetLogger.Info($"[ArenaLockdown] {kind} arena={Key(ld.Pos)} — no targets, skip");
                 return;
             }
 
@@ -246,9 +269,15 @@ namespace SULFURTogether.Networking.Gameplay
                 switch (kind)
                 {
                     case ArenaCommandKind.Notify:
-                        // t0 heads-up: with grace mode the door stays open ~5 s, so invite the player to run in.
+                        // t0 heads-up to the OUT-OF-ROOM players: with grace the door stays open ~5 s, so invite them in.
                         // Player-facing → localize (Docs/Localization.md).
                         Toast("Arena Lockdown", "A teammate entered the arena — head in now to join them!");
+                        break;
+
+                    case ArenaCommandKind.NotifyEntered:
+                        // t0 heads-up to the player(s) who entered first, so they know the lockdown started too.
+                        // Player-facing → localize.
+                        Toast("Arena Lockdown", "You entered the arena — the gate seals in a few seconds; teammates can still run in.");
                         break;
 
                     case ArenaCommandKind.CloseDoor:
@@ -260,12 +289,17 @@ namespace SULFURTogether.Networking.Gameplay
                         break;
 
                     case ArenaCommandKind.Seal:
+                        // LD-2e: only seal if THIS end's player is actually outside (didn't cross, or crossed then left).
+                        if (IsEffectivelyInArena(arenaPos)) { if (LogOn) NetLogger.Info($"[ArenaLockdown] Seal arena={Key(arenaPos)} local player inside — no barrier"); break; }
                         ArenaBarrierManager.Seal(arenaPos);
                         // Explain the otherwise-invisible barrier. Player-facing → localize.
                         Toast("Arena Lockdown", "You've been sealed out — you'll be brought in shortly.");
                         break;
 
                     case ArenaCommandKind.Popup:
+                        // LD-2e: only the players actually outside get the confirm popup (+ ensure their barrier is up).
+                        if (IsEffectivelyInArena(arenaPos)) { if (LogOn) NetLogger.Info($"[ArenaLockdown] Popup arena={Key(arenaPos)} local player inside — no popup"); break; }
+                        if (!ArenaBarrierManager.IsSealed(arenaPos)) ArenaBarrierManager.Seal(arenaPos);
                         _armed = true;
                         _armedArena = arenaPos;
                         string keyName = "?";
@@ -276,6 +310,7 @@ namespace SULFURTogether.Networking.Gameplay
                         break;
 
                     case ArenaCommandKind.Release:
+                        if (IsEffectivelyInArena(arenaPos)) break; // already inside — nothing to do
                         if (LogOn) NetLogger.Info($"[ArenaLockdown] RELEASE arena=({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0}) — fight over, entering");
                         TeleportIntoArena(arenaPos);
                         break;
@@ -331,7 +366,8 @@ namespace SULFURTogether.Networking.Gameplay
                 _armed = false;
                 if (HidePrompt != null) { try { HidePrompt(); } catch { } }
             }
-            // Now in-room: tell the host (so we drop out of the target set; host self-reports if it teleported).
+            // Now inside: mark crossed (so a later in/out check counts us in) + tell the host.
+            _localCrossed.Add(Key(arenaPos));
             ReportLocalInRoom(arenaPos);
         }
 
@@ -366,9 +402,34 @@ namespace SULFURTogether.Networking.Gameplay
             return endsInLevel.Where(id => !ld.InRoom.Contains(id)).ToList();
         }
 
-        /// <summary>Every end in the arena's level (CloseDoor targets — everyone closes their door when grace ends).</summary>
+        /// <summary>Every end in the arena's level (CloseDoor/Seal/Popup/Release targets — each self-decides in/out).</summary>
         private static List<string> ComputeAllInLevel(Lockdown ld)
             => NetGameplaySyncBridge.GetPeerIdsInLevel(ld.Chapter, ld.Level, ld.HasSeed, ld.Seed);
+
+        /// <summary>LD-2e real-time, event-driven in/out: the local player counts as INSIDE only if it crossed this
+        /// arena's seal trigger AND is still within <see cref="Plugin.Cfg.ArenaInsideRadius"/> of the anchor. Evaluated
+        /// once per command (t+5 seal, t+10 popup, boss-death release) — not polled. So a player who crossed then ran
+        /// back out is correctly treated as out (barrier + popup), and one who never crossed is always out.</summary>
+        private static bool IsEffectivelyInArena(Vector3 arenaPos)
+        {
+            if (!_localCrossed.Contains(Key(arenaPos))) return false;
+            return IsLocalPlayerInArena(arenaPos);
+        }
+
+        private static bool IsLocalPlayerInArena(Vector3 arenaPos)
+        {
+            try
+            {
+                if (ResolveLocalPlayerUnit() is Component c && c != null)
+                {
+                    float r = 18f;
+                    try { r = Plugin.Cfg.ArenaInsideRadius.Value; } catch { }
+                    return (c.transform.position - arenaPos).sqrMagnitude <= r * r;
+                }
+            }
+            catch { }
+            return false; // unknown position → treat as outside (safer: they get the popup to enter)
+        }
 
         // ----------------------------------------------------------------- local player resolution
 
@@ -436,6 +497,7 @@ namespace SULFURTogether.Networking.Gameplay
         {
             _locks.Clear();
             _localGrace.Clear();
+            _localCrossed.Clear();
             ArenaBarrierManager.Clear();
             _armed = false;
             if (HidePrompt != null) { try { HidePrompt(); } catch { } }
