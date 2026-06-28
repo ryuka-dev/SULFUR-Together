@@ -863,11 +863,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     if (!_lastIntroCommit.TryGetValue(key, out msg)) return;
                 }
                 if (!TryFindLocalEncounter(key, out var adapter, out var component)) return;
-                bool introRanOOR; lock (_lock) { introRanOOR = _introRanWhileOutOfRoom.Contains(key); _appliedStart.Add(key); _cutscenePlayed.Add(key); }
+                lock (_lock) { _appliedStart.Add(key); _cutscenePlayed.Add(key); }
 
-                // The boss already appeared while we were out-of-room (intro ran, dialog blocked) → TriggerIntro would
-                // no-op (introPlayed set). Open the dialog DIRECTLY now that we're in-room.
-                if (introRanOOR)
+                // If the boss has ALREADY appeared (introPlayed — native intro ran out-of-room, dialog blocked), TriggerIntro
+                // would no-op, so open the dialog DIRECTLY now that we're in-room. Read the boss's REAL state (not just our
+                // out-of-room flag, which can miss a native intro that ran before the key was known).
+                bool appeared = false; try { appeared = BossReflect.TryGetBool(component, "introPlayed", out bool ip) && ip; } catch { }
+                if (appeared)
                 {
                     TryOpenBossDialogLocally(key);
                     Plugin.Log.Info($"[BossDialogCutscene] catch-up (boss already appeared) key={key} → opened dialog directly");
@@ -919,6 +921,43 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (!CutsceneGateActive || component == null) return false;
                 if (!TryGetEncounterKeyForBoss(component, out string key, out _)) return false;
                 return !LocalInRoom(key);
+            }
+            catch { return false; }
+        }
+
+        // ---- Invariant: the boss stays INVULNERABLE until the fight is committed (co-op's no-pause lets the boss's
+        // DoneAppearing anim event clear its invuln mid-dialog, before StartFight — so players could damage it pre-fight).
+
+        /// <summary>Boss rise-anim "DoneAppearing" fired (it clears the boss's invulnerability). If the fight for this boss
+        /// isn't committed yet, re-assert invulnerability so it can't be damaged before the fight officially starts.</summary>
+        public static void OnBossDoneAppearing(object component)
+        {
+            try
+            {
+                if (!Enabled || !GateFightActive) return;
+                if (!TryGetEncounterKeyForBoss(component, out string key, out _)) return;
+                bool committed; lock (_lock) { committed = _fightCommitted.Contains(key); }
+                if (committed) return; // fight started → leave it vulnerable
+                if (SetBossInvulnerable(component, true) && LogOn)
+                    Plugin.Log.Info($"[BossInvuln] kept boss invulnerable pre-fight key={key}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossInvuln] OnBossDoneAppearing failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Set the boss owner unit's invulnerability (reflection: CousinHelper.owner.SetInvulnerable, falling back
+        /// to the adapter's health unit). Returns true if applied.</summary>
+        private static bool SetBossInvulnerable(object component, bool invuln)
+        {
+            try
+            {
+                object unit = null;
+                try { unit = HarmonyLib.AccessTools.Field(component.GetType(), "owner")?.GetValue(component); } catch { }
+                if (unit == null) { try { unit = ResolveAdapter(component)?.GetHealthUnit(component); } catch { } }
+                if (unit == null) return false;
+                var mi = HarmonyLib.AccessTools.Method(unit.GetType(), "SetInvulnerable");
+                if (mi == null) return false;
+                mi.Invoke(unit, new object[] { invuln });
+                return true;
             }
             catch { return false; }
         }
@@ -1112,6 +1151,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 }
             }
             finally { EndApply(); }
+            // Fight committed → the boss is now vulnerable (clears the pre-fight invulnerability we held via DoneAppearing).
+            SetBossInvulnerable(component, false);
             bool finalized = BossDialogReflect.TryFinalizeCurrentDialog(out string dlgDetail);
             Plugin.Log.Info($"[BossFightGate] committed fight start key={key} reason={reason} start[{startDetail}] dialogClosed={finalized}({dlgDetail})");
 

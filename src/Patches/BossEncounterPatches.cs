@@ -552,6 +552,12 @@ namespace SULFURTogether.Patches
                         postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(BossIntroSuppress_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 Log.Info($"[BossDialogCutscene] patched CousinHelper.Introduction suppression ({intro != null})");
 
+                // Invariant: keep the boss invulnerable until the fight commits — DoneAppearing (rise-anim end) clears the
+                // boss's invuln; re-assert it pre-commit.
+                var done = cousin == null ? null : AccessTools.Method(cousin, "DoneAppearing", Type.EmptyTypes);
+                if (done != null) harmony.Patch(done, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(BossDoneAppearing_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[BossDialogCutscene] patched CousinHelper.DoneAppearing invuln-hold ({done != null})");
+
                 var gm = FindType("GameManager", "PerfectRandom.Sulfur.Core.GameManager");
                 if (gm != null)
                 {
@@ -609,6 +615,11 @@ namespace SULFURTogether.Patches
         {
             try { if (NetBossEncounterManager.IsSuppressingBossCutscene) return false; } catch { }
             return true;
+        }
+
+        private static void BossDoneAppearing_Post(object __instance)
+        {
+            try { NetBossEncounterManager.OnBossDoneAppearing(__instance); } catch { }
         }
 
         private static void SetCurrentSpeakable_Post(object speakable)
