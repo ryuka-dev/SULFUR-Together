@@ -2680,6 +2680,19 @@ namespace SULFURTogether.Networking.Gameplay
                 if (Boss.NetBossEncounterManager.IsWitchPhase2Suppressed(runtimeObject))
                     continue;
 
+                // Phase RT3-Cousin-arms-Anim: the Cousin arm is a self-animating scripted prop — it pops out of a pool,
+                // idles, throws, and retracts/disappears, an Animator sequence driven entirely by its OWN behaviour tree.
+                // It must NEVER be puppet-ized (puppet mode disables the BT) NOR transform-dragged: the puppet animator
+                // mirror only reproduces Animator states during host ATTACK windows, so the arm's idle + disappear states
+                // were never reproduced and its Animator looped its default Appear state (the reported bug). Skipping the
+                // whole snapshot application here lets its BT run locally (faithful appear→idle→attack→disappear). Death
+                // still comes through EnemyDeathMirror (HostEnemyDeathEvent) and the throw is de-fanged by CousinArmPatches,
+                // so damage stays host-authoritative. Skipping the RT3 puppet-drive registration alone (BossDynamicSpawn-
+                // Manifest.IsSpecialAdd) was insufficient — the host also sends ordinary enemy-state snapshots for the arm
+                // by SpawnIndex, and the client late-binds + puppet-izes it through THIS path (LogOutput174).
+                if (IsSelfAnimatingClientBossAdd(snapshot))
+                    continue;
+
                 EnsureClientEnemyPuppetMode(key, snapshot, target.HostSnapshot, runtimeObject, now);
 
                 // Phase 4.4.0-O/O2: create/refresh per-NPC authorization window; determine control mode.
@@ -4374,6 +4387,17 @@ namespace SULFURTogether.Networking.Gameplay
                     && Plugin.Cfg.ApplyReceivedEnemyStateSnapshots.Value
                     && NetConfig.GetMode() == NetMode.Client;
             }
+            catch { return false; }
+        }
+
+        // Phase RT3-Cousin-arms-Anim: boss adds that are scripted props driven by their own behaviour tree must keep that
+        // BT alive on the client (puppet mode disables it), so they're exempt from the whole client snapshot/puppet path.
+        // Currently just the Cousin arm (appear→idle→attack→disappear sequence). Death/despawn still arrives via the
+        // independent EnemyDeathMirror path; damage is host-authoritative (the throw is de-fanged by CousinArmPatches).
+        private static bool IsSelfAnimatingClientBossAdd(NetGameplayEntitySnapshot? snapshot)
+        {
+            if (snapshot == null) return false;
+            try { return string.Equals(snapshot.EntityId?.UnitIdentifier, "GoblinCousinArm", StringComparison.Ordinal); }
             catch { return false; }
         }
 

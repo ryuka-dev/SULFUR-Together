@@ -738,14 +738,17 @@ namespace SULFURTogether.Config
             LogBossDynamicSpawn = cfg.Bind("NetworkBoss", "LogBossDynamicSpawn", true,
                 "Phase 5.4-E4: log each boss dynamic spawn + binding result (bound / host-only / client-extra).");
 
-            // Phase RT3-Cousin-arms: GoblinCousinArm was historically special-excluded from the RT3-A boss-add pipeline
-            // (a stale placeholder — no dedicated arm system was ever built, unlike the LuciaEye). That left each end
-            // running its own un-suppressed arm: double-spawn, double damage (local throw + host-routed), desynced timing.
-            // When enabled, arms flow through the normal pipeline like henchmen (host spawns+broadcasts, client local arm
-            // binds to host[seq] -> mirrored puppet, combat suppressed). Arm projectile damage stays host-authoritative
-            // physical (host throws real mud balls; they hit the host player / remote-player proxies by collision).
+            // Phase RT3-Cousin-arms(-Anim): GoblinCousinArm is a scripted prop (appear→idle→attack→disappear) driven by
+            // its own behaviour tree, not a locomotion enemy. It is ALWAYS special-excluded from the RT3-A puppet pipeline
+            // (see IsSpecialAdd): puppet mode disables the BT and the puppet animator-mirror only reproduces host ATTACK
+            // windows, so the client arm's idle/disappear states were never reproduced (the Animator looped its default
+            // Appear state). Self-animating restores them faithfully. This toggle now gates only the co-op de-fang + group
+            // throw: when on, CousinArmPatches de-fangs the client arm's throw to 0 damage and the host throws one real mud
+            // ball per player (host + remote-player proxies) so damage stays host-authoritative. Off = legacy per-end
+            // independent arms (each end's arm throws its own real damage). Double-spawn is prevented by the intro-arm
+            // defer + special host-only skip (one local arm per end, no mirror) regardless of this toggle.
             EnableCousinArmSync = cfg.Bind("NetworkBoss", "EnableCousinArmSync", true,
-                "Phase RT3-Cousin-arms: sync GoblinCousinArm through the RT3-A boss-add pipeline (host-authoritative spawn + client mirrored puppet, combat suppressed) instead of leaving each end to run its own arm. Fixes double-spawn / double damage. Off = legacy per-end independent arms. Reversible.");
+                "Phase RT3-Cousin-arms-Anim: the Cousin arm self-animates via its own behaviour tree on every end (faithful appear/idle/attack/disappear); it is never a host puppet. This toggle gates the co-op de-fang + group-AoE throw: on = the client arm's throw is de-fanged to 0 damage and the host throws one real mud ball per player (damage host-authoritative). Off = legacy per-end independent arms (double real damage). Reversible.");
 
             // Phase 5.4-F: route a client's hit on a boss MAIN BODY to the Host's real Unit.ReceiveDamage so the boss
             // mechanic (onDamageRecieved) advances host-side, instead of the client locally deducting HP that the host

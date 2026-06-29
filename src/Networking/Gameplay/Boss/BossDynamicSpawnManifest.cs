@@ -231,8 +231,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 SpawnsBound++;
                 Plugin.Log.Info($"[BossSpawn] BOUND slot={slot} seq={seq} hostUnitId={(string.IsNullOrEmpty(he.Msg.AddUnitId) ? "?" : he.Msg.AddUnitId)} localUnitId={(string.IsNullOrEmpty(la.UnitId) ? "?" : la.UnitId)} localInst={la.InstanceId} hostPos={he.Msg.Position:F1} localPos={la.Pos:F1}");
                 // RT3: drive the client's existing local add as a host puppet (transform / attack / death by host
-                // SpawnIndex). Skip special units that have dedicated systems (LuciaEye=F5; GoblinCousinArm only while
-                // EnableCousinArmSync is off — see IsSpecialAdd) to avoid conflicts.
+                // SpawnIndex). Skip special units that own their lifecycle (LuciaEye=F5/F6; GoblinCousinArm self-animates
+                // via its own behaviour tree — see IsSpecialAdd) to avoid disabling the BT that drives their animation.
                 if (RuntimeSyncEnabled() && he.Msg.HostSpawnIndex > 0 && !IsSpecialAdd(he.Msg.AddType))
                 {
                     bool bound = NetGameplayProbeManager.RegisterMirroredRuntimeSpawn(la.Unit, he.Msg.HostSpawnIndex);
@@ -426,22 +426,26 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         //   BlackGuildLuciaEye (Lucia eye count/death authority, F5/F6).
         private static readonly HashSet<string> _specialAdds = new HashSet<string> { "BlackGuildLuciaEye" };
 
-        // Phase RT3-Cousin-arms: GoblinCousinArm was historically in _specialAdds, but no dedicated arm system was ever
-        // built (the exclusion predated the mature RT3-A pipeline). Excluding it left each end running its own
-        // un-suppressed arm — double-spawn + double damage (client local throw + host-routed) + desynced timing. With
-        // EnableCousinArmSync the arm flows through the normal RT3-A pipeline like henchmen: the client local arm binds to
-        // host[seq] and becomes a mirrored puppet, so Npc.SetRangedAttacking is suppressed (the throw is a ranged-attack
-        // animation event) and the client no longer fires its own mud balls. Damage stays host-authoritative physical.
-        // When the toggle is off, the arm stays special-excluded (legacy behaviour).
+        // Phase RT3-Cousin-arms-Anim: GoblinCousinArm is a SCRIPTED PROP — it pops out of a pool, idles, throws, and
+        // retracts/disappears, an animation sequence driven entirely by its OWN behaviour tree + animation events. It does
+        // NOT navigate. An earlier revision routed it through the RT3-A puppet pipeline (bind local arm to host[seq] →
+        // mirrored puppet) to stop double-spawn/double-damage, but ApplyClientEnemyPuppetMode DISABLES the puppet's
+        // behaviour tree, and the puppet animator-mirror only reproduces Animator states while the host marks the unit as
+        // actively attacking (TryPopulateHostCombatAnimatorStates is called only inside the host combat-action branch).
+        // Result: on the client the arm's appear (default state) and attack (host combat window) animations played, but
+        // its IDLE and DISAPPEAR states (non-combat, BT-driven) were never reproduced — with the BT dead the Animator just
+        // looped its default Appear state. So we keep the arm ALWAYS special-excluded (never a puppet): its own behaviour
+        // tree drives the full appear→idle→attack→disappear sequence faithfully (single-player path). Double-spawn is
+        // already prevented elsewhere (intro-arm defer + special host-only skip = one local arm per end, no mirror), and
+        // the throw is still de-fanged to 0 damage on the client by CousinArmPatches (gated on EnableCousinArmSync), so
+        // damage stays host-authoritative. EnableCousinArmSync now gates only the de-fang + group-AoE throw, not puppeting.
         private static bool IsSpecialAdd(string addType)
         {
             if (addType == null) return false;
             if (_specialAdds.Contains(addType)) return true;
-            if (addType == "GoblinCousinArm") return !CousinArmSyncEnabled();
+            if (addType == "GoblinCousinArm") return true; // never puppet-ize: BT drives appear/idle/attack/disappear
             return false;
         }
-
-        private static bool CousinArmSyncEnabled() { try { return Plugin.Cfg.EnableCousinArmSync.Value; } catch { return false; } }
 
         private static int ReadUnitIdValueFromUnit(object spawnedUnit)
         {
