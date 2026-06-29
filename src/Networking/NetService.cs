@@ -2571,6 +2571,7 @@ namespace SULFURTogether.Networking
 
             NetLogger.Info($"[Net] Handshake OK — player='{session.PlayerName}' v={data.ModVersion}");
             NetLogger.Info($"[Session] Peer joined: id={session.PeerId} slot={session.Slot} name='{session.PlayerName}' endpoint={session.EndPoint}");
+            UI.CoopToasts.Notify($"{session.PlayerName} joined");
 
             var w = NetMessage.For(NetMessageType.HandshakeAccepted);
             NetHandshake.WriteAccepted(
@@ -2614,6 +2615,7 @@ namespace SULFURTogether.Networking
                 NetLogger.Info("[Net] Handshake accepted by host — session established");
                 NetLogger.Info($"[Session] Local session assigned: id={local.PeerId} slot={local.Slot} name='{local.PlayerName}'");
                 NetLogger.Info($"[Session] Host session known: id={data.HostPeerId} name='{data.HostPlayerName}' maxPlayers={data.MaxPlayers}");
+                UI.CoopToasts.Notify($"Connected to {data.HostPlayerName}");
                 SendRunState(peer, _runStates.LocalState);
             }
             else
@@ -3926,6 +3928,7 @@ namespace SULFURTogether.Networking
 
             if (_peerIds.TryGetValue(peer, out var peerId))
             {
+                string leftName = _sessions.Sessions.FirstOrDefault(s => s.PeerId == peerId)?.PlayerName ?? peerId;
                 if (_mode == NetMode.Host)
                     _sessions.Remove(peerId);
                 else
@@ -3937,6 +3940,7 @@ namespace SULFURTogether.Networking
                 NetLoadBarrier.RemovePeer(peerId);
                 _peerIds.Remove(peer);
                 NetLogger.Info($"[Session] Peer left: id={peerId}");
+                UI.CoopToasts.Notify(_mode == NetMode.Host ? $"{leftName} left" : "Disconnected from host");
             }
 
             if (_mode == NetMode.Client)

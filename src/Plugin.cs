@@ -7,6 +7,7 @@ using SULFURTogether.Networking;
 using SULFURTogether.Networking.Gameplay;
 using SULFURTogether.Patches;
 using SULFURTogether.ReverseProbe;
+using SULFURTogether.UI;
 
 namespace SULFURTogether
 {
@@ -33,7 +34,7 @@ namespace SULFURTogether
             var harmony = new Harmony(ModInfo.GUID);
             PatchBootstrap.ApplyAll(harmony);
 
-            WireArenaLockdownPopup();
+            WireCoopUi();
 
             // Phase 2 network — dead when EnableNetworking=false or NetworkMode=Off
             try
@@ -80,11 +81,11 @@ namespace SULFURTogether
             Log.Info("Ready.");
         }
 
-        /// <summary>LD-2c: wire the arena-lockdown confirm prompt to SULFUR Native UI Lib's banner if that mod is
-        /// loaded (soft dependency, resolved by reflection so we don't hard-link the assembly). The lib exposes
-        /// <c>Ryuka.Sulfur.NativeUI.SulfurPopupApi.ShowBanner(string)/HideBanner()</c>. Absent → the seam stays null
-        /// and the prompt is logged only; confirm still works via the key.</summary>
-        private void WireArenaLockdownPopup()
+        /// <summary>Wire the optional SULFUR Native UI Lib surfaces (soft dependency, resolved by reflection so we
+        /// don't hard-link the assembly). The lib exposes <c>Ryuka.Sulfur.NativeUI.SulfurPopupApi.ShowBanner/HideBanner</c>
+        /// (LD-2c arena-lockdown confirm prompt) and <c>SulfurToastApi.Show(title, message)</c> (UI-1 co-op event
+        /// toasts). Absent → the seams stay null and events are logged only; gameplay is unaffected.</summary>
+        private void WireCoopUi()
         {
             try
             {
@@ -105,15 +106,18 @@ namespace SULFURTogether
                 ArenaLockdownManager.HidePrompt = () => hide.Invoke(null, null);
                 Log.Info("[ArenaLockdown] confirm prompt wired to SULFUR Native UI Lib banner (SulfurPopupApi).");
 
-                // LD-2c wait toasts (UI lib 0.9.0). Optional — absent → toasts are logged only.
+                // Toast surface (UI Lib 0.9.0) — shared by LD-2c wait toasts and UI-1 co-op event toasts.
+                // Optional — absent → toasts are logged only.
                 var toastType = AccessTools.TypeByName("Ryuka.Sulfur.NativeUI.SulfurToastApi");
                 var showToast = toastType == null ? null : AccessTools.Method(toastType, "Show", new[] { typeof(string), typeof(string) });
                 if (showToast != null)
                 {
-                    ArenaLockdownManager.ShowToast = (title, msg) => showToast.Invoke(null, new object[] { title, msg });
-                    Log.Info("[ArenaLockdown] status toasts wired to SULFUR Native UI Lib (SulfurToastApi).");
+                    Action<string, string> toast = (title, msg) => showToast.Invoke(null, new object[] { title, msg });
+                    ArenaLockdownManager.ShowToast = toast;
+                    CoopToasts.Wire(toast);
+                    Log.Info("[CoopUi] toasts wired to SULFUR Native UI Lib (SulfurToastApi).");
                 }
-                else Log.Info("[ArenaLockdown] SulfurToastApi not present — status toasts logged only.");
+                else Log.Info("[CoopUi] SulfurToastApi not present — toasts logged only.");
             }
             catch (Exception ex)
             {

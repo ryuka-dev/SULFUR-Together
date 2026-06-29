@@ -1,8 +1,8 @@
 # Localization — standing rule + string registry
 
-**Status:** rule recorded; implementation **deferred** (user, 2026-06-28). No
-localization infrastructure exists in this mod yet. This document exists so the
-requirement is not forgotten and so every new player-facing string is tracked.
+**Status:** rule recorded; implementation **deferred**. No localization
+infrastructure exists in this mod yet. This document tracks the rule and every
+player-facing string so the later localization pass has a complete list.
 
 ---
 
@@ -52,6 +52,12 @@ cover our strings.
 | 5 | title `Arena Lockdown` / msg `You've been sealed out — you'll be brought in shortly.` | `ArenaLockdownManager.cs` (LD-2c `Seal` toast, t0+5 s) | Explains the otherwise-invisible barrier. |
 | 6 | title `Arena` / msg `Entering the arena.` | `ArenaLockdownManager.cs` (LD-2c teleport toast) | Fired on teleport-in (confirm / boss-death release). |
 | 7 | title `Arena Lockdown` / msg `You entered the arena — the gate seals in a few seconds; teammates can still run in.` | `ArenaLockdownManager.cs` (LD-2e `NotifyEntered` toast, t0) | Heads-up to the player(s) who entered first. |
+| 8 | title `Together` (default toast heading) | `CoopToasts.cs` (UI-1) | Heading used for all co-op event toasts that don't pass an explicit title. |
+| 9 | `{name} joined` | `NetService.HandleHandshakeRequest` (UI-1, host) | `{name}` = the joining player's display name. |
+| 10 | `Connected to {host}` | `NetService.HandleHandshakeAccepted` (UI-1, client) | `{host}` = host display name. |
+| 11 | `{name} left` / `Disconnected from host` | `NetService.OnPeerDisconnected` (UI-1) | First form host-side (a client left); second client-side (the host dropped). |
+| 12 | `Linked to host` / `Playing solo` | `NetLinkState.SetClientLinked` (UI-1) | Client link toggled on/off (PageDown / PageUp). |
+| 13 | `Hosting ON` / `Hosting OFF` | `NetLinkState.SetHostLinked` (UI-1) | Host multiplayer master switch toggled. |
 
 ### Planned, not yet written (register here when added)
 

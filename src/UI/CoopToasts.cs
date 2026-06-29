@@ -1,0 +1,50 @@
+using System;
+
+namespace SULFURTogether.UI
+{
+    /// <summary>
+    /// In-game co-op notifications (a player joins/leaves, link state changes) shown as brief toasts
+    /// through SULFUR Native UI Lib's toast surface.
+    ///
+    /// The lib is a soft dependency resolved by reflection at startup (see <c>Plugin.WireCoopUi</c>):
+    /// when it is present the toast is shown; when it is absent the event is written to the log only,
+    /// so the mod never hard-links the assembly and degrades gracefully.
+    ///
+    /// Toasts are passive — fire-and-forget, no game pause, no input capture (consistent with the
+    /// no-pause multiplayer model).
+    /// </summary>
+    internal static class CoopToasts
+    {
+        // (title, message) → SulfurToastApi.Show(title, message). Null until wired / when the lib is absent.
+        private static Action<string, string> _show;
+
+        /// <summary>Default toast title (English placeholder; see Docs/Localization.md).</summary>
+        private const string DefaultTitle = "Together";
+
+        /// <summary>Assign the resolved toast seam. Null is allowed (lib absent → log-only).</summary>
+        public static void Wire(Action<string, string> showToast) => _show = showToast;
+
+        public static void Notify(string message) => Notify(null, message);
+
+        /// <summary>
+        /// Show a co-op toast (and always log the event). No-op when <c>EnableCoopToasts</c> is off.
+        /// Safe to call when the UI Lib is absent — the event is logged only.
+        /// </summary>
+        public static void Notify(string title, string message)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+
+            bool enabled = true;
+            try { enabled = Plugin.Cfg.EnableCoopToasts.Value; } catch { /* config not ready yet */ }
+            if (!enabled) return;
+
+            string heading = string.IsNullOrEmpty(title) ? DefaultTitle : title;
+
+            // Always log so the event is observable even without the UI Lib installed.
+            Plugin.Log?.Info($"[CoopToast] {heading}: {message}");
+
+            try { _show?.Invoke(heading, message); }
+            catch (Exception e) { Plugin.Log?.Warn($"[CoopToast] toast show failed: {e.Message}"); }
+        }
+    }
+}

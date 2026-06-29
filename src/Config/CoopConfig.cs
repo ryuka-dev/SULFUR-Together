@@ -223,6 +223,9 @@ namespace SULFURTogether.Config
         public ConfigEntry<KeyboardShortcut> ArenaEnterConfirmKey { get; }
         public ConfigEntry<bool>   EnableArenaGracePeriod { get; }
 
+        // ----- In-game co-op UI (toasts / status) via SULFUR Native UI Lib (soft dependency) -----
+        public ConfigEntry<bool>   EnableCoopToasts { get; }
+
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
         public ConfigEntry<bool>   EnableWorldItemDropSync { get; }
         public ConfigEntry<bool>   LogWorldItemDropSync { get; }
@@ -610,6 +613,10 @@ namespace SULFURTogether.Config
                 "Reject clients running a different mod version.");
             SendPingIntervalSeconds = cfg.Bind("Network", "SendPingIntervalSeconds", 2f,
                 "How often (seconds) to send a Ping to peers.");
+
+            // in-game co-op UI (requires SULFUR Native UI Lib for the visual; absent → events are logged only)
+            EnableCoopToasts = cfg.Bind("UI", "EnableCoopToasts", true,
+                "Show brief in-game toast notifications for co-op events (a player joins/leaves, link on/off) via SULFUR Native UI Lib's toast surface. Without the UI Lib these events are written to the log only.");
 
             // run / scene metadata only. This never loads levels or synchronizes gameplay.
             EnableRunStateNegotiation = cfg.Bind("NetworkRunState", "EnableRunStateNegotiation", true,
