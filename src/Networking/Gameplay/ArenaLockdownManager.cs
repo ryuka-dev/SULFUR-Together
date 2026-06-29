@@ -47,6 +47,14 @@ namespace SULFURTogether.Networking.Gameplay
         // LD-2e: per-arena count of doorway traversals by THIS end's local player (ArenaDoorwaySensor). Odd = inside.
         private static readonly Dictionary<string, int> _doorwayCrossings = new Dictionary<string, int>();
 
+        // RT3-Cousin-arms-Room: the active arena (most recent membership change) + the client's cached view of the host's
+        // broadcast in-room set. Used by the Cousin arm group-attack to skip out-of-room players. Unlike the boss-trigger
+        // room membership (seed-keyed, churns), ArenaLockdown's set is keyed by stable arena position and accumulates
+        // everyone incl. late walk-ins, so it is the reliable source for "who is in the boss arena".
+        private static string _activeArenaKey = "";
+        private static readonly HashSet<string> _clientArenaMembers = new HashSet<string>();
+        private static string _clientArenaKey = "";
+
         private const float SealDelaySeconds     = 5f;
         private const float TeleportDelaySeconds = 10f;
         // How close a gate-open (boss death / AllDeadTrigger) must be to an arena to count as "this fight ended".
@@ -174,7 +182,11 @@ namespace SULFURTogether.Networking.Gameplay
                 NetLogger.Info($"[ArenaLockdown] START arena={key} level={chap}:{lvl} seed={(hasSeed ? seed.ToString() : "?")} t0 by {peerId}");
             }
             if (ld.InRoom.Add(peerId))
+            {
                 NetLogger.Info($"[ArenaLockdown] in-room += {peerId} arena={key} members=[{string.Join(",", ld.InRoom)}]");
+                _activeArenaKey = key;
+                BroadcastArenaMembership(ld); // RT3-Cousin-arms-Room: tell clients the new in-room set (for arm filtering)
+            }
 
             // t0: heads-up toasts — the first crosser(s) get NotifyEntered ("you started it"), everyone else gets
             // Notify ("a teammate entered — come in"). Issued once, when the lockdown is created.
@@ -260,9 +272,60 @@ namespace SULFURTogether.Networking.Gameplay
         public static void HandleArenaCommand(NetArenaCommand m, string localPeerId)
         {
             if (!Enabled || m == null) return;
+            // RT3-Cousin-arms-Room: membership broadcast — cached by EVERY client (no per-target side effect), so the
+            // arm group-attack can tell which remote players are in the boss arena.
+            if (m.Kind == ArenaCommandKind.Membership)
+            {
+                _clientArenaKey = Key(m.ArenaPos);
+                _clientArenaMembers.Clear();
+                if (m.TargetPeerIds != null) foreach (var p in m.TargetPeerIds) _clientArenaMembers.Add(p);
+                if (LogOn) NetLogger.Info($"[ArenaLockdown] client received membership arena={_clientArenaKey} members=[{string.Join(",", _clientArenaMembers)}]");
+                return;
+            }
             if (m.TargetPeerIds == null || !m.TargetPeerIds.Contains(localPeerId)) return;
             ApplyLocalCommand(m.Kind, m.ArenaPos);
         }
+
+        /// <summary>HOST: broadcast an arena's current in-room peer set so clients can filter the boss arm's group attack.</summary>
+        private static void BroadcastArenaMembership(Lockdown ld)
+        {
+            try
+            {
+                NetGameplaySyncBridge.BroadcastArenaCommand(new NetArenaCommand
+                {
+                    Kind = ArenaCommandKind.Membership, ArenaPos = ld.Pos, TargetPeerIds = ld.InRoom.ToList(),
+                });
+            }
+            catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] BroadcastArenaMembership failed: {ex.Message}"); }
+        }
+
+        // ----------------------------------------------------------------- RT3-Cousin-arms-Room: arm-attack room queries
+
+        /// <summary>The in-room peer set of the active boss arena (host: authoritative live set; client: last host
+        /// broadcast). Returns false when no active arena membership is known — the caller then fail-opens (no room
+        /// filtering) so the boss can never become un-attackable. Members may include "host" and client peer ids.</summary>
+        public static bool TryGetActiveArenaInRoom(out HashSet<string> members)
+        {
+            members = null;
+            try
+            {
+                if (!Enabled) return false;
+                if (NetGameplaySyncBridge.IsHost)
+                {
+                    if (!string.IsNullOrEmpty(_activeArenaKey) && _locks.TryGetValue(_activeArenaKey, out var ld) && !ld.Released && ld.InRoom.Count > 0)
+                    { members = ld.InRoom; return true; }
+                    // Fallback: the most-recent non-released lock that has members.
+                    Lockdown best = null;
+                    foreach (var kv in _locks) { var l = kv.Value; if (l.Released || l.InRoom.Count == 0) continue; if (best == null || l.T0 > best.T0) best = l; }
+                    if (best != null) { members = best.InRoom; return true; }
+                    return false;
+                }
+                if (_clientArenaMembers.Count > 0) { members = _clientArenaMembers; return true; }
+                return false;
+            }
+            catch { return false; }
+        }
+
 
         /// <summary>Run a command against THIS end's local door / player.</summary>
         private static void ApplyLocalCommand(ArenaCommandKind kind, Vector3 arenaPos)
@@ -532,6 +595,9 @@ namespace SULFURTogether.Networking.Gameplay
             _localGrace.Clear();
             _localCrossed.Clear();
             _doorwayCrossings.Clear();
+            _activeArenaKey = "";
+            _clientArenaMembers.Clear();
+            _clientArenaKey = "";
             ArenaBarrierManager.Clear();
             _armed = false;
             if (HidePrompt != null) { try { HidePrompt(); } catch { } }

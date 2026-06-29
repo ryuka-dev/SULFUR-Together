@@ -666,14 +666,20 @@ namespace SULFURTogether.Patches
             TryPatch(harmony, t, "GetTarget", null, Post(nameof(AiAgent_GetTarget_HideDowned_Post)));
         }
 
-        private static void AiAgent_GetTarget_HideDowned_Post(ref object __result)
+        private static void AiAgent_GetTarget_HideDowned_Post(object __instance, ref object __result)
         {
             try
             {
                 if (__result == null) return;
                 if (!Cfg.HideDownedLocalPlayerFromEnemies.Value) return;
-                if (NetPlayerLifeManager.IsDownedLocalPlayerUnit(__result))
-                    __result = null;
+                if (!NetPlayerLifeManager.IsDownedLocalPlayerUnit(__result)) return;
+                // Cousin-arm exception (RT3-Cousin-arms-Room): the arm's group throw is the only boss attack a DOWNED
+                // client can see hitting its team-mates. On the client the local player is the arm's ONLY targetable Unit
+                // (remote players are visual proxies, not Units), so nulling it here makes the arm's behaviour tree lose
+                // its target and stop throwing → the client sees the boss "freeze". Keep the target so the throw keeps
+                // firing; CousinArmPatches.IsTargetAttackable still skips the downed player, so it is never actually hit.
+                if (CousinArmPatches.IsCousinArmAiAgent(__instance)) return;
+                __result = null;
             }
             catch { }
         }

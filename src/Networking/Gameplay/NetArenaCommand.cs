@@ -16,6 +16,8 @@ namespace SULFURTogether.Networking.Gameplay
         Notify   = 4, // LD-2c t0: heads-up status toast to the OUT-OF-ROOM players (a teammate entered), no side effect.
         CloseDoor = 5, // LD-2d t0+5 s: grace over — close the local combat-room gate that was kept open during grace.
         NotifyEntered = 6, // LD-2e t0: heads-up toast to the player(s) who entered first (so they know it started too).
+        Membership = 7, // RT3-Cousin-arms-Room: host broadcasts the arena's current in-room peer set (TargetPeerIds) so
+                        // clients can filter the boss arm's group attack. Cached by ALL clients, no per-target side effect.
     }
 
     internal sealed class NetArenaCommand

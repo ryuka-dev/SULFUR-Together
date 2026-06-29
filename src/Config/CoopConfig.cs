@@ -161,6 +161,8 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableBossRoomMembership { get; }
         // ----- Phase RM-2b: scope the synced boss intro cutscene to in-room players (Cousin) -----
         public ConfigEntry<bool>   GateBossDialogToInRoom { get; }
+        // ----- Phase RT3-Cousin-arms-Room: don't target out-of-room players with the Cousin arm group attack -----
+        public ConfigEntry<bool>   ExcludeOutOfRoomPlayersFromBossAttacks { get; }
         // ----- Phase 5.4-E3 BossDialogCommit + Lucia + Witch state + Emperor worm -----
         public ConfigEntry<bool>   EnableEmperorWormDiagnostics { get; }
         public ConfigEntry<bool>   EnableEmperorClientWormSuppression { get; }
@@ -721,6 +723,8 @@ namespace SULFURTogether.Config
                 "Phase RM (substrate): track which players are 'in the boss room' (host-authoritative). Each end reports when its local player crosses the boss's room-entry trigger; the host aggregates the in-room set and broadcasts it. Observe-only for now (logs '[RoomMembership]', changes no behavior) — the shared foundation for restricting the synced intro cutscene to in-room players and for the future arena lockdown (AFK exclusion).");
             GateBossDialogToInRoom = cfg.Bind("NetworkBoss", "GateBossDialogToInRoom", true,
                 "Phase RM-2b: scope the synced boss intro cutscene to IN-ROOM players. When a player triggers the fight, only ends whose local player has entered the boss room play the intro+dialog (camera lock + invuln); out-of-room ends (incl. an AFK host) are NOT pulled into the cutscene. A player who enters the room (walks in OR is teleported in by the arena lockdown) while the dialog is still running catches up the cutscene. When the dialog ends the fight commits host-authoritatively and the dialog is removed everywhere, so no one can re-open it. Cousin first; off = legacy (cutscene replays on every end). Logs '[BossDialogCutscene]'.");
+            ExcludeOutOfRoomPlayersFromBossAttacks = cfg.Bind("NetworkBoss", "ExcludeOutOfRoomPlayersFromBossAttacks", true,
+                "Phase RT3-Cousin-arms-Room: don't aim the Cousin arm's group throw at players who are NOT in the boss arena (e.g. an AFK teammate who never entered) or who are downed — same intent as the downed-player-untargetable rule. \"In arena\" comes from the ArenaLockdown membership (host-authoritative, doorway-parity, broadcast to clients) which reliably accumulates everyone incl. late walk-ins, NOT the seed-keyed boss-trigger room membership (which churns). The host throws one real ball per Player (its own + each client ghost proxy); the client throws at its local player + a visual ball at each remote proxy. Local presence uses the reliable local doorway signal; remote presence uses the arena member set. Fail-open (no arena filtering, downed filter still applies) when no active arena membership is known, so the boss never becomes un-attackable. Requires EnableArenaLockdown. Reversible.");
 
             // Phase 5.4-E3: dialog-gated bosses (Cousin / Lucia) sync the "fight committed" decision via BossDialogCommit
             // and finalize the local dialog with the real Graph.Stop(true). Witch broadcasts a minimal phase/state skeleton.
@@ -1485,6 +1489,7 @@ namespace SULFURTogether.Config
             DeferBossIntroArm.Value = true;
             EnableBossRoomMembership.Value = true;
             GateBossDialogToInRoom.Value = true;
+            ExcludeOutOfRoomPlayersFromBossAttacks.Value = true;
             // Symmetric NPC activation near remote players (both host + client). Validated host-side (Log93/94).
             EnableMultiPlayerNpcActivation.Value = true;
 

@@ -648,6 +648,14 @@ namespace SULFURTogether.Networking
             _visualProxies.ForEachInScenePlayer((peerId, pos) => action(pos), Now(), Plugin.Cfg.RemotePlayerVisualTimeoutSeconds.Value);
         }
 
+        // Phase RT3-Cousin-arms-Room: same enumeration but carrying each remote player's peerId, so the arm group-attack
+        // can skip out-of-room players (room membership is keyed by peerId).
+        internal void ForEachRemotePlayerPositionWithPeer(System.Action<string, UnityEngine.Vector3> action)
+        {
+            if (action == null) return;
+            _visualProxies.ForEachInScenePlayer(action, Now(), Plugin.Cfg.RemotePlayerVisualTimeoutSeconds.Value);
+        }
+
         internal void BroadcastHostBossDynamicSpawn(Gameplay.Boss.NetBossDynamicSpawn msg)
         {
             if (_mode != NetMode.Host || _net == null) return;

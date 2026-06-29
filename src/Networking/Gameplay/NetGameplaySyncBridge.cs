@@ -201,6 +201,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static void ForEachRemotePlayerPosition(System.Action<UnityEngine.Vector3> action)
             => _service?.ForEachRemotePlayerPosition(action);
 
+        // Phase RT3-Cousin-arms-Room: same, carrying peerId so out-of-room remote players can be skipped.
+        public static void ForEachRemotePlayerPositionWithPeer(System.Action<string, UnityEngine.Vector3> action)
+            => _service?.ForEachRemotePlayerPositionWithPeer(action);
+
         // Phase 5.4-F BossDamageAuthority.
         public static void SendClientBossHitRequest(SULFURTogether.Networking.Gameplay.Boss.NetClientBossHitRequest req)
             => _service?.SendClientBossHitRequest(req);

@@ -108,7 +108,22 @@ namespace SULFURTogether.Patches
                 if (_aiAgentTargetField == null) return true;
 
                 var units = GatherPlayerUnits();
-                int thrown = 0;
+
+                // Phase RT3-Cousin-arms-Room: out-of-room players (e.g. an AFK team-mate who never entered the arena) and
+                // downed players must not be targeted by the arm's group throw — same intent as the downed-untargetable
+                // rule. "In room" comes from the ArenaLockdown arena set (host-authoritative + broadcast to clients),
+                // which reliably accumulates everyone incl. late walk-ins. When room gating can't be trusted (no active
+                // arena membership) `gated` is false and only the downed filter applies (fail-open, so the boss never
+                // becomes un-attackable).
+                bool filter = false; bool gated = false; System.Collections.Generic.HashSet<string>? members = null;
+                try
+                {
+                    filter = Plugin.Cfg.ExcludeOutOfRoomPlayersFromBossAttacks.Value;
+                    if (filter) gated = ArenaLockdownManager.TryGetActiveArenaInRoom(out members);
+                }
+                catch { }
+
+                int thrown = 0, skippedOutOfRoom = 0;
                 if (units.Count > 0)
                 {
                     object? prevTarget = _aiAgentTargetField.GetValue(aiAgent);
@@ -118,6 +133,7 @@ namespace SULFURTogether.Patches
                         foreach (var u in units)
                         {
                             if (u == null) continue;
+                            if (filter && !IsTargetAttackable(u, gated, members)) { skippedOutOfRoom++; continue; }
                             try { _aiAgentTargetField.SetValue(aiAgent, u); } catch { continue; }
                             try { _throwMethod!.Invoke(__instance, null); thrown++; }
                             catch (Exception ex) { Plugin.Log.Warn($"[ArmThrow] per-player throw failed: {ex.GetType().Name}: {ex.Message}"); }
@@ -139,13 +155,20 @@ namespace SULFURTogether.Patches
                 // CLIENT: GameManager.Players only had the local player (ghosts are host-only), so the loop above threw
                 // one ball at us. Add a visual-only ball toward each remote player's proxy position so the client sees the
                 // boss attacking everyone. (The host already covers all players via its ghost Players entries above.)
-                int remoteVisual = 0;
+                int remoteVisual = 0, remoteSkippedOutOfRoom = 0;
                 if (client)
                 {
                     object instCapture = __instance;
                     object? npcCapture = npc;
-                    NetGameplaySyncBridge.ForEachRemotePlayerPosition(pos =>
+                    bool fl = filter; bool gt = gated; var mem = members;
+                    NetGameplaySyncBridge.ForEachRemotePlayerPositionWithPeer((peerId, pos) =>
                     {
+                        // Skip the visual ball toward a remote team-mate who is downed or out of the boss arena.
+                        if (fl)
+                        {
+                            if (NetPlayerLifeManager.IsPeerDownOrDead(peerId)) { remoteSkippedOutOfRoom++; return; }
+                            if (gt && !(mem != null && mem.Contains(peerId))) { remoteSkippedOutOfRoom++; return; }
+                        }
                         if (ClientVisualThrowAt(instCapture, npcCapture, pos)) remoteVisual++;
                     });
                 }
@@ -153,7 +176,7 @@ namespace SULFURTogether.Patches
                 if (Plugin.Cfg.LogBossDynamicSpawn.Value)
                 {
                     float now = Time.realtimeSinceStartup;
-                    if (now - _lastLogAt > 0.5f) { _lastLogAt = now; Plugin.Log.Info($"[ArmThrow] {(client ? "client" : "host")} AoE throw players={units.Count} thrown={thrown} remoteVisual={remoteVisual}"); }
+                    if (now - _lastLogAt > 0.5f) { _lastLogAt = now; Plugin.Log.Info($"[ArmThrow] {(client ? "client" : "host")} AoE throw players={units.Count} thrown={thrown} skippedOutOfRoom={skippedOutOfRoom} remoteVisual={remoteVisual} remoteSkippedOutOfRoom={remoteSkippedOutOfRoom} gated={gated} members=[{(members == null ? "" : string.Join(",", members))}]"); }
                 }
                 return false; // we issued all throws; skip the native single throw
             }
@@ -203,6 +226,32 @@ namespace SULFURTogether.Patches
             catch (Exception ex) { Plugin.Log.Warn($"[ArmThrow] client visual throw-at failed: {ex.GetType().Name}: {ex.Message}"); return false; }
         }
 
+        // Phase RT3-Cousin-arms-Room: may the arm's group throw target this player Unit? Excludes downed players and (when
+        // arena gating is active) players who are not in the boss arena.
+        //  - A host ghost / target-proxy Unit maps to its owning client's peerId → downed via NetPlayerLifeManager, arena
+        //    via the broadcast/authoritative ArenaLockdown member set.
+        //  - Any other Unit is THIS end's local player (host's real Unit on the host, the local player on the client) →
+        //    downed via the local-player check, arena via the reliable local doorway-parity signal.
+        // Fail-open (return true) on any error so a resolution failure never makes the boss un-attackable.
+        private static bool IsTargetAttackable(object playerUnit, bool gated, System.Collections.Generic.HashSet<string>? members)
+        {
+            try
+            {
+                bool isProxy = RemotePlayerTargetProxyManager.TryGetProxyPeer(playerUnit, out string peerId);
+                // The local player's own id is the local peer id; a ghost/proxy carries its owning client's id.
+                if (!isProxy) peerId = NetGameplaySyncBridge.LocalPeerId;
+                // Downed players are never targeted (matches the downed-untargetable rule for ordinary enemies).
+                if (isProxy) { if (NetPlayerLifeManager.IsPeerDownOrDead(peerId)) return false; }
+                else if (NetPlayerLifeManager.IsDownedLocalPlayerUnit(playerUnit)) return false;
+                // Out-of-arena players are not targeted (only when an active arena membership is known). The membership set
+                // contains the local player too (each end adds itself on the reliable seal-trigger crossing), so we use it
+                // uniformly — the per-arena doorway parity is too fragile (it miscounts re-entries → false "outside").
+                if (gated) return members != null && members.Contains(peerId);
+                return true;
+            }
+            catch { return true; }
+        }
+
         private static readonly List<object> _unitScratch = new List<object>(4);
         private static List<object> GatherPlayerUnits()
         {
@@ -236,6 +285,26 @@ namespace SULFURTogether.Patches
                 return f?.GetValue(obj);
             }
             catch { return null; }
+        }
+
+        // Phase RT3-Cousin-arms-Room: does this AiAgent belong to a Cousin arm? Used to exempt the arm from the
+        // downed-untargetable null (ReverseProbePatches) so it keeps throwing when the local player is downed. Checks the
+        // AiAgent's own GameObject + ancestors + descendants for the CousinArm script (precise — won't match sibling
+        // henchmen under a shared boss root).
+        public static bool IsCousinArmAiAgent(object? aiAgent)
+        {
+            try
+            {
+                if (!(aiAgent is Component c) || c == null) return false;
+                var armType = _cousinArmType
+                    ?? (_cousinArmType = FindGameType("PerfectRandom.Sulfur.Gameplay.CousinArm")
+                                      ?? FindGameType("PerfectRandom.Sulfur.Core.CousinArm")
+                                      ?? FindGameType("CousinArm"));
+                if (armType == null) return false;
+                if (c.GetComponentInParent(armType) != null) return true;
+                return c.GetComponentInChildren(armType, true) != null;
+            }
+            catch { return false; }
         }
 
         private static Type? FindGameType(string fullName)
