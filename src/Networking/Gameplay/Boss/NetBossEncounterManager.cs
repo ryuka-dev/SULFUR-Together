@@ -841,9 +841,18 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
             if (CutsceneGateActive && !LocalInRoom(key))
             {
-                detail = "deferred — out-of-room (cutscene gated to in-room)";
+                // Out-of-room: the boss MUST still APPEAR here (invariant: boss appears on all ends, so mechanics stay in
+                // sync), but WITHOUT the cutscene. Force the appearance directly via Introduction (idempotent) — the
+                // suppression patches no-op its camera/Cinematic-lock and the dialog (Npc.Interact) is blocked, so it just
+                // rises. Do NOT mark _cutscenePlayed: this player never saw the dialog, so a later entry/teleport catches
+                // it up. (TriggerIntro is avoided — it only sets a flag the boss's behavior tree may never tick when the
+                // boss isn't active yet, so the boss wouldn't appear until the player walks near — Log172.)
+                BeginApply();
+                try { BossReflect.TryInvoke(component, "Introduction", out detail); }
+                finally { EndApply(); }
+                detail = "out-of-room headless appear: " + detail;
                 Plugin.Log.Info($"[BossDialogCutscene] {detail} key={key}");
-                return true; // intentionally skipped, not a failure
+                return true;
             }
 
             bool ok = adapter.TryApplyDialogCommit(component, msg, out detail);
