@@ -858,25 +858,35 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try
             {
                 if (!CutsceneGateActive) return;
-                NetBossDialogCommit msg;
+                if (!TryFindLocalEncounter(key, out var adapter, out var component)) return;
+                try { if (!adapter.GatesFightOnDialogClose(component)) return; } catch { return; }
+
+                // The dialog session is "active" iff the boss has been triggered but the fight isn't committed yet — derive
+                // it from RELIABLE state (the boss + _fightCommitted, which survives same-level churn) rather than the
+                // fragile _dialogSessionActive flag. Gate the catch-up on: in-room, not yet caught up, fight not committed.
+                bool inRoom, played, committed;
                 lock (_lock)
                 {
-                    if (!_dialogSessionActive.Contains(key) || _cutscenePlayed.Contains(key)) return; // ended or already played
-                    if (!(_roomEnterReported.Contains(key) || _localTeleportedIn.Contains(key))) return; // not in-room yet
-                    if (!_lastIntroCommit.TryGetValue(key, out msg)) return;
+                    inRoom = _roomEnterReported.Contains(key) || _localTeleportedIn.Contains(key);
+                    played = _cutscenePlayed.Contains(key);
+                    committed = _fightCommitted.Contains(key);
                 }
-                if (!TryFindLocalEncounter(key, out var adapter, out var component)) return;
+                bool started = false; try { started = SafeStarted(adapter, component); } catch { }
+                if (!inRoom || played || committed || started)
+                {
+                    if (LogOn) Plugin.Log.Info($"[BossDialogCutscene] catch-up SKIP key={key} inRoom={inRoom} played={played} committed={committed} started={started}");
+                    return;
+                }
                 lock (_lock) { _appliedStart.Add(key); _cutscenePlayed.Add(key); }
 
-                // Make the boss APPEAR locally if it hasn't (introPlayed false → run the native intro). The native intro's
-                // built-in dialog STEP is unreliable on a LATE trigger (Log167: Introduction → StartFight, the Npc.Interact
-                // step is skipped), so ALWAYS open the dialog DIRECTLY — that's the path that reliably shows it.
+                // Make the boss APPEAR locally if it hasn't (introPlayed false → TriggerIntro). Its built-in dialog STEP is
+                // unreliable on a late trigger (Log167), so ALWAYS open the dialog DIRECTLY — the reliable path.
                 bool appeared = false; try { appeared = BossReflect.TryGetBool(component, "introPlayed", out bool ip) && ip; } catch { }
                 if (!appeared)
                 {
                     OpenContinuation(key, adapter, component, "cutscene-catchup");
                     BeginApply();
-                    try { adapter.TryApplyDialogCommit(component, msg, out string d); Plugin.Log.Info($"[BossDialogCutscene] catch-up appear key={key}: {d}"); }
+                    try { BossReflect.TryInvoke(component, "TriggerIntro", out string d); Plugin.Log.Info($"[BossDialogCutscene] catch-up appear key={key}: {d}"); }
                     finally { EndApply(); }
                 }
                 TryOpenBossDialogLocally(key);
@@ -894,7 +904,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try
             {
                 if (!CutsceneGateActive) return;
-                string[] keys; lock (_lock) { keys = _dialogSessionActive.Where(k => !_cutscenePlayed.Contains(k)).ToArray(); }
+                // Teleported in = in-room for every gated in-scene boss. Iterate the live registry (not the fragile
+                // _dialogSessionActive) and let TryCatchUpCutscene self-gate (appeared + !committed + !played).
+                string[] keys; lock (_lock) { keys = _registry.Keys.ToArray(); }
                 foreach (var key in keys)
                 {
                     lock (_lock) { _localTeleportedIn.Add(key); }
