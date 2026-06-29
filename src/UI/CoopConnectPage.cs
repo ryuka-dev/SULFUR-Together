@@ -267,6 +267,10 @@ namespace SULFURTogether.UI
         private static void OnJoin()
         {
             if (!IsInGame()) { _ctx?.SetFooterStatus("Load a save first."); return; }
+            // Close the pause/options menu FIRST. Joining triggers an immediate host-driven level load (black-
+            // screen fade); if the menu is left open the player can wedge the game by dismissing the fade with
+            // Space while the menu still holds input. Returning to gameplay before the load avoids that.
+            CoopMenu.CloseIfOpen("ui-join");
             SaveSettings();
             Plugin.Cfg.NetworkMode.Value = NetMode.Client.ToString();
             try { Plugin.Cfg.EnableNetworking.Value = true; } catch { }

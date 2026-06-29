@@ -82,6 +82,11 @@ namespace SULFURTogether.Networking
                 return false;
             }
 
+            // This side is being pulled into a host-driven / relayed level load (auto-follow or a transition
+            // initiated by the other player). If a pause/options menu is open here it would sit over the
+            // black-screen load and let the player wedge the game with Space — close it first (no-op if none).
+            CoopMenu.CloseIfOpen("host-driven-follow");
+
             try
             {
                 object?[] args =
