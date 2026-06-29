@@ -1,7 +1,16 @@
 # Co-op UI Plan
 
-**Status:** design. Phase area code: **UI** (standalone, like PF / RM / LD). Lifecycle per
-[Versioning.md](Versioning.md): `designed` → implement per sub-step.
+**Status:** in progress. Phase area code: **UI** (standalone, like PF / RM / LD). Lifecycle per
+[Versioning.md](Versioning.md): `designed` → implement per sub-step. UI-1 committed; UI-3a built;
+UI-3b was the interim page (Save/Connect/Disconnect). The **§8 live-update handles shipped in the UI lib
+0.10** (`SulfurTextHandle` / `SulfurButtonHandle` / `SulfurListHandle`) and were verified by the lib's
+0.10 comprehensive test (host Log182.5 — 18/18 PASS). **UI-3c** then reworked the page onto those handles
+to the §5 target layout (no-unknowns body — Steam-name auto-seed and host LAN-IP display still deferred);
+built + deployed, pending in-game verify. See the registry in [Versioning.md](Versioning.md) for live status.
+
+> §1–4 below are the original incremental breakdown (history). The **canonical target** for the connect
+> page is **§5**; §6 records the settled decisions, §7 the deferred backlog, §8 the UI-lib prerequisites
+> (the next thing to build — handles the page leans on).
 
 The **UI track** has had no feature work yet. Today the mod's entire on-screen surface is two IMGUI calls:
 
@@ -137,3 +146,114 @@ UI-3; do after the connect page proves the lib integration end-to-end.
 4. **UI-4 revive polish** — last, cosmetic.
 
 Stop after each sub-step and verify in a real co-op session (per the phase-gate rule) before the next.
+
+---
+
+## 5. Target connect-page design (canonical)
+
+One native Options page, `SulfurOptionsApi.RegisterPage`, category **"SULFUR Together"**. Top-to-bottom:
+
+### Current status
+- A status line/indicator: `● Not connected` etc. **Host and client show different text** (host: hosting +
+  N players; client: connected to / not connected). Needs a **live text handle** (§8) so it updates without
+  reopening the page.
+
+### Player info
+- **Player name** — text input. Seeded **once** on first run from the player's Steam name (fallback `Player`
+  if the grab fails); editable afterward and never auto-overwritten again. Store a `NameInitialized` flag in
+  config so the seed happens only once. (Feasibility: Steam name via Steamworks `SteamFriends.GetPersonaName()`
+  — to verify the game exposes Steamworks.)
+
+### Start co-op
+- **IP** — text input. After the player presses **Create game**, this row turns into a read-only display
+  `Your LAN address: x.x.x.x` (the host's own local IPv4, enumerated from the network interfaces). On a
+  client it stays an input box (the address to join).
+- **Port** — text input.
+- **Connection key** — text input (visible, not masked).
+- **[ Create game ]** — host. Mutually exclusive with Join: while a room exists, **Join is disabled**.
+- **[ Join game ]** — client. **On failure, surface the reason in the menu**, not just the log: e.g.
+  `Mod version mismatch — host 0.8.1, you 0.8.0`, or `Connection timed out`. The handshake already computes
+  these reasons (`RejectPeer` strings; LiteNetLib `ConnectionFailed`); the client must capture the last
+  failure and display it (needs a live text/error element, §8). Create disabled while joined.
+
+### Local preferences (per-player, client-editable for itself)
+- **Show player join/leave notifications** `[on]` → `EnableCoopToasts`. (The earlier "co-op notifications"
+  label was a duplicate of this — collapsed into this single toggle.)
+- **Show network status on HUD** `[on]` → future UI-2 HUD indicator.
+- **Show other players' names** `[on]` → future.
+- **Rescue key** `[E]` → `PlayerReviveHoldKey`.
+- **Confirm-enter-boss-room key** `[Enter]` → `ArenaEnterConfirmKey`.
+
+### Session settings (host-authoritative; client sees them read-only, synced)
+- **Player table** — who is in the room, **ping per player**, and a **kick button** per row (host only).
+  Needs a refreshable list (§8).
+- **Loot mode** `[ Independent ▼ ]` — Independent works today; **Shared is deferred** (§7).
+- **Client may initiate the next level** — toggle (deferred gating, §7).
+- **Friendly fire** — toggle (deferred, §7).
+- Showing these on a client read-only requires a **host→client session-settings broadcast** (new, §7).
+
+### Room control
+- **[ Close co-op world ]** — soft: the host stops sharing the world / leading, **socket stays up, players
+  stay connected** — the host-side equivalent of the link toggle. Maps to `NetLinkState.SetHostLinked(false)`
+  (mechanism already exists).
+- **[ Close room ]** — hard: tear down the network/handshake entirely (everyone disconnects). Maps to
+  `CoopConnection.Stop` (already exists).
+
+### About
+- Mod version, **[ Open-source repo ]** and **[ Ko-fi ]** buttons → `Application.OpenURL` (no lib change).
+
+### Player cap
+- **No artificial cap.** This is a private virtual-LAN game (direct IP:port UDP over Radmin/ZeroTier/etc.),
+  not a public server. The real ceiling is performance (per-client enemy-snapshot bandwidth/CPU scales with
+  player count; ~4–8 is the practical limit), not a hard-coded number. `MaxPlayers` becomes advisory/removed.
+
+---
+
+## 6. Settled decisions
+
+- **Notification toggle** — one toggle only: "Show player join/leave notifications" (`EnableCoopToasts`).
+  The separate "co-op notifications" label was redundant and is dropped.
+- **Two-level shutdown** — *Close co-op world* = `NetLinkState.SetHostLinked(false)` (soft, keep socket);
+  *Close room* = `CoopConnection.Stop` (hard, drop socket). Both mechanisms already exist.
+- **Deferred features are not built now** — they get a paper trail here (§7) and the UI shows them as
+  placeholders (greyed / "coming soon"); the UI must not pretend a feature exists when its netcode doesn't.
+- **Build order** — the **UI lib live-update handles (§8) come first**; the target page (§5) is reworked on
+  top of them. The interim Save/Connect/Disconnect page stands until then.
+
+---
+
+## 7. Deferred features (target design references them; netcode not built)
+
+Tracked here so the design isn't lost; **do not implement until scheduled**.
+
+- **Shared loot mode** — only Independent loot exists (Phase 6 is partial). The loot-mode dropdown ships with
+  Independent live and Shared as a disabled "coming soon" option until shared-loot sync lands.
+- **Friendly fire toggle** — there is currently no player-vs-player damage path; this is a from-scratch
+  feature, not just a toggle.
+- **Kick player** — host disconnects a chosen peer (+ a "kicked" reason to that client). New, small.
+- **Client may initiate the next level** — a host-authoritative gate on client-initiated transitions
+  (the relay exists; the permission switch does not).
+- **Host→client session-settings sync** — a new broadcast so a client can see the host's session settings
+  read-only (loot mode / friendly fire / client-transition permission). New protocol message, moderate.
+- **HUD network-status indicator** + **show other players' names** — the UI-2 family, not yet built.
+
+---
+
+## 8. UI-lib prerequisites (the next thing to build — handoff to the UI lib)
+
+The target page (§5) leans on **live updates**: status text, the join-failure reason, the host's LAN IP,
+the player/ping table, and the read-only synced host settings all change while the page is open. The lib
+today can only update the **footer status** (`SetFooterStatus`) without a full `ctx.Rebuild()`. The lib
+needs **update handles**, mirroring the existing `SulfurSettingHandle` for setting rows:
+
+| Capability | Used by | Lib status |
+|------------|---------|------------|
+| **Text handle** — set text without rebuild | status line, join-failure reason, host LAN IP, read-only synced host settings | **shipped 0.10** (`SulfurTextHandle`: `SetText` / `SetColor` / `SetVisible`) |
+| **Button handle** — set label / enabled | Create↔Join mutual-exclusion disable, room-control button states | **shipped 0.10** (`SulfurButtonHandle`: `SetLabel` / `SetInteractable` / `SetVisible`; `AddButtonRow` returns the handles) |
+| **Refreshable list/table** — per-row dynamic content | player table (name + ping + kick button), ping ticking live | **shipped 0.10** (`SulfurListHandle`: `AddList` → `Update(buildDelegate)` / `Clear` / `SetVisible`) |
+| **Read-only / disabled control state** — show a value, not editable | client viewing host's session settings | `AddReadonlyText` (value display); button handles also expose `SetInteractable(false)` |
+| URL button | About (repo / Ko-fi) | already covered by `AddSmallButton` + `Application.OpenURL` |
+
+Core ask (**delivered in lib 0.10**): handles for text, buttons, and a refreshable list — set text / enabled /
+visible without rebuilding the whole page. UI-3c consumes them: the status line, Create/Join enabled state,
+join-failure line and player list all update through these handles, driven from `CoopConnectPage.Tick`.

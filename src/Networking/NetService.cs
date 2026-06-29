@@ -151,6 +151,34 @@ namespace SULFURTogether.Networking
             }
         }
 
+        /// <summary>One-line human-readable connection state for the connect UI.</summary>
+        public string GetConnectionSummary()
+        {
+            if (_mode == NetMode.Host)
+                return $"Hosting on port {Plugin.Cfg.HostPort.Value} — {_sessions.RemoteConnectedCount} player(s) connected";
+            if (_mode == NetMode.Client)
+                return _hostPeer != null
+                    ? $"Connected to host {Plugin.Cfg.HostAddress.Value}:{Plugin.Cfg.HostPort.Value}"
+                    : $"Connecting to {Plugin.Cfg.HostAddress.Value}:{Plugin.Cfg.HostPort.Value}…";
+            return "Off";
+        }
+
+        /// <summary>UI-3c: one display line per known session (name + slot + state) for the connect page's live
+        /// player list, host first. Empty when off. Read-only — per-player ping and kick are deferred (see
+        /// CoopUiPlan §7).</summary>
+        public IReadOnlyList<string> GetPlayerRows()
+        {
+            var rows = new List<string>();
+            if (_mode == NetMode.Off) return rows;
+            foreach (var s in _sessions.Sessions.OrderBy(s => s.Slot))
+            {
+                string who = string.IsNullOrWhiteSpace(s.PlayerName) ? s.PeerId : s.PlayerName;
+                string you = s.IsLocal ? " (you)" : "";
+                rows.Add($"{who}{you} — slot {s.Slot} — {s.State}");
+            }
+            return rows;
+        }
+
         public void Stop()
         {
             _net?.Stop();
@@ -2311,6 +2339,7 @@ namespace SULFURTogether.Networking
                     case NetMessageType.HandshakeRejected:
                         string rejectReason = reader.GetString();
                         NetLogger.Info($"[Net] Handshake rejected: {rejectReason}");
+                        NetConnectFeedback.ReportError($"Host rejected: {rejectReason}");
                         peer.Disconnect();
                         break;
 
@@ -2616,6 +2645,7 @@ namespace SULFURTogether.Networking
                 NetLogger.Info($"[Session] Local session assigned: id={local.PeerId} slot={local.Slot} name='{local.PlayerName}'");
                 NetLogger.Info($"[Session] Host session known: id={data.HostPeerId} name='{data.HostPlayerName}' maxPlayers={data.MaxPlayers}");
                 UI.CoopToasts.Notify($"Connected to {data.HostPlayerName}");
+                NetConnectFeedback.ReportConnected();
                 SendRunState(peer, _runStates.LocalState);
             }
             else
@@ -2626,6 +2656,7 @@ namespace SULFURTogether.Networking
                 _peerIds[peer] = "host";
                 _runStates.SetLocalIdentity("client-local", Plugin.Cfg.PlayerName.Value);
                 NetLogger.Info("[Net] Handshake accepted by host — session established (legacy payload)");
+                NetConnectFeedback.ReportConnected();
                 SendRunState(peer, _runStates.LocalState);
             }
         }
@@ -3956,7 +3987,10 @@ namespace SULFURTogether.Networking
                 _nextClientReconnectTime = Now() + 5f;
 
                 if (info.Reason == DisconnectReason.ConnectionFailed)
+                {
+                    NetConnectFeedback.ReportError("Connection failed — host unreachable. Check the address, port and that the host is up.");
                     NetLogger.Info("[Net] Client will retry connection in 5 seconds");
+                }
                 else
                     NetLogger.Info("[Net] Client reconnect scheduled in 5 seconds");
             }

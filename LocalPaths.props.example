@@ -14,5 +14,10 @@
     <!-- OPTIONAL second destination (e.g. a Sandboxie copy of the same profile, for the second game instance).
          Leave empty / delete the line if you don't run a sandboxed client. -->
     <!-- <BepInExPluginDirSandbox>C:\Sandbox\YourName\DefaultBox\user\current\AppData\Roaming\com.kesomannen.gale\sulfur\profiles\Default\BepInEx\plugins</BepInExPluginDirSandbox> -->
+
+    <!-- OPTIONAL: SULFUR Native UI Lib DLL, for the in-game connect UI / toasts. Compile-time only; the
+         runtime dependency stays soft (the mod runs without the lib, just without its UI surfaces). Point at
+         the installed plugin's DLL. If unset, the in-game UI source is excluded from the build. -->
+    <!-- <NativeUiLibDll>C:\Users\YourName\AppData\Roaming\com.kesomannen.gale\sulfur\profiles\Default\BepInEx\plugins\ryuka_labs-SULFUR_Native_UI_Lib\SULFUR Native UI Lib.dll</NativeUiLibDll> -->
   </PropertyGroup>
 </Project>

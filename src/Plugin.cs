@@ -21,8 +21,6 @@ namespace SULFURTogether
         public static STLogger   Log      { get; private set; } = null!;
         public static CoopConfig Cfg      { get; private set; } = null!;
 
-        private NetService? _netService;
-
         private void Awake()
         {
             Instance = this;
@@ -36,28 +34,9 @@ namespace SULFURTogether
 
             WireCoopUi();
 
-            // Phase 2 network — dead when EnableNetworking=false or NetworkMode=Off
-            try
-            {
-                var mode = NetConfig.GetMode();
-                if (mode != NetMode.Off)
-                {
-                    _netService = new NetService();
-                    NetRunStateBridge.Attach(_netService);
-                    NetGameplaySyncBridge.Attach(_netService);
-                    _netService.Start(mode);
-                }
-                else
-                {
-                    NetRunStateBridge.Attach(null);
-                    NetGameplaySyncBridge.Attach(null);
-                    Log.Info("[Net] Networking disabled (EnableNetworking=false or NetworkMode=Off).");
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"[Net] Failed to start — LiteNetLib.dll missing or failed to load. ({ex.GetType().Name}: {ex.Message})");
-            }
+            // Phase 2 network — dead when EnableNetworking=false or NetworkMode=Off. The connect UI (UI-3) can
+            // start/stop/switch this at runtime through CoopConnection; Awake just applies the configured mode.
+            CoopConnection.Initialize();
 
             Log.Info("[ConfigPolicy] Private development build: active experimental gameplay defaults are forced on load; connection settings such as NetworkMode/HostAddress/HostPort/PlayerName are left user-owned.");
             Log.Info($"[Config] EnableDebugLog={Cfg.EnableDebugLog.Value} | EnableReverseProbe={Cfg.EnableReverseProbe.Value} | EnableNetworking={Cfg.EnableNetworking.Value} | NetworkMode={Cfg.NetworkMode.Value}");
@@ -118,10 +97,21 @@ namespace SULFURTogether
                     Log.Info("[CoopUi] toasts wired to SULFUR Native UI Lib (SulfurToastApi).");
                 }
                 else Log.Info("[CoopUi] SulfurToastApi not present — toasts logged only.");
+
+#if NATIVE_UI_LIB
+                // UI-3b: register the in-game connect page. Guarded by the runtime type check so the lib
+                // assembly is only touched when it's actually loaded (soft dependency holds).
+                if (AccessTools.TypeByName("Ryuka.Sulfur.NativeUI.SulfurOptionsApi") != null)
+                {
+                    UI.CoopConnectPage.Register();
+                    Log.Info("[CoopUi] connect page registered (SulfurOptionsApi).");
+                }
+                else Log.Info("[CoopUi] SulfurOptionsApi not present — connect page unavailable.");
+#endif
             }
             catch (Exception ex)
             {
-                Log.Warn($"[ArenaLockdown] failed to wire Native UI Lib popup: {ex.Message}");
+                Log.Warn($"[CoopUi] failed to wire Native UI Lib surfaces: {ex.Message}");
             }
         }
 
@@ -135,12 +125,15 @@ namespace SULFURTogether
             Networking.Gameplay.Boss.NetBossEncounterManager.Tick();
             Networking.Gameplay.Boss.BossDynamicSpawnManifest.TickReleaseStaleGated(); // RT3-A safety: release stuck gates
             Networking.Gameplay.ArenaLockdownManager.Tick(); // LD-2a: host arena lockdown timers
-            _netService?.Tick();
+            CoopConnection.Tick();
+#if NATIVE_UI_LIB
+            UI.CoopConnectPage.Tick(); // UI-3c: drive the connect page's live status/buttons/list handles
+#endif
         }
 
         private void FixedUpdate()
         {
-            _netService?.FixedTick();
+            CoopConnection.FixedTick();
         }
 
         private void OnGUI()
@@ -150,9 +143,10 @@ namespace SULFURTogether
 
         private void OnDestroy()
         {
-            NetRunStateBridge.Attach(null);
-            NetGameplaySyncBridge.Attach(null);
-            _netService?.Stop();
+#if NATIVE_UI_LIB
+            try { UI.CoopConnectPage.Unregister(); } catch { /* lib may be gone */ }
+#endif
+            CoopConnection.Stop("plugin destroyed");
         }
     }
 }

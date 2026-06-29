@@ -31,6 +31,21 @@
     <PackageReference Include="LiteNetLib" Version="1.*" />
   </ItemGroup>
 
+  <!-- UI-3: SULFUR Native UI Lib compile-time reference for the in-game connect page (and typed toast/banner
+       calls). Runtime dependency stays SOFT (see Plugin's [BepInDependency]); all lib-typed code is isolated
+       behind #if NATIVE_UI_LIB and only entered when the lib is actually loaded, so the mod still runs without
+       it. When NativeUiLibDll is unset (a build env without the lib), the UI source is excluded and the mod
+       builds fine. Private=false: the lib is provided by its own plugin, never copied into our output. -->
+  <PropertyGroup Condition="'$(NativeUiLibDll)' != '' AND Exists('$(NativeUiLibDll)')">
+    <DefineConstants>$(DefineConstants);NATIVE_UI_LIB</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(NativeUiLibDll)' != '' AND Exists('$(NativeUiLibDll)')">
+    <Reference Include="SULFUR Native UI Lib">
+      <HintPath>$(NativeUiLibDll)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
   <ItemGroup>
     <!-- BepInEx 5 core -->
     <Reference Include="0Harmony">

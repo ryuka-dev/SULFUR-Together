@@ -37,6 +37,16 @@ namespace SULFURTogether.Networking
             _observedSource = string.IsNullOrWhiteSpace(source) ? "GameManager" : source;
         }
 
+        /// <summary>Clear the "already reported this seed" latch so the next <see cref="ReportObservedGameManagerSeed"/>
+        /// re-reports the current seed even if it is unchanged. Used when networking (re)starts after a save was
+        /// already loaded: the latch was set while no service was attached, so the freshly started service would
+        /// otherwise never receive the current seed (Log186).</summary>
+        public static void ResetReportLatch()
+        {
+            _lastReportedSeed = 0;
+            _transitionBaselineKnown = false;
+        }
+
         public static void BeginLevelTransition(object? gameManager, string source)
         {
             ObserveGameManager(gameManager, source);
