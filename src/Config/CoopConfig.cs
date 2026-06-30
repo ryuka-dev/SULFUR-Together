@@ -32,7 +32,7 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool> EnableAiUpdateTargetProbe   { get; }  // AiAgent.UpdateTarget
         public ConfigEntry<bool> EnableAiSetDestinationProbe { get; }  // AiAgent.SetDestination
         public ConfigEntry<bool> EnableAiNavMeshStateProbe   { get; }  // AiAgent.SetNavMeshAgentState
-        public ConfigEntry<bool> LogAiTargetingReverseDump   { get; }  // P3: one-time dump of AiAgent targeting + player enumeration
+        public Fixed<bool>       LogAiTargetingReverseDump   { get; }  // P3 one-shot dump completed (hardcoded off)
         public ConfigEntry<bool> EnableAiCanMoveProbe        { get; }  // AiAgent.SetCanMove
         public ConfigEntry<bool> EnableNpcUpdateProbe        { get; }  // Npc.Update
 
@@ -86,14 +86,14 @@ namespace SULFURTogether.Config
         public Fixed<bool>         EnableRunStateNegotiation      { get; } // functional: always on (release-hardcoded)
         public Fixed<float>        RunStateBroadcastIntervalSeconds { get; } // functional tuning (release-hardcoded)
         public ConfigEntry<bool>   WarnOnRunStateMismatch         { get; }
-        public ConfigEntry<bool>   EnableHostSceneAuthority       { get; }
+        public Fixed<bool>         EnableHostSceneAuthority       { get; }
         public ConfigEntry<bool>   WarnOnClientSceneDrift         { get; }
-        public ConfigEntry<bool>   EnableHostSceneRequestProtocol { get; }
-        public ConfigEntry<bool>   AutoSendHostSceneRequestOnDrift { get; }
-        public ConfigEntry<float>  HostSceneRequestIntervalSeconds { get; }
-        public ConfigEntry<bool>   EnableManualClientSceneFollow { get; }
+        public Fixed<bool>         EnableHostSceneRequestProtocol { get; }
+        public Fixed<bool>         AutoSendHostSceneRequestOnDrift { get; }
+        public Fixed<float>        HostSceneRequestIntervalSeconds { get; }
+        public Fixed<bool>         EnableManualClientSceneFollow  { get; }
         public ConfigEntry<KeyboardShortcut> ManualClientSceneFollowKey { get; }
-        public ConfigEntry<bool>   ManualClientSceneFollowRequiresHostRequest { get; }
+        public Fixed<bool>         ManualClientSceneFollowRequiresHostRequest { get; }
 
         // ----- Phase 3.1 level seed authority ----- (functional: always on, release-hardcoded)
         public Fixed<bool>         EnableLevelSeedAuthority { get; }
@@ -106,29 +106,29 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LogUsedSetsTrace { get; }
 
         // ----- Phase 5.3-J client join load gate -----
-        public ConfigEntry<bool>   ClientWaitHostGenerationInputBeforeFirstLoad { get; }
-        public ConfigEntry<float>  ClientLoadGateTimeoutSeconds { get; }
-        public ConfigEntry<bool>   ClientLoadGateAllowFallbackAfterTimeout { get; }
-        public ConfigEntry<float>  ClientLoadGateRequestIntervalSeconds { get; }
+        public Fixed<bool>         ClientWaitHostGenerationInputBeforeFirstLoad { get; }
+        public Fixed<float>        ClientLoadGateTimeoutSeconds { get; }
+        public Fixed<bool>         ClientLoadGateAllowFallbackAfterTimeout { get; }
+        public Fixed<float>        ClientLoadGateRequestIntervalSeconds { get; }
         // Phase 5.6-DL P3: gate the client's DEATH respawn to the hub so it converges on the HOST's hub seed
         // (same safe-zone instance) instead of generating its own. Timeout falls back to a local hub respawn.
-        public ConfigEntry<bool>   ClientGateDeathRespawnUntilHostHub { get; }
-        public ConfigEntry<float>  ClientGateDeathRespawnTimeoutSeconds { get; }
+        public Fixed<bool>         ClientGateDeathRespawnUntilHostHub { get; }
+        public Fixed<float>        ClientGateDeathRespawnTimeoutSeconds { get; }
         // Phase 5.6-DL-Q2: let the client LEAD level transitions. When the client walks into an exit, relay the
         // target to the host; the host performs the transition authoritatively (host player moves + generates),
         // then the gated client follows. The host still owns generation.
-        public ConfigEntry<bool>   EnableClientTransitionRelay { get; }
+        public Fixed<bool>         EnableClientTransitionRelay { get; }
         // Phase 5.6-CL: "allow client to load level". The in-run extension of the relay above — when a JOINED
         // client walks into a NextLevelTrigger (CompleteLevel, the sub-level advance that never goes through
         // GoToLevel), do NOT generate locally: show a native loading fade, tell the host, and let the host LEAD
         // the transition (host moves + generates) so everyone advances together. Needs EnableClientTransitionRelay
         // (the transport). On timeout the client falls back to advancing locally so it is never stuck.
-        public ConfigEntry<bool>   AllowClientInitiatedLevelLoad { get; }
-        public ConfigEntry<float>  ClientInitiatedLoadTimeoutSeconds { get; }
+        public Fixed<bool>         AllowClientInitiatedLevelLoad { get; }
+        public Fixed<float>        ClientInitiatedLoadTimeoutSeconds { get; }
         // Phase F3-Reload: when a linked client F3's to the level both ends are ALREADY in (reload-in-place), the
         // client must NOT self-reload off the host's stale "I'm here" request (that diverged — Log147) — it relays
         // and waits for the host to RE-LEAD the reload so both regenerate together.
-        public ConfigEntry<bool>   EnableClientReloadInPlaceRelay { get; }
+        public Fixed<bool>         EnableClientReloadInPlaceRelay { get; }
 
         // Phase 5.6-LK: explicit "联机状态 / Online-Linked state". The master switch for whether the mod's
         // multiplayer behavior is active. CLIENT default OFF — the player presses ManualClientSceneFollowKey
@@ -144,59 +144,59 @@ namespace SULFURTogether.Config
         // ----- Phase 5.4-A client join flow -----
         public ConfigEntry<string> ClientJoinMode { get; }
 
-        // ----- Phase 5.4-E Boss encounter authority -----
-        public ConfigEntry<bool>   EnableBossEncounterSync { get; }
-        public ConfigEntry<bool>   BossEncounterClientBlockLocalStart { get; }
+        // ----- Phase 5.4-E Boss encounter authority (release-hardcoded) -----
+        public Fixed<bool>         EnableBossEncounterSync { get; }
+        public Fixed<bool>         BossEncounterClientBlockLocalStart { get; }
         public ConfigEntry<bool>   LogBossEncounter { get; }
-        // ----- Phase 5.4-E2 BossStart chain completion + lifecycle probe -----
-        public ConfigEntry<float>  BossContinuationGraceSeconds { get; }
-        public ConfigEntry<bool>   EnableBossLifecycleProbe { get; }
+        // ----- Phase 5.4-E2 BossStart chain completion + lifecycle probe (release-hardcoded) -----
+        public Fixed<float>        BossContinuationGraceSeconds { get; }
+        public Fixed<bool>         EnableBossLifecycleProbe { get; }
         public ConfigEntry<bool>   LogBossLifecycle { get; }
         // ----- Phase PF-0 boss pre-fight convergence diagnostic -----
         public ConfigEntry<bool>   LogBossPreFight { get; }
-        // ----- Fix A (root): remove the boss dialog interactable on fight start (vanilla Witch pattern) -----
-        public ConfigEntry<bool>   RemoveBossDialogInteractableOnStart { get; }
-        // ----- Phase PF: faithful synced boss intro (run the real behavior-tree intro/dialog on the client) -----
-        public ConfigEntry<bool>   EnableFaithfulBossIntro { get; }
-        // ----- Phase PF (Plan B): gate the boss fight start on the intro dialog being dismissed (host-authoritative) -----
-        public ConfigEntry<bool>   GateBossFightOnDialogClose { get; }
-        // ----- Phase PF-ArmDefer (issue 1): defer the Cousin intro arm until the dialog-close fight commit -----
-        public ConfigEntry<bool>   DeferBossIntroArm { get; }
-        // ----- Phase RM: host-authoritative room-membership substrate (who is in the boss room). Observe-only for now -----
-        public ConfigEntry<bool>   EnableBossRoomMembership { get; }
-        // ----- Phase RM-2b: scope the synced boss intro cutscene to in-room players (Cousin) -----
-        public ConfigEntry<bool>   GateBossDialogToInRoom { get; }
-        // ----- Phase RT3-Cousin-arms-Room: don't target out-of-room players with the Cousin arm group attack -----
-        public ConfigEntry<bool>   ExcludeOutOfRoomPlayersFromBossAttacks { get; }
+        // ----- Fix A: faithful intro runs dialog → do NOT pre-remove it (hardcoded off) -----
+        public Fixed<bool>         RemoveBossDialogInteractableOnStart { get; }
+        // ----- Phase PF: faithful synced boss intro (release-hardcoded) -----
+        public Fixed<bool>         EnableFaithfulBossIntro { get; }
+        // ----- Phase PF (Plan B): gate fight start on dialog dismiss (release-hardcoded) -----
+        public Fixed<bool>         GateBossFightOnDialogClose { get; }
+        // ----- Phase PF-ArmDefer (issue 1): defer Cousin intro arm (release-hardcoded) -----
+        public Fixed<bool>         DeferBossIntroArm { get; }
+        // ----- Phase RM: host-authoritative room-membership substrate (release-hardcoded) -----
+        public Fixed<bool>         EnableBossRoomMembership { get; }
+        // ----- Phase RM-2b: scope synced intro to in-room players (release-hardcoded) -----
+        public Fixed<bool>         GateBossDialogToInRoom { get; }
+        // ----- Phase RT3-Cousin-arms-Room: exclude out-of-room players from arm attacks (release-hardcoded) -----
+        public Fixed<bool>         ExcludeOutOfRoomPlayersFromBossAttacks { get; }
         // ----- Phase 5.4-E3 BossDialogCommit + Lucia + Witch state + Emperor worm -----
         public ConfigEntry<bool>   EnableEmperorWormDiagnostics { get; }
         public ConfigEntry<bool>   EnableEmperorClientWormSuppression { get; }
         public ConfigEntry<bool>   LogBossTransitionDiagnostics { get; }
-        // ----- Phase 5.4-E4 Boss dynamic spawn manifest -----
-        public ConfigEntry<bool>   EnableBossDynamicSpawnManifest { get; }
+        // ----- Phase 5.4-E4 Boss dynamic spawn manifest (release-hardcoded) -----
+        public Fixed<bool>         EnableBossDynamicSpawnManifest { get; }
         public ConfigEntry<bool>   LogBossDynamicSpawn { get; }
-        // ----- Phase RT3-Cousin-arms: route GoblinCousinArm through the standard RT3-A boss-add pipeline -----
-        public ConfigEntry<bool>   EnableCousinArmSync { get; }
-        // ----- Phase 5.4-F BossDamageAuthority -----
-        public ConfigEntry<bool>   EnableBossDamageAuthority { get; }
-        // ----- Phase 5.4-F2 BossStartPresentation -----
-        public ConfigEntry<bool>   EnableBossClientPresentation { get; }
-        // ----- Phase 5.4-F4 fixed-point boss discrete-event authority (Cousin pools) -----
-        public ConfigEntry<bool>   EnableBossDiscreteEventAuthority { get; }
-        // ----- Phase 5.4-F5 Lucia eye defeat authority -----
-        public ConfigEntry<bool>   EnableLuciaEyeAuthority { get; }
-        // ----- Phase 5.4-F6 Lucia terminal death authority -----
-        public ConfigEntry<bool>   EnableLuciaDeathAuthority { get; }
-        // ----- Phase 5.4-G Witch visible phase-witch damage authority -----
-        public ConfigEntry<bool>   EnableWitchPhaseDamageAuthority { get; }
-        // ----- Phase 5.4-G2 Witch phase revision authority -----
-        public ConfigEntry<bool>   EnableWitchPhaseAuthority { get; }
+        // ----- Phase RT3-Cousin-arms: Cousin arm co-op de-fang + host group-AoE (release-hardcoded) -----
+        public Fixed<bool>         EnableCousinArmSync { get; }
+        // ----- Phase 5.4-F BossDamageAuthority (release-hardcoded) -----
+        public Fixed<bool>         EnableBossDamageAuthority { get; }
+        // ----- Phase 5.4-F2 BossStartPresentation (rolled back, hardcoded off) -----
+        public Fixed<bool>         EnableBossClientPresentation { get; }
+        // ----- Phase 5.4-F4 fixed-point boss discrete-event authority (release-hardcoded) -----
+        public Fixed<bool>         EnableBossDiscreteEventAuthority { get; }
+        // ----- Phase 5.4-F5 Lucia eye defeat authority (release-hardcoded) -----
+        public Fixed<bool>         EnableLuciaEyeAuthority { get; }
+        // ----- Phase 5.4-F6 Lucia terminal death authority (release-hardcoded) -----
+        public Fixed<bool>         EnableLuciaDeathAuthority { get; }
+        // ----- Phase 5.4-G Witch visible phase-witch damage authority (release-hardcoded) -----
+        public Fixed<bool>         EnableWitchPhaseDamageAuthority { get; }
+        // ----- Phase 5.4-G2 Witch phase revision authority (release-hardcoded) -----
+        public Fixed<bool>         EnableWitchPhaseAuthority { get; }
         // ----- Phase 5.4-G4 Witch Phase 2 timing probe (diagnostic) -----
         public ConfigEntry<bool>   LogWitchPhase2Probe { get; }
-        // ----- Phase 5.4-G5 Witch Phase 2 dome manifest authority -----
-        public ConfigEntry<bool>   EnableWitchPhase2Manifest { get; }
-        // ----- Phase 5.4-G7 Witch death收尾 (amulet crash + terminal) -----
-        public ConfigEntry<bool>   EnableWitchDeathFix { get; }
+        // ----- Phase 5.4-G5 Witch Phase 2 dome manifest authority (release-hardcoded) -----
+        public Fixed<bool>         EnableWitchPhase2Manifest { get; }
+        // ----- Phase 5.4-G7 Witch death fix (release-hardcoded) -----
+        public Fixed<bool>         EnableWitchDeathFix { get; }
         // ----- Phase 5.5-RT1 runtime spawn sync ----- (functional: always on, release-hardcoded)
         public Fixed<bool>         EnableRuntimeSpawnSync { get; }
         public ConfigEntry<bool>   LogRuntimeSpawnSync { get; }
@@ -222,17 +222,17 @@ namespace SULFURTogether.Config
         // ----- Phase LD-1b combat-room door sync, GameObject.SetActive variant (Lucia etc.) -----
         public Fixed<bool>         EnableTriggerDoorSync { get; } // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogTriggerDoorSync { get; }
-        // ----- Phase LD-2 FF14-style arena lockdown (host-authoritative membership + timer + force-seal barrier + teleport) -----
-        public ConfigEntry<bool>   EnableArenaLockdown { get; }
+        // ----- Phase LD-2 FF14-style arena lockdown (release-hardcoded) -----
+        public Fixed<bool>         EnableArenaLockdown { get; }
         public ConfigEntry<bool>   LogArenaLockdown { get; }
         public ConfigEntry<KeyboardShortcut> ArenaEnterConfirmKey { get; }
-        public ConfigEntry<bool>   EnableArenaGracePeriod { get; }
+        public Fixed<bool>         EnableArenaGracePeriod { get; }
 
         // ----- In-game co-op UI (toasts / status) via SULFUR Native UI Lib (soft dependency) -----
         public Setting<bool>   EnableCoopToasts { get; }
 
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
-        public ConfigEntry<bool>   EnableWorldItemDropSync { get; }
+        public Fixed<bool>         EnableWorldItemDropSync { get; }
         public ConfigEntry<bool>   LogWorldItemDropSync { get; }
         public ConfigEntry<bool>   ShareAllLoot { get; }
 
@@ -261,12 +261,12 @@ namespace SULFURTogether.Config
         public Fixed<float>        RemoteNameSize { get; }
         public Fixed<float>        RemoteNameHeight { get; }
 
-        // ----- Phase 5.3-M P1 auto-follow + load barrier -----
-        public ConfigEntry<bool>   EnableAutoFollowHostSceneRequest { get; }
-        public ConfigEntry<bool>   EnableLoadBarrier { get; }
-        public ConfigEntry<float>  LoadBarrierTimeoutSeconds { get; }
-        public ConfigEntry<bool>   LoadBarrierBlockHostAdvance { get; }
-        public ConfigEntry<bool>   LoadBarrierLogOnlyMode { get; }
+        // ----- Phase 5.3-M P1 auto-follow + load barrier (release-hardcoded) -----
+        public Fixed<bool>         EnableAutoFollowHostSceneRequest { get; }
+        public Fixed<bool>         EnableLoadBarrier { get; }
+        public Fixed<float>        LoadBarrierTimeoutSeconds { get; }
+        public Fixed<bool>         LoadBarrierBlockHostAdvance { get; }
+        public Fixed<bool>         LoadBarrierLogOnlyMode { get; }
 
         // ----- Phase 3.0 remote visual proxy only ----- (functional + tuning: release-hardcoded)
         public Fixed<bool>         EnableRemotePlayerVisualProxy { get; }
@@ -417,10 +417,10 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LogClientPendingDead                { get; }
 
         // ----- Phase 5.3-E Host-authoritative level manifest -----
-        public ConfigEntry<bool>   EnableHostLevelManifest             { get; }
+        public Fixed<bool>         EnableHostLevelManifest             { get; }
         public ConfigEntry<bool>   LogLevelManifest                    { get; }
         public ConfigEntry<bool>   LogLevelManifestDiff                { get; }
-        public ConfigEntry<bool>   QuarantineClientOnlyManifestEnemies { get; }
+        public Fixed<bool>         QuarantineClientOnlyManifestEnemies { get; }
 
         // ----- Phase 5.3-F ClientHit visual + LevelGeneration trace -----
         public Fixed<bool>         EnableClientHitVisual               { get; } // functional: always on (release-hardcoded)
@@ -469,15 +469,15 @@ namespace SULFURTogether.Config
         public Fixed<float>        EnemyToClientDamageCoalesceSeconds { get; }
         public Fixed<float>        EnemyDamageEventMinIntervalSeconds { get; }
         public Fixed<float>        AttackPhaseEventMinIntervalSeconds { get; }
-        // Plan B: multiplayer NPC activation + headless Player registry (see Docs/EnemyActivationAndPlayersRegistry.md).
-        public ConfigEntry<bool>   EnableMultiPlayerNpcActivation { get; }
-        public ConfigEntry<float>  MultiPlayerNpcActivationDistance { get; }
-        public ConfigEntry<int>    MultiPlayerNpcActivationsPerFrame { get; }
-        public ConfigEntry<bool>   EnableRemotePlayerInPlayersList { get; }
-        public ConfigEntry<bool>   EnableGhostPlayerHitbox { get; }
+        // Plan B: multiplayer NPC activation + headless Player registry — verified working (release-hardcoded).
+        public Fixed<bool>         EnableMultiPlayerNpcActivation { get; }
+        public Fixed<float>        MultiPlayerNpcActivationDistance { get; }
+        public Fixed<int>          MultiPlayerNpcActivationsPerFrame { get; }
+        public Fixed<bool>         EnableRemotePlayerInPlayersList { get; }
+        public Fixed<bool>         EnableGhostPlayerHitbox { get; }
         public ConfigEntry<bool>   LogRemotePlayerRegistry { get; }
         // ----- Ghost-during-load freeze fix (LevelGeneration.ShowLevelNode NRE) -----
-        public ConfigEntry<bool>   SuppressGhostsWhileLoading { get; }
+        public Fixed<bool>         SuppressGhostsWhileLoading { get; }
 
         public CoopConfig(ConfigFile cfg)
         {
@@ -522,8 +522,7 @@ namespace SULFURTogether.Config
                 "Log AiAgent.GetTarget (fires only on target change).");
             EnableAiUpdateTargetProbe   = cfg.Bind("ProbeNoise", "EnableAiUpdateTargetProbe", false,
                 "Log AiAgent.UpdateTarget per-agent (throttled per instance).");
-            LogAiTargetingReverseDump   = cfg.Bind("ProbeNoise", "LogAiTargetingReverseDump", true,
-                "P3 (remote-player targeting): one-time reflection dump of AiAgent targeting fields/methods + GameManager player enumeration + Unit faction members, to ground the targetable-proxy design.");
+            LogAiTargetingReverseDump   = new Fixed<bool>(false); // P3 one-shot dump completed; Plan B ghost registry is the solution.
             EnableAiSetDestinationProbe = cfg.Bind("ProbeNoise", "EnableAiSetDestinationProbe", false,
                 "Log AiAgent.SetDestination per-agent (throttled per instance).");
             EnableAiNavMeshStateProbe   = cfg.Bind("ProbeNoise", "EnableAiNavMeshStateProbe", false,
@@ -598,25 +597,19 @@ namespace SULFURTogether.Config
             WarnOnRunStateMismatch = cfg.Bind("NetworkRunState", "WarnOnRunStateMismatch", true,
                 "Log a warning when local and remote chapter/level metadata differ. Loading vs Running on the same scene is ignored.");
 
-            // host scene authority skeleton. Warning/metadata only; it never calls GoToLevel or changes gameplay.
-            EnableHostSceneAuthority = cfg.Bind("NetworkSceneAuthority", "EnableHostSceneAuthority", true,
-                "Treat the Host run state as the authoritative scene metadata. Warning-only; never auto-loads scenes.");
+            // host scene authority — functional, hardcoded.
+            EnableHostSceneAuthority = new Fixed<bool>(true);
             WarnOnClientSceneDrift = cfg.Bind("NetworkSceneAuthority", "WarnOnClientSceneDrift", true,
                 "Warn when a Client is not in the Host scene. Warning-only; no correction is performed.");
-            EnableHostSceneRequestProtocol = cfg.Bind("NetworkSceneAuthority", "EnableHostSceneRequestProtocol", true,
-                "Enable Phase 2.5 HostSceneRequest / ClientSceneAck protocol skeleton. It never auto-loads scenes.");
-            AutoSendHostSceneRequestOnDrift = cfg.Bind("NetworkSceneAuthority", "AutoSendHostSceneRequestOnDrift", true,
-                "When Host sees a Client in a different scene, send HostSceneRequest metadata. Client only replies; it does not auto-load.");
-            HostSceneRequestIntervalSeconds = cfg.Bind("NetworkSceneAuthority", "HostSceneRequestIntervalSeconds", 10f,
-                "Minimum seconds before repeating the same HostSceneRequest to the same Client.");
+            EnableHostSceneRequestProtocol = new Fixed<bool>(true);
+            AutoSendHostSceneRequestOnDrift = new Fixed<bool>(true);
+            HostSceneRequestIntervalSeconds = new Fixed<float>(10f);
 
-            // manual scene follow. Only runs when the local Client user presses the configured key.
-            EnableManualClientSceneFollow = cfg.Bind("NetworkSceneAuthority", "EnableManualClientSceneFollow", true,
-                "Allow Client to manually attempt following the latest HostSceneRequest by pressing ManualClientSceneFollowKey. Never automatic.");
+            // manual scene follow keybind only.
+            EnableManualClientSceneFollow = new Fixed<bool>(true);
             ManualClientSceneFollowKey = cfg.Bind("NetworkSceneAuthority", "ManualClientSceneFollowKey", new KeyboardShortcut(KeyCode.PageDown),
                 "Client-only manual follow key. Press this after receiving HostSceneRequest to attempt local GoToLevel. Avoid F1-F12 because SULFUR's DevTools/F-key bindings may toggle invulnerability or other debug states.");
-            ManualClientSceneFollowRequiresHostRequest = cfg.Bind("NetworkSceneAuthority", "ManualClientSceneFollowRequiresHostRequest", true,
-                "Only allow manual follow when a HostSceneRequest has been received.");
+            ManualClientSceneFollowRequiresHostRequest = new Fixed<bool>(true);
 
             // Phase 3.1 level seed authority — functional: scene equality is always seed-strict (release-hardcoded).
             EnableLevelSeedAuthority = new Fixed<bool>(true);
@@ -635,26 +628,16 @@ namespace SULFURTogether.Config
             // Phase 5.3-J: the Client load gate intercepts the first local GoToLevel so the Client does not
             // generate a wrong-seed local level before following the Host. It waits for the Host's
             // GenerationInput (HostSceneRequest), then performs a single host-driven GoToLevel.
-            ClientWaitHostGenerationInputBeforeFirstLoad = cfg.Bind("NetworkSceneAuthority", "ClientWaitHostGenerationInputBeforeFirstLoad", true,
-                "Client only: intercept GameManager.GoToLevel and block local level generation until the Host's generation input (seed + used sets) arrives, then load the Host's level.");
-            ClientLoadGateTimeoutSeconds = cfg.Bind("NetworkSceneAuthority", "ClientLoadGateTimeoutSeconds", 30f,
-                "How long the Client load gate waits for Host generation input before logging a timeout. The local load stays blocked even after timeout.");
-            ClientLoadGateAllowFallbackAfterTimeout = cfg.Bind("NetworkSceneAuthority", "ClientLoadGateAllowFallbackAfterTimeout", false,
-                "If true, allow falling back to a local load after the gate times out. Test builds keep this false so a wrong-seed local map is never silently generated.");
-            ClientLoadGateRequestIntervalSeconds = cfg.Bind("NetworkSceneAuthority", "ClientLoadGateRequestIntervalSeconds", 2f,
-                "While the Client load gate waits, how often (seconds) to actively re-request the Host's generation input.");
-            ClientGateDeathRespawnUntilHostHub = cfg.Bind("NetworkSceneAuthority", "ClientGateDeathRespawnUntilHostHub", true,
-                "Client only: when joined, gate the DEATH respawn to the hub and wait for the Host's hub seed so both land in the SAME safe-zone instance, instead of the client generating its own hub. Falls back to a local hub respawn on timeout.");
-            ClientGateDeathRespawnTimeoutSeconds = cfg.Bind("NetworkSceneAuthority", "ClientGateDeathRespawnTimeoutSeconds", 12f,
-                "How long the client waits for the Host's hub seed during a death respawn before falling back to a local hub load (so a lone death or a non-respawning host never deadlocks the client).");
-            EnableClientTransitionRelay = cfg.Bind("NetworkSceneAuthority", "EnableClientTransitionRelay", true,
-                "Let the client LEAD level transitions: when the client walks into an exit, relay the target to the host so the host performs the transition authoritatively (host player moves + generates) and the gated client follows. When false the client just waits for the host to go there on its own.");
-            AllowClientInitiatedLevelLoad = cfg.Bind("NetworkSceneAuthority", "AllowClientInitiatedLevelLoad", true,
-                "Allow the client to load the next level. When a joined client walks into an in-run NextLevelTrigger (CompleteLevel — the sub-level advance that does NOT go through GoToLevel), instead of generating its own level the client shows a native loading fade, tells the host, and the host LEADS the transition so everyone advances together. Requires EnableClientTransitionRelay. On timeout the client advances locally so it is never stuck.");
-            ClientInitiatedLoadTimeoutSeconds = cfg.Bind("NetworkSceneAuthority", "ClientInitiatedLoadTimeoutSeconds", 15f,
-                "How long a client-initiated level load waits for the host to lead before falling back to advancing locally (so an unresponsive host never leaves the client stuck behind a black loading fade).");
-            EnableClientReloadInPlaceRelay = cfg.Bind("NetworkSceneAuthority", "EnableClientReloadInPlaceRelay", true,
-                "Phase F3-Reload: fix the client F3-ing to the level both ends are already in (reload-in-place). Without this the client self-reloads off the host's stale scene request and diverges into its own fresh instance (Log147: laggy, link breaks, save persists the split). When on, the client relays the reload to the host and waits; the host RE-LEADS the reload so both regenerate the level together (this resets an in-progress fight, by design). Off = legacy (client self-reloads in place). Requires EnableClientTransitionRelay.");
+            ClientWaitHostGenerationInputBeforeFirstLoad = new Fixed<bool>(true);
+            ClientLoadGateTimeoutSeconds = new Fixed<float>(30f);
+            ClientLoadGateAllowFallbackAfterTimeout = new Fixed<bool>(false);
+            ClientLoadGateRequestIntervalSeconds = new Fixed<float>(2f);
+            ClientGateDeathRespawnUntilHostHub = new Fixed<bool>(true);
+            ClientGateDeathRespawnTimeoutSeconds = new Fixed<float>(12f);
+            EnableClientTransitionRelay = new Fixed<bool>(true);
+            AllowClientInitiatedLevelLoad = new Fixed<bool>(true);
+            ClientInitiatedLoadTimeoutSeconds = new Fixed<float>(15f);
+            EnableClientReloadInPlaceRelay = new Fixed<bool>(true);
             ClientLinkedByDefault = cfg.Bind("NetworkSceneAuthority", "ClientLinkedByDefault", false,
                 "联机状态: whether the CLIENT starts LINKED (joining/following the host). Default false so an in-progress solo run is never hijacked — the player presses ManualClientSceneFollowKey (PageDown) to link and ClientUnlinkKey to unlink.");
             HostLinkedByDefault = cfg.Bind("NetworkSceneAuthority", "HostLinkedByDefault", true,
@@ -664,12 +647,9 @@ namespace SULFURTogether.Config
             HostLinkToggleKey = cfg.Bind("NetworkSceneAuthority", "HostLinkToggleKey", new KeyboardShortcut(KeyCode.PageDown),
                 "Host only: key to TOGGLE 联机状态 (mod multiplayer on/off).");
 
-            // Phase 5.4-E: host-authoritative Boss encounter start. The Client requests a boss start from the
-            // Host instead of starting locally; the Host broadcasts the authoritative start to all clients.
-            EnableBossEncounterSync = cfg.Bind("NetworkBoss", "EnableBossEncounterSync", true,
-                "Phase 5.4-E: detect boss encounters and synchronize the fight START host-authoritatively. Health/phase/death are NOT synced yet. Adapter-based; unknown bosses are only probed, never force-started.");
-            BossEncounterClientBlockLocalStart = cfg.Bind("NetworkBoss", "BossEncounterClientBlockLocalStart", true,
-                "Phase 5.4-E: when a joined Client triggers a boss start, block the local start and request the Host to start it authoritatively. If false, the Client still requests but is allowed to start locally (diagnostic).");
+            // Phase 5.4-E: host-authoritative Boss encounter start (functional, hardcoded).
+            EnableBossEncounterSync = new Fixed<bool>(true);
+            BossEncounterClientBlockLocalStart = new Fixed<bool>(true);
             LogBossEncounter = cfg.Bind("NetworkBoss", "LogBossEncounter", true,
                 "Log boss encounter discovery / start request / broadcast / apply for debugging.");
 
@@ -677,28 +657,20 @@ namespace SULFURTogether.Config
             // Client applies a host start, a per-encounter authorized-continuation window keeps the later chain steps
             // from being blocked as unauthorized local starts. The window closes once the fight is observed started
             // plus this grace, or when the run changes — deliberately not a fixed timeout (Cousin is dialogue-paced).
-            BossContinuationGraceSeconds = cfg.Bind("NetworkBoss", "BossContinuationGraceSeconds", 5f,
-                "Phase 5.4-E2: seconds to keep the authorized-continuation window open AFTER the boss fight is observed started, before closing it.");
-            EnableBossLifecycleProbe = cfg.Bind("NetworkBoss", "EnableBossLifecycleProbe", true,
-                "Phase 5.4-E2: postfix-probe key boss lifecycle methods (TriggerFight/StartFight/ChangePhase/transitions/death) and log compact state changes.");
+            BossContinuationGraceSeconds = new Fixed<float>(5f);
+            EnableBossLifecycleProbe = new Fixed<bool>(true);   // functional: gates unauthorized boss chain steps on the client
             LogBossLifecycle = cfg.Bind("NetworkBoss", "LogBossLifecycle", true,
                 "Phase 5.4-E2: log the boss lifecycle probe state-change lines. Compact and state-change-gated to avoid spam.");
             LogBossPreFight = cfg.Bind("NetworkBoss", "LogBossPreFight", true,
                 "Phase PF-0: read-only diagnostic. When a boss pre-fight start entrypoint fires, log local+remote scene/seed convergence (did the client race ahead into a divergent boss instance?) and the room-seal/teleport timing. No gameplay change.");
-            RemoveBossDialogInteractableOnStart = cfg.Bind("NetworkBoss", "RemoveBossDialogInteractableOnStart", true,
-                "Fix A (root): when a boss fight starts, remove that boss's dialog interactable on EVERY end (the same thing vanilla WitchBossController.FightStartRoutine does via RemoveInteractable). This is the PRIMARY fix for the host stale-dialog loop when the fight is started remotely; the duplicate-dialog suppression remains only as a safety net.");
-            EnableFaithfulBossIntro = cfg.Bind("NetworkBoss", "EnableFaithfulBossIntro", true,
-                "Phase PF: on a joined client, instead of fake-starting the boss via direct Introduction()/StartFight() reflection (which skips the real intro dialog), set the boss's own trigger flag so its native behavior-tree intro sequence runs locally — reproducing the REAL intro animation + dialog + camera + boss bar ~99% faithfully. The fight mechanic stays host-authoritative. Cousin first.");
-            GateBossFightOnDialogClose = cfg.Bind("NetworkBoss", "GateBossFightOnDialogClose", true,
-                "Phase PF (Plan B): for dialog-gated bosses (Cousin), block the behavior-tree StartFight until an in-room player dismisses the intro dialog, then start the fight host-authoritatively on every end and close all remaining boss dialogs. Restores the single-player gate (the dialog used to PAUSE the game, freezing the WaitForSeconds before StartFight) that co-op's no-pause mode removed, so the fight no longer auto-starts on top of the dialog.");
-            DeferBossIntroArm = cfg.Bind("NetworkBoss", "DeferBossIntroArm", true,
-                "Phase PF-ArmDefer (issue 1): defer the Cousin's intro arm so it appears AFTER the intro dialog closes (at fight start), matching single-player. Co-op's no-pause mode (Phase 5.7-NP) lets the behavior-tree SpawnArm fire ~1s into the dialog, so the arm pokes out during the cutscene. When on, the behavior-tree intro arm is blocked and the real arm is replayed on the dialog-close fight commit (with EnableCousinArmSync the host's replayed arm flows through the RT3-A pipeline and the client mirrors it). Cosmetic-only; mid-fight Reappear arms are unaffected. Off = legacy (arm appears during the dialog). Requires GateBossFightOnDialogClose.");
-            EnableBossRoomMembership = cfg.Bind("NetworkBoss", "EnableBossRoomMembership", true,
-                "Phase RM (substrate): track which players are 'in the boss room' (host-authoritative). Each end reports when its local player crosses the boss's room-entry trigger; the host aggregates the in-room set and broadcasts it. Observe-only for now (logs '[RoomMembership]', changes no behavior) — the shared foundation for restricting the synced intro cutscene to in-room players and for the future arena lockdown (AFK exclusion).");
-            GateBossDialogToInRoom = cfg.Bind("NetworkBoss", "GateBossDialogToInRoom", true,
-                "Phase RM-2b: scope the synced boss intro cutscene to IN-ROOM players. When a player triggers the fight, only ends whose local player has entered the boss room play the intro+dialog (camera lock + invuln); out-of-room ends (incl. an AFK host) are NOT pulled into the cutscene. A player who enters the room (walks in OR is teleported in by the arena lockdown) while the dialog is still running catches up the cutscene. When the dialog ends the fight commits host-authoritatively and the dialog is removed everywhere, so no one can re-open it. Cousin first; off = legacy (cutscene replays on every end). Logs '[BossDialogCutscene]'.");
-            ExcludeOutOfRoomPlayersFromBossAttacks = cfg.Bind("NetworkBoss", "ExcludeOutOfRoomPlayersFromBossAttacks", true,
-                "Phase RT3-Cousin-arms-Room: don't aim the Cousin arm's group throw at players who are NOT in the boss arena (e.g. an AFK teammate who never entered) or who are downed — same intent as the downed-player-untargetable rule. \"In arena\" comes from the ArenaLockdown membership (host-authoritative, doorway-parity, broadcast to clients) which reliably accumulates everyone incl. late walk-ins, NOT the seed-keyed boss-trigger room membership (which churns). The host throws one real ball per Player (its own + each client ghost proxy); the client throws at its local player + a visual ball at each remote proxy. Local presence uses the reliable local doorway signal; remote presence uses the arena member set. Fail-open (no arena filtering, downed filter still applies) when no active arena membership is known, so the boss never becomes un-attackable. Requires EnableArenaLockdown. Reversible.");
+            // Fix A: faithful intro runs the real dialog, so we do NOT pre-remove the interactable (Witch-only vanilla path).
+            RemoveBossDialogInteractableOnStart = new Fixed<bool>(false);
+            EnableFaithfulBossIntro = new Fixed<bool>(true);
+            GateBossFightOnDialogClose = new Fixed<bool>(true);
+            DeferBossIntroArm = new Fixed<bool>(true);
+            EnableBossRoomMembership = new Fixed<bool>(true);
+            GateBossDialogToInRoom = new Fixed<bool>(true);
+            ExcludeOutOfRoomPlayersFromBossAttacks = new Fixed<bool>(true);
 
             // Phase 5.4-E3: dialog-gated bosses (Cousin / Lucia) sync the "fight committed" decision via BossDialogCommit
             // and finalize the local dialog with the real Graph.Stop(true). Witch broadcasts a minimal phase/state skeleton.
@@ -711,8 +683,7 @@ namespace SULFURTogether.Config
 
             // Phase 5.4-E4: Host records boss-owned runtime adds (CousinArm/LuciaEye/...) by (encounter, addType, seq)
             // and broadcasts so the Client can bind local[seq] to host[seq] instead of failing proximity/roster binding.
-            EnableBossDynamicSpawnManifest = cfg.Bind("NetworkBoss", "EnableBossDynamicSpawnManifest", true,
-                "Phase 5.4-E4: capture boss-spawned runtime sub-entities (via UnitSO.SpawnUnit) into a host-authoritative manifest and classify client binding. Foundation only — never destroys or force-syncs this phase.");
+            EnableBossDynamicSpawnManifest = new Fixed<bool>(true);
             LogBossDynamicSpawn = cfg.Bind("NetworkBoss", "LogBossDynamicSpawn", true,
                 "Phase 5.4-E4: log each boss dynamic spawn + binding result (bound / host-only / client-extra).");
 
@@ -725,52 +696,44 @@ namespace SULFURTogether.Config
             // ball per player (host + remote-player proxies) so damage stays host-authoritative. Off = legacy per-end
             // independent arms (each end's arm throws its own real damage). Double-spawn is prevented by the intro-arm
             // defer + special host-only skip (one local arm per end, no mirror) regardless of this toggle.
-            EnableCousinArmSync = cfg.Bind("NetworkBoss", "EnableCousinArmSync", true,
-                "Phase RT3-Cousin-arms-Anim: the Cousin arm self-animates via its own behaviour tree on every end (faithful appear/idle/attack/disappear); it is never a host puppet. This toggle gates the co-op de-fang + group-AoE throw: on = the client arm's throw is de-fanged to 0 damage and the host throws one real mud ball per player (damage host-authoritative). Off = legacy per-end independent arms (double real damage). Reversible.");
+            EnableCousinArmSync = new Fixed<bool>(true);
 
             // Phase 5.4-F: route a client's hit on a boss MAIN BODY to the Host's real Unit.ReceiveDamage so the boss
             // mechanic (onDamageRecieved) advances host-side, instead of the client locally deducting HP that the host
             // health broadcast then overwrites. Main-body only this phase (no sub-units / special targets).
-            EnableBossDamageAuthority = cfg.Bind("NetworkBoss", "EnableBossDamageAuthority", true,
-                "Phase 5.4-F: Client boss-body hits are applied by the Host through the real ReceiveDamage pipeline (host-authoritative boss damage). Main body only.");
+            EnableBossDamageAuthority = new Fixed<bool>(true);
 
             // Phase 5.4-F2: experimental client presentation shortcuts (Cousin AI activation + Desert TriggerFight
             // skip). LogOutput29 proved BOTH wrong: Cousin still stands still (it's the intro ANIMATION chain that
             // clears owner invuln, not AI activation), and the Desert skip made the old man invisible again. Default
             // OFF (rolled back); the diagnostics still log. F3 replaces this with a real local presentation chain.
-            EnableBossClientPresentation = cfg.Bind("NetworkBoss", "EnableBossClientPresentation", false,
-                "Phase 5.4-F2 (rolled back, default off): experimental client boss presentation shortcuts (Cousin AI activation, Desert intro skip). Proven insufficient; kept only for diagnostics/toggling.");
+            EnableBossClientPresentation = new Fixed<bool>(false); // rolled back (F3 real presentation chain supersedes).
 
             // Phase 5.4-F4: Cousin is a fixed-point pool boss; LogOutput30 proved Host AND Client each independently run
             // Submerge/MoveToNewPool/Reappear with their own random pool. The Host is authoritative: it broadcasts the
             // events, the Client BLOCKS its own and mirrors the Host's pool, so both dig out of the same hole.
-            EnableBossDiscreteEventAuthority = cfg.Bind("NetworkBoss", "EnableBossDiscreteEventAuthority", true,
-                "Phase 5.4-F4: host-authoritative fixed-point boss events (Cousin Submerge/MoveToNewPool/Reappear). Client blocks its own and mirrors the host's chosen pool. Reversible.");
+            EnableBossDiscreteEventAuthority = new Fixed<bool>(true);
 
             // Phase 5.4-F5: Lucia's eye phase locks the body invulnerable until all spawned eyes die (EyeDied →
             // RestartPhases). The Client reports a local eye kill; the Host consumes one of ITS living eyes through the
             // real death path so the vanilla cycle runs host-authoritatively. Count/cycle only (no per-eye mapping).
-            EnableLuciaEyeAuthority = cfg.Bind("NetworkBoss", "EnableLuciaEyeAuthority", true,
-                "Phase 5.4-F5: host-authoritative Lucia eye defeat. Client reports a local eye kill; the Host consumes one living eye via the real death path so vanilla EyeDied/RestartPhases runs and the body unlocks naturally. Reversible.");
+            EnableLuciaEyeAuthority = new Fixed<bool>(true);
 
             // Phase 5.4-F6: Lucia eye-phase completion (Client runs the real RestartPhases when the Host's eyes hit 0 so
             // it leaves Phase 5 / returns to centre) + Lucia terminal death (Client runs a safe local death with the
             // host-only loot/checkpoint/save isolated). Rides the F5 eye gate for completion; this gates the death part.
-            EnableLuciaDeathAuthority = cfg.Bind("NetworkBoss", "EnableLuciaDeathAuthority", true,
-                "Phase 5.4-F6: host-authoritative Lucia terminal death. On the Host's real Lucia death the Client runs a safe local death (real Unit death + boss-end presentation; loot/checkpoint/save isolated) and stops sending hits/state. Reversible.");
+            EnableLuciaDeathAuthority = new Fixed<bool>(true);
 
             // Phase 5.4-G: Witch players shoot the per-phase visible witch (the phase controller's witchUnit), NOT
             // witchMainUnit. Route a Client hit on a phase witch to the Host's matching phase witch so its real
             // ReceiveDamage runs (OnDamageMainWitch drops the shared health AND the phase mechanic — e.g. Phase 4
             // RegisterInstance/GoDown — advances). Phase 2 dome (real/illusion) is reserved for a later manifest.
-            EnableWitchPhaseDamageAuthority = cfg.Bind("NetworkBoss", "EnableWitchPhaseDamageAuthority", true,
-                "Phase 5.4-G: route Client hits on Witch phase 1/3/4/5/6 visible witches to the Host's matching phase witch real ReceiveDamage (advances both shared health and the phase mechanic). Phase 2 dome reserved. Reversible.");
+            EnableWitchPhaseDamageAuthority = new Fixed<bool>(true);
 
             // Phase 5.4-G2: Witch phases CYCLE (Phase6→Phase1), so the old forward-only phase compare desynced the ends
             // and broke damage routing (wrongRole). The Host owns phase transitions with a monotonic revision; the Client
             // applies by revision (even when the enum goes backwards) and is blocked from self-advancing its own phase.
-            EnableWitchPhaseAuthority = cfg.Bind("NetworkBoss", "EnableWitchPhaseAuthority", true,
-                "Phase 5.4-G2: host-authoritative Witch phase transitions by revision. Client blocks its own ChangePhase and applies the Host's phase by revision (handles the Phase6→Phase1 cycle). Keeps the ends in the same phase so damage routing works. Reversible.");
+            EnableWitchPhaseAuthority = new Fixed<bool>(true);
 
             // Phase 5.4-G4: diagnostic timing probe for WitchPhase2.InitPhase/ShowWitches — confirms whether the Client's
             // first Phase 2 round runs ShowWitches at all (suspected race: Host leaves Phase 2 before the Client's local
@@ -782,15 +745,13 @@ namespace SULFURTogether.Config
             // ShowWitches (real dome index) and broadcasts it; the Client mirrors real/illusion per dome (blocking its own
             // random ShowWitches), routes dome-index hits to the Host's matching witch, applies host hide results, and
             // isolates Phase 2 witches from the ordinary puppet transform so the dome placement holds.
-            EnableWitchPhase2Manifest = cfg.Bind("NetworkBoss", "EnableWitchPhase2Manifest", true,
-                "Phase 5.4-G5: host-authoritative Witch Phase 2 dome manifest (real/illusion per dome from the Host's ShowWitches), dome-index hit routing, host hide results, and ordinary-puppet isolation for Phase 2 witches. Reversible.");
+            EnableWitchPhase2Manifest = new Fixed<bool>(true);
 
             // Phase 5.4-G7: Witch death cleanup. The Client runs WitchDeath via the enemy death mirror, but WitchDeath
             // calls AmuletHelper.RemoveAllCharges → ModifyWorldResource("Amulet") which throws KeyNotFoundException on the
             // Client (it never picked up the amulet), aborting the rest of WitchDeath. Swallow that one call so the death
             // completes, and mark the encounter terminal so no more hits/state are sent for the dead witch.
-            EnableWitchDeathFix = cfg.Bind("NetworkBoss", "EnableWitchDeathFix", true,
-                "Phase 5.4-G7: make the Client's Witch death complete (swallow the amulet RemoveAllCharges KeyNotFoundException) and mark the witch encounter terminal on death (stop hits/state). Reversible.");
+            EnableWitchDeathFix = new Fixed<bool>(true);
 
             // Phase 5.5-RT1: runtime (post-level-load) unit spawn sync. Stage 1: the Host's F3 DevTools spawns are
             // mirrored to the Client and bound into the puppet pipeline (one-sided, no double-spawn). Boss adds + client
@@ -849,21 +810,18 @@ namespace SULFURTogether.Config
             // cross anchors a timer; after 5s the non-in-room players in that level are force-sealed with an invisible
             // two-way barrier at their local door (LD-2b), after 10s they get a confirm prompt → on confirm (or on boss
             // death) they teleport in and the barrier drops (LD-2c). Host-authoritative membership + timer.
-            EnableArenaLockdown = cfg.Bind("NetworkBoss", "EnableArenaLockdown", true,
-                "Phase LD-2: FF14-style arena lockdown — host tracks who crossed each combat-room seal trigger (in-room) and runs the t0/+5s/+10s timeline. At +5s non-in-room ends raise an invisible two-way barrier at their local door (anti-cheat); at +10s they get a confirm prompt → teleport in on confirm or boss death, dropping the barrier. Reversible.");
+            EnableArenaLockdown = new Fixed<bool>(true);
             LogArenaLockdown = cfg.Bind("NetworkBoss", "LogArenaLockdown", true,
                 "Phase LD-2: verbose log for arena lockdown (local crossings, in-room set, seal/popup/release/teleport).");
             ArenaEnterConfirmKey = cfg.Bind("NetworkBoss", "ArenaEnterConfirmKey", new KeyboardShortcut(KeyCode.Return),
                 "Phase LD-2c: key an out-of-room player presses to confirm teleporting into a locked-down arena (the confirm prompt). Default Enter.");
-            EnableArenaGracePeriod = cfg.Bind("NetworkBoss", "EnableArenaGracePeriod", true,
-                "Phase LD-2d: grace mode. The vanilla combat-room gate normally slams shut the instant the first player crosses; with this on, the gate is kept OPEN for the seal delay (~5 s) so teammates can still walk in together, then it closes + the barrier goes up. MetalGate arenas only (SetActive-door arenas like Lucia still close at t0). Off = old instant close. Reversible.");
+            EnableArenaGracePeriod = new Fixed<bool>(true);
 
             // World item-drop sync: items that appear in the world are mirrored across peers. Spawn is optimistic +
             // peer-authoritative (instant local drop, then broadcast); take is host-authoritative (first picker wins, the
             // item vanishes for everyone and only the winner receives it). The DIY gun state (attachments / enchantments /
             // caliber / ammo / durability+experience) travels with the item. Reversible.
-            EnableWorldItemDropSync = cfg.Bind("WorldItems", "EnableWorldItemDropSync", true,
-                "Sync items that appear in the world across peers. With ShareAllLoot=false (default) only player-thrown items/guns are synced; with ShareAllLoot=true every world pickup is synced. Spawn is optimistic; take is host-authoritative (first picker wins). Reversible.");
+            EnableWorldItemDropSync = new Fixed<bool>(true);
             LogWorldItemDropSync = cfg.Bind("WorldItems", "LogWorldItemDropSync", true,
                 "Verbose log for world item-drop sync (capture / mirror / take request / host grant / removal).");
             ShareAllLoot = cfg.Bind("WorldItems", "ShareAllLoot", false,
@@ -878,10 +836,10 @@ namespace SULFURTogether.Config
             // Phase 5.6-WS-3: one-shot runtime dump of the local Player(Clone) visual hierarchy (playerVisuals array,
             // all SpriteRenderers/Animators/Renderers, full transform tree) to locate the player's directional billboard
             // sprites (front/back/side) so remote players can be shown as paper sprites like enemies.
-            LogPlayerVisualDiscovery = cfg.Bind("PlayerWeapon", "LogPlayerVisualDiscovery", true,
-                "Phase 5.6-WS-3: dump the local player's visual hierarchy once (find the directional billboard sprites). Diagnostic only.");
-            LogPlayerSpriteAssetScan = cfg.Bind("PlayerWeapon", "LogPlayerSpriteAssetScan", true,
-                "Phase 5.6-WS-3b: one-shot scan of all loaded Sprites/Textures/Prefabs/Animators + Addressables keys for player/character art. Diagnostic only.");
+            LogPlayerVisualDiscovery = cfg.Bind("PlayerWeapon", "LogPlayerVisualDiscovery", false,
+                "Phase 5.6-WS-3: dump the local player's visual hierarchy once (find the directional billboard sprites). Diagnostic only; default off.");
+            LogPlayerSpriteAssetScan = cfg.Bind("PlayerWeapon", "LogPlayerSpriteAssetScan", false,
+                "Phase 5.6-WS-3b: one-shot scan of all loaded Sprites/Textures/Prefabs/Animators + Addressables keys for player/character art. Diagnostic only; default off.");
 
             // Phase 5.6-WS-3: the player has no directional sprite art, so represent remote players with an NPC's
             // billboard paper sprite (visual-only, gameplay stripped) instead of the plain capsule. Faces the camera via
@@ -911,18 +869,12 @@ namespace SULFURTogether.Config
                     "Client join policy. ManualOnly: never auto-join (use the manual follow key). AutoJoinFromHubOnly: auto-join/auto-follow only when the Client is in Hub/Menu/SafeZone; preserve any in-progress local combat/transition run. AskBeforeLeavingLocalRun: like AutoJoinFromHubOnly but logs a manual-confirm hint when not in a hub. ForceAutoJoin: always auto-join (test only; warns). Once joined, combat auto-follow to the Host's next level always continues regardless of this mode.",
                     new AcceptableValueList<string>("ManualOnly", "AutoJoinFromHubOnly", "AskBeforeLeavingLocalRun", "ForceAutoJoin")));
 
-            // Phase 5.3-M P1: automatic scene follow + lightweight load barrier.
-            EnableAutoFollowHostSceneRequest = cfg.Bind("NetworkSceneAuthority", "EnableAutoFollowHostSceneRequest", true,
-                "Phase 5.3-M P1: when the Host enters a combat level it sends a HostSceneRequest with AutoLoadAllowed=true. The Client then follows automatically (host-driven GoToLevel) without the manual follow key. Hub/Menu requests never auto-load.");
-            EnableLoadBarrier = cfg.Bind("NetworkSceneAuthority", "EnableLoadBarrier", true,
-                "Phase 5.3-M P1: Host tracks which connected clients have acknowledged loading the current run (waiting -> client loaded -> all clients loaded). Log/status only by default; does not freeze host gameplay.");
-            LoadBarrierTimeoutSeconds = cfg.Bind("NetworkSceneAuthority", "LoadBarrierTimeoutSeconds", 30f,
-                new ConfigDescription("How long the Host load barrier waits for all clients to acknowledge a run before logging a timeout. The host is not blocked while LoadBarrierBlockHostAdvance=false.",
-                    new AcceptableValueRange<float>(1f, 120f)));
-            LoadBarrierBlockHostAdvance = cfg.Bind("NetworkSceneAuthority", "LoadBarrierBlockHostAdvance", false,
-                "Phase 5.3-M P1: reserved. When false (current default) the load barrier never blocks the host from advancing; it only logs/reports waiting state.");
-            LoadBarrierLogOnlyMode = cfg.Bind("NetworkSceneAuthority", "LoadBarrierLogOnlyMode", true,
-                "Phase 5.3-M P1: when true the load barrier only logs/reports and never suppresses host runtime sync. Keep true until real host-side gating is implemented.");
+            // Phase 5.3-M P1: automatic scene follow + lightweight load barrier (functional, hardcoded).
+            EnableAutoFollowHostSceneRequest = new Fixed<bool>(true);
+            EnableLoadBarrier = new Fixed<bool>(true);
+            LoadBarrierTimeoutSeconds = new Fixed<float>(30f);
+            LoadBarrierBlockHostAdvance = new Fixed<bool>(false);
+            LoadBarrierLogOnlyMode = new Fixed<bool>(true);
 
             // Phase 3.0 remote player visual proxy only — functional behaviour + tuned values (release-hardcoded).
             EnableRemotePlayerVisualProxy = new Fixed<bool>(true);
@@ -1113,14 +1065,12 @@ namespace SULFURTogether.Config
                 "Log PendingDead mark / host-death-applied / visual-fallback events.");
 
             // Phase 5.3-E Host-authoritative level manifest.
-            EnableHostLevelManifest = cfg.Bind("LevelManifest", "EnableHostLevelManifest", true,
-                "Phase 5.3-E: Host broadcasts a semantic level manifest (seed, rooms, units, specials) after level stabilization. Client diffs its provisional local world, quarantines client-only combat enemies, and binds host enemies to local instances before runtime sync.");
+            EnableHostLevelManifest = new Fixed<bool>(true);
             LogLevelManifest = cfg.Bind("LevelManifest", "LogLevelManifest", true,
                 "Log manifest build summaries (Host built / Client built) and reconcile completion.");
             LogLevelManifestDiff = cfg.Bind("LevelManifest", "LogLevelManifestDiff", true,
                 "Log detailed per-room / per-unit / per-special diff lines. Verbose — disable once the divergence cause is understood.");
-            QuarantineClientOnlyManifestEnemies = cfg.Bind("LevelManifest", "QuarantineClientOnlyManifestEnemies", true,
-                "Phase 5.3-E: Apply reversible quarantine (disable AI/behaviour tree) to client-only combat enemies not present in the host manifest. Never destroys them (GameManager/UnitManager/TickManager may still hold references).");
+            QuarantineClientOnlyManifestEnemies = new Fixed<bool>(true);
 
             // Phase 5.3-F ClientHit visual — functional, hardcoded (Fixed). (LevelGenTrace below is diagnostic, kept.)
             EnableClientHitVisual = new Fixed<bool>(true);
@@ -1191,227 +1141,19 @@ namespace SULFURTogether.Config
             AttackPhaseEventMinIntervalSeconds = new Fixed<float>(0.08f);
 
             // ----- Plan B: multiplayer enemy activation + headless Player registry -----
-            EnableMultiPlayerNpcActivation = cfg.Bind("PlayerRegistry", "EnableMultiPlayerNpcActivation", false,
-                "Plan B (BOTH ends): patch NpcUpdateManager.LateUpdate so enemies also wake near a REMOTE player, not just the local one. Host feeds the buffer from its ghost registry; the client feeds it from its remote-player proxies (no ghosts — its enemies are host-driven puppets). Fixes 'a player walks ahead of a stationary teammate → enemies near the teammate stay inert statues' on BOTH the host and the client. Reversible.");
-            MultiPlayerNpcActivationDistance = cfg.Bind("PlayerRegistry", "MultiPlayerNpcActivationDistance", 60f,
-                new ConfigDescription("Plan B: an inactive NPC within this distance of any remote player is activated (SetActive+ActivateBehaviour). The vanilla host gate uses npcActiveDistanceToPlayer (default 200); 60 keeps the wake bubble local to the client.",
-                    new AcceptableValueRange<float>(10f, 200f)));
-            MultiPlayerNpcActivationsPerFrame = cfg.Bind("PlayerRegistry", "MultiPlayerNpcActivationsPerFrame", 8,
-                new ConfigDescription("Plan B: max NPCs activated per frame by the remote-player pass (mirrors the vanilla 16/frame budget).",
-                    new AcceptableValueRange<int>(1, 64)));
-            EnableRemotePlayerInPlayersList = cfg.Bind("PlayerRegistry", "EnableRemotePlayerInPlayersList", false,
-                "Plan B (HOST, EXPERIMENTAL, default OFF): register each remote player as a headless Player entry in GameManager.Players so the game's multiplayer-aware detection (BatchedNPCRaycasts) targets clients natively — no faction hacks/ForceAggro needed. Inserts directly into the list (never GameManager.AddPlayer, which overwrites the host singletons). Reversible.");
-            EnableGhostPlayerHitbox = cfg.Bind("PlayerRegistry", "EnableGhostPlayerHitbox", false,
-                "Plan B item ① (HOST, default OFF; needs EnableRemotePlayerInPlayersList AND EnableDamageProbe — the A3 forward Unit_ReceiveDamage_Pre lives inside the damage probe prefix): give the headless ghost a Hitmesh on the enemy attack layer so enemy hits land on it and route to the client's real player via that forward. OFF = enemies path to the ghost but swing through it (client unharmed). Reversible.");
+            // Plan B: verified working (Docs/EnemyActivationAndPlayersRegistry.md) — all functional, hardcoded on.
+            EnableMultiPlayerNpcActivation = new Fixed<bool>(true);
+            MultiPlayerNpcActivationDistance = new Fixed<float>(60f);
+            MultiPlayerNpcActivationsPerFrame = new Fixed<int>(8);
+            EnableRemotePlayerInPlayersList = new Fixed<bool>(true);
+            EnableGhostPlayerHitbox = new Fixed<bool>(true);
             LogRemotePlayerRegistry = cfg.Bind("PlayerRegistry", "LogRemotePlayerRegistry", true,
                 "Plan B: verbose log for the headless Player registry + activation pass (create/update/destroy/register/activate).");
-            SuppressGhostsWhileLoading = cfg.Bind("PlayerRegistry", "SuppressGhostsWhileLoading", true,
-                "Freeze fix: do NOT register/keep headless ghost Players while the host is loading a level (GameState Loading/Uninitialized). " +
-                "Vanilla LevelGeneration.ShowLevelNode iterates GameManager.Players and dereferences each one's weaponCamera/playerCamera; a " +
-                "camera-less ghost re-registered mid-load throws a NullReferenceException that kills the generation coroutine -> the loading " +
-                "screen hangs at the final step (17/17). Ghosts are only needed during active gameplay; they re-register once the level is Running. Reversible.");
-
-            ApplyUnpublishedDevelopmentDefaults(cfg);
+            SuppressGhostsWhileLoading = new Fixed<bool>(true);
 
             // Last: strip the retired co-op keys (connection settings now in CoopSettings + the dropped role keys)
             // from the .cfg. Must run after every bind/.Value-set above, since each save re-emits orphaned keys.
             CoopSettingsStore.PruneRetiredCfgKeys(cfg);
-        }
-
-        private void ApplyUnpublishedDevelopmentDefaults(ConfigFile cfg)
-        {
-            // This mod is still private/unpublished. Connection identity settings stay user-owned (now in the
-            // CoopSettings JSON store, not touched here), but hard-reset the active experimental gameplay baseline
-            // so stale cfg values from earlier internal builds cannot silently re-enable old behavior.
-            // EnableRunStateNegotiation + RunStateBroadcastIntervalSeconds are now hardcoded (Fixed); only Warn* stays.
-            WarnOnRunStateMismatch.Value = true;
-            EnableHostSceneAuthority.Value = true;
-            WarnOnClientSceneDrift.Value = true;
-            EnableHostSceneRequestProtocol.Value = true;
-            AutoSendHostSceneRequestOnDrift.Value = true;
-            HostSceneRequestIntervalSeconds.Value = 10f;
-            EnableManualClientSceneFollow.Value = true;
-            ManualClientSceneFollowKey.Value = new KeyboardShortcut(KeyCode.PageDown);
-            ManualClientSceneFollowRequiresHostRequest.Value = true;
-
-            // EnableLevelSeedAuthority/RequireSameLevelSeedForSceneMatch/ApplyHostLevelSeedOnManualFollow/
-            // HideRemoteVisualWhenLevelSeedMismatch/SyncHostUsedSetsOnManualFollow are now hardcoded (Fixed); Log* stays.
-            LogUsedSetsTrace.Value = true;
-            ClientWaitHostGenerationInputBeforeFirstLoad.Value = true;
-            ClientLoadGateTimeoutSeconds.Value = 30f;
-            ClientLoadGateAllowFallbackAfterTimeout.Value = false;
-            ClientLoadGateRequestIntervalSeconds.Value = 2f;
-            ClientGateDeathRespawnUntilHostHub.Value = true;
-            ClientGateDeathRespawnTimeoutSeconds.Value = 12f;
-            EnableClientTransitionRelay.Value = true;
-            AllowClientInitiatedLevelLoad.Value = true;
-            ClientInitiatedLoadTimeoutSeconds.Value = 15f;
-            EnableClientReloadInPlaceRelay.Value = true;
-            ClientLinkedByDefault.Value = false;
-            HostLinkedByDefault.Value = true;
-            ClientUnlinkKey.Value = new KeyboardShortcut(KeyCode.PageUp);
-            HostLinkToggleKey.Value = new KeyboardShortcut(KeyCode.PageDown);
-
-            // Phase 5.3-M P1 auto-follow + load barrier — test defaults on (log/status only barrier).
-            EnableAutoFollowHostSceneRequest.Value = true;
-            EnableLoadBarrier.Value = true;
-            LoadBarrierTimeoutSeconds.Value = 30f;
-            LoadBarrierBlockHostAdvance.Value = false;
-            LoadBarrierLogOnlyMode.Value = true;
-
-            // Phase 5.4-E Boss encounter authority — test default on (start handshake only).
-            EnableBossEncounterSync.Value = true;
-            BossEncounterClientBlockLocalStart.Value = true;
-            LogBossEncounter.Value = true;
-
-            // Phase 5.4-E2 BossStart chain completion + lifecycle probe — diagnostics default on (safe; no global AI suppression).
-            BossContinuationGraceSeconds.Value = 5f;
-            EnableBossLifecycleProbe.Value = true;
-            LogBossLifecycle.Value = true;
-            LogBossPreFight.Value = true;
-            // Faithful intro runs the boss's own intro dialog on the client; we must NOT pre-remove its dialog, so keep this off while faithful intro is on.
-            RemoveBossDialogInteractableOnStart.Value = false;
-            EnableFaithfulBossIntro.Value = true;
-            GateBossFightOnDialogClose.Value = true;
-            DeferBossIntroArm.Value = true;
-            EnableBossRoomMembership.Value = true;
-            GateBossDialogToInRoom.Value = true;
-            ExcludeOutOfRoomPlayersFromBossAttacks.Value = true;
-            // Plan B enemy activation + targeting (VERIFIED WORKING — Docs/EnemyActivationAndPlayersRegistry.md).
-            // All three are required for a client to fight enemies ahead of a stationary host:
-            //  · activation postfix wakes NPCs near any remote player (the "won't wake" fix);
-            //  · the headless ghost Player registers the client in GameManager.Players so host enemies natively
-            //    detect/aggro/target it — WITHOUT this the client is no one's target on the host, so host enemies
-            //    stand idle and the client's puppets mirror that idle = the 站桩 regression;
-            //  · the ghost hitbox routes enemy hits to the client (needs EnableDamageProbe, which is bind-default true).
-            // Previously these lived only in a local .cfg; promoted here so a fresh/deleted config (and release) work.
-            EnableMultiPlayerNpcActivation.Value = true;
-            EnableRemotePlayerInPlayersList.Value = true;
-            EnableGhostPlayerHitbox.Value = true;
-
-            // Phase 5.4-E3 — dialog commit + Lucia + Witch state default on; Emperor worm DIAGNOSTIC on, SUPPRESSION off (reversible).
-            EnableEmperorWormDiagnostics.Value = true;
-            EnableEmperorClientWormSuppression.Value = false;
-            LogBossTransitionDiagnostics.Value = true;
-
-            // Phase 5.4-E4 — boss dynamic spawn manifest diagnostics default on.
-            EnableBossDynamicSpawnManifest.Value = true;
-            LogBossDynamicSpawn.Value = true;
-            // Phase RT3-Cousin-arms — route GoblinCousinArm through the RT3-A boss-add pipeline default on.
-            EnableCousinArmSync.Value = true;
-
-            // Phase 5.4-F — boss main-body damage authority default on.
-            EnableBossDamageAuthority.Value = true;
-            // Phase 5.4-F2 — ROLLED BACK (LogOutput29): Cousin AI activation + Desert intro-skip both proven wrong.
-            EnableBossClientPresentation.Value = false;
-            // Phase 5.4-F4 — Cousin fixed-point pool authority default on.
-            EnableBossDiscreteEventAuthority.Value = true;
-            // Phase 5.4-F5 — Lucia eye defeat authority default on.
-            EnableLuciaEyeAuthority.Value = true;
-            // Phase 5.4-F6 — Lucia terminal death authority default on.
-            EnableLuciaDeathAuthority.Value = true;
-            // Phase 5.4-G — Witch phase-witch damage authority default on.
-            EnableWitchPhaseDamageAuthority.Value = true;
-            // Phase 5.4-G2 — Witch phase revision authority default on.
-            EnableWitchPhaseAuthority.Value = true;
-            // Phase 5.4-G4 — Witch Phase 2 timing probe default on (diagnostic).
-            LogWitchPhase2Probe.Value = true;
-            // Phase 5.4-G5 — Witch Phase 2 dome manifest authority default on.
-            EnableWitchPhase2Manifest.Value = true;
-            // Phase 5.4-G7 — Witch death cleanup default on.
-            EnableWitchDeathFix.Value = true;
-            // Phase 5.5-RT1 / RT3-A / 5.7-DS / DS2 — runtime/death/minion spawn sync Enable* now hardcoded (Fixed); Log* stays.
-            LogRuntimeSpawnSync.Value = true;
-            // Phase 5.6-WS — EnablePlayerWeaponSync + max-projectiles hardcoded (Fixed); Log* stays.
-            LogPlayerWeaponSync.Value = true;
-            // Phase 5.7-BR / LD-1 / LD-1b — Enable* flags are now hardcoded (Fixed<bool>); only their Log* stay forced.
-            LogBreakableSync.Value = true;
-            LogGateSync.Value = true;
-            LogTriggerDoorSync.Value = true;
-            // Phase LD-2 — arena lockdown membership + timer + force-seal barrier + teleport default on.
-            EnableArenaLockdown.Value = true;
-            LogArenaLockdown.Value = true;
-            ArenaEnterConfirmKey.Value = new KeyboardShortcut(KeyCode.Return);
-            EnableArenaGracePeriod.Value = true;
-            // World item-drop sync default on (player-thrown items); shared-loot widening stays off until host-roll exists.
-            EnableWorldItemDropSync.Value = true;
-            LogWorldItemDropSync.Value = true;
-            ShareAllLoot.Value = false;
-            // Phase 5.6-WS-2/WS-3 — remote weapon model + sprite body Enable* + all appearance values now hardcoded
-            // (Fixed); only the Log* flags stay forced/in cfg.
-            LogRemoteWeaponModel.Value = true;
-            LogPlayerVisualDiscovery.Value = false;
-            LogPlayerSpriteAssetScan.Value = false;
-            LogRemotePlayerBody.Value = true;
-
-            // NetworkVisualProxy — all hardcoded now (Fixed); nothing to force here.
-
-            EnableGameplayEntityProbe.Value = true;
-            GameplayEntityProbeSummaryIntervalSeconds.Value = 10f;
-            LogGameplayEntitySpawn.Value = true;
-            LogGameplayEntityDamage.Value = false;
-            LogGameplayEntityDeath.Value = true;
-            RequireStableSceneAndSeedForGameplayProbe.Value = true;
-
-            // Phase 4.0-B enemy death mirror — Enable*/Apply*/tolerance now hardcoded (Fixed); only Log* stays forced.
-            LogReceivedEnemyDeathEvents.Value = true;
-            LogReceivedClientEnemyDeathClaims.Value = true;
-
-            // Downed/revive Enable* + tuning now hardcoded (Fixed); only the Log* and the keybind stay forced/bound.
-            LogPlayerLifeSync.Value = true;
-            PlayerReviveHoldKey.Value = new KeyboardShortcut(KeyCode.E);
-
-            // NetworkEnemyStateExperimental — Enable*/Apply*/tuning all hardcoded (Fixed); only the 4 Log* stay forced.
-            LogReceivedEnemyStateSnapshots.Value = false;
-            LogSuppressedClientEnemyAi.Value = false;
-            LogClientEnemyPuppetMode.Value = true;
-            LogEnemyAnimationMirror.Value = false;
-            // NetworkEnemyTargetExperimental projectile-visual + ranged-damage gates now hardcoded (Fixed).
-            // Phase 5.5-RT3-A5: host snapshot is the single position authority (no flicker from competing writers).
-            // Intent-driven motion + correction/snap tuning now hardcoded (Fixed); only LogEnemyAiIntentMirror stays.
-            LogEnemyAiIntentMirror.Value = true;
-            // Host enemy ranged-damage params + default type + elemental status now hardcoded (Fixed).
-            // Phase 5.7-HG: LogEnemyHostDamageAuthority is now Bind-default OFF and intentionally NOT forced here, so the
-            // user can toggle it from the .cfg (per the Log* convention). It fires once per hit = per-hit disk I/O.
-            // Keep the threshold hitch probe auto-on this investigation round (threshold-gated → no per-hit flood; remove once root-caused).
-            LogDamageApplyHitch.Value = true;
-            DamageApplyHitchThresholdMs.Value = 3f;
-            // EnableHostOnlyEnemyTargetAuthority + probe interval + EnableEnemyCombatProbe hardcoded (Fixed); Log* stays.
-            LogEnemyTargetAuthority.Value = true;
-            // Host-authorized intent execution Enable*/window now hardcoded (Fixed); only Log* stays.
-            LogHostAuthorizedIntentExecution.Value = true;
-            // RT3-A2/A3/A7 + SC3 + DB/DB2 + RB puppet-binding flags now hardcoded (Fixed).
-            // RB2/RB3/RB4 interest + NP no-pause Enable*/tuning now hardcoded (Fixed); only the Log* diags stay forced.
-            LogEnemyInterestDiag.Value = true;
-            LogPauseSuppression.Value = true;
-
-            // Enemy snapshot delta-compression — all hardcoded (Fixed); nothing to force here.
-
-            // Phase 5.3-B/C/D — hit-request + terminal-dead/flash + two-phase-death Enable*/tuning hardcoded (Fixed); Log* only.
-            LogClientHitRequests.Value = true;
-            LogClientTerminalDead.Value = true;
-            LogClientHitFlash.Value = true;
-            LogClientPendingDead.Value = true;
-
-            // Phase 5.3-E level manifest — on by default; diagnostics + quarantine enabled.
-            EnableHostLevelManifest.Value = true;
-            LogLevelManifest.Value = true;
-            LogLevelManifestDiff.Value = true;
-            QuarantineClientOnlyManifestEnemies.Value = true;
-
-            // Phase 5.3-F — EnableClientHitVisual hardcoded (Fixed); LevelGenTrace (diagnostic) stays.
-            EnableLevelGenTrace.Value = true;
-            LogLevelGenTrace.Value = true;
-
-            // Phase 5.1 Host-authoritative enemy health sync — Enable*/Apply*/death-apply hardcoded (Fixed); Log* only.
-            LogHostEnemyDamageEvents.Value = true;
-            LogHostEnemyHealthState.Value = false;
-
-            // Phase 5.0 Host-Driven Proxy + attack-phase + interest bands — Enable*/tuning hardcoded (Fixed); only Log* stay.
-            LogClientPuppetDamageSuppression.Value = true;
-            LogHostProjectileVisualSpawn.Value = false;
-
-            cfg.Save();
         }
     }
 }
