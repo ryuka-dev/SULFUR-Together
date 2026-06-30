@@ -35,6 +35,12 @@ namespace SULFURTogether.Networking
             _proxies.Remove(peerId);
         }
 
+        // Diagnostic throttles (Log196/197: client can't see host on first join — pin down hidden vs frozen vs
+        // co-located). Gated behind EnableDebugLog so it is silent in normal play but available on demand.
+        private float _nextHideDiagAt;
+        private float _nextProxyDiagAt;
+        private static bool DiagOn { get { try { return Plugin.Cfg.LogRemotePlayerBody.Value; } catch { return false; } } }
+
         public void Apply(NetPlayerTransformState state, NetRunState localRunState, float now, bool requireSeedMatch)
         {
             if (string.IsNullOrWhiteSpace(state.PeerId)) return;
@@ -42,6 +48,14 @@ namespace SULFURTogether.Networking
             {
                 if (_proxies.TryGetValue(state.PeerId, out var existing))
                     existing.Hide();
+                // Diagnostic: a remote transform DID arrive but can't be shown (different scene/seed) — log the
+                // comparison even when no proxy exists yet, so "transform arrives but proxy never created" is
+                // visible (Log198: client joined but never showed host). Throttled; gated behind LogRemotePlayerBody.
+                if (DiagOn && now >= _nextHideDiagAt)
+                {
+                    _nextHideDiagAt = now + 2f;
+                    NetLogger.Info($"[RemoteProxyDiag] REJECTED peer={state.PeerId} hadProxy={(existing != null)}: remote {state.ChapterName}:{state.LevelIndex} seed={(state.HasLevelSeed ? state.LevelSeed.ToString() : "?")} vs local {localRunState.ChapterName}:{localRunState.LevelIndex} seed={(localRunState.HasLevelSeed ? localRunState.LevelSeed.ToString() : "?")} requireSeedMatch={requireSeedMatch}");
+                }
                 return;
             }
 
@@ -49,7 +63,7 @@ namespace SULFURTogether.Networking
             {
                 proxy = new NetRemotePlayerProxy(state.PeerId);
                 _proxies[state.PeerId] = proxy;
-                NetLogger.Info($"[RemotePlayer] Visual proxy created for {state.PeerId}");
+                NetLogger.Info($"[RemotePlayer] Visual proxy created for {state.PeerId} at {state.Position} scene={state.ChapterName}:{state.LevelIndex} seed={(state.HasLevelSeed ? state.LevelSeed.ToString() : "?")}");
             }
 
             proxy.Apply(state, now);
@@ -59,6 +73,19 @@ namespace SULFURTogether.Networking
         {
             foreach (var proxy in _proxies.Values.ToArray())
                 proxy.Tick(deltaTime, now, timeoutSeconds, interpolationSpeed, snapDistance);
+
+            // Diagnostic (Log196/197): every 2s, dump each proxy's visibility / position / staleness so we can
+            // tell whether an existing-but-unseen proxy is hidden, frozen (host stopped sending → age grows), or
+            // just far from / co-located with the local player. Gated behind EnableDebugLog (off in normal play).
+            if (DiagOn && _proxies.Count > 0 && now >= _nextProxyDiagAt)
+            {
+                _nextProxyDiagAt = now + 2f;
+                foreach (var kv in _proxies)
+                {
+                    var p = kv.Value;
+                    NetLogger.Info($"[RemoteProxyDiag] peer={kv.Key} visible={p.IsVisible} pos={p.TargetPosition} ageSinceUpdate={(now - p.LastUpdatedAt):0.0}s");
+                }
+            }
         }
 
         public string FormatStatus()

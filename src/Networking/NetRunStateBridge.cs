@@ -68,9 +68,29 @@ namespace SULFURTogether.Networking
             _service?.ReportLocalLevelSeed(seed, generatorName);
         }
 
+        // Last local player object seen (cached even while networking is OFF). Like the level cache above, this
+        // exists because networking now starts AFTER the save is loaded: the host's AddPlayer fired before this
+        // service existed, so without replaying it the host never captures its local player and therefore never
+        // broadcasts its transform — the client then never sees the host until the host happens to change levels
+        // (which re-fires AddPlayer with networking on). Log199.
+        private static object _cachedPlayer;
+
         public static void ReportLocalPlayerObject(object player)
         {
+            _cachedPlayer = player;
             _service?.ReportLocalPlayerObject(player);
+        }
+
+        /// <summary>Replay the cached local player into a freshly started service so it captures the CURRENT
+        /// player (and starts broadcasting its transform) immediately, instead of only after the next AddPlayer
+        /// (level change). Safe if the cached player was destroyed — reported as a no-op.</summary>
+        public static void PrimeLocalPlayer(NetService service)
+        {
+            if (service == null) return;
+            var p = _cachedPlayer;
+            if (p == null) return;
+            if (p is UnityEngine.Object uo && uo == null) return; // destroyed since cached
+            service.ReportLocalPlayerObject(p);
         }
 
         /// <summary>

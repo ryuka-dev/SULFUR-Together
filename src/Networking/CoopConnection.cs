@@ -85,11 +85,25 @@ namespace SULFURTogether.Networking
                 NetRunStateBridge.Attach(service);
                 NetGameplaySyncBridge.Attach(service);
                 service.Start(mode);
-                // Networking now starts AFTER the save is loaded (explicit Create/Join), so the GoToLevel that
-                // loaded the current level fired before this service existed. Seed the run-state from the cached
-                // last level + current seed so the host's handshake scene request to a joining client is valid
-                // immediately (the client then auto-follows on join, not ~10s later — Log186).
-                NetRunStateBridge.PrimeServiceFromCache(service);
+                // HOST ONLY: networking now starts AFTER the save is loaded (explicit Create), so the GoToLevel
+                // that loaded the host's current level fired before this service existed. Seed the run-state from
+                // the cached last level + current seed so the host's handshake scene request to a joining client
+                // is valid immediately (the client then auto-follows on join, not ~10s later — Log186).
+                //
+                // Do NOT prime the CLIENT: its pre-join run-state is irrelevant (it immediately follows the host,
+                // and the finalized generation snapshot sets the real seed). Priming the client captured its
+                // pre-join level seed and latched it; when the client then followed into a SAME-NAMED level the
+                // game's GameManager.currentSeed was not refreshed, so the stale primed seed stuck in the run
+                // state and the proxy seed-match check rejected the host → the client never showed the host even
+                // though it had correctly joined the host's instance (Log198).
+                if (mode == NetMode.Host)
+                    NetRunStateBridge.PrimeServiceFromCache(service);
+
+                // BOTH roles: capture the CURRENT local player immediately. AddPlayer fired when the save loaded
+                // (before this service existed), so without this the local player is only captured on the next
+                // level change — a host that stays put (e.g. in the hub) would never broadcast its transform and
+                // the client would never see it (Log199). No staleness concern (it's the live player object).
+                NetRunStateBridge.PrimeLocalPlayer(service);
                 _service = service;
                 CurrentMode = mode;
                 _lastSignature = signature;
