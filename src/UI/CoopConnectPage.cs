@@ -34,6 +34,7 @@ namespace SULFURTogether.UI
         private static SulfurTextHandle     _statusHandle;
         private static SulfurTextHandle     _joinFeedbackHandle;
         private static SulfurTextHandle     _gateHintHandle;
+        private static SulfurTextHandle     _lanIpHandle;
         private static SulfurButtonHandle   _createHandle;
         private static SulfurButtonHandle   _joinHandle;
         private static SulfurButtonHandle   _closeHandle;
@@ -90,6 +91,7 @@ namespace SULFURTogether.UI
                 _ctx.SetFooterStatus(status);
                 ApplyButtonStates();
                 ApplyJoinFeedback();
+                ApplyHostLanIp();
                 RefreshPlayerList();
                 PollJoinClose();
             }
@@ -133,6 +135,10 @@ namespace SULFURTogether.UI
             _gateHintHandle = ctx.AddTextRow("");
             _gateHintHandle.SetVisible(false);
 
+            // UI-3d: host LAN address — shown only while hosting so peers know what to type into "Host address".
+            _lanIpHandle = ctx.AddTextRow("");
+            _lanIpHandle.SetVisible(false);
+
             _joinFeedbackHandle = ctx.AddTextRow("");
             _joinFeedbackHandle.SetVisible(false);
 
@@ -174,6 +180,7 @@ namespace SULFURTogether.UI
             // First paint of the live elements.
             ApplyButtonStates();
             ApplyJoinFeedback();
+            ApplyHostLanIp();
             RefreshPlayerList();
         }
 
@@ -233,6 +240,24 @@ namespace SULFURTogether.UI
             _joinFeedbackHandle.SetText("⚠ " + err);
             _joinFeedbackHandle.SetColor(ErrorColor);
             _joinFeedbackHandle.SetVisible(true);
+        }
+
+        /// <summary>UI-3d: while hosting, show this machine's LAN address + port so peers on the same network know what
+        /// to enter. Hidden when not hosting (a client/off has nothing to advertise).</summary>
+        private static void ApplyHostLanIp()
+        {
+            if (_lanIpHandle == null) return;
+            if (CoopConnection.CurrentMode == NetMode.Host && NetLocalAddress.TryGetLanIPv4(out var ip))
+            {
+                int port = ReadInt(() => Plugin.Cfg.HostPort.Value, 9050);
+                _lanIpHandle.SetText($"Your LAN address: {ip}:{port}  (others on your network join with this)");
+                _lanIpHandle.SetColor(OkColor);
+                _lanIpHandle.SetVisible(true);
+            }
+            else
+            {
+                _lanIpHandle.SetVisible(false);
+            }
         }
 
         private static void RefreshPlayerList()
@@ -321,6 +346,12 @@ namespace SULFURTogether.UI
             _draftAddress = Plugin.Cfg.HostAddress.Value;
             _draftPort    = Plugin.Cfg.HostPort.Value.ToString();
             _draftKey     = Plugin.Cfg.ConnectionKey.Value;
+
+            // UI-3d: auto-seed the name from Steam while it's still the generic default — SULFUR already knows the
+            // persona name (it logs "playing as …" at startup). A name the player has personally set is left alone.
+            if ((string.IsNullOrWhiteSpace(_draftName) || _draftName == "Player")
+                && SteamIdentity.TryGetPersonaName(out var steamName))
+                _draftName = steamName;
         }
 
         /// <summary>Persist the edited fields to config. Does NOT touch the connection or NetworkMode (the role
@@ -342,6 +373,7 @@ namespace SULFURTogether.UI
             _statusHandle       = null;
             _joinFeedbackHandle = null;
             _gateHintHandle     = null;
+            _lanIpHandle        = null;
             _createHandle       = null;
             _joinHandle         = null;
             _playerListHandle   = null;
@@ -352,6 +384,11 @@ namespace SULFURTogether.UI
             => handles != null && index >= 0 && index < handles.Count ? handles[index] : null;
 
         private static bool ReadBool(Func<bool> read, bool fallback)
+        {
+            try { return read(); } catch { return fallback; }
+        }
+
+        private static int ReadInt(Func<int> read, int fallback)
         {
             try { return read(); } catch { return fallback; }
         }
