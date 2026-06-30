@@ -197,16 +197,16 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableWitchPhase2Manifest { get; }
         // ----- Phase 5.4-G7 Witch death收尾 (amulet crash + terminal) -----
         public ConfigEntry<bool>   EnableWitchDeathFix { get; }
-        // ----- Phase 5.5-RT1 runtime spawn sync -----
-        public ConfigEntry<bool>   EnableRuntimeSpawnSync { get; }
+        // ----- Phase 5.5-RT1 runtime spawn sync ----- (functional: always on, release-hardcoded)
+        public Fixed<bool>         EnableRuntimeSpawnSync { get; }
         public ConfigEntry<bool>   LogRuntimeSpawnSync { get; }
         // ----- Phase 5.5-RT3-A bind correction (snap-on-bind + inert + hit-gate) -----
-        public ConfigEntry<bool>   EnableRuntimeSpawnSnapOnBind { get; }
-        public ConfigEntry<bool>   EnableRuntimeSpawnInertUntilBound { get; }
+        public Fixed<bool>         EnableRuntimeSpawnSnapOnBind { get; }
+        public Fixed<bool>         EnableRuntimeSpawnInertUntilBound { get; }
         // ----- Phase 5.7-DS death-spawn ("spawn random enemy on death" mutation) host-authoritative sync -----
-        public ConfigEntry<bool>   EnableDeathSpawnSync { get; }
+        public Fixed<bool>         EnableDeathSpawnSync { get; }
         // ----- Phase 5.7-DS2 minion-spawn (spawnMinionsOnDeath mutation) host-authoritative sync -----
-        public ConfigEntry<bool>   EnableMinionSpawnSync { get; }
+        public Fixed<bool>         EnableMinionSpawnSync { get; }
 
         // ----- Phase 5.6-WS player weapon bullet sync (visual-only barrage replay) -----
         public ConfigEntry<bool>   EnablePlayerWeaponSync { get; }
@@ -287,15 +287,15 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LogGameplayEntityDeath { get; }
         public ConfigEntry<bool>   RequireStableSceneAndSeedForGameplayProbe { get; }
 
-        // ----- Phase 4.0-B host enemy death event mirror experiment -----
-        public ConfigEntry<bool>   EnableHostEnemyDeathEventMirror { get; }
+        // ----- Phase 4.0-B host enemy death event mirror experiment ----- (functional: always on, release-hardcoded; Log* kept)
+        public Fixed<bool>         EnableHostEnemyDeathEventMirror { get; }
         public ConfigEntry<bool>   LogReceivedEnemyDeathEvents { get; }
-        public ConfigEntry<bool>   ApplyReceivedEnemyDeathEvents { get; }
-        public ConfigEntry<float>  EnemyDeathMirrorPositionTolerance { get; }
-        public ConfigEntry<bool>   EnemyDeathMirrorUseHorizontalPositionTolerance { get; }
-        public ConfigEntry<bool>   EnableClientEnemyDeathClaim { get; }
+        public Fixed<bool>         ApplyReceivedEnemyDeathEvents { get; }
+        public Fixed<float>        EnemyDeathMirrorPositionTolerance { get; }
+        public Fixed<bool>         EnemyDeathMirrorUseHorizontalPositionTolerance { get; }
+        public Fixed<bool>         EnableClientEnemyDeathClaim { get; }
         public ConfigEntry<bool>   LogReceivedClientEnemyDeathClaims { get; }
-        public ConfigEntry<bool>   ApplyReceivedClientEnemyDeathClaimsOnHost { get; }
+        public Fixed<bool>         ApplyReceivedClientEnemyDeathClaimsOnHost { get; }
 
         // ----- Phase 4.3-A co-op player downed / revive experiment -----
         public ConfigEntry<bool>   EnableCoopPlayerDownedRevive { get; }
@@ -821,8 +821,7 @@ namespace SULFURTogether.Config
             // Phase 5.5-RT1: runtime (post-level-load) unit spawn sync. Stage 1: the Host's F3 DevTools spawns are
             // mirrored to the Client and bound into the puppet pipeline (one-sided, no double-spawn). Boss adds + client
             // F3 spawns come in later stages. Reversible.
-            EnableRuntimeSpawnSync = cfg.Bind("NetworkEnemy", "EnableRuntimeSpawnSync", true,
-                "Phase 5.5-RT1: host-authoritative runtime spawn sync. Stage 1 mirrors the Host's F3 DevTools spawns to the Client. Reversible.");
+            EnableRuntimeSpawnSync = new Fixed<bool>(true); // Phase 5.5-RT1 runtime spawn sync — functional, always on.
             LogRuntimeSpawnSync = cfg.Bind("NetworkEnemy", "LogRuntimeSpawnSync", true,
                 "Phase 5.5-RT1: verbose log for runtime spawn sync (broadcast / mirror / bind).");
 
@@ -831,17 +830,13 @@ namespace SULFURTogether.Config
             // mis-kills (client physics hits a local add at point A, claims the host add at point B). Snap-on-bind hard-
             // teleports the bound local add to the host's broadcast spawn position (discarding the divergent local pos);
             // the hit-gate swallows client hit-claims on an add until it is bound+snapped (kills the mis-kill).
-            EnableRuntimeSpawnSnapOnBind = cfg.Bind("NetworkEnemy", "EnableRuntimeSpawnSnapOnBind", true,
-                "Phase 5.5-RT3-A: on RT3 bind, hard-teleport the local boss-add to the host spawn position and gate client hit-claims until bound+snapped. Reversible.");
+            EnableRuntimeSpawnSnapOnBind = new Fixed<bool>(true); // Phase 5.5-RT3-A snap-on-bind + hit-gate — functional.
             // Inert-until-bound: freeze the local boss-add's movement (stop AI + zero velocity) between local spawn and
             // bind so it doesn't wander at the divergent local spawn point. Damage is already covered by the hit-gate, so
             // this is a movement freeze only (no collider disable — avoids fall-through risk). Independently toggleable.
-            EnableRuntimeSpawnInertUntilBound = cfg.Bind("NetworkEnemy", "EnableRuntimeSpawnInertUntilBound", true,
-                "Phase 5.5-RT3-A: freeze a local boss-add's movement until it is bound+snapped to the host spawn. Reversible.");
-            EnableDeathSpawnSync = cfg.Bind("NetworkEnemy", "EnableDeathSpawnSync", true,
-                "Phase 5.7-DS: host-authoritative sync of the 'spawn a random enemy on death' mutation (MutationDefinition.unitsToSpawnOnDeath). The unit is chosen with the global UnityEngine.Random, so each side otherwise spawns a DIFFERENT enemy on death. The client suppresses its local death-spawn and mirrors the host's via the runtime-spawn pipeline. Requires EnableRuntimeSpawnSync. Reversible.");
-            EnableMinionSpawnSync = cfg.Bind("NetworkEnemy", "EnableMinionSpawnSync", true,
-                "Phase 5.7-DS2: host-authoritative sync of the spawnMinionsOnDeath mutation (N same-type minions on death, spawned async via SpawnUnitAsync). Without it each side spawns its own un-bound minions and their host deaths can't be applied (LogOutput118 'never bound, late-bind failed' on a wave of GoblinYoung). The host tags + broadcasts the minions; the client suppresses its local SpawnMinions and mirrors the host's. Requires EnableRuntimeSpawnSync + EnableDeathSpawnSync. Reversible.");
+            EnableRuntimeSpawnInertUntilBound = new Fixed<bool>(true); // Phase 5.5-RT3-A inert-until-bound — functional.
+            EnableDeathSpawnSync = new Fixed<bool>(true);  // Phase 5.7-DS death-spawn mutation sync — functional.
+            EnableMinionSpawnSync = new Fixed<bool>(true); // Phase 5.7-DS2 spawnMinionsOnDeath sync — functional.
 
             // Phase 5.6-WS: replicate each player's weapon barrage onto every OTHER peer as VISUAL-ONLY bullets.
             // The firing peer captures the computed projectile template (equipmentManager.lastFiredProjectile.ray) plus
@@ -995,22 +990,17 @@ namespace SULFURTogether.Config
                 "Delay per-entity gameplay probe logs until local chapter/level and levelSeed are known. Events are observed locally only and late-logged when context becomes available.");
 
             // Phase 4.0-B enemy death event mirror. Network log/matching only by default; no gameplay mutation.
-            EnableHostEnemyDeathEventMirror = cfg.Bind("NetworkGameplaySyncExperimental", "EnableHostEnemyDeathEventMirror", true,
-                "Experimental/current baseline: Host sends enemy death events to Clients. Default true for active multiplayer testing.");
+            // Phase 4.0-B enemy death event mirror — functional, always on (release-hardcoded); only Log* stays in cfg.
+            EnableHostEnemyDeathEventMirror = new Fixed<bool>(true);
             LogReceivedEnemyDeathEvents = cfg.Bind("NetworkGameplaySyncExperimental", "LogReceivedEnemyDeathEvents", true,
                 "Log Host enemy death events received by a Client and the local entity match result.");
-            ApplyReceivedEnemyDeathEvents = cfg.Bind("NetworkGameplaySyncExperimental", "ApplyReceivedEnemyDeathEvents", true,
-                "Experimental/current baseline: Client applies safely matched Host enemy death events to the corresponding local NPC. Default true for active multiplayer testing.");
-            EnemyDeathMirrorPositionTolerance = cfg.Bind("NetworkGameplaySyncExperimental", "EnemyDeathMirrorPositionTolerance", 2.5f,
-                "Maximum distance in meters for considering a received Host enemy death event matched to the local same-spawnIndex entity.");
-            EnemyDeathMirrorUseHorizontalPositionTolerance = cfg.Bind("NetworkGameplaySyncExperimental", "EnemyDeathMirrorUseHorizontalPositionTolerance", true,
-                "When true, Host enemy death matching compares X/Z horizontal distance and ignores vertical Y difference. This avoids missing deaths when enemies jump, hop, or use vertical displacement animations.");
-            EnableClientEnemyDeathClaim = cfg.Bind("NetworkGameplaySyncExperimental", "EnableClientEnemyDeathClaim", true,
-                "Experimental Phase 4.2.0-B: Clients send local NPC death claims to Host. Host only considers claims when scene/seed and local entity matching are safe. Default true for the current multiplayer test baseline.");
+            ApplyReceivedEnemyDeathEvents = new Fixed<bool>(true);
+            EnemyDeathMirrorPositionTolerance = new Fixed<float>(2.5f);
+            EnemyDeathMirrorUseHorizontalPositionTolerance = new Fixed<bool>(true);
+            EnableClientEnemyDeathClaim = new Fixed<bool>(true);
             LogReceivedClientEnemyDeathClaims = cfg.Bind("NetworkGameplaySyncExperimental", "LogReceivedClientEnemyDeathClaims", true,
                 "Log Client enemy death claims received by the Host and the Host-side local entity match/apply result.");
-            ApplyReceivedClientEnemyDeathClaimsOnHost = cfg.Bind("NetworkGameplaySyncExperimental", "ApplyReceivedClientEnemyDeathClaimsOnHost", true,
-                "Experimental Phase 4.2.0-B: when true, Host applies safely matched Client enemy death claims by invoking the corresponding local NPC Die(). Default true for the current multiplayer test baseline.");
+            ApplyReceivedClientEnemyDeathClaimsOnHost = new Fixed<bool>(true);
 
             // Phase 4.3-A co-op player downed / revive experiment. Defaults are active for this test build only; no forced config overwrite is performed.
             EnableCoopPlayerDownedRevive = cfg.Bind("NetworkPlayerLifeExperimental", "EnableCoopPlayerDownedRevive", true,
@@ -1519,16 +1509,8 @@ namespace SULFURTogether.Config
             EnableWitchPhase2Manifest.Value = true;
             // Phase 5.4-G7 — Witch death cleanup default on.
             EnableWitchDeathFix.Value = true;
-            // Phase 5.5-RT1 — runtime spawn sync default on.
-            EnableRuntimeSpawnSync.Value = true;
+            // Phase 5.5-RT1 / RT3-A / 5.7-DS / DS2 — runtime/death/minion spawn sync Enable* now hardcoded (Fixed); Log* stays.
             LogRuntimeSpawnSync.Value = true;
-            // Phase 5.5-RT3-A — bind correction (snap-on-bind + hit-gate + inert) default on.
-            EnableRuntimeSpawnSnapOnBind.Value = true;
-            EnableRuntimeSpawnInertUntilBound.Value = true;
-            // Phase 5.7-DS — death-spawn ("spawn random enemy on death" mutation) host-authoritative sync default on.
-            EnableDeathSpawnSync.Value = true;
-            // Phase 5.7-DS2 — minion-spawn (spawnMinionsOnDeath mutation) host-authoritative sync default on.
-            EnableMinionSpawnSync.Value = true;
             // Phase 5.6-WS — player weapon bullet sync (visual-only barrage replay) default on.
             EnablePlayerWeaponSync.Value = true;
             LogPlayerWeaponSync.Value = true;
@@ -1574,14 +1556,9 @@ namespace SULFURTogether.Config
             LogGameplayEntityDeath.Value = true;
             RequireStableSceneAndSeedForGameplayProbe.Value = true;
 
-            EnableHostEnemyDeathEventMirror.Value = true;
+            // Phase 4.0-B enemy death mirror — Enable*/Apply*/tolerance now hardcoded (Fixed); only Log* stays forced.
             LogReceivedEnemyDeathEvents.Value = true;
-            ApplyReceivedEnemyDeathEvents.Value = true;
-            EnemyDeathMirrorPositionTolerance.Value = 2.5f;
-            EnemyDeathMirrorUseHorizontalPositionTolerance.Value = true;
-            EnableClientEnemyDeathClaim.Value = true;
             LogReceivedClientEnemyDeathClaims.Value = true;
-            ApplyReceivedClientEnemyDeathClaimsOnHost.Value = true;
 
             EnableCoopPlayerDownedRevive.Value = true;
             LogPlayerLifeSync.Value = true;

@@ -52,6 +52,11 @@ namespace SULFURTogether.Config
             "EnableRemotePlayerVisualProxy", "RemotePlayerTransformSendRateHz", "RemotePlayerVisualTimeoutSeconds",
             "RemotePlayerVisualInterpolationSpeed", "RemotePlayerVisualSnapDistance", "EnableRemotePlayerProxyCollision",
             "RemotePlayerCollisionSoft", "RemotePlayerSoftCollisionRadius", "RemotePlayerSoftCollisionPushSpeed",
+            // Batch 4 (NetworkEnemy runtime-spawn + NetworkGameplaySyncExperimental enemy-death mirror):
+            "EnableRuntimeSpawnSync", "EnableRuntimeSpawnSnapOnBind", "EnableRuntimeSpawnInertUntilBound",
+            "EnableDeathSpawnSync", "EnableMinionSpawnSync",
+            "EnableHostEnemyDeathEventMirror", "ApplyReceivedEnemyDeathEvents", "EnemyDeathMirrorPositionTolerance",
+            "EnemyDeathMirrorUseHorizontalPositionTolerance", "EnableClientEnemyDeathClaim", "ApplyReceivedClientEnemyDeathClaimsOnHost",
         };
 
         private readonly string _jsonPath;
