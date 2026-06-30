@@ -379,53 +379,41 @@ namespace SULFURTogether.Config
         public Fixed<float>        EnemyStateSnapshotRotationDeltaThresholdDegrees { get; }
         public Fixed<float>        EnemyStateSnapshotAnimationTimeDeltaThreshold { get; }
 
-        // ----- Phase 5.1 Host-authoritative enemy health sync -----
-        // P0: Host broadcasts damage events; client tracks puppet health and late-binds deaths.
-        public ConfigEntry<bool>   EnableHostEnemyDamageEventSync { get; }
-        public ConfigEntry<bool>   EnableHostEnemyHealthStateSync { get; }
-        public ConfigEntry<bool>   ApplyReceivedHostEnemyHealthState { get; }
+        // ----- Phase 5.1 Host-authoritative enemy health sync ----- (functional hardcoded; Log* kept)
+        public Fixed<bool>         EnableHostEnemyDamageEventSync { get; }
+        public Fixed<bool>         EnableHostEnemyHealthStateSync { get; }
+        public Fixed<bool>         ApplyReceivedHostEnemyHealthState { get; }
         public ConfigEntry<bool>   LogHostEnemyDamageEvents { get; }
         public ConfigEntry<bool>   LogHostEnemyHealthState { get; }
-        // P0: Death apply improvements — roster-bound deaths bypass position-drift rejection.
-        public ConfigEntry<bool>   AllowRosterBoundDeathDespitePositionDrift { get; }
-        public ConfigEntry<bool>   HostDeathSnapBeforeApply { get; }
-        public ConfigEntry<bool>   AllowDeathLateRebind { get; }
-        // P0: Suppress client-local death claims when host is authoritative on damage.
-        public ConfigEntry<bool>   DisableClientEnemyDeathClaimWhenHostDamageSyncEnabled { get; }
+        public Fixed<bool>         AllowRosterBoundDeathDespitePositionDrift { get; }
+        public Fixed<bool>         HostDeathSnapBeforeApply { get; }
+        public Fixed<bool>         AllowDeathLateRebind { get; }
+        public Fixed<bool>         DisableClientEnemyDeathClaimWhenHostDamageSyncEnabled { get; }
 
-        // ----- Phase 5.3-B Client → Host gameplay request pipeline -----
-        public ConfigEntry<bool>   EnableClientHitRequest  { get; }
+        // ----- Phase 5.3-B Client → Host gameplay request pipeline ----- (functional + tuning hardcoded; Log* kept)
+        public Fixed<bool>         EnableClientHitRequest  { get; }
         public ConfigEntry<bool>   LogClientHitRequests    { get; }
-        // Phase 5.5-RT3-A2: only forward LOCAL-PLAYER damage on a host-driven puppet; ignore physics/environment.
-        public ConfigEntry<bool>   FilterNonPlayerPuppetDamage { get; }
-        // Phase 5.5-RT3-A3: make host-driven puppets kinematic so transform-drags don't impart physics impulses.
-        public ConfigEntry<bool>   MakeClientPuppetsKinematic { get; }
-        // Phase 5.5-RT3-A7: keep a WorldRoster binding stable once established (don't re-match by position each revision).
-        public ConfigEntry<bool>   StableWorldRosterBinding { get; }
-        // Phase 5.7-SC3: when a host enemy's death is applied, release the bound client puppet + drop its binding so a
-        // host-despawned enemy doesn't linger as a stale "host-bound" standing zombie on the client.
-        public ConfigEntry<bool>   ReleasePuppetOnHostDeath { get; }
-        // Phase 5.7-DB: keep the client hostIdx↔localKey binding maps strictly 1:1; release orphaned (disowned) host-bound puppets.
-        public ConfigEntry<bool>   EvictStaleHostBindings { get; }
-        // Phase 5.7-DB2: never (re)bind a host idx the client has already buried; release puppets stuck on a dead host idx.
-        public ConfigEntry<bool>   SkipDeadHostIdxRebind { get; }
-        // Phase 5.7-RB: retro-actively bind a host enemy whose roster/manifest record arrived before the client spawned it.
-        public ConfigEntry<bool>   EnableRetroactiveEnemyBinding { get; }
-        // Phase 5.7-RB: sweep destroyed (Unity-null) entries out of GameManager.units/aliveNpcs before the vanilla raycast Update.
-        public ConfigEntry<bool>   EnableDestroyedUnitListSweep  { get; }
-        public ConfigEntry<float>  ClientHitRequestMaxRangeMeters  { get; }
-        public ConfigEntry<float>  ClientHitRequestRateLimitSeconds { get; }
+        public Fixed<bool>         FilterNonPlayerPuppetDamage { get; }      // RT3-A2: only forward local-player damage
+        public Fixed<bool>         MakeClientPuppetsKinematic { get; }       // RT3-A3: kinematic host-driven puppets
+        public Fixed<bool>         StableWorldRosterBinding { get; }         // RT3-A7: stable roster binding
+        public Fixed<bool>         ReleasePuppetOnHostDeath { get; }         // SC3: release puppet on host death
+        public Fixed<bool>         EvictStaleHostBindings { get; }           // DB: strict 1:1 binding maps
+        public Fixed<bool>         SkipDeadHostIdxRebind { get; }            // DB2: never rebind a buried host idx
+        public Fixed<bool>         EnableRetroactiveEnemyBinding { get; }    // RB: retro-bind late-spawned host enemies
+        public Fixed<bool>         EnableDestroyedUnitListSweep  { get; }    // RB: sweep destroyed units pre-raycast
+        public Fixed<float>        ClientHitRequestMaxRangeMeters  { get; }
+        public Fixed<float>        ClientHitRequestRateLimitSeconds { get; }
 
-        // ----- Phase 5.3-C/D Terminal dead latch + visual hit flash -----
-        public ConfigEntry<bool>   EnableClientTerminalDeadLatch { get; }
+        // ----- Phase 5.3-C/D Terminal dead latch + visual hit flash ----- (functional + tuning hardcoded; Log* kept)
+        public Fixed<bool>         EnableClientTerminalDeadLatch { get; }
         public ConfigEntry<bool>   LogClientTerminalDead         { get; }
-        public ConfigEntry<bool>   EnableClientHitFlash          { get; }
+        public Fixed<bool>         EnableClientHitFlash          { get; }
         public ConfigEntry<bool>   LogClientHitFlash             { get; }
-        public ConfigEntry<float>  ClientHitFlashDurationSeconds { get; }
+        public Fixed<float>        ClientHitFlashDurationSeconds { get; }
         // ----- Phase 5.3-D two-phase death (PendingDead → TerminalDead) -----
-        public ConfigEntry<bool>   EnableClientPendingDeadState        { get; }
-        public ConfigEntry<bool>   EnableClientDeathVisualFallback     { get; }
-        public ConfigEntry<float>  ClientDeathVisualFallbackDelaySeconds { get; }
+        public Fixed<bool>         EnableClientPendingDeadState        { get; }
+        public Fixed<bool>         EnableClientDeathVisualFallback     { get; }
+        public Fixed<float>        ClientDeathVisualFallbackDelaySeconds { get; }
         public ConfigEntry<bool>   LogClientPendingDead                { get; }
 
         // ----- Phase 5.3-E Host-authoritative level manifest -----
@@ -435,7 +423,7 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   QuarantineClientOnlyManifestEnemies { get; }
 
         // ----- Phase 5.3-F ClientHit visual + LevelGeneration trace -----
-        public ConfigEntry<bool>   EnableClientHitVisual               { get; }
+        public Fixed<bool>         EnableClientHitVisual               { get; } // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   EnableLevelGenTrace                 { get; }
         public ConfigEntry<bool>   LogLevelGenTrace                    { get; }
 
@@ -1093,79 +1081,48 @@ namespace SULFURTogether.Config
             EnemyStateSnapshotRotationDeltaThresholdDegrees = new Fixed<float>(3.0f);
             EnemyStateSnapshotAnimationTimeDeltaThreshold = new Fixed<float>(0.10f);
 
-            // Phase 5.1 Host-authoritative enemy health sync.
-            EnableHostEnemyDamageEventSync = cfg.Bind("HostDrivenProxy", "EnableHostEnemyDamageEventSync", true,
-                "Phase 5.1 P0: Host broadcasts HostEnemyDamageEvent when a combat NPC takes damage. Clients track puppet health and receive reliable death signal.");
-            EnableHostEnemyHealthStateSync = cfg.Bind("HostDrivenProxy", "EnableHostEnemyHealthStateSync", true,
-                "Phase 5.1 P0: Host broadcasts HostEnemyHealthState alongside damage events when NPC health fields are readable via reflection.");
-            ApplyReceivedHostEnemyHealthState = cfg.Bind("HostDrivenProxy", "ApplyReceivedHostEnemyHealthState", true,
-                "Phase 5.1 P1: Client attempts to write the host-authoritative health value to the puppet's health field via reflection. Skipped if the field write causes native gameplay side-effects.");
+            // Phase 5.1 Host-authoritative enemy health sync — functional hardcoded (Fixed); Log* kept.
+            EnableHostEnemyDamageEventSync = new Fixed<bool>(true);
+            EnableHostEnemyHealthStateSync = new Fixed<bool>(true);
+            ApplyReceivedHostEnemyHealthState = new Fixed<bool>(true);
             LogHostEnemyDamageEvents = cfg.Bind("HostDrivenProxy", "LogHostEnemyDamageEvents", true,
                 "Log HostEnemyDamageEvent send (Host) and receive/apply (Client) for debugging.");
             LogHostEnemyHealthState = cfg.Bind("HostDrivenProxy", "LogHostEnemyHealthState", false,
                 "Log HostEnemyHealthState send and receive. Verbose — disable once stable.");
-            AllowRosterBoundDeathDespitePositionDrift = cfg.Bind("HostDrivenProxy", "AllowRosterBoundDeathDespitePositionDrift", true,
-                "Phase 5.1 P0: When a death event matches a roster-bound entity, skip the position-drift rejection. The binding is the primary trust anchor; drift is expected due to puppet interpolation lag.");
-            HostDeathSnapBeforeApply = cfg.Bind("HostDrivenProxy", "HostDeathSnapBeforeApply", true,
-                "Phase 5.1 P0: Before invoking Die() on a roster-bound puppet, snap it to the host death position. Produces a cleaner visual death at the correct location.");
-            AllowDeathLateRebind = cfg.Bind("HostDrivenProxy", "AllowDeathLateRebind", true,
-                "Phase 5.1 P0: When a death event's hostSpawnIndex has no existing roster binding, attempt a one-shot late-bind by UnitIdentifier + optional position proximity.");
-            DisableClientEnemyDeathClaimWhenHostDamageSyncEnabled = cfg.Bind("HostDrivenProxy", "DisableClientEnemyDeathClaimWhenHostDamageSyncEnabled", true,
-                "Phase 5.1 P0: Suppress client-local enemy death claims when host damage sync is enabled. Host deaths are authoritative; client claims are a legacy fallback that can cause divergent kills.");
+            // Phase 5.1 P0 death-apply improvements — all functional, hardcoded (Fixed).
+            AllowRosterBoundDeathDespitePositionDrift = new Fixed<bool>(true);
+            HostDeathSnapBeforeApply = new Fixed<bool>(true);
+            AllowDeathLateRebind = new Fixed<bool>(true);
+            DisableClientEnemyDeathClaimWhenHostDamageSyncEnabled = new Fixed<bool>(true);
 
-            // Phase 5.3-B Client → Host gameplay hit request pipeline.
-            EnableClientHitRequest = cfg.Bind("HostDrivenProxy", "EnableClientHitRequest", true,
-                "Phase 5.3-B P0: When client player deals damage to a host-bound puppet NPC, suppress local damage and send ClientHitRequest to host. Host validates and applies authoritative damage.");
+            // Phase 5.3-B Client → Host gameplay hit request pipeline — functional + tuning hardcoded (Fixed); Log* kept.
+            EnableClientHitRequest = new Fixed<bool>(true);
             LogClientHitRequests = cfg.Bind("HostDrivenProxy", "LogClientHitRequests", true,
                 "Log ClientHitRequest send (Client) and receive/apply/reject (Host) for debugging.");
-            // Phase 5.5-RT3-A2: a host-driven puppet is host-authoritative over ALL its damage. The client must forward
-            // only genuine local-player attacks (DamageSourceData.damagedByPlayer). Physics/explosion/environment damage
-            // (e.g. a barrel a snapped add overlapped, exploding only on the client) must be ignored locally and never
-            // wrapped as a ClientHitRequest — that is what mis-killed host adds ~0.2s after spawn. Reversible.
-            FilterNonPlayerPuppetDamage = cfg.Bind("HostDrivenProxy", "FilterNonPlayerPuppetDamage", true,
-                "Phase 5.5-RT3-A2: on a host-driven puppet, ignore non-local-player damage (physics/environment) instead of forwarding it to the host. Reversible.");
-            MakeClientPuppetsKinematic = cfg.Bind("HostDrivenProxy", "MakeClientPuppetsKinematic", true,
-                "Phase 5.5-RT3-A3: make host-driven enemy puppets' Rigidbody kinematic so transform-drags can't impart physics impulses into scene props (which fling the client player off the map). Reversible.");
-            StableWorldRosterBinding = cfg.Bind("HostDrivenProxy", "StableWorldRosterBinding", true,
-                "Phase 5.5-RT3-A7: once a host enemy is bound to a local entity, keep that binding across roster revisions as long as both still exist (instead of re-matching by 5m position each time). Fixes enemies that lose their binding/death-sync after moving (e.g. a caster repositioning >5m). Reversible.");
-            ReleasePuppetOnHostDeath = cfg.Bind("HostDrivenProxy", "ReleasePuppetOnHostDeath", true,
-                "Phase 5.7-SC3: when a host enemy death is applied to a bound client puppet, release that puppet and drop its host binding. Without this, a host enemy that despawns far from the host player (Npc.Die damageCount=0) while the client is fighting it leaves an orphaned 'host-bound' puppet that ReleaseStaleEnemyPuppets keeps suppressing → it stands in place forever (LogOutput111). Reversible.");
-            EvictStaleHostBindings = cfg.Bind("HostDrivenProxy", "EvictStaleHostBindings", true,
-                "Phase 5.7-DB: keep the client's hostIdx↔localKey binding maps strictly 1:1. When a host enemy re-binds to a new local entity, evict the old local key's reverse entry; and in ReleaseStaleEnemyPuppets, release any orphaned puppet whose hostIdx the forward map now points elsewhere. Without this, a duplicate/re-binding leaves an orphan flagged 'host-bound' that never receives snapshots (recv=never) and is suppressed from release forever → it stands frozen in place (LogOutput116: a melee Bruiser stuck after climbing onto the player's platform, hostIdx=1 had 3 local keys bound to it). Reversible.");
-            SkipDeadHostIdxRebind = cfg.Bind("HostDrivenProxy", "SkipDeadHostIdxRebind", true,
-                "Phase 5.7-DB2: the WorldRoster/manifest is the static level-gen roster and still lists enemies the client already buried (applied a terminal death for). Never (re)bind a live local entity to such a dead host idx, and release any puppet stuck on one. Without this, when two same-type enemies exist (e.g. two BlackGuildTrackers) and one dies, the roster keeps re-binding the dead idx to the surviving sibling — which then never receives snapshots (recv=never) while the real sibling's death finds 'never bound, late-bind failed' and is never applied → the survivor stands frozen (LogOutput117). Reversible.");
-            EnableRetroactiveEnemyBinding = cfg.Bind("HostDrivenProxy", "EnableRetroactiveEnemyBinding", true,
-                "Phase 5.7-RB: when a host enemy's roster/manifest record arrives before the client has locally spawned that enemy (timing race historically recorded 'hostOnly, no local candidate' and never bound), bind it the moment the client later spawns the matching unit. Fixes the recurring 'rosterBound << rosterReceived' / unbound-enemy desync (each-side-simulates, host can't damage, death/state mismatch). Reversible.");
-            EnableDestroyedUnitListSweep = cfg.Bind("HostDrivenProxy", "EnableDestroyedUnitListSweep", true,
-                "Phase 5.7-RB: before BatchedNPCRaycasts.Update runs, remove destroyed (Unity-null) entries from GameManager.units/aliveNpcs. Prevents the vanilla Update from dereferencing a destroyed puppet's transform (the Transform.get_position NRE flood seen when an unbound puppet is left in the live lists). Reversible.");
-            ClientHitRequestMaxRangeMeters = cfg.Bind("HostDrivenProxy", "ClientHitRequestMaxRangeMeters", 30f,
-                new ConfigDescription("Max distance (meters) allowed between client attacker and host target for ClientHitRequest validation. 0 = skip range check.",
-                    new AcceptableValueRange<float>(0f, 100f)));
-            ClientHitRequestRateLimitSeconds = cfg.Bind("HostDrivenProxy", "ClientHitRequestRateLimitSeconds", 0.08f,
-                new ConfigDescription("Minimum seconds between accepted ClientHitRequests per target (per hostSpawnIndex). Caps max hit rate at ~12.5/s.",
-                    new AcceptableValueRange<float>(0f, 2f)));
+            // RT3-A2/A3/A7 + SC3 + DB/DB2 + RB puppet-binding hardening + hit-request range/rate — all functional/tuning,
+            // hardcoded (Fixed). (Behaviour and rationale documented in git history / EnemyActivation docs.)
+            FilterNonPlayerPuppetDamage = new Fixed<bool>(true);
+            MakeClientPuppetsKinematic = new Fixed<bool>(true);
+            StableWorldRosterBinding = new Fixed<bool>(true);
+            ReleasePuppetOnHostDeath = new Fixed<bool>(true);
+            EvictStaleHostBindings = new Fixed<bool>(true);
+            SkipDeadHostIdxRebind = new Fixed<bool>(true);
+            EnableRetroactiveEnemyBinding = new Fixed<bool>(true);
+            EnableDestroyedUnitListSweep = new Fixed<bool>(true);
+            ClientHitRequestMaxRangeMeters = new Fixed<float>(30f);
+            ClientHitRequestRateLimitSeconds = new Fixed<float>(0.08f);
 
-            // Phase 5.3-C Terminal dead latch + visual hit flash.
-            EnableClientTerminalDeadLatch = cfg.Bind("HostDrivenProxy", "EnableClientTerminalDeadLatch", true,
-                "Phase 5.3-C P0-1: Once a host enemy is confirmed dead (DeathEvent applied, HealthState isDead/hp<=0), latch it terminal-dead on the client. Blocks all subsequent Animator/movement/hit overrides so the corpse cannot twitch between Hit/Idle/Standing.");
+            // Phase 5.3-C/D terminal-dead latch + hit flash + two-phase death — functional + tuning hardcoded (Fixed); Log* kept.
+            EnableClientTerminalDeadLatch = new Fixed<bool>(true);
             LogClientTerminalDead = cfg.Bind("HostDrivenProxy", "LogClientTerminalDead", true,
                 "Log when a host enemy is latched terminal-dead and when overrides are blocked because of it.");
-            EnableClientHitFlash = cfg.Bind("HostDrivenProxy", "EnableClientHitFlash", true,
-                "Phase 5.3-C P0-2: On HostEnemyDamageEvent, play a visual-only white hit flash on the puppet renderer. Never calls ReceiveDamage and never changes health. Skipped for terminal-dead targets.");
+            EnableClientHitFlash = new Fixed<bool>(true);
             LogClientHitFlash = cfg.Bind("HostDrivenProxy", "LogClientHitFlash", true,
                 "Log visual hit-flash play/skip events for debugging.");
-            ClientHitFlashDurationSeconds = cfg.Bind("HostDrivenProxy", "ClientHitFlashDurationSeconds", 0.08f,
-                new ConfigDescription("Duration (seconds) the MaterialPropertyBlock tint fallback flash stays applied before it is cleared. Only used by the last-resort tint path; native DoWhiteFlash/SetHitEffect manage their own timing.",
-                    new AcceptableValueRange<float>(0.02f, 0.5f)));
-
-            // Phase 5.3-D two-phase death state.
-            EnableClientPendingDeadState = cfg.Bind("HostDrivenProxy", "EnableClientPendingDeadState", true,
-                "Phase 5.3-D P0-2: When the host reports an enemy hp<=0/isDead, mark it PendingDead instead of immediately terminal-dead. PendingDead lets the HostDeathEvent / Npc.Die() death animation run first, preventing the corpse from freezing in a standing frame.");
-            EnableClientDeathVisualFallback = cfg.Bind("HostDrivenProxy", "EnableClientDeathVisualFallback", true,
-                "Phase 5.3-D P0-4: If a PendingDead enemy receives no HostDeathEvent within the grace delay, run a VISUAL-ONLY death shim (Animator Dead=true, disable nav/RVO, toggle off behaviour tree). Never triggers gameplay death/loot/exp/analytics.");
-            ClientDeathVisualFallbackDelaySeconds = cfg.Bind("HostDrivenProxy", "ClientDeathVisualFallbackDelaySeconds", 0.25f,
-                new ConfigDescription("Grace period (seconds) to wait for a HostDeathEvent before applying the visual-only death shim to a PendingDead enemy.",
-                    new AcceptableValueRange<float>(0f, 2f)));
+            ClientHitFlashDurationSeconds = new Fixed<float>(0.08f);
+            EnableClientPendingDeadState = new Fixed<bool>(true);
+            EnableClientDeathVisualFallback = new Fixed<bool>(true);
+            ClientDeathVisualFallbackDelaySeconds = new Fixed<float>(0.25f);
             LogClientPendingDead = cfg.Bind("HostDrivenProxy", "LogClientPendingDead", true,
                 "Log PendingDead mark / host-death-applied / visual-fallback events.");
 
@@ -1179,9 +1136,8 @@ namespace SULFURTogether.Config
             QuarantineClientOnlyManifestEnemies = cfg.Bind("LevelManifest", "QuarantineClientOnlyManifestEnemies", true,
                 "Phase 5.3-E: Apply reversible quarantine (disable AI/behaviour tree) to client-only combat enemies not present in the host manifest. Never destroys them (GameManager/UnitManager/TickManager may still hold references).");
 
-            // Phase 5.3-F ClientHit visual + LevelGeneration trace.
-            EnableClientHitVisual = cfg.Bind("HostDrivenProxy", "EnableClientHitVisual", true,
-                "Phase 5.3-F: When the host applies a validated ClientHitRequest, play the native white hit flash on the host's own NPC and broadcast a HostHitVisualEvent so the client mirrors it. Visual only — health/death stay host-authoritative; never calls ReceiveDamage.");
+            // Phase 5.3-F ClientHit visual — functional, hardcoded (Fixed). (LevelGenTrace below is diagnostic, kept.)
+            EnableClientHitVisual = new Fixed<bool>(true);
             EnableLevelGenTrace = cfg.Bind("LevelManifest", "EnableLevelGenTrace", true,
                 "Phase 5.3-F: Hook LevelGeneration nodes (FinalizeConnection / Connector.FinalizeSpawn / AddExtraRoomsNode) to trace the real generation flow and locate the first host/client divergence. Discovery-first: logs real method signatures, never guesses.");
             LogLevelGenTrace = cfg.Bind("LevelManifest", "LogLevelGenTrace", true,
@@ -1468,21 +1424,7 @@ namespace SULFURTogether.Config
             LogEnemyTargetAuthority.Value = true;
             // Host-authorized intent execution Enable*/window now hardcoded (Fixed); only Log* stays.
             LogHostAuthorizedIntentExecution.Value = true;
-            // Phase 5.5-RT3-A2 — filter non-player damage on host-driven puppets, default on.
-            FilterNonPlayerPuppetDamage.Value = true;
-            // Phase 5.5-RT3-A3 — kinematic host-driven puppets, default on.
-            MakeClientPuppetsKinematic.Value = true;
-            // Phase 5.5-RT3-A7 — stable world roster binding, default on.
-            StableWorldRosterBinding.Value = true;
-            // Phase 5.7-SC3 — release the client puppet + binding when a host enemy death is applied (kills standing zombies).
-            ReleasePuppetOnHostDeath.Value = true;
-            // Phase 5.7-DB — strict 1:1 host-binding maps + orphan release (kills the frozen duplicate-binding zombie).
-            EvictStaleHostBindings.Value = true;
-            // Phase 5.7-DB2 — never rebind a buried host idx; release puppets stuck on a dead host idx.
-            SkipDeadHostIdxRebind.Value = true;
-            // Phase 5.7-RB — retro-active enemy binding + destroyed-unit list sweep, default on.
-            EnableRetroactiveEnemyBinding.Value = true;
-            EnableDestroyedUnitListSweep.Value = true;
+            // RT3-A2/A3/A7 + SC3 + DB/DB2 + RB puppet-binding flags now hardcoded (Fixed).
             // Phase 5.7-RB2 — full snapshot rate for engaged (targeting / recently-client-hit) enemies, default on.
             FullRateForEngagedEnemies.Value = true;
             ClientEngagedEnemyFullRateSeconds.Value = 8f;
@@ -1497,23 +1439,10 @@ namespace SULFURTogether.Config
 
             // Enemy snapshot delta-compression — all hardcoded (Fixed); nothing to force here.
 
-            // Phase 5.3-B Client → Host hit request — on by default.
-            EnableClientHitRequest.Value = true;
+            // Phase 5.3-B/C/D — hit-request + terminal-dead/flash + two-phase-death Enable*/tuning hardcoded (Fixed); Log* only.
             LogClientHitRequests.Value = true;
-            ClientHitRequestMaxRangeMeters.Value = 30f;
-            ClientHitRequestRateLimitSeconds.Value = 0.08f;
-
-            // Phase 5.3-C/D Terminal dead latch + visual hit flash — on by default.
-            EnableClientTerminalDeadLatch.Value = true;
             LogClientTerminalDead.Value = true;
-            EnableClientHitFlash.Value = true;
             LogClientHitFlash.Value = true;
-            ClientHitFlashDurationSeconds.Value = 0.08f;
-
-            // Phase 5.3-D two-phase death — on by default; visual fallback enabled (visual-only).
-            EnableClientPendingDeadState.Value = true;
-            EnableClientDeathVisualFallback.Value = true;
-            ClientDeathVisualFallbackDelaySeconds.Value = 0.25f;
             LogClientPendingDead.Value = true;
 
             // Phase 5.3-E level manifest — on by default; diagnostics + quarantine enabled.
@@ -1522,21 +1451,13 @@ namespace SULFURTogether.Config
             LogLevelManifestDiff.Value = true;
             QuarantineClientOnlyManifestEnemies.Value = true;
 
-            // Phase 5.3-F ClientHit visual + LevelGeneration trace — on by default.
-            EnableClientHitVisual.Value = true;
+            // Phase 5.3-F — EnableClientHitVisual hardcoded (Fixed); LevelGenTrace (diagnostic) stays.
             EnableLevelGenTrace.Value = true;
             LogLevelGenTrace.Value = true;
 
-            // Phase 5.1 Host-authoritative enemy health sync — all P0/P1 features on.
-            EnableHostEnemyDamageEventSync.Value = true;
-            EnableHostEnemyHealthStateSync.Value = true;
-            ApplyReceivedHostEnemyHealthState.Value = true;
+            // Phase 5.1 Host-authoritative enemy health sync — Enable*/Apply*/death-apply hardcoded (Fixed); Log* only.
             LogHostEnemyDamageEvents.Value = true;
             LogHostEnemyHealthState.Value = false;
-            AllowRosterBoundDeathDespitePositionDrift.Value = true;
-            HostDeathSnapBeforeApply.Value = true;
-            AllowDeathLateRebind.Value = true;
-            DisableClientEnemyDeathClaimWhenHostDamageSyncEnabled.Value = true;
 
             // Phase 5.0 Host-Driven Proxy — testing defaults: all P0/P1 features on, P2 off.
             EnableHostDrivenEnemyProxy.Value = true;

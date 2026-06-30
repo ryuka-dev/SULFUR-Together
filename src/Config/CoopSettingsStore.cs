@@ -91,6 +91,15 @@ namespace SULFURTogether.Config
             "EnemyHostProjectileDamageCooldownSeconds", "EnemyDamageDefaultType", "EnableEnemyElementalStatusEffect",
             "EnemyElementalStatusAmount", "EnableHostOnlyEnemyTargetAuthority", "EnemyTargetAuthorityProbeIntervalSeconds",
             "EnableEnemyCombatProbe",
+            // Batch 10 (HostDrivenProxy part 1: health sync + hit request + terminal/flash/pending-death — 6 Log* kept):
+            "EnableHostEnemyDamageEventSync", "EnableHostEnemyHealthStateSync", "ApplyReceivedHostEnemyHealthState",
+            "AllowRosterBoundDeathDespitePositionDrift", "HostDeathSnapBeforeApply", "AllowDeathLateRebind",
+            "DisableClientEnemyDeathClaimWhenHostDamageSyncEnabled", "EnableClientHitRequest", "FilterNonPlayerPuppetDamage",
+            "MakeClientPuppetsKinematic", "StableWorldRosterBinding", "ReleasePuppetOnHostDeath", "EvictStaleHostBindings",
+            "SkipDeadHostIdxRebind", "EnableRetroactiveEnemyBinding", "EnableDestroyedUnitListSweep",
+            "ClientHitRequestMaxRangeMeters", "ClientHitRequestRateLimitSeconds", "EnableClientTerminalDeadLatch",
+            "EnableClientHitFlash", "ClientHitFlashDurationSeconds", "EnableClientPendingDeadState",
+            "EnableClientDeathVisualFallback", "ClientDeathVisualFallbackDelaySeconds", "EnableClientHitVisual",
         };
 
         private readonly string _jsonPath;
