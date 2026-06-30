@@ -100,6 +100,17 @@ namespace SULFURTogether.Config
             "ClientHitRequestMaxRangeMeters", "ClientHitRequestRateLimitSeconds", "EnableClientTerminalDeadLatch",
             "EnableClientHitFlash", "ClientHitFlashDurationSeconds", "EnableClientPendingDeadState",
             "EnableClientDeathVisualFallback", "ClientDeathVisualFallbackDelaySeconds", "EnableClientHitVisual",
+            // Batch 11 (HostDrivenProxy part 2: proxy/attack-phase/interest/target-proxy/coalescing + DisablePauseInMultiplayer):
+            "EnableHostDrivenEnemyProxy", "SuppressAllClientPuppetDamage", "EnableHostAttackPhaseEvents",
+            "EnableClientAttackPhaseAnimatorDrive", "ClientAttackPhaseCrossFadeSeconds", "EnableHostProjectileVisualSpawnEvent",
+            "IncludeRemotePlayersInInterest", "EnableRemotePlayerTargetProxy", "RemotePlayerTargetProxySetIsPlayer",
+            "RemotePlayerTargetProxyForceAggro", "RemotePlayerTargetProxyAggroRange", "RemotePlayerTargetProxyOnlyWhenCloser",
+            "RemotePlayerTargetProxyHitboxLayer", "RemotePlayerTargetProxyBodyBlocker", "RemoveTargetProxyWhenPeerDowned",
+            "HideDownedLocalPlayerFromEnemies", "ApplyHostPlayerDamageViaReceiveDamage", "EnableEnemyInterestManagement",
+            "FullRateForEngagedEnemies", "ClientEngagedEnemyFullRateSeconds", "ThrottleOnlyWithKnownRemotePositions",
+            "SendAllEnemySnapshotsToClients", "DisablePauseInMultiplayer", "EnemyNearCombatDistance", "EnemyFarDistance",
+            "EnemyFarSnapshotHz", "EnableCombatEventCoalescing", "EnemyToClientDamageCoalesceSeconds",
+            "EnemyDamageEventMinIntervalSeconds", "AttackPhaseEventMinIntervalSeconds",
         };
 
         private readonly string _jsonPath;

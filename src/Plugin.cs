@@ -28,6 +28,7 @@ namespace SULFURTogether
             Log      = new STLogger(Logger, Cfg);
 
             Log.Info($"v{ModInfo.Version} by {ModInfo.Author} loading...");
+            Log.Info("[Build] CfgCleanup batch 11 (HostDrivenProxy pt2: proxy/attack-phase/interest-mgmt/target-proxy/coalescing + DisablePauseInMultiplayer): 30 functional/tuning flags hardcoded (Fixed), removed from .cfg. Log*/Debug diagnostics kept. 2026-06-30");
             Log.Info("[Build] CfgCleanup batch 10 (HostDrivenProxy pt1: health-sync + hit-request + terminal/flash/pending-death): 25 functional/tuning flags hardcoded (Fixed), removed from .cfg. 6 Log* kept. 2026-06-30");
             Log.Info("[Build] CfgCleanup batch 9 (NetworkEnemyTargetExperimental): 18 enemy projectile-visual + ranged-damage + target/combat-authority functional/tuning flags hardcoded (Fixed), removed from .cfg. 3 Log* kept. 2026-06-30");
             Log.Info("[Build] CfgCleanup batch 8 (NetworkEnemyStateExperimental): 28 enemy state/animation/snapshot/delta-compression functional+tuning flags hardcoded (Fixed), removed from .cfg. 4 Log* kept. 2026-06-30");

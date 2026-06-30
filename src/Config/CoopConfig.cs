@@ -427,62 +427,47 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableLevelGenTrace                 { get; }
         public ConfigEntry<bool>   LogLevelGenTrace                    { get; }
 
-        // ----- Phase 5.0 Host-Driven Proxy Architecture -----
-        // P0: CombatEnemy client proxy — suppression and identity.
-        public ConfigEntry<bool>   EnableHostDrivenEnemyProxy { get; }
-        public ConfigEntry<bool>   SuppressAllClientPuppetDamage { get; }
+        // ----- Phase 5.0 Host-Driven Proxy Architecture ----- (functional/tuning hardcoded; Log*/Debug diagnostics kept)
+        public Fixed<bool>         EnableHostDrivenEnemyProxy { get; }
+        public Fixed<bool>         SuppressAllClientPuppetDamage { get; }
         public ConfigEntry<bool>   LogClientPuppetDamageSuppression { get; }
-        // P1: Attack phase reliable event channel.
-        public ConfigEntry<bool>   EnableHostAttackPhaseEvents { get; }
+        public Fixed<bool>         EnableHostAttackPhaseEvents { get; }
         public ConfigEntry<bool>   LogHostAttackPhaseEvents { get; }
-        public ConfigEntry<bool>   EnableClientAttackPhaseAnimatorDrive { get; }
-        public ConfigEntry<float>  ClientAttackPhaseCrossFadeSeconds { get; }
-        // P2: Projectile visual spawn event (reliable).
-        public ConfigEntry<bool>   EnableHostProjectileVisualSpawnEvent { get; }
+        public Fixed<bool>         EnableClientAttackPhaseAnimatorDrive { get; }
+        public Fixed<float>        ClientAttackPhaseCrossFadeSeconds { get; }
+        public Fixed<bool>         EnableHostProjectileVisualSpawnEvent { get; } // P2: retired/off
         public ConfigEntry<bool>   LogHostProjectileVisualSpawn { get; }
-        // P2: Interest management — distance-based snapshot rate reduction.
-        public ConfigEntry<bool>   EnableEnemyInterestManagement { get; }
-        public ConfigEntry<bool>   IncludeRemotePlayersInInterest { get; }
-        // Phase 5.7-RB2: an enemy that is actively engaged (has a combat target, or a client hit it recently) must sync at
-        // full snapshot rate even when far from the Host player — otherwise its client puppet freezes mid-fight.
-        public ConfigEntry<bool>   FullRateForEngagedEnemies { get; }
-        public ConfigEntry<float>  ClientEngagedEnemyFullRateSeconds { get; }
-        // Phase 5.7-RB3: only far-throttle an enemy when we actually have a remote-player position to prove it is far from
-        // the client too. If the interest feed is momentarily empty, never throttle (a client is connected by definition here).
-        public ConfigEntry<bool>   ThrottleOnlyWithKnownRemotePositions { get; }
+        public Fixed<bool>         EnableEnemyInterestManagement { get; }
+        public Fixed<bool>         IncludeRemotePlayersInInterest { get; }
+        public Fixed<bool>         FullRateForEngagedEnemies { get; }
+        public Fixed<float>        ClientEngagedEnemyFullRateSeconds { get; }
+        public Fixed<bool>         ThrottleOnlyWithKnownRemotePositions { get; }
         public ConfigEntry<bool>   LogEnemyInterestDiag { get; }
-        // Phase 5.7-RB4: enemy positions are gameplay-critical; while a client is connected, never drop them via the
-        // distance interest heuristic (which starves enemies a far-roaming client is fighting → frozen puppets). Delta
-        // compression still bounds bandwidth (stationary enemies only heartbeat). The distance throttle was a premature
-        // optimization that the (currently broken) remote-interest feed cannot safely support.
-        public ConfigEntry<bool>   SendAllEnemySnapshotsToClients { get; }
-        // Phase 5.7-NP: Minecraft-LAN-style — while in a co-op session, do not stop world time (inventory / ESC menu /
-        // F3 dev tools / dialog / lost window focus). Pausing one side desyncs boss timelines and freezes the other's view.
-        public ConfigEntry<bool>   DisablePauseInMultiplayer { get; }
+        public Fixed<bool>         SendAllEnemySnapshotsToClients { get; }
+        public Fixed<bool>         DisablePauseInMultiplayer { get; }
         public ConfigEntry<bool>   LogPauseSuppression { get; }
-        // Phase 5.7-HG: measure per-hit client damage-apply cost (only logs when it exceeds the threshold → no per-hit flood).
         public ConfigEntry<bool>   LogDamageApplyHitch { get; }
         public ConfigEntry<float>  DamageApplyHitchThresholdMs { get; }
-        // Phase 5.5-P3-A2: host spawns a faction=Player targetable Unit proxy at each remote player so enemies aggro clients.
-        public ConfigEntry<bool>   EnableRemotePlayerTargetProxy { get; }
+        // Phase 5.5-P3-A2 remote-player target proxy — RETIRED (Plan B ghost registry supersedes); hardcoded off/effective.
+        public Fixed<bool>         EnableRemotePlayerTargetProxy { get; }
         public ConfigEntry<bool>   LogRemotePlayerTargetProxy { get; }
-        public ConfigEntry<bool>   RemotePlayerTargetProxySetIsPlayer { get; }
-        public ConfigEntry<bool>   RemotePlayerTargetProxyForceAggro { get; }
-        public ConfigEntry<float>  RemotePlayerTargetProxyAggroRange { get; }
-        public ConfigEntry<bool>   RemotePlayerTargetProxyOnlyWhenCloser { get; }
-        public ConfigEntry<int>    RemotePlayerTargetProxyHitboxLayer { get; }
-        public ConfigEntry<bool>   RemotePlayerTargetProxyBodyBlocker { get; }
-        public ConfigEntry<bool>   RemoveTargetProxyWhenPeerDowned { get; }
-        public ConfigEntry<bool>   HideDownedLocalPlayerFromEnemies { get; }
+        public Fixed<bool>         RemotePlayerTargetProxySetIsPlayer { get; }
+        public Fixed<bool>         RemotePlayerTargetProxyForceAggro { get; }
+        public Fixed<float>        RemotePlayerTargetProxyAggroRange { get; }
+        public Fixed<bool>         RemotePlayerTargetProxyOnlyWhenCloser { get; }
+        public Fixed<int>          RemotePlayerTargetProxyHitboxLayer { get; }
+        public Fixed<bool>         RemotePlayerTargetProxyBodyBlocker { get; }
+        public Fixed<bool>         RemoveTargetProxyWhenPeerDowned { get; }
+        public Fixed<bool>         HideDownedLocalPlayerFromEnemies { get; }
         public ConfigEntry<bool>   LogPooledObjectDestroyDiag { get; }
-        public ConfigEntry<bool>   ApplyHostPlayerDamageViaReceiveDamage { get; }
-        public ConfigEntry<float>  EnemyNearCombatDistance { get; }
-        public ConfigEntry<float>  EnemyFarDistance { get; }
-        public ConfigEntry<float>  EnemyFarSnapshotHz { get; }
-        public ConfigEntry<bool>   EnableCombatEventCoalescing { get; }
-        public ConfigEntry<float>  EnemyToClientDamageCoalesceSeconds { get; }
-        public ConfigEntry<float>  EnemyDamageEventMinIntervalSeconds { get; }
-        public ConfigEntry<float>  AttackPhaseEventMinIntervalSeconds { get; }
+        public Fixed<bool>         ApplyHostPlayerDamageViaReceiveDamage { get; }
+        public Fixed<float>        EnemyNearCombatDistance { get; }
+        public Fixed<float>        EnemyFarDistance { get; }
+        public Fixed<float>        EnemyFarSnapshotHz { get; }
+        public Fixed<bool>         EnableCombatEventCoalescing { get; }
+        public Fixed<float>        EnemyToClientDamageCoalesceSeconds { get; }
+        public Fixed<float>        EnemyDamageEventMinIntervalSeconds { get; }
+        public Fixed<float>        AttackPhaseEventMinIntervalSeconds { get; }
         // Plan B: multiplayer NPC activation + headless Player registry (see Docs/EnemyActivationAndPlayersRegistry.md).
         public ConfigEntry<bool>   EnableMultiPlayerNpcActivation { get; }
         public ConfigEntry<float>  MultiPlayerNpcActivationDistance { get; }
@@ -1143,69 +1128,46 @@ namespace SULFURTogether.Config
             LogLevelGenTrace = cfg.Bind("LevelManifest", "LogLevelGenTrace", true,
                 "Log per-connector / per-room LevelGeneration trace lines. Verbose during generation — disable once the divergence cause is understood.");
 
-            // Phase 5.0 Host-Driven Proxy Architecture.
-            EnableHostDrivenEnemyProxy = cfg.Bind("HostDrivenProxy", "EnableHostDrivenEnemyProxy", true,
-                "Phase 5.0: Master switch for Host-Driven Proxy Architecture. When true, client enemies act as pure visual proxies — no autonomous AI decisions, attacks, or damage.");
-            SuppressAllClientPuppetDamage = cfg.Bind("HostDrivenProxy", "SuppressAllClientPuppetDamage", true,
-                "Phase 5.0 P0: Suppress ALL damage dealt by client puppet enemies to the local player. Prevents divergence from client-local enemy AI. Host-authoritative damage arrives via HostDamageRequest.");
+            // Phase 5.0 Host-Driven Proxy + attack-phase events + remote-player target proxy (retired, off) — functional/
+            // tuning hardcoded (Fixed) to effective values; only Log* stay in cfg.
+            EnableHostDrivenEnemyProxy = new Fixed<bool>(true);
+            SuppressAllClientPuppetDamage = new Fixed<bool>(true);
             LogClientPuppetDamageSuppression = cfg.Bind("HostDrivenProxy", "LogClientPuppetDamageSuppression", true,
                 "Log when client puppet enemy damage is suppressed by the host-driven proxy gate.");
-            EnableHostAttackPhaseEvents = cfg.Bind("HostDrivenProxy", "EnableHostAttackPhaseEvents", true,
-                "Phase 5.0 P1: Host sends reliable HostAttackPhaseEvent packets on each CombatEnemy attack phase transition (Windup/Active/Recovery). Replaces the fragile authorized-window approach.");
+            EnableHostAttackPhaseEvents = new Fixed<bool>(true);
             LogHostAttackPhaseEvents = cfg.Bind("HostDrivenProxy", "LogHostAttackPhaseEvents", false,
                 "Default OFF — high volume (one line per enemy attack action): logs HostAttackPhaseEvent send (Host) / receive (Client). The network broadcast itself is gated by EnableHostAttackPhaseEvents (stays on). Enable to debug attack-animation sync.");
-            EnableClientAttackPhaseAnimatorDrive = cfg.Bind("HostDrivenProxy", "EnableClientAttackPhaseAnimatorDrive", true,
-                "Phase 5.0 P1: Client applies received HostAttackPhaseEvent directly to the puppet Animator via CrossFade/Play. Does not invoke native attack methods.");
-            ClientAttackPhaseCrossFadeSeconds = cfg.Bind("HostDrivenProxy", "ClientAttackPhaseCrossFadeSeconds", 0.05f,
-                new ConfigDescription("CrossFade duration used when a Client puppet applies a HostAttackPhaseEvent animator state hint. 0 uses Animator.Play immediately.",
-                    new AcceptableValueRange<float>(0f, 0.3f)));
-            EnableHostProjectileVisualSpawnEvent = cfg.Bind("HostDrivenProxy", "EnableHostProjectileVisualSpawnEvent", false,
-                "Phase 5.0 P2: Host sends reliable HostProjectileVisualSpawn events when an enemy fires. Client spawns a cosmetic no-damage visual proxy. Disabled by default until P1 is stable.");
+            EnableClientAttackPhaseAnimatorDrive = new Fixed<bool>(true);
+            ClientAttackPhaseCrossFadeSeconds = new Fixed<float>(0.05f);
+            EnableHostProjectileVisualSpawnEvent = new Fixed<bool>(false); // P2: retired/off.
             LogHostProjectileVisualSpawn = cfg.Bind("HostDrivenProxy", "LogHostProjectileVisualSpawn", false,
                 "Log HostProjectileVisualSpawn events (very noisy in ranged combat).");
-            IncludeRemotePlayersInInterest = cfg.Bind("HostDrivenProxy", "IncludeRemotePlayersInInterest", true,
-                "Phase 5.5-P1: treat remote players (clients) as interest sources too, so enemies a client is fighting far from the Host player still get full-rate snapshots instead of being throttled (fixes client-side enemy freeze/stutter). Reversible.");
-            EnableRemotePlayerTargetProxy = cfg.Bind("HostDrivenProxy", "EnableRemotePlayerTargetProxy", false,
-                "Phase 5.5-P3-A2 (EXPERIMENTAL, default OFF): Host spawns a minimal faction=Player targetable Unit at each remote player's position so enemy AI detects/aggros/attacks clients. Damage routing (A3) not done yet. Enable to test.");
+            IncludeRemotePlayersInInterest = new Fixed<bool>(true);
+            EnableRemotePlayerTargetProxy = new Fixed<bool>(false); // retired (Plan B ghost registry supersedes it).
             LogRemotePlayerTargetProxy = cfg.Bind("HostDrivenProxy", "LogRemotePlayerTargetProxy", true,
                 "Phase 5.5-P3-A2: verbose log for remote-player target proxies (create/update/destroy).");
-            RemotePlayerTargetProxySetIsPlayer = cfg.Bind("HostDrivenProxy", "RemotePlayerTargetProxySetIsPlayer", false,
-                "Phase 5.5-P3-A2 EXPERIMENTAL: set Unit.isPlayer=true on the proxy. Off by default — we reverse-engineer the real detection entry instead of guessing init flags. May affect game logic that counts isPlayer units.");
-            RemotePlayerTargetProxyForceAggro = cfg.Bind("HostDrivenProxy", "RemotePlayerTargetProxyForceAggro", true,
-                "Phase 5.5-P3-A2: drive enemies near a remote player to target its proxy via AiAgent.overridetargets.AddUnits (the game's force-target API). This is what makes clients able to aggro/fight enemies. Reversible.");
-            RemotePlayerTargetProxyAggroRange = cfg.Bind("HostDrivenProxy", "RemotePlayerTargetProxyAggroRange", 30f,
-                new ConfigDescription("Phase 5.5-P3-A2: enemies within this distance of a remote player's proxy are forced to target it.",
-                    new AcceptableValueRange<float>(5f, 100f)));
-            RemotePlayerTargetProxyOnlyWhenCloser = cfg.Bind("HostDrivenProxy", "RemotePlayerTargetProxyOnlyWhenCloser", false,
-                "Phase 5.5-P3-A2: only override an enemy when the remote player is closer to it than the host player. OFF by default — enemy AI only wakes near the host, so the host is usually 'closer' and this gate would suppress all overrides.");
-            RemotePlayerTargetProxyHitboxLayer = cfg.Bind("HostDrivenProxy", "RemotePlayerTargetProxyHitboxLayer", 6,
-                new ConfigDescription("Phase 5.5-P3-A3: Unity layer for the proxy's hitbox collider (must be in the enemy's hitboxMask; melee raycast = hitboxMask 64 => layer 6).",
-                    new AcceptableValueRange<int>(0, 31)));
-            RemotePlayerTargetProxyBodyBlocker = cfg.Bind("HostDrivenProxy", "RemotePlayerTargetProxyBodyBlocker", false,
-                "EXPERIMENTAL (default OFF). Add a solid body collider on the real player's body layer (a child of the target proxy) so a charging/dashing enemy physically collides with the remote player and stops. KNOWN ISSUE (LogOutput72): when ON it corrupts the host's projectile AutoPool (NRE in AutoPool.PoolData.Get during Weapon.DispatchProjectile) so ranged enemies can't fire — leave OFF until the layer interaction is solved.");
-            RemoveTargetProxyWhenPeerDowned = cfg.Bind("HostDrivenProxy", "RemoveTargetProxyWhenPeerDowned", true,
-                "A3.2: while a remote player is downed/dead, remove its enemy-target proxy on the host so enemies stop attacking the downed player (and drop aggro). The proxy is recreated when the player revives. Reversible.");
-            HideDownedLocalPlayerFromEnemies = cfg.Bind("HostDrivenProxy", "HideDownedLocalPlayerFromEnemies", true,
-                "A3.2 (local player): while THIS machine's player is downed, null it out of AiAgent.GetTarget so enemies stop targeting/attacking the downed local player (covers the host's own real player, which has no proxy). Re-targets on revive. Reversible.");
+            RemotePlayerTargetProxySetIsPlayer = new Fixed<bool>(false);
+            RemotePlayerTargetProxyForceAggro = new Fixed<bool>(true);
+            RemotePlayerTargetProxyAggroRange = new Fixed<float>(30f);
+            RemotePlayerTargetProxyOnlyWhenCloser = new Fixed<bool>(false);
+            RemotePlayerTargetProxyHitboxLayer = new Fixed<int>(6);
+            RemotePlayerTargetProxyBodyBlocker = new Fixed<bool>(false); // known AutoPool corruption when on — stays off.
+            // A3.2 downed-proxy removal + P3-A3 real ReceiveDamage feedback + interest management (RB2/RB3/RB4) —
+            // functional/tuning hardcoded (Fixed); the 2 Log* (incl. Debug LogEnemyInterestDiag) stay in cfg.
+            RemoveTargetProxyWhenPeerDowned = new Fixed<bool>(true);
+            HideDownedLocalPlayerFromEnemies = new Fixed<bool>(true);
             LogPooledObjectDestroyDiag = cfg.Bind("HostDrivenProxy", "LogPooledObjectDestroyDiag", false,
                 "DIAGNOSTIC (default OFF; culprit found = AutoPool.ResetPools on level switch). Logs a stack trace whenever something destroys a still-pooled AutoPooledObject. Has a perf cost (inspects every Object.Destroy). Only enable to re-investigate pool corruption.");
-            ApplyHostPlayerDamageViaReceiveDamage = cfg.Bind("HostDrivenProxy", "ApplyHostPlayerDamageViaReceiveDamage", true,
-                "Phase 5.5-P3-A3: apply host enemy damage to the local player via the real Unit.ReceiveDamage (fires native hit feedback: flash/shake/sound/blood + armor + downed) instead of a raw health write. Falls back to the raw write if it fails. Reversible.");
-            EnableEnemyInterestManagement = cfg.Bind("HostDrivenProxy", "EnableEnemyInterestManagement", true,
-                "Phase 5.0 P2: Reduce enemy snapshot rate for entities far from the local player. Near-combat enemies get full rate; distant enemies get EnemyFarSnapshotHz.");
-            FullRateForEngagedEnemies = cfg.Bind("HostDrivenProxy", "FullRateForEngagedEnemies", true,
-                "Phase 5.7-RB2: an enemy that is engaged (has a combat target, or a client hit it within ClientEngagedEnemyFullRateSeconds) always gets full-rate snapshots even when far from the Host player. Without this, a client fighting an enemy far from the (stationary) Host gets a frozen puppet between attack frames — it stands still while still attacking/damaging the client (LogOutput104 GoblinSpearman idx=12). Only IDLE distant enemies are throttled. Reversible.");
-            ClientEngagedEnemyFullRateSeconds = cfg.Bind("HostDrivenProxy", "ClientEngagedEnemyFullRateSeconds", 8f,
-                new ConfigDescription("How long after a client's last hit on an enemy to keep that enemy at full snapshot rate (engagement window).",
-                    new AcceptableValueRange<float>(1f, 30f)));
-            ThrottleOnlyWithKnownRemotePositions = cfg.Bind("HostDrivenProxy", "ThrottleOnlyWithKnownRemotePositions", true,
-                "Phase 5.7-RB3: only apply the far-enemy snapshot throttle when the host has at least one remote-player interest position this tick (so it can actually prove the enemy is far from the client, not just from the stationary Host). If the interest feed is empty, never throttle — a client is connected by definition when snapshots are being sent. Fixes whole mobs freezing on the client when the Host stands far away. Reversible.");
+            ApplyHostPlayerDamageViaReceiveDamage = new Fixed<bool>(true);
+            EnableEnemyInterestManagement = new Fixed<bool>(true);
+            FullRateForEngagedEnemies = new Fixed<bool>(true);
+            ClientEngagedEnemyFullRateSeconds = new Fixed<float>(8f);
+            ThrottleOnlyWithKnownRemotePositions = new Fixed<bool>(true);
             LogEnemyInterestDiag = cfg.Bind("Debug", "LogEnemyInterestDiag", false,
                 "Diagnostic: log per-enemy interest decisions (distHost / distRemoteMin / remoteCount / engaged) and the remote-interest feed (collected positions vs host position). Throttled. Default OFF.");
-            SendAllEnemySnapshotsToClients = cfg.Bind("HostDrivenProxy", "SendAllEnemySnapshotsToClients", true,
-                "Phase 5.7-RB4: while a client is connected, send every (delta-changed) enemy state snapshot at full rate instead of distance-throttling. Fixes enemies a far-from-host client is fighting freezing in place (their puppet starves of position updates; the corpse only snaps to the right place on death). Delta compression still limits bandwidth. Set false to restore the distance-based interest throttle. Reversible.");
-            DisablePauseInMultiplayer = cfg.Bind("Multiplayer", "DisablePauseInMultiplayer", true,
-                "Phase 5.7-NP: Minecraft-LAN-style no-pause. While in a co-op session (client linked, or host linked) the world keeps simulating when you open the inventory/backpack, the ESC pause menu, F3 dev tools, dialog, or lose window focus — the UI still opens and your input is still gated, only time no longer stops. Pausing one side desyncs boss timelines (they are time-axis driven) and freezes the other player's enemies. Also sets Application.runInBackground so an unfocused second instance keeps running. Reversible.");
+            SendAllEnemySnapshotsToClients = new Fixed<bool>(true);
+            // Phase 5.7-NP no-pause — functional, hardcoded (Fixed); the Debug Log*/threshold diagnostics stay in cfg.
+            DisablePauseInMultiplayer = new Fixed<bool>(true);
             LogPauseSuppression = cfg.Bind("Debug", "LogPauseSuppression", false,
                 "Diagnostic: log when a world-pause (inventory/ESC/F3/dialog/focus) is suppressed in multiplayer. Default OFF.");
             LogDamageApplyHitch = cfg.Bind("Debug", "LogDamageApplyHitch", false,
@@ -1213,26 +1175,14 @@ namespace SULFURTogether.Config
             DamageApplyHitchThresholdMs = cfg.Bind("Debug", "DamageApplyHitchThresholdMs", 3f,
                 new ConfigDescription("Threshold (ms) above which a single client damage-apply is logged as a hitch.",
                     new AcceptableValueRange<float>(0.5f, 50f)));
-            EnemyNearCombatDistance = cfg.Bind("HostDrivenProxy", "EnemyNearCombatDistance", 20f,
-                new ConfigDescription("Enemies within this distance from the local player always receive full-rate snapshots.",
-                    new AcceptableValueRange<float>(5f, 100f)));
-            EnemyFarDistance = cfg.Bind("HostDrivenProxy", "EnemyFarDistance", 40f,
-                new ConfigDescription("Enemies beyond this distance receive reduced-rate snapshots (EnemyFarSnapshotHz).",
-                    new AcceptableValueRange<float>(10f, 200f)));
-            EnemyFarSnapshotHz = cfg.Bind("HostDrivenProxy", "EnemyFarSnapshotHz", 2f,
-                new ConfigDescription("Snapshot rate for enemies beyond EnemyFarDistance. 0 disables snapshots for those enemies entirely.",
-                    new AcceptableValueRange<float>(0f, 10f)));
-            EnableCombatEventCoalescing = cfg.Bind("HostDrivenProxy", "EnableCombatEventCoalescing", true,
-                "Default ON (5.7-B8): unified per-entity coalescing/throttling of high-frequency combat broadcasts (supersedes the target-aware burst suppression). (1) enemy→client damage is ACCUMULATED per (peer,type) and flushed once per window — total damage preserved, feedback batched; (2) enemy→NPC damage/health events are THROTTLED per entity (display only; periodic enemy-state snapshots converge health); (3) attack-phase animation events are THROTTLED per enemy. A machine-gun enemy hitting the client no longer floods. Reversible.");
-            EnemyToClientDamageCoalesceSeconds = cfg.Bind("HostDrivenProxy", "EnemyToClientDamageCoalesceSeconds", 0.1f,
-                new ConfigDescription("(1) Window over which enemy→client damage is accumulated into one message per damage type. 0 = per-hit (off).",
-                    new AcceptableValueRange<float>(0f, 1f)));
-            EnemyDamageEventMinIntervalSeconds = cfg.Bind("HostDrivenProxy", "EnemyDamageEventMinIntervalSeconds", 0.07f,
-                new ConfigDescription("(2) Min seconds between enemy-damage/health broadcasts PER enemy (throttle; intermediate hits dropped — health converges via snapshot). 0 = per-hit (off).",
-                    new AcceptableValueRange<float>(0f, 1f)));
-            AttackPhaseEventMinIntervalSeconds = cfg.Bind("HostDrivenProxy", "AttackPhaseEventMinIntervalSeconds", 0.08f,
-                new ConfigDescription("(3) Min seconds between attack-phase (animation) broadcasts PER enemy (throttle). 0 = per-action (off).",
-                    new AcceptableValueRange<float>(0f, 1f)));
+            // Interest distance bands + combat-event coalescing — tuning hardcoded (Fixed).
+            EnemyNearCombatDistance = new Fixed<float>(20f);
+            EnemyFarDistance = new Fixed<float>(40f);
+            EnemyFarSnapshotHz = new Fixed<float>(2f);
+            EnableCombatEventCoalescing = new Fixed<bool>(true);
+            EnemyToClientDamageCoalesceSeconds = new Fixed<float>(0.1f);
+            EnemyDamageEventMinIntervalSeconds = new Fixed<float>(0.07f);
+            AttackPhaseEventMinIntervalSeconds = new Fixed<float>(0.08f);
 
             // ----- Plan B: multiplayer enemy activation + headless Player registry -----
             EnableMultiPlayerNpcActivation = cfg.Bind("PlayerRegistry", "EnableMultiPlayerNpcActivation", false,
@@ -1425,16 +1375,8 @@ namespace SULFURTogether.Config
             // Host-authorized intent execution Enable*/window now hardcoded (Fixed); only Log* stays.
             LogHostAuthorizedIntentExecution.Value = true;
             // RT3-A2/A3/A7 + SC3 + DB/DB2 + RB puppet-binding flags now hardcoded (Fixed).
-            // Phase 5.7-RB2 — full snapshot rate for engaged (targeting / recently-client-hit) enemies, default on.
-            FullRateForEngagedEnemies.Value = true;
-            ClientEngagedEnemyFullRateSeconds.Value = 8f;
-            // Phase 5.7-RB3 — only throttle when a remote position is known; diag forced on for this test round.
-            ThrottleOnlyWithKnownRemotePositions.Value = true;
+            // RB2/RB3/RB4 interest + NP no-pause Enable*/tuning now hardcoded (Fixed); only the Log* diags stay forced.
             LogEnemyInterestDiag.Value = true;
-            // Phase 5.7-RB4 — send all (delta-changed) enemy snapshots while a client is connected (no distance throttle).
-            SendAllEnemySnapshotsToClients.Value = true;
-            // Phase 5.7-NP — Minecraft-LAN no-pause in co-op; diag forced on for this test round.
-            DisablePauseInMultiplayer.Value = true;
             LogPauseSuppression.Value = true;
 
             // Enemy snapshot delta-compression — all hardcoded (Fixed); nothing to force here.
@@ -1459,24 +1401,9 @@ namespace SULFURTogether.Config
             LogHostEnemyDamageEvents.Value = true;
             LogHostEnemyHealthState.Value = false;
 
-            // Phase 5.0 Host-Driven Proxy — testing defaults: all P0/P1 features on, P2 off.
-            EnableHostDrivenEnemyProxy.Value = true;
-            SuppressAllClientPuppetDamage.Value = true;
+            // Phase 5.0 Host-Driven Proxy + attack-phase + interest bands — Enable*/tuning hardcoded (Fixed); only Log* stay.
             LogClientPuppetDamageSuppression.Value = true;
-            EnableHostAttackPhaseEvents.Value = true;
-            // 5.7-B3: high-frequency per-enemy-action combat LOGS (LogHostAttackPhaseEvents / LogEnemyCombatProbe /
-            // LogTeleportDiag) now default OFF via their bind defaults — NOT force-set here, so they can be flipped on
-            // in the config file to debug a specific area. Functional events/probes stay on (EnableHostAttackPhaseEvents
-            // above, EnableEnemyCombatProbe below).
-            EnableClientAttackPhaseAnimatorDrive.Value = true;
-            ClientAttackPhaseCrossFadeSeconds.Value = 0.05f;
-            EnableHostProjectileVisualSpawnEvent.Value = false; // P2: enable when P1 stable
             LogHostProjectileVisualSpawn.Value = false;
-            EnableEnemyInterestManagement.Value = true;
-            IncludeRemotePlayersInInterest.Value = true;
-            EnemyNearCombatDistance.Value = 20f;
-            EnemyFarDistance.Value = 40f;
-            EnemyFarSnapshotHz.Value = 2f;
 
             cfg.Save();
         }
