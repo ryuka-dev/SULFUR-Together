@@ -118,6 +118,12 @@ namespace SULFURTogether.Networking.Gameplay
             public bool HasMotionDerivedMoving { get; set; }
             public bool MotionDerivedMoving { get; set; }
             public float LastMotionDerivedMovingAt { get; set; }
+            // Diagnostic (gated by LogEnemyAnimationMirror): track actionState flips to locate the combat/locomotion
+            // animation thrash. actionState = host-combat-window playback vs locomotion; flips are the suspected
+            // source of the "idle/attack animation gets intermittently inserted" loop on client puppet enemies.
+            public bool HasLastActionState { get; set; }
+            public bool LastActionState { get; set; }
+            public float LastActionStateFlipAt { get; set; }
             public float LastTargetAuthorityApplyAt { get; set; }
             public float LastTargetAuthorityLogAt { get; set; }
             public int LastTargetAuthorityClearedCount { get; set; }
@@ -5098,6 +5104,7 @@ namespace SULFURTogether.Networking.Gameplay
                     animator.SetBool(record.CoweringParamHash, hostSnapshot.AnimatorCoweringBool);
 
                 bool actionState = IsClientEnemyActionPlaybackSnapshot(hostSnapshot);
+                LogClientActionStateFlipIfChanged(record, hostSnapshot, actionState, now);
                 if (actionState && Plugin.Cfg.EnemyAnimationMirrorApplyHostCombatStatePlayback.Value)
                 {
                     TryApplyClientCombatAnimatorTriggers(record, animator, hostSnapshot, now);
@@ -5168,6 +5175,42 @@ namespace SULFURTogether.Networking.Gameplay
             if (hostSnapshot.HasAnimatorAttackBool && hostSnapshot.AnimatorAttackBool) return true;
             if (hostSnapshot.HasAnimatorCoweringBool && hostSnapshot.AnimatorCoweringBool) return true;
             return false;
+        }
+
+        // Diagnostic probe (gated by the existing LogEnemyAnimationMirror — no new config switch): log every
+        // actionState flip with the reason that drove it + the interval since the previous flip. actionState gates
+        // whether the client puppet's Animator is force-played to the host combat state vs left to locomotion; rapid
+        // flips are the suspected source of the "idle/attack animation intermittently inserted" thrash (same root as
+        // the Cousin-arm looping-appear bug, but on locomotion enemies). Reading the reason + sinceLastFlip columns
+        // tells us which boundary dominates: combatAction window churn, attackBool jitter, or the 0.80s hold edge.
+        private static void LogClientActionStateFlipIfChanged(EnemyPuppetRecord record, NetGameplayEnemyStateSnapshot hostSnapshot, bool actionState, float now)
+        {
+            if (record == null || hostSnapshot == null) return;
+            if (!Plugin.Cfg.LogEnemyAnimationMirror.Value) return;
+            if (record.HasLastActionState && record.LastActionState == actionState) return;
+
+            float sinceLast = record.HasLastActionState && record.LastActionStateFlipAt > 0f
+                ? now - record.LastActionStateFlipAt
+                : -1f;
+
+            string reason;
+            if (!actionState) reason = "none";
+            else if (hostSnapshot.IsDead) reason = "dead";
+            else if (hostSnapshot.HasHostCombatAction && hostSnapshot.HostCombatActionKind != CombatActionNone)
+                reason = $"combatAction(kind={hostSnapshot.HostCombatActionKind},seq={hostSnapshot.HostCombatActionSequence})";
+            else if (hostSnapshot.HasAnimatorAttackBool && hostSnapshot.AnimatorAttackBool) reason = "attackBool";
+            else if (hostSnapshot.HasAnimatorCoweringBool && hostSnapshot.AnimatorCoweringBool) reason = "cowering";
+            else reason = "?";
+
+            bool moving = record.HasMotionDerivedMoving && record.MotionDerivedMoving
+                && now - record.LastMotionDerivedMovingAt <= 0.25f;
+            string prev = record.HasLastActionState ? record.LastActionState.ToString() : "init";
+
+            NetLogger.Info($"[ActionStateFlip] idx={hostSnapshot.SpawnIndex} actor={hostSnapshot.ActorName} {prev}->{actionState} reason={reason} sinceLastFlip={sinceLast:F2}s moving={moving} attackBool={(hostSnapshot.HasAnimatorAttackBool ? hostSnapshot.AnimatorAttackBool.ToString() : "-")}");
+
+            record.HasLastActionState = true;
+            record.LastActionState = actionState;
+            record.LastActionStateFlipAt = now;
         }
 
         private static void TryReplayClientHostCombatVisualAction(EnemyPuppetRecord record, object runtimeObject, NetGameplayEnemyStateSnapshot hostSnapshot, float now)
