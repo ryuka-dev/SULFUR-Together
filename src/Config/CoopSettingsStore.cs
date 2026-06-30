@@ -67,6 +67,10 @@ namespace SULFURTogether.Config
             "RemoteBodyScale", "RemoteBodyFeetYOffset", "RemoteWeaponScale", "RemoteWeaponHipHeight",
             "RemoteWeaponForward", "RemoteWeaponRight", "RemoteBodyPitchLimit", "RemoteBodyDepthBias",
             "RemoteNameSize", "RemoteNameHeight",
+            // Batch 7 (NetworkEnemyIntentExperimental — 2 Log* kept):
+            "EnableClientEnemyIntentDrivenMotion", "EnemyIntentCorrectionDistance", "EnemyIntentHardSnapDistance",
+            "EnemyIntentReplayMinIntervalSeconds", "EnableHostAuthorizedIntentExecution", "HostAuthorizedIntentWindowSeconds",
+            "EnableClientEnemyNativeDamageSuppression", "EnableClientPuppetAimOverride",
         };
 
         private readonly string _jsonPath;

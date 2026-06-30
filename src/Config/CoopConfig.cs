@@ -344,11 +344,11 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableGenericHostCombatAnimatorStateMirror { get; }
         public ConfigEntry<bool>   EnableHostAuthoritativeEnemyRangedDamage { get; }
         public ConfigEntry<bool>   EnableSyntheticRangedDamageFallback { get; }
-        public ConfigEntry<bool>   EnableClientEnemyIntentDrivenMotion { get; }
+        public Fixed<bool>         EnableClientEnemyIntentDrivenMotion { get; } // rolled-back experiment: hardcoded OFF
         public ConfigEntry<bool>   LogEnemyAiIntentMirror { get; }
-        public ConfigEntry<float>  EnemyIntentCorrectionDistance { get; }
-        public ConfigEntry<float>  EnemyIntentHardSnapDistance { get; }
-        public ConfigEntry<float>  EnemyIntentReplayMinIntervalSeconds { get; }
+        public Fixed<float>        EnemyIntentCorrectionDistance { get; }
+        public Fixed<float>        EnemyIntentHardSnapDistance { get; }
+        public Fixed<float>        EnemyIntentReplayMinIntervalSeconds { get; }
         public ConfigEntry<float>  EnemyHostProjectileHitRadius { get; }
         public ConfigEntry<float>  EnemyHostProjectileVerticalTolerance { get; }
         public ConfigEntry<float>  EnemyHostProjectileMaxDistance { get; }
@@ -366,12 +366,12 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableEnemyCombatProbe { get; }
         public ConfigEntry<bool>   LogEnemyCombatProbe { get; }
 
-        // ----- Phase 4.4.0-O host-authorized enemy intent execution -----
-        public ConfigEntry<bool>  EnableHostAuthorizedIntentExecution { get; }
-        public ConfigEntry<float> HostAuthorizedIntentWindowSeconds { get; }
+        // ----- Phase 4.4.0-O host-authorized enemy intent execution ----- (functional + tuning hardcoded; Log* kept)
+        public Fixed<bool>        EnableHostAuthorizedIntentExecution { get; }
+        public Fixed<float>       HostAuthorizedIntentWindowSeconds { get; }
         public ConfigEntry<bool>  LogHostAuthorizedIntentExecution { get; }
-        public ConfigEntry<bool>  EnableClientEnemyNativeDamageSuppression { get; }
-        public ConfigEntry<bool>  EnableClientPuppetAimOverride { get; }
+        public Fixed<bool>        EnableClientEnemyNativeDamageSuppression { get; }
+        public Fixed<bool>        EnableClientPuppetAimOverride { get; }
 
         public ConfigEntry<bool>   EnableEnemyStateSnapshotDeltaCompression { get; }
         public ConfigEntry<float>  EnemyStateSnapshotHeartbeatSeconds { get; }
@@ -1089,19 +1089,13 @@ namespace SULFURTogether.Config
             // position writers that fight each other = visible flicker (log53: clientAiIntents=314 + softDrift=12381 on
             // the same entities). Off = host snapshot is the SOLE position authority (classic puppet: agent frozen);
             // walk animation is still driven from the host position delta, so nothing is lost. Re-enable to experiment.
-            EnableClientEnemyIntentDrivenMotion = cfg.Bind("NetworkEnemyIntentExperimental", "EnableClientEnemyIntentDrivenMotion", false,
-                "Phase 4.4.0-N (default OFF since 5.5-RT3-A5): Client puppet enemies replay Host AI movement intent through local movement systems. OFF makes the host snapshot the single position authority (no flicker from two competing writers).");
+            // Phase 4.4.0-N intent-driven motion — rolled back (5.5-RT3-A5): host snapshot is the sole position authority.
+            EnableClientEnemyIntentDrivenMotion = new Fixed<bool>(false);
             LogEnemyAiIntentMirror = cfg.Bind("NetworkEnemyIntentExperimental", "LogEnemyAiIntentMirror", true,
                 "Log low-frequency Host AI intent capture and Client intent replay/correction summaries.");
-            EnemyIntentCorrectionDistance = cfg.Bind("NetworkEnemyIntentExperimental", "EnemyIntentCorrectionDistance", 2.5f,
-                new ConfigDescription("When intent-driven motion is active, Client enemies are not transform-dragged while drift is below this distance. Above it, a soft correction is applied.",
-                    new AcceptableValueRange<float>(0.25f, 20f)));
-            EnemyIntentHardSnapDistance = cfg.Bind("NetworkEnemyIntentExperimental", "EnemyIntentHardSnapDistance", 9f,
-                new ConfigDescription("Hard snap distance for intent-driven Client enemies. This should be larger than normal movement drift so local AI animation is preserved.",
-                    new AcceptableValueRange<float>(1f, 50f)));
-            EnemyIntentReplayMinIntervalSeconds = cfg.Bind("NetworkEnemyIntentExperimental", "EnemyIntentReplayMinIntervalSeconds", 0.18f,
-                new ConfigDescription("Minimum interval between applying the same Host AI intent destination to a Client puppet enemy.",
-                    new AcceptableValueRange<float>(0.02f, 2f)));
+            EnemyIntentCorrectionDistance = new Fixed<float>(2.5f);
+            EnemyIntentHardSnapDistance = new Fixed<float>(9f);
+            EnemyIntentReplayMinIntervalSeconds = new Fixed<float>(0.18f);
             EnemyHostProjectileHitRadius = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyHostProjectileHitRadius", 0.75f,
                 new ConfigDescription("Horizontal capsule radius used when Host checks whether an enemy ranged attack path intersects a remote player.",
                     new AcceptableValueRange<float>(0.10f, 2.50f)));
@@ -1140,17 +1134,13 @@ namespace SULFURTogether.Config
             LogEnemyCombatProbe = cfg.Bind("NetworkEnemyTargetExperimental", "LogEnemyCombatProbe", false,
                 "Default OFF — high volume: gates the per-shot [Npc] TriggerShoot/SetShooting/SetAimTarget lines + [EnemyCombatProbe]. Floods when many enemies are active (e.g. a ranged group infighting). EnableEnemyCombatProbe (functional puppet-combat blocking) stays independent. Enable to debug enemy combat.");
 
-            EnableHostAuthorizedIntentExecution = cfg.Bind("NetworkEnemyIntentExperimental", "EnableHostAuthorizedIntentExecution", true,
-                "Phase 4.4.0-O: Client creates per-NPC authorization windows when Host combat-action snapshots arrive. Authorized windows allow TriggerWeaponManually/TriggerShoot/HandleMeleeHit etc. through instead of blocking every puppet combat call.");
-            HostAuthorizedIntentWindowSeconds = cfg.Bind("NetworkEnemyIntentExperimental", "HostAuthorizedIntentWindowSeconds", 1.0f,
-                new ConfigDescription("How many seconds a Host-authorized intent window stays open after the triggering snapshot arrives.",
-                    new AcceptableValueRange<float>(0.1f, 5.0f)));
+            // Phase 4.4.0-O host-authorized intent execution — functional + window tuning hardcoded (Fixed); Log* kept.
+            EnableHostAuthorizedIntentExecution = new Fixed<bool>(true);
+            HostAuthorizedIntentWindowSeconds = new Fixed<float>(1.0f);
             LogHostAuthorizedIntentExecution = cfg.Bind("NetworkEnemyIntentExperimental", "LogHostAuthorizedIntentExecution", true,
                 "Log when Client puppet combat methods pass through Host-authorized intent windows.");
-            EnableClientEnemyNativeDamageSuppression = cfg.Bind("NetworkEnemyIntentExperimental", "EnableClientEnemyNativeDamageSuppression", true,
-                "Phase 4.4.0-O: Suppress native enemy-to-player damage on the Client while HandleMeleeHit runs inside an authorized window. Host authoritative HostDamageRequest packets are the sole damage source.");
-            EnableClientPuppetAimOverride = cfg.Bind("NetworkEnemyIntentExperimental", "EnableClientPuppetAimOverride", true,
-                "Phase 5.5-P3: When a Client puppet replays a ranged TriggerShoot, override its native Npc.GetAimPosition() with the Host-authoritative aim (head/camera) carried by the intent window. Fixes the native projectile flying at the target's feet.");
+            EnableClientEnemyNativeDamageSuppression = new Fixed<bool>(true);
+            EnableClientPuppetAimOverride = new Fixed<bool>(true);
 
             EnableEnemyStateSnapshotDeltaCompression = cfg.Bind("NetworkEnemyStateExperimental", "EnableEnemyStateSnapshotDeltaCompression", true,
                 "Phase 4.4.0-D: Host skips enemy state snapshots whose position/rotation/animation did not change enough, while still sending heartbeat updates.");
@@ -1558,11 +1548,8 @@ namespace SULFURTogether.Config
             EnableHostAuthoritativeEnemyRangedDamage.Value = false;
             EnableSyntheticRangedDamageFallback.Value = false;
             // Phase 5.5-RT3-A5: host snapshot is the single position authority (no flicker from competing writers).
-            EnableClientEnemyIntentDrivenMotion.Value = false;
+            // Intent-driven motion + correction/snap tuning now hardcoded (Fixed); only LogEnemyAiIntentMirror stays.
             LogEnemyAiIntentMirror.Value = true;
-            EnemyIntentCorrectionDistance.Value = 2.5f;
-            EnemyIntentHardSnapDistance.Value = 9f;
-            EnemyIntentReplayMinIntervalSeconds.Value = 0.18f;
             EnemyHostProjectileHitRadius.Value = 0.75f;
             EnemyHostProjectileVerticalTolerance.Value = 1.50f;
             EnemyHostProjectileMaxDistance.Value = 28f;
@@ -1580,11 +1567,8 @@ namespace SULFURTogether.Config
             LogEnemyTargetAuthority.Value = true;
             EnemyTargetAuthorityProbeIntervalSeconds.Value = 2.0f;
             EnableEnemyCombatProbe.Value = true;          // functional (puppet-combat blocking) stays on; LogEnemyCombatProbe defaults OFF (bind)
-            EnableHostAuthorizedIntentExecution.Value = true;
-            HostAuthorizedIntentWindowSeconds.Value = 1.0f;
+            // Host-authorized intent execution Enable*/window now hardcoded (Fixed); only Log* stays.
             LogHostAuthorizedIntentExecution.Value = true;
-            EnableClientEnemyNativeDamageSuppression.Value = true;
-            EnableClientPuppetAimOverride.Value = true;
             // Phase 5.5-RT3-A2 — filter non-player damage on host-driven puppets, default on.
             FilterNonPlayerPuppetDamage.Value = true;
             // Phase 5.5-RT3-A3 — kinematic host-driven puppets, default on.
