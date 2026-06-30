@@ -44,6 +44,10 @@ namespace SULFURTogether.Config
             // Release cleanup — functional Enable* flags hardcoded (Fixed<bool>), removed from the .cfg, batch by batch.
             // Batch 1 (Destructibles):
             "EnableBreakableSync", "EnableGateSync", "EnableTriggerDoorSync",
+            // Batch 2 (NetworkRunState + NetworkLevelSeed):
+            "EnableRunStateNegotiation", "RunStateBroadcastIntervalSeconds",
+            "EnableLevelSeedAuthority", "RequireSameLevelSeedForSceneMatch", "ApplyHostLevelSeedOnManualFollow",
+            "HideRemoteVisualWhenLevelSeedMismatch", "SyncHostUsedSetsOnManualFollow",
         };
 
         private readonly string _jsonPath;

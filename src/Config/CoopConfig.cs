@@ -83,8 +83,8 @@ namespace SULFURTogether.Config
         public CoopSettingsStore CoopSettings { get; }
 
         // ----- Run / Scene state negotiation (metadata only) -----
-        public ConfigEntry<bool>   EnableRunStateNegotiation      { get; }
-        public ConfigEntry<float>  RunStateBroadcastIntervalSeconds { get; }
+        public Fixed<bool>         EnableRunStateNegotiation      { get; } // functional: always on (release-hardcoded)
+        public Fixed<float>        RunStateBroadcastIntervalSeconds { get; } // functional tuning (release-hardcoded)
         public ConfigEntry<bool>   WarnOnRunStateMismatch         { get; }
         public ConfigEntry<bool>   EnableHostSceneAuthority       { get; }
         public ConfigEntry<bool>   WarnOnClientSceneDrift         { get; }
@@ -95,14 +95,14 @@ namespace SULFURTogether.Config
         public ConfigEntry<KeyboardShortcut> ManualClientSceneFollowKey { get; }
         public ConfigEntry<bool>   ManualClientSceneFollowRequiresHostRequest { get; }
 
-        // ----- Phase 3.1 level seed authority -----
-        public ConfigEntry<bool>   EnableLevelSeedAuthority { get; }
-        public ConfigEntry<bool>   RequireSameLevelSeedForSceneMatch { get; }
-        public ConfigEntry<bool>   ApplyHostLevelSeedOnManualFollow { get; }
-        public ConfigEntry<bool>   HideRemoteVisualWhenLevelSeedMismatch { get; }
+        // ----- Phase 3.1 level seed authority ----- (functional: always on, release-hardcoded)
+        public Fixed<bool>         EnableLevelSeedAuthority { get; }
+        public Fixed<bool>         RequireSameLevelSeedForSceneMatch { get; }
+        public Fixed<bool>         ApplyHostLevelSeedOnManualFollow { get; }
+        public Fixed<bool>         HideRemoteVisualWhenLevelSeedMismatch { get; }
 
         // ----- Phase 5.3-I generation-input (used sets) sync -----
-        public ConfigEntry<bool>   SyncHostUsedSetsOnManualFollow { get; }
+        public Fixed<bool>         SyncHostUsedSetsOnManualFollow { get; } // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogUsedSetsTrace { get; }
 
         // ----- Phase 5.3-J client join load gate -----
@@ -619,10 +619,8 @@ namespace SULFURTogether.Config
             // connect-page preference, so it stays out of the .cfg / Gale like the other co-op settings.
 
             // run / scene metadata only. This never loads levels or synchronizes gameplay.
-            EnableRunStateNegotiation = cfg.Bind("NetworkRunState", "EnableRunStateNegotiation", true,
-                "Send and receive current chapter/level/GameState metadata. Does not change scenes.");
-            RunStateBroadcastIntervalSeconds = cfg.Bind("NetworkRunState", "RunStateBroadcastIntervalSeconds", 5f,
-                "How often (seconds) to re-send local run/scene metadata while connected.");
+            EnableRunStateNegotiation = new Fixed<bool>(true);          // functional: run-state metadata always exchanged.
+            RunStateBroadcastIntervalSeconds = new Fixed<float>(2f);    // re-send interval (seconds) — tuned value.
             WarnOnRunStateMismatch = cfg.Bind("NetworkRunState", "WarnOnRunStateMismatch", true,
                 "Log a warning when local and remote chapter/level metadata differ. Loading vs Running on the same scene is ignored.");
 
@@ -646,22 +644,17 @@ namespace SULFURTogether.Config
             ManualClientSceneFollowRequiresHostRequest = cfg.Bind("NetworkSceneAuthority", "ManualClientSceneFollowRequiresHostRequest", true,
                 "Only allow manual follow when a HostSceneRequest has been received.");
 
-            // Phase 3.1 level seed authority. This makes scene equality stricter but still does not sync level content.
-            EnableLevelSeedAuthority = cfg.Bind("NetworkLevelSeed", "EnableLevelSeedAuthority", true,
-                "Capture and exchange generated level seed metadata from Host/Client logs.");
-            RequireSameLevelSeedForSceneMatch = cfg.Bind("NetworkLevelSeed", "RequireSameLevelSeedForSceneMatch", true,
-                "Treat same chapter/levelIndex but different known levelSeed as scene desync.");
-            ApplyHostLevelSeedOnManualFollow = cfg.Bind("NetworkLevelSeed", "ApplyHostLevelSeedOnManualFollow", true,
-                "Before manual Client scene follow, try to set the game's ForceLevelSeed to the HostSceneRequest seed.");
-            HideRemoteVisualWhenLevelSeedMismatch = cfg.Bind("NetworkLevelSeed", "HideRemoteVisualWhenLevelSeedMismatch", true,
-                "Only show remote player visual proxies when chapter, levelIndex, and known levelSeed match.");
+            // Phase 3.1 level seed authority — functional: scene equality is always seed-strict (release-hardcoded).
+            EnableLevelSeedAuthority = new Fixed<bool>(true);
+            RequireSameLevelSeedForSceneMatch = new Fixed<bool>(true);
+            ApplyHostLevelSeedOnManualFollow = new Fixed<bool>(true);
+            HideRemoteVisualWhenLevelSeedMismatch = new Fixed<bool>(true);
 
             // Phase 5.3-I: the level generator's deterministic inputs are not just the seed. They also
             // include GameManager's cross-level exclusion sets (usedChunksThisRun, usedUniqueEventThisRun,
             // usedUniqueEventThisEnvironment). The Host sends them in HostSceneRequest; the Client overwrites
             // its local sets before manual follow so generation candidate pools match.
-            SyncHostUsedSetsOnManualFollow = cfg.Bind("NetworkLevelSeed", "SyncHostUsedSetsOnManualFollow", true,
-                "Before manual Client scene follow, overwrite local GameManager used-chunk/used-event sets with the Host's, so level generation uses the same exclusion inputs as the Host.");
+            SyncHostUsedSetsOnManualFollow = new Fixed<bool>(true); // functional: always sync host used-sets before follow.
             LogUsedSetsTrace = cfg.Bind("NetworkLevelSeed", "LogUsedSetsTrace", true,
                 "Log [UsedSetsTrace]/[FollowPrep] details (GameManager used sets on level entry, and before/after applying Host used sets on follow).");
 
@@ -1440,8 +1433,7 @@ namespace SULFURTogether.Config
             // This mod is still private/unpublished. Connection identity settings stay user-owned (now in the
             // CoopSettings JSON store, not touched here), but hard-reset the active experimental gameplay baseline
             // so stale cfg values from earlier internal builds cannot silently re-enable old behavior.
-            EnableRunStateNegotiation.Value = true;
-            RunStateBroadcastIntervalSeconds.Value = 2f;
+            // EnableRunStateNegotiation + RunStateBroadcastIntervalSeconds are now hardcoded (Fixed); only Warn* stays.
             WarnOnRunStateMismatch.Value = true;
             EnableHostSceneAuthority.Value = true;
             WarnOnClientSceneDrift.Value = true;
@@ -1452,11 +1444,8 @@ namespace SULFURTogether.Config
             ManualClientSceneFollowKey.Value = new KeyboardShortcut(KeyCode.PageDown);
             ManualClientSceneFollowRequiresHostRequest.Value = true;
 
-            EnableLevelSeedAuthority.Value = true;
-            RequireSameLevelSeedForSceneMatch.Value = true;
-            ApplyHostLevelSeedOnManualFollow.Value = true;
-            HideRemoteVisualWhenLevelSeedMismatch.Value = true;
-            SyncHostUsedSetsOnManualFollow.Value = true;
+            // EnableLevelSeedAuthority/RequireSameLevelSeedForSceneMatch/ApplyHostLevelSeedOnManualFollow/
+            // HideRemoteVisualWhenLevelSeedMismatch/SyncHostUsedSetsOnManualFollow are now hardcoded (Fixed); Log* stays.
             LogUsedSetsTrace.Value = true;
             ClientWaitHostGenerationInputBeforeFirstLoad.Value = true;
             ClientLoadGateTimeoutSeconds.Value = 30f;
