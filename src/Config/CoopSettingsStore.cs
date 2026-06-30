@@ -57,6 +57,10 @@ namespace SULFURTogether.Config
             "EnableDeathSpawnSync", "EnableMinionSpawnSync",
             "EnableHostEnemyDeathEventMirror", "ApplyReceivedEnemyDeathEvents", "EnemyDeathMirrorPositionTolerance",
             "EnemyDeathMirrorUseHorizontalPositionTolerance", "EnableClientEnemyDeathClaim", "ApplyReceivedClientEnemyDeathClaimsOnHost",
+            // Batch 5 (NetworkPlayerLifeExperimental downed/revive — keybind + Log kept):
+            "EnableCoopPlayerDownedRevive", "PlayerDownedRescueTimeoutSeconds", "PlayerReviveHoldSeconds",
+            "PlayerReviveDistance", "PlayerReviveHealthRatio", "PlayerReviveInvulnerabilitySeconds",
+            "PlayerDownedHealthFloor", "RequireReviveDistanceValidationOnHost",
         };
 
         private readonly string _jsonPath;

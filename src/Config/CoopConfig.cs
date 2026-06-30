@@ -297,17 +297,17 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LogReceivedClientEnemyDeathClaims { get; }
         public Fixed<bool>         ApplyReceivedClientEnemyDeathClaimsOnHost { get; }
 
-        // ----- Phase 4.3-A co-op player downed / revive experiment -----
-        public ConfigEntry<bool>   EnableCoopPlayerDownedRevive { get; }
+        // ----- Phase 4.3-A co-op player downed / revive experiment ----- (functional + tuning hardcoded; Log + keybind kept)
+        public Fixed<bool>         EnableCoopPlayerDownedRevive { get; }
         public ConfigEntry<bool>   LogPlayerLifeSync { get; }
-        public ConfigEntry<float>  PlayerDownedRescueTimeoutSeconds { get; }
-        public ConfigEntry<float>  PlayerReviveHoldSeconds { get; }
-        public ConfigEntry<float>  PlayerReviveDistance { get; }
-        public ConfigEntry<float>  PlayerReviveHealthRatio { get; }
-        public ConfigEntry<float>  PlayerReviveInvulnerabilitySeconds { get; }
-        public ConfigEntry<float>  PlayerDownedHealthFloor { get; }
+        public Fixed<float>        PlayerDownedRescueTimeoutSeconds { get; }
+        public Fixed<float>        PlayerReviveHoldSeconds { get; }
+        public Fixed<float>        PlayerReviveDistance { get; }
+        public Fixed<float>        PlayerReviveHealthRatio { get; }
+        public Fixed<float>        PlayerReviveInvulnerabilitySeconds { get; }
+        public Fixed<float>        PlayerDownedHealthFloor { get; }
         public ConfigEntry<KeyboardShortcut> PlayerReviveHoldKey { get; }
-        public ConfigEntry<bool>   RequireReviveDistanceValidationOnHost { get; }
+        public Fixed<bool>         RequireReviveDistanceValidationOnHost { get; }
 
         // ----- Phase 4.1-A host enemy state snapshot mirror experiment -----
         public ConfigEntry<bool>   EnableHostEnemyStateSnapshotMirror { get; }
@@ -1003,32 +1003,19 @@ namespace SULFURTogether.Config
             ApplyReceivedClientEnemyDeathClaimsOnHost = new Fixed<bool>(true);
 
             // Phase 4.3-A co-op player downed / revive experiment. Defaults are active for this test build only; no forced config overwrite is performed.
-            EnableCoopPlayerDownedRevive = cfg.Bind("NetworkPlayerLifeExperimental", "EnableCoopPlayerDownedRevive", true,
-                "When true, local player Unit.Die is intercepted in co-op and delayed as a downed state while at least one known peer is still alive. Original player death is committed on timeout or all-down.");
+            // Phase 4.3-A downed/revive — functional + tuned values hardcoded (Fixed); the Log* and the keybind stay in cfg.
+            EnableCoopPlayerDownedRevive = new Fixed<bool>(true);
             LogPlayerLifeSync = cfg.Bind("NetworkPlayerLifeExperimental", "LogPlayerLifeSync", true,
                 "Log player downed/revive/native-death lifecycle packets and local decisions.");
-            PlayerDownedRescueTimeoutSeconds = cfg.Bind("NetworkPlayerLifeExperimental", "PlayerDownedRescueTimeoutSeconds", 0f,
-                new ConfigDescription("Seconds before a downed player is forced into the original player death flow. 0 means infinite wait.",
-                    new AcceptableValueRange<float>(0f, 600f)));
-            PlayerReviveHoldSeconds = cfg.Bind("NetworkPlayerLifeExperimental", "PlayerReviveHoldSeconds", 2.0f,
-                new ConfigDescription("How long an alive player must hold the revive key near a downed peer before sending a revive request.",
-                    new AcceptableValueRange<float>(0.1f, 10f)));
-            PlayerReviveDistance = cfg.Bind("NetworkPlayerLifeExperimental", "PlayerReviveDistance", 3.0f,
-                new ConfigDescription("Maximum distance in meters for reviving a downed remote player.",
-                    new AcceptableValueRange<float>(0.5f, 10f)));
-            PlayerReviveHealthRatio = cfg.Bind("NetworkPlayerLifeExperimental", "PlayerReviveHealthRatio", 0.35f,
-                new ConfigDescription("Fraction of max health restored when a downed local player is revived.",
-                    new AcceptableValueRange<float>(0.01f, 1f)));
-            PlayerReviveInvulnerabilitySeconds = cfg.Bind("NetworkPlayerLifeExperimental", "PlayerReviveInvulnerabilitySeconds", 2.0f,
-                new ConfigDescription("Temporary invulnerability after being revived.",
-                    new AcceptableValueRange<float>(0f, 10f)));
-            PlayerDownedHealthFloor = cfg.Bind("NetworkPlayerLifeExperimental", "PlayerDownedHealthFloor", 1.0f,
-                new ConfigDescription("Current HP value used to keep a downed player from repeatedly triggering original death while waiting for rescue.",
-                    new AcceptableValueRange<float>(1f, 100f)));
+            PlayerDownedRescueTimeoutSeconds = new Fixed<float>(0f);   // 0 = infinite wait before forced death.
+            PlayerReviveHoldSeconds = new Fixed<float>(2.0f);
+            PlayerReviveDistance = new Fixed<float>(2.5f);
+            PlayerReviveHealthRatio = new Fixed<float>(0.35f);
+            PlayerReviveInvulnerabilitySeconds = new Fixed<float>(2f);
+            PlayerDownedHealthFloor = new Fixed<float>(1.0f);
             PlayerReviveHoldKey = cfg.Bind("NetworkPlayerLifeExperimental", "PlayerReviveHoldKey", new KeyboardShortcut(KeyCode.E),
                 "Temporary revive key used by Phase 4.3.0-A. Default E matches normal interact/pickup on many setups; can be changed if your binding differs.");
-            RequireReviveDistanceValidationOnHost = cfg.Bind("NetworkPlayerLifeExperimental", "RequireReviveDistanceValidationOnHost", true,
-                "When true, Host validates that rescuer and downed target are near each other before accepting a revive request.");
+            RequireReviveDistanceValidationOnHost = new Fixed<bool>(true);
 
             // Phase 4.1-A enemy state mirror. Network matching/drift measurement only by default; no movement or AI mutation.
             EnableHostEnemyStateSnapshotMirror = cfg.Bind("NetworkEnemyStateExperimental", "EnableHostEnemyStateSnapshotMirror", true,
@@ -1560,16 +1547,9 @@ namespace SULFURTogether.Config
             LogReceivedEnemyDeathEvents.Value = true;
             LogReceivedClientEnemyDeathClaims.Value = true;
 
-            EnableCoopPlayerDownedRevive.Value = true;
+            // Downed/revive Enable* + tuning now hardcoded (Fixed); only the Log* and the keybind stay forced/bound.
             LogPlayerLifeSync.Value = true;
-            PlayerDownedRescueTimeoutSeconds.Value = 0f;
-            PlayerReviveHoldSeconds.Value = 2.0f;
-            PlayerReviveDistance.Value = 2.5f;
-            PlayerReviveHealthRatio.Value = 0.35f;
-            PlayerReviveInvulnerabilitySeconds.Value = 2f;
-            PlayerDownedHealthFloor.Value = 1.0f;
             PlayerReviveHoldKey.Value = new KeyboardShortcut(KeyCode.E);
-            RequireReviveDistanceValidationOnHost.Value = true;
 
             EnableHostEnemyStateSnapshotMirror.Value = true;
             EnemyStateSnapshotSendRateHz.Value = 6f;
