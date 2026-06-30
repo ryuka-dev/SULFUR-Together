@@ -459,6 +459,7 @@ namespace SULFURTogether.Config
         public Fixed<bool>         RemotePlayerTargetProxyBodyBlocker { get; }
         public Fixed<bool>         RemoveTargetProxyWhenPeerDowned { get; }
         public Fixed<bool>         HideDownedLocalPlayerFromEnemies { get; }
+        public Fixed<bool>         BalanceCoopEnemyTargeting { get; }
         public ConfigEntry<bool>   LogPooledObjectDestroyDiag { get; }
         public Fixed<bool>         ApplyHostPlayerDamageViaReceiveDamage { get; }
         public Fixed<float>        EnemyNearCombatDistance { get; }
@@ -1156,6 +1157,11 @@ namespace SULFURTogether.Config
             // functional/tuning hardcoded (Fixed); the 2 Log* (incl. Debug LogEnemyInterestDiag) stay in cfg.
             RemoveTargetProxyWhenPeerDowned = new Fixed<bool>(true);
             HideDownedLocalPlayerFromEnemies = new Fixed<bool>(true);
+            // Coop fair targeting: vanilla AiAgent.GetTarget (onlyTargetPlayer=false enemies) returns
+            // hostilesInLOS.LastOrDefault(alive). Players are appended to hostilesInLOS in GameManager.Players index
+            // order, so our injected ghost (the client) is always the LAST player => enemies always pick the client
+            // whenever both players are in LOS. Rebalance to the NEAREST living player so host & client are symmetric.
+            BalanceCoopEnemyTargeting = new Fixed<bool>(true);
             LogPooledObjectDestroyDiag = cfg.Bind("HostDrivenProxy", "LogPooledObjectDestroyDiag", false,
                 "DIAGNOSTIC (default OFF; culprit found = AutoPool.ResetPools on level switch). Logs a stack trace whenever something destroys a still-pooled AutoPooledObject. Has a perf cost (inspects every Object.Destroy). Only enable to re-investigate pool corruption.");
             ApplyHostPlayerDamageViaReceiveDamage = new Fixed<bool>(true);

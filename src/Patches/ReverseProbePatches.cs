@@ -671,6 +671,19 @@ namespace SULFURTogether.Patches
             try
             {
                 if (__result == null) return;
+
+                // Coop fair targeting (nearest player): vanilla GetTarget for onlyTargetPlayer=false enemies returns
+                // hostilesInLOS.LastOrDefault(alive); players are appended to hostilesInLOS in GameManager.Players index
+                // order, so our injected ghost (the client) is always the LAST player => enemies always pick the client
+                // whenever both players are in LOS, structurally ignoring the host (the "敌人只打客机" bug). Re-pick the
+                // NEAREST living player participant so host & client are symmetric. Only acts when the chosen target is a
+                // player participant (host's real player or a ghost proxy) — NPC-vs-NPC targeting is left untouched.
+                if (Cfg.BalanceCoopEnemyTargeting.Value)
+                {
+                    object? balanced = TryPickNearestPlayerHostile(__instance, __result);
+                    if (balanced != null) __result = balanced;
+                }
+
                 if (!Cfg.HideDownedLocalPlayerFromEnemies.Value) return;
                 if (!NetPlayerLifeManager.IsDownedLocalPlayerUnit(__result)) return;
                 // Cousin-arm exception (RT3-Cousin-arms-Room): the arm's group throw is the only boss attack a DOWNED
@@ -682,6 +695,85 @@ namespace SULFURTogether.Patches
                 __result = null;
             }
             catch { }
+        }
+
+        // ---- Coop fair targeting (nearest player) reflection cache ----
+        private static bool _coopTgtResolved;
+        private static System.Reflection.FieldInfo? _aiOnlyTargetPlayerField;
+        private static System.Reflection.PropertyInfo? _aiOwnerProp;
+        private static System.Reflection.PropertyInfo? _aiHostilesProp;
+        private static System.Reflection.PropertyInfo? _unitIsAliveProp;
+
+        private static void EnsureCoopTargetingResolved(object aiAgent, object sampleUnit)
+        {
+            if (_coopTgtResolved) return;
+            _coopTgtResolved = true;
+            try
+            {
+                var ai = aiAgent.GetType();
+                _aiOnlyTargetPlayerField = AccessTools.Field(ai, "onlyTargetPlayer");
+                _aiOwnerProp = AccessTools.Property(ai, "Owner");
+                _aiHostilesProp = AccessTools.Property(ai, "hostilesInLOS");
+                _unitIsAliveProp = AccessTools.Property(sampleUnit.GetType(), "IsAlive");
+            }
+            catch (Exception ex) { Log.Warn($"[CoopTarget] resolve failed: {ex.Message}"); }
+        }
+
+        // A player "participant" the host should fairly distribute aggro across: the host's own real local player, or a
+        // ghost/proxy Unit standing in for a remote player. NOTE: a ghost's vanilla `isPlayer` field is FALSE (only its
+        // faction is overridden to Player), so we must identify participants by our own markers, not by `isPlayer`.
+        private static bool IsPlayerParticipantUnit(object? unit)
+        {
+            if (unit == null) return false;
+            try
+            {
+                if (NetPlayerLifeManager.IsLocalPlayerUnit(unit)) return true;
+                if (SULFURTogether.Networking.RemotePlayerTargetProxyManager.IsProxyUnit(unit)) return true;
+            }
+            catch { }
+            return false;
+        }
+
+        private static bool IsUnitAlive(object unit)
+        {
+            try { return _unitIsAliveProp == null || (_unitIsAliveProp.GetValue(unit, null) is bool b && b); }
+            catch { return true; } // can't tell -> assume alive (vanilla LastOrDefault already filtered dead)
+        }
+
+        // Returns the nearest living player participant in hostilesInLOS to the enemy, or null to leave __result as-is.
+        private static object? TryPickNearestPlayerHostile(object aiAgent, object currentResult)
+        {
+            try
+            {
+                EnsureCoopTargetingResolved(aiAgent, currentResult);
+
+                // Only rebalance when the enemy actually chose a player; never disturb NPC-vs-NPC targeting.
+                if (!IsPlayerParticipantUnit(currentResult)) return null;
+                // onlyTargetPlayer enemies bypass the LastOrDefault path (they always return GameManager.PlayerUnit), so
+                // there is no client-bias to correct — leave them alone.
+                if (_aiOnlyTargetPlayerField?.GetValue(aiAgent) is bool only && only) return null;
+
+                if (!(_aiOwnerProp?.GetValue(aiAgent, null) is UnityEngine.Component ownerComp) || ownerComp == null) return null;
+                if (!(_aiHostilesProp?.GetValue(aiAgent, null) is System.Collections.IEnumerable hostiles)) return null;
+
+                UnityEngine.Vector3 origin = ownerComp.transform.position;
+                object? best = null;
+                float bestSq = float.MaxValue;
+                foreach (var h in hostiles)
+                {
+                    if (h == null) continue;
+                    if (!IsPlayerParticipantUnit(h)) continue;
+                    if (NetPlayerLifeManager.IsDownedLocalPlayerUnit(h)) continue; // downed local would be hidden anyway
+                    if (!IsUnitAlive(h)) continue;
+                    if (!(h is UnityEngine.Component hc) || hc == null) continue;
+                    float sq = (hc.transform.position - origin).sqrMagnitude;
+                    if (sq < bestSq) { bestSq = sq; best = h; }
+                }
+                // best == null (e.g. only the downed local player was visible) -> return null so __result is unchanged and
+                // the hide-downed block below handles it (enemy idles), preserving prior behaviour.
+                return best;
+            }
+            catch { return null; }
         }
 
         // Plan B: the vanilla NpcUpdateManager.LateUpdate wake LOD only checks the host singleton, so NPCs far from
