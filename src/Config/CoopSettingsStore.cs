@@ -41,6 +41,9 @@ namespace SULFURTogether.Config
             "EnableNetworking", "NetworkMode",
             "PlayerName", "HostAddress", "HostPort", "ConnectionKey", "MaxPlayers", "RequireSameModVersion",
             "EnableCoopToasts",
+            // Release cleanup — functional Enable* flags hardcoded (Fixed<bool>), removed from the .cfg, batch by batch.
+            // Batch 1 (Destructibles):
+            "EnableBreakableSync", "EnableGateSync", "EnableTriggerDoorSync",
         };
 
         private readonly string _jsonPath;

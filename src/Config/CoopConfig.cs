@@ -214,13 +214,13 @@ namespace SULFURTogether.Config
         public ConfigEntry<int>    PlayerWeaponSyncMaxProjectilesPerShot { get; }
 
         // ----- Phase 5.7-BR in-scene destructible (Breakable) sync -----
-        public ConfigEntry<bool>   EnableBreakableSync { get; }
+        public Fixed<bool>         EnableBreakableSync { get; }   // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogBreakableSync { get; }
         // ----- Phase LD-1 generic combat-room gate (MetalGate) open/close sync -----
-        public ConfigEntry<bool>   EnableGateSync { get; }
+        public Fixed<bool>         EnableGateSync { get; }        // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogGateSync { get; }
         // ----- Phase LD-1b combat-room door sync, GameObject.SetActive variant (Lucia etc.) -----
-        public ConfigEntry<bool>   EnableTriggerDoorSync { get; }
+        public Fixed<bool>         EnableTriggerDoorSync { get; } // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogTriggerDoorSync { get; }
         // ----- Phase LD-2 FF14-style arena lockdown (host-authoritative membership + timer + force-seal barrier + teleport) -----
         public ConfigEntry<bool>   EnableArenaLockdown { get; }
@@ -866,8 +866,7 @@ namespace SULFURTogether.Config
             // real; when one breaks we broadcast a break event keyed by the breakable's deterministic spawn position,
             // and receivers call Break() on the matching local destructible so it shatters/loots/cascades the same on
             // every screen. Peer-authoritative EFFECT mirror (loot stays per-peer — loot is not networked). Reversible.
-            EnableBreakableSync = cfg.Bind("Destructibles", "EnableBreakableSync", true,
-                "Phase 5.7-BR: mirror in-scene destructible (Breakable) destruction across peers so a barrel/crate/glass broken by any player shatters on every screen. Effect mirror; loot stays per-peer. Reversible.");
+            EnableBreakableSync = new Fixed<bool>(true); // Phase 5.7-BR destructible sync — functional, always on.
             LogBreakableSync = cfg.Bind("Destructibles", "LogBreakableSync", true,
                 "Phase 5.7-BR: verbose log for destructible sync (capture / broadcast / mirror match).");
 
@@ -875,16 +874,14 @@ namespace SULFURTogether.Config
             // rooms) with a MetalGate closed by a PlayerTrigger the entering player crosses; gates are per-end independent
             // so an out-of-room / AFK player's gate is left open. Each peer's MetalGate.Close()/Open() is broadcast and
             // mirrored by position on the others. Foundation for the FF14-style arena lockdown.
-            EnableGateSync = cfg.Bind("Destructibles", "EnableGateSync", true,
-                "Phase LD-1: mirror combat-room gate (MetalGate) open/close across peers so a door closed/opened on one end (entering a boss/elite room, room cleared) matches on every screen. Effect mirror (the same Close()/Open() — animation/collider/navmesh). Reversible. Foundation for the FF14 arena lockdown.");
+            EnableGateSync = new Fixed<bool>(true); // Phase LD-1 combat-room gate (MetalGate) sync — functional, always on.
             LogGateSync = cfg.Bind("Destructibles", "LogGateSync", true,
                 "Phase LD-1: verbose log for gate sync (capture / broadcast / mirror match).");
 
             // Phase LD-1b: some arenas (Lucia) seal not with a MetalGate but with a PlayerTrigger firing
             // GameObject.SetActive(Doors, true). Mirror those door-named SetActive targets across peers, keyed by the
             // trigger's position (the receiver reads its own trigger's event to get its local door reference).
-            EnableTriggerDoorSync = cfg.Bind("Destructibles", "EnableTriggerDoorSync", true,
-                "Phase LD-1b: mirror combat-room doors that are sealed via a PlayerTrigger's GameObject.SetActive(\"...door...\") instead of a MetalGate (e.g. Lucia). Only door-named GameObjects are touched; matched by the trigger's deterministic position. Reversible.");
+            EnableTriggerDoorSync = new Fixed<bool>(true); // Phase LD-1b SetActive door sync (Lucia) — functional, always on.
             LogTriggerDoorSync = cfg.Bind("Destructibles", "LogTriggerDoorSync", true,
                 "Phase LD-1b: verbose log for trigger-door sync (capture / broadcast / mirror match).");
 
@@ -1557,14 +1554,9 @@ namespace SULFURTogether.Config
             // Phase 5.6-WS — player weapon bullet sync (visual-only barrage replay) default on.
             EnablePlayerWeaponSync.Value = true;
             LogPlayerWeaponSync.Value = true;
-            // Phase 5.7-BR — in-scene destructible (Breakable) sync default on.
-            EnableBreakableSync.Value = true;
+            // Phase 5.7-BR / LD-1 / LD-1b — Enable* flags are now hardcoded (Fixed<bool>); only their Log* stay forced.
             LogBreakableSync.Value = true;
-            // Phase LD-1 — combat-room gate (MetalGate) sync default on.
-            EnableGateSync.Value = true;
             LogGateSync.Value = true;
-            // Phase LD-1b — combat-room door (SetActive variant, Lucia) sync default on.
-            EnableTriggerDoorSync.Value = true;
             LogTriggerDoorSync.Value = true;
             // Phase LD-2 — arena lockdown membership + timer + force-seal barrier + teleport default on.
             EnableArenaLockdown.Value = true;
