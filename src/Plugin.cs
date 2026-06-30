@@ -126,6 +126,7 @@ namespace SULFURTogether
             Networking.Gameplay.Boss.BossDynamicSpawnManifest.TickReleaseStaleGated(); // RT3-A safety: release stuck gates
             Networking.Gameplay.ArenaLockdownManager.Tick(); // LD-2a: host arena lockdown timers
             CoopConnection.Tick();
+            Patches.PauseControlPatches.Tick(); // 5.7-NP2: seamless un-pause when a session starts with a menu open
 #if NATIVE_UI_LIB
             UI.CoopConnectPage.Tick(); // UI-3c: drive the connect page's live status/buttons/list handles
 #endif
