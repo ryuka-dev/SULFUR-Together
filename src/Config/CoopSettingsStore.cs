@@ -83,6 +83,14 @@ namespace SULFURTogether.Config
             "EnemyAnimationMirrorHostCombatActionHoldSeconds", "EnableEnemyStateSnapshotDeltaCompression",
             "EnemyStateSnapshotHeartbeatSeconds", "EnemyStateSnapshotPositionDeltaThreshold",
             "EnemyStateSnapshotRotationDeltaThresholdDegrees", "EnemyStateSnapshotAnimationTimeDeltaThreshold",
+            // Batch 9 (NetworkEnemyTargetExperimental — 3 Log* kept):
+            "EnemyProjectileVisualMirrorEnabled", "EnemyProjectileVisualMirrorUseNativeShootReplay",
+            "EnemyProjectileVisualMirrorSpeed", "EnemyProjectileVisualMirrorLifetime", "EnableGenericHostCombatAnimatorStateMirror",
+            "EnableHostAuthoritativeEnemyRangedDamage", "EnableSyntheticRangedDamageFallback", "EnemyHostProjectileHitRadius",
+            "EnemyHostProjectileVerticalTolerance", "EnemyHostProjectileMaxDistance", "EnemyHostProjectileDamage",
+            "EnemyHostProjectileDamageCooldownSeconds", "EnemyDamageDefaultType", "EnableEnemyElementalStatusEffect",
+            "EnemyElementalStatusAmount", "EnableHostOnlyEnemyTargetAuthority", "EnemyTargetAuthorityProbeIntervalSeconds",
+            "EnableEnemyCombatProbe",
         };
 
         private readonly string _jsonPath;

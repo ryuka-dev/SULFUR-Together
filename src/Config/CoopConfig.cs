@@ -337,33 +337,33 @@ namespace SULFURTogether.Config
         public Fixed<bool>         EnemyAnimationMirrorReplayHostCombatMethods { get; }
         public Fixed<bool>         EnemyAnimationMirrorApplyCombatAnimatorFallback { get; }
         public Fixed<float>        EnemyAnimationMirrorHostCombatActionHoldSeconds { get; }
-        public ConfigEntry<bool>   EnemyProjectileVisualMirrorEnabled { get; }
-        public ConfigEntry<bool>   EnemyProjectileVisualMirrorUseNativeShootReplay { get; }
-        public ConfigEntry<float>  EnemyProjectileVisualMirrorSpeed { get; }
-        public ConfigEntry<float>  EnemyProjectileVisualMirrorLifetime { get; }
-        public ConfigEntry<bool>   EnableGenericHostCombatAnimatorStateMirror { get; }
-        public ConfigEntry<bool>   EnableHostAuthoritativeEnemyRangedDamage { get; }
-        public ConfigEntry<bool>   EnableSyntheticRangedDamageFallback { get; }
+        public Fixed<bool>         EnemyProjectileVisualMirrorEnabled { get; }   // hardcoded (effective OFF)
+        public Fixed<bool>         EnemyProjectileVisualMirrorUseNativeShootReplay { get; }
+        public Fixed<float>        EnemyProjectileVisualMirrorSpeed { get; }
+        public Fixed<float>        EnemyProjectileVisualMirrorLifetime { get; }
+        public Fixed<bool>         EnableGenericHostCombatAnimatorStateMirror { get; }
+        public Fixed<bool>         EnableHostAuthoritativeEnemyRangedDamage { get; }  // hardcoded (effective OFF)
+        public Fixed<bool>         EnableSyntheticRangedDamageFallback { get; }       // hardcoded (effective OFF)
         public Fixed<bool>         EnableClientEnemyIntentDrivenMotion { get; } // rolled-back experiment: hardcoded OFF
         public ConfigEntry<bool>   LogEnemyAiIntentMirror { get; }
         public Fixed<float>        EnemyIntentCorrectionDistance { get; }
         public Fixed<float>        EnemyIntentHardSnapDistance { get; }
         public Fixed<float>        EnemyIntentReplayMinIntervalSeconds { get; }
-        public ConfigEntry<float>  EnemyHostProjectileHitRadius { get; }
-        public ConfigEntry<float>  EnemyHostProjectileVerticalTolerance { get; }
-        public ConfigEntry<float>  EnemyHostProjectileMaxDistance { get; }
-        public ConfigEntry<float>  EnemyHostProjectileDamage { get; }
-        public ConfigEntry<float>  EnemyHostProjectileDamageCooldownSeconds { get; }
-        public ConfigEntry<int>    EnemyDamageDefaultType { get; }
-        public ConfigEntry<bool>   EnableEnemyElementalStatusEffect { get; }
-        public ConfigEntry<float>  EnemyElementalStatusAmount { get; }
+        public Fixed<float>        EnemyHostProjectileHitRadius { get; }
+        public Fixed<float>        EnemyHostProjectileVerticalTolerance { get; }
+        public Fixed<float>        EnemyHostProjectileMaxDistance { get; }
+        public Fixed<float>        EnemyHostProjectileDamage { get; }
+        public Fixed<float>        EnemyHostProjectileDamageCooldownSeconds { get; }
+        public Fixed<int>          EnemyDamageDefaultType { get; }
+        public Fixed<bool>         EnableEnemyElementalStatusEffect { get; }
+        public Fixed<float>        EnemyElementalStatusAmount { get; }
         public ConfigEntry<bool>   LogEnemyHostDamageAuthority { get; }
 
-        // ----- Phase 4.4.0-H host-authoritative enemy target/combat probe -----
-        public ConfigEntry<bool>   EnableHostOnlyEnemyTargetAuthority { get; }
+        // ----- Phase 4.4.0-H host-authoritative enemy target/combat probe ----- (functional hardcoded; Log* kept)
+        public Fixed<bool>         EnableHostOnlyEnemyTargetAuthority { get; }
         public ConfigEntry<bool>   LogEnemyTargetAuthority { get; }
-        public ConfigEntry<float>  EnemyTargetAuthorityProbeIntervalSeconds { get; }
-        public ConfigEntry<bool>   EnableEnemyCombatProbe { get; }
+        public Fixed<float>        EnemyTargetAuthorityProbeIntervalSeconds { get; }
+        public Fixed<bool>         EnableEnemyCombatProbe { get; }    // functional: puppet-combat blocking
         public ConfigEntry<bool>   LogEnemyCombatProbe { get; }
 
         // ----- Phase 4.4.0-O host-authorized enemy intent execution ----- (functional + tuning hardcoded; Log* kept)
@@ -1036,22 +1036,15 @@ namespace SULFURTogether.Config
             EnemyAnimationMirrorApplyCombatAnimatorFallback = new Fixed<bool>(false); // effective value (forced off).
             EnemyAnimationMirrorHostCombatActionHoldSeconds = new Fixed<float>(0.80f); // effective value (forced 0.80).
 
-            EnemyProjectileVisualMirrorEnabled = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyProjectileVisualMirrorEnabled", true,
-                "Phase 4.4.0-K: Create client-only no-damage visual projectiles for Host enemy shoot actions using Host origin/aim positions.");
-            EnemyProjectileVisualMirrorUseNativeShootReplay = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyProjectileVisualMirrorUseNativeShootReplay", false,
-                "Development switch. False avoids native Client puppet TriggerShoot projectile direction bugs; visual projectile mirror is used instead.");
-            EnemyProjectileVisualMirrorSpeed = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyProjectileVisualMirrorSpeed", 18f,
-                new ConfigDescription("Speed for client-only visual enemy projectile mirror objects.",
-                    new AcceptableValueRange<float>(1f, 80f)));
-            EnemyProjectileVisualMirrorLifetime = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyProjectileVisualMirrorLifetime", 1.25f,
-                new ConfigDescription("Maximum lifetime for client-only visual enemy projectile mirror objects.",
-                    new AcceptableValueRange<float>(0.10f, 5.0f)));
-            EnableGenericHostCombatAnimatorStateMirror = cfg.Bind("NetworkEnemyTargetExperimental", "EnableGenericHostCombatAnimatorStateMirror", true,
-                "Phase 4.4.0-L: generic combat animation mirror. Host sends actual Animator state hashes for active combat Animators under the enemy; Client puppet plays matching relative-path Animator states instead of monster-specific trigger fallbacks.");
-            EnableHostAuthoritativeEnemyRangedDamage = cfg.Bind("NetworkEnemyTargetExperimental", "EnableHostAuthoritativeEnemyRangedDamage", false,
-                "Phase 4.4.0-L synthetic ranged damage (LEGACY/RETIRED). Superseded by real projectile hits on the target proxy. This key no longer gates the path on its own — the path now ALSO requires EnableSyntheticRangedDamageFallback (default false). Leave as-is.");
-            EnableSyntheticRangedDamageFallback = cfg.Bind("NetworkEnemyTargetExperimental", "EnableSyntheticRangedDamageFallback", false,
-                "Master gate for the synthetic distance-based enemy ranged damage path. DEFAULT OFF and should stay off: that path estimates hits from the aim line at shot time, so it ignores the client DODGING after the shot and ignores WALLS between the enemy and player (false hits). Real enemy projectiles already hit the target-proxy collider authoritatively (respecting walls + dodging). Only enable if a ranged enemy's projectile genuinely cannot collide with the proxy.");
+            // Enemy projectile visual mirror (retired — host snapshots/real proxy hits supersede) + synthetic ranged
+            // damage gates (retired/off): hardcoded to their effective values.
+            EnemyProjectileVisualMirrorEnabled = new Fixed<bool>(false);
+            EnemyProjectileVisualMirrorUseNativeShootReplay = new Fixed<bool>(false);
+            EnemyProjectileVisualMirrorSpeed = new Fixed<float>(26f);
+            EnemyProjectileVisualMirrorLifetime = new Fixed<float>(2.0f);
+            EnableGenericHostCombatAnimatorStateMirror = new Fixed<bool>(true);
+            EnableHostAuthoritativeEnemyRangedDamage = new Fixed<bool>(false);
+            EnableSyntheticRangedDamageFallback = new Fixed<bool>(false);
             // Phase 5.5-RT3-A5: DEFAULT OFF. Intent-driven motion keeps the local AI agent moving the puppet's transform
             // (navmesh/RichAI) WHILE the host snapshot drift also writes transform.position every frame — two competing
             // position writers that fight each other = visible flicker (log53: clientAiIntents=314 + softDrift=12381 on
@@ -1064,41 +1057,24 @@ namespace SULFURTogether.Config
             EnemyIntentCorrectionDistance = new Fixed<float>(2.5f);
             EnemyIntentHardSnapDistance = new Fixed<float>(9f);
             EnemyIntentReplayMinIntervalSeconds = new Fixed<float>(0.18f);
-            EnemyHostProjectileHitRadius = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyHostProjectileHitRadius", 0.75f,
-                new ConfigDescription("Horizontal capsule radius used when Host checks whether an enemy ranged attack path intersects a remote player.",
-                    new AcceptableValueRange<float>(0.10f, 2.50f)));
-            EnemyHostProjectileVerticalTolerance = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyHostProjectileVerticalTolerance", 1.50f,
-                new ConfigDescription("Vertical tolerance used by Host enemy ranged damage checks.",
-                    new AcceptableValueRange<float>(0.10f, 4.00f)));
-            EnemyHostProjectileMaxDistance = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyHostProjectileMaxDistance", 28f,
-                new ConfigDescription("Maximum Host authoritative enemy ranged damage check distance.",
-                    new AcceptableValueRange<float>(2f, 80f)));
-            EnemyHostProjectileDamage = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyHostProjectileDamage", 10f,
-                new ConfigDescription("Temporary fixed damage applied to a remote player hit by Host authoritative enemy ranged attack checks. Tune after confirming hit detection.",
-                    new AcceptableValueRange<float>(1f, 200f)));
-            EnemyHostProjectileDamageCooldownSeconds = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyHostProjectileDamageCooldownSeconds", 0.45f,
-                new ConfigDescription("Minimum seconds before the same Host combat action can damage the same remote peer again.",
-                    new AcceptableValueRange<float>(0.05f, 5.0f)));
-            EnemyDamageDefaultType = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyDamageDefaultType", 7,
-                new ConfigDescription("PerfectRandom.Sulfur.Core.Stats.DamageTypes value used when applying host enemy damage to the local player and the real type is unknown (synthetic ranged hits). Unit.ReceiveDamage REJECTS None(0) outright. 7=Normal (generic physical), 8=Physics. Melee hits forward their real type.",
-                    new AcceptableValueRange<int>(1, 16)));
-            EnableEnemyElementalStatusEffect = cfg.Bind("NetworkEnemyTargetExperimental", "EnableEnemyElementalStatusEffect", true,
-                "When host enemy damage of an elemental type lands on the local player, also apply the matching status (Electric->Electrocuted, Fire->Burning, Frost->Frozen, Poison->Poisoned, Water->Wet, Bleed->Bleed) via Stats.ModifyStatus. This drives the element-specific hurt SCREEN effect (the game renders/decays it from the status). Faithful to single-player (you'd get electrocuted/burned too). Disable for damage-numbers-only.");
-            EnemyElementalStatusAmount = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyElementalStatusAmount", 25f,
-                new ConfigDescription("Amount of the elemental status applied per elemental hit (status range ~0-100; statuses decay over time). Higher = stronger/longer screen effect and gameplay debuff (e.g. Frozen slows, near 100 freezes solid). Lower = fainter, briefer.",
-                    new AcceptableValueRange<float>(1f, 100f)));
+            // Host enemy ranged-damage check params + default damage type + elemental status — hardcoded (Fixed).
+            EnemyHostProjectileHitRadius = new Fixed<float>(0.75f);
+            EnemyHostProjectileVerticalTolerance = new Fixed<float>(1.50f);
+            EnemyHostProjectileMaxDistance = new Fixed<float>(28f);
+            EnemyHostProjectileDamage = new Fixed<float>(10f);
+            EnemyHostProjectileDamageCooldownSeconds = new Fixed<float>(0.45f);
+            EnemyDamageDefaultType = new Fixed<int>(7);   // 7=Normal; ReceiveDamage rejects None(0).
+            EnableEnemyElementalStatusEffect = new Fixed<bool>(true);
+            EnemyElementalStatusAmount = new Fixed<float>(25f);
             LogEnemyHostDamageAuthority = cfg.Bind("NetworkEnemyTargetExperimental", "LogEnemyHostDamageAuthority", false,
                 "Log Host authoritative enemy ranged damage checks and client-side damage applications. Default OFF: this fires once PER HIT, so on a busy fight it is synchronous per-hit disk I/O that stutters the client (confirmed LogOutput108). Turn on only to debug damage routing.");
 
-            EnableHostOnlyEnemyTargetAuthority = cfg.Bind("NetworkEnemyTargetExperimental", "EnableHostOnlyEnemyTargetAuthority", true,
-                "Private Phase 4.4.0-H baseline. Host keeps the real enemy AI/target selection; Clients clear/block local puppet enemy targets and local attack triggers.");
+            // Host-only enemy target/combat authority — functional hardcoded (Fixed); the 2 Log* stay in cfg.
+            EnableHostOnlyEnemyTargetAuthority = new Fixed<bool>(true);
             LogEnemyTargetAuthority = cfg.Bind("NetworkEnemyTargetExperimental", "LogEnemyTargetAuthority", true,
                 "Log low-frequency HostOnly enemy target authority/probe lines for Client puppet enemies.");
-            EnemyTargetAuthorityProbeIntervalSeconds = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyTargetAuthorityProbeIntervalSeconds", 2.0f,
-                new ConfigDescription("Minimum seconds between repeated target authority probe logs for the same enemy/agent.",
-                    new AcceptableValueRange<float>(0.25f, 30f)));
-            EnableEnemyCombatProbe = cfg.Bind("NetworkEnemyTargetExperimental", "EnableEnemyCombatProbe", true,
-                "Log and block Client-local puppet enemy combat triggers so combat authority stays on Host. Does not yet make enemies attack Client players.");
+            EnemyTargetAuthorityProbeIntervalSeconds = new Fixed<float>(2.0f);
+            EnableEnemyCombatProbe = new Fixed<bool>(true); // functional: blocks client-local puppet combat triggers.
             LogEnemyCombatProbe = cfg.Bind("NetworkEnemyTargetExperimental", "LogEnemyCombatProbe", false,
                 "Default OFF — high volume: gates the per-shot [Npc] TriggerShoot/SetShooting/SetAimTarget lines + [EnemyCombatProbe]. Floods when many enemies are active (e.g. a ranged group infighting). EnableEnemyCombatProbe (functional puppet-combat blocking) stays independent. Enable to debug enemy combat.");
 
@@ -1478,33 +1454,18 @@ namespace SULFURTogether.Config
             LogSuppressedClientEnemyAi.Value = false;
             LogClientEnemyPuppetMode.Value = true;
             LogEnemyAnimationMirror.Value = false;
-            EnemyProjectileVisualMirrorEnabled.Value = false;
-            EnemyProjectileVisualMirrorUseNativeShootReplay.Value = false;
-            EnemyProjectileVisualMirrorSpeed.Value = 26f;
-            EnemyProjectileVisualMirrorLifetime.Value = 2.0f;
-            EnableGenericHostCombatAnimatorStateMirror.Value = true;
-            EnableHostAuthoritativeEnemyRangedDamage.Value = false;
-            EnableSyntheticRangedDamageFallback.Value = false;
+            // NetworkEnemyTargetExperimental projectile-visual + ranged-damage gates now hardcoded (Fixed).
             // Phase 5.5-RT3-A5: host snapshot is the single position authority (no flicker from competing writers).
             // Intent-driven motion + correction/snap tuning now hardcoded (Fixed); only LogEnemyAiIntentMirror stays.
             LogEnemyAiIntentMirror.Value = true;
-            EnemyHostProjectileHitRadius.Value = 0.75f;
-            EnemyHostProjectileVerticalTolerance.Value = 1.50f;
-            EnemyHostProjectileMaxDistance.Value = 28f;
-            EnemyHostProjectileDamage.Value = 10f;
-            EnemyHostProjectileDamageCooldownSeconds.Value = 0.45f;
-            EnemyDamageDefaultType.Value = 7;
-            EnableEnemyElementalStatusEffect.Value = true;
-            EnemyElementalStatusAmount.Value = 25f;
+            // Host enemy ranged-damage params + default type + elemental status now hardcoded (Fixed).
             // Phase 5.7-HG: LogEnemyHostDamageAuthority is now Bind-default OFF and intentionally NOT forced here, so the
             // user can toggle it from the .cfg (per the Log* convention). It fires once per hit = per-hit disk I/O.
             // Keep the threshold hitch probe auto-on this investigation round (threshold-gated → no per-hit flood; remove once root-caused).
             LogDamageApplyHitch.Value = true;
             DamageApplyHitchThresholdMs.Value = 3f;
-            EnableHostOnlyEnemyTargetAuthority.Value = true;
+            // EnableHostOnlyEnemyTargetAuthority + probe interval + EnableEnemyCombatProbe hardcoded (Fixed); Log* stays.
             LogEnemyTargetAuthority.Value = true;
-            EnemyTargetAuthorityProbeIntervalSeconds.Value = 2.0f;
-            EnableEnemyCombatProbe.Value = true;          // functional (puppet-combat blocking) stays on; LogEnemyCombatProbe defaults OFF (bind)
             // Host-authorized intent execution Enable*/window now hardcoded (Fixed); only Log* stays.
             LogHostAuthorizedIntentExecution.Value = true;
             // Phase 5.5-RT3-A2 — filter non-player damage on host-driven puppets, default on.

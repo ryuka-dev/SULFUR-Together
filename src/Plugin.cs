@@ -28,6 +28,7 @@ namespace SULFURTogether
             Log      = new STLogger(Logger, Cfg);
 
             Log.Info($"v{ModInfo.Version} by {ModInfo.Author} loading...");
+            Log.Info("[Build] CfgCleanup batch 9 (NetworkEnemyTargetExperimental): 18 enemy projectile-visual + ranged-damage + target/combat-authority functional/tuning flags hardcoded (Fixed), removed from .cfg. 3 Log* kept. 2026-06-30");
             Log.Info("[Build] CfgCleanup batch 8 (NetworkEnemyStateExperimental): 28 enemy state/animation/snapshot/delta-compression functional+tuning flags hardcoded (Fixed), removed from .cfg. 4 Log* kept. 2026-06-30");
             Log.Info("[Build] CfgCleanup batch 7 (NetworkEnemyIntentExperimental): 8 intent-motion + host-authorized-intent functional/tuning flags hardcoded (Fixed; intent-driven motion stays OFF), removed from .cfg. 2 Log* kept. 2026-06-30");
             Log.Info("[Build] CfgCleanup batch 6 (PlayerWeapon): 16 weapon-sync + remote-player body/weapon appearance flags hardcoded (Fixed, appearance finalized), removed from .cfg. 5 Log* kept. 2026-06-30");
