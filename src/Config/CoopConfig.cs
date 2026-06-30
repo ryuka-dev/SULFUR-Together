@@ -67,15 +67,20 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>  SuppressEmptyProbeSummary   { get; }
 
         // ----- Network -----
-        public ConfigEntry<bool>   EnableNetworking       { get; }
-        public ConfigEntry<string> NetworkMode            { get; }  // Off / Host / Client
-        public ConfigEntry<string> HostAddress            { get; }
-        public ConfigEntry<int>    HostPort               { get; }
-        public ConfigEntry<string> PlayerName             { get; }
-        public ConfigEntry<int>    MaxPlayers             { get; }
-        public ConfigEntry<string> ConnectionKey          { get; }
-        public ConfigEntry<bool>   RequireSameModVersion  { get; }
+        // The host/client ROLE is not persisted (runtime-only, CoopConnection.CurrentMode). The connection
+        // settings below are persisted too, but in our own JSON store (CoopSettingsStore) rather than the BepInEx
+        // .cfg, so they stay out of external config managers (Gale) and don't duplicate the in-game connect page.
+        // They keep the ConfigEntry-style `.Value` surface via Setting<T>, so call sites are unchanged.
+        public Setting<string> HostAddress            { get; }
+        public Setting<int>    HostPort               { get; }
+        public Setting<string> PlayerName             { get; }
+        public Setting<int>    MaxPlayers             { get; }
+        public Setting<string> ConnectionKey          { get; }
+        public Setting<bool>   RequireSameModVersion  { get; }
         public ConfigEntry<float>  SendPingIntervalSeconds { get; }
+
+        /// <summary>Backing JSON store for the co-op settings exposed above and <see cref="EnableCoopToasts"/>.</summary>
+        public CoopSettingsStore CoopSettings { get; }
 
         // ----- Run / Scene state negotiation (metadata only) -----
         public ConfigEntry<bool>   EnableRunStateNegotiation      { get; }
@@ -224,7 +229,7 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   EnableArenaGracePeriod { get; }
 
         // ----- In-game co-op UI (toasts / status) via SULFUR Native UI Lib (soft dependency) -----
-        public ConfigEntry<bool>   EnableCoopToasts { get; }
+        public Setting<bool>   EnableCoopToasts { get; }
 
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
         public ConfigEntry<bool>   EnableWorldItemDropSync { get; }
@@ -502,6 +507,18 @@ namespace SULFURTogether.Config
 
         public CoopConfig(ConfigFile cfg)
         {
+            // Co-op settings live in our own JSON store, not the .cfg (kept out of Gale; see CoopSettingsStore).
+            // Construct it first so its first-run migration can still read the old .cfg keys before we prune them.
+            CoopSettings = new CoopSettingsStore(cfg);
+            var store = CoopSettings;
+            PlayerName            = new Setting<string>(() => store.Values.playerName,            v => { store.Values.playerName = v; store.Save(); });
+            HostAddress           = new Setting<string>(() => store.Values.hostAddress,           v => { store.Values.hostAddress = v; store.Save(); });
+            HostPort              = new Setting<int>   (() => store.Values.hostPort,              v => { store.Values.hostPort = v; store.Save(); });
+            ConnectionKey         = new Setting<string>(() => store.Values.connectionKey,         v => { store.Values.connectionKey = v ?? ""; store.Save(); });
+            MaxPlayers            = new Setting<int>   (() => store.Values.maxPlayers,            v => { store.Values.maxPlayers = Mathf.Clamp(v, 2, 4); store.Save(); });
+            RequireSameModVersion = new Setting<bool>  (() => store.Values.requireSameModVersion, v => { store.Values.requireSameModVersion = v; store.Save(); });
+            EnableCoopToasts      = new Setting<bool>  (() => store.Values.enableCoopToasts,      v => { store.Values.enableCoopToasts = v; store.Save(); });
+
             // master
             EnableDebugLog     = cfg.Bind("Debug", "EnableDebugLog",     false, "Verbose debug output.");
             EnableReverseProbe = cfg.Bind("Debug", "EnableReverseProbe", true,  "Master switch for all reverse probes.");
@@ -592,31 +609,14 @@ namespace SULFURTogether.Config
             SuppressEmptyProbeSummary   = cfg.Bind("ProbeSummary", "SuppressEmptyProbeSummary", true,
                 "Skip the summary output if all delta counters are zero.");
 
-            // network
-            EnableNetworking       = cfg.Bind("Network", "EnableNetworking", false,
-                "Master networking switch. When false no socket is ever opened.");
-            NetworkMode            = cfg.Bind("Network", "NetworkMode", "Off",
-                new ConfigDescription("Networking role: Off / Host / Client.",
-                    new AcceptableValueList<string>("Off", "Host", "Client")));
-            HostAddress            = cfg.Bind("Network", "HostAddress", "127.0.0.1",
-                "Host IP address (used by Client only).");
-            HostPort               = cfg.Bind("Network", "HostPort", 9050,
-                "UDP port the Host listens on.");
-            PlayerName             = cfg.Bind("Network", "PlayerName", "Player",
-                "Display name shown to other players.");
-            MaxPlayers             = cfg.Bind("Network", "MaxPlayers", 4,
-                new ConfigDescription("Maximum players including Host (2–4).",
-                    new AcceptableValueRange<int>(2, 4)));
-            ConnectionKey          = cfg.Bind("Network", "ConnectionKey", "SULFUR_TOGETHER_DEV",
-                "Shared passphrase required to join this session.");
-            RequireSameModVersion  = cfg.Bind("Network", "RequireSameModVersion", true,
-                "Reject clients running a different mod version.");
+            // network — role is runtime-only; the connection settings (PlayerName/HostAddress/HostPort/ConnectionKey/
+            // MaxPlayers/RequireSameModVersion) moved to CoopSettings (JSON store), bound above. Only the ping tuning
+            // knob stays a standard .cfg entry.
             SendPingIntervalSeconds = cfg.Bind("Network", "SendPingIntervalSeconds", 2f,
                 "How often (seconds) to send a Ping to peers.");
 
-            // in-game co-op UI (requires SULFUR Native UI Lib for the visual; absent → events are logged only)
-            EnableCoopToasts = cfg.Bind("UI", "EnableCoopToasts", true,
-                "Show brief in-game toast notifications for co-op events (a player joins/leaves, link on/off) via SULFUR Native UI Lib's toast surface. Without the UI Lib these events are written to the log only.");
+            // in-game co-op UI toggle (EnableCoopToasts) moved to CoopSettings (JSON store), bound above — it's a
+            // connect-page preference, so it stays out of the .cfg / Gale like the other co-op settings.
 
             // run / scene metadata only. This never loads levels or synchronizes gameplay.
             EnableRunStateNegotiation = cfg.Bind("NetworkRunState", "EnableRunStateNegotiation", true,
@@ -1432,13 +1432,17 @@ namespace SULFURTogether.Config
                 "screen hangs at the final step (17/17). Ghosts are only needed during active gameplay; they re-register once the level is Running. Reversible.");
 
             ApplyUnpublishedDevelopmentDefaults(cfg);
+
+            // Last: strip the retired co-op keys (connection settings now in CoopSettings + the dropped role keys)
+            // from the .cfg. Must run after every bind/.Value-set above, since each save re-emits orphaned keys.
+            CoopSettingsStore.PruneRetiredCfgKeys(cfg);
         }
 
         private void ApplyUnpublishedDevelopmentDefaults(ConfigFile cfg)
         {
-            // This mod is still private/unpublished. Keep connection identity settings user-owned,
-            // but hard-reset the active experimental gameplay baseline so stale cfg values from
-            // earlier internal builds cannot silently re-enable old behavior.
+            // This mod is still private/unpublished. Connection identity settings stay user-owned (now in the
+            // CoopSettings JSON store, not touched here), but hard-reset the active experimental gameplay baseline
+            // so stale cfg values from earlier internal builds cannot silently re-enable old behavior.
             EnableRunStateNegotiation.Value = true;
             RunStateBroadcastIntervalSeconds.Value = 2f;
             WarnOnRunStateMismatch.Value = true;
@@ -1497,8 +1501,17 @@ namespace SULFURTogether.Config
             EnableBossRoomMembership.Value = true;
             GateBossDialogToInRoom.Value = true;
             ExcludeOutOfRoomPlayersFromBossAttacks.Value = true;
-            // Symmetric NPC activation near remote players (both host + client). Validated host-side (Log93/94).
+            // Plan B enemy activation + targeting (VERIFIED WORKING — Docs/EnemyActivationAndPlayersRegistry.md).
+            // All three are required for a client to fight enemies ahead of a stationary host:
+            //  · activation postfix wakes NPCs near any remote player (the "won't wake" fix);
+            //  · the headless ghost Player registers the client in GameManager.Players so host enemies natively
+            //    detect/aggro/target it — WITHOUT this the client is no one's target on the host, so host enemies
+            //    stand idle and the client's puppets mirror that idle = the 站桩 regression;
+            //  · the ghost hitbox routes enemy hits to the client (needs EnableDamageProbe, which is bind-default true).
+            // Previously these lived only in a local .cfg; promoted here so a fresh/deleted config (and release) work.
             EnableMultiPlayerNpcActivation.Value = true;
+            EnableRemotePlayerInPlayersList.Value = true;
+            EnableGhostPlayerHitbox.Value = true;
 
             // Phase 5.4-E3 — dialog commit + Lucia + Witch state default on; Emperor worm DIAGNOSTIC on, SUPPRESSION off (reversible).
             EnableEmperorWormDiagnostics.Value = true;

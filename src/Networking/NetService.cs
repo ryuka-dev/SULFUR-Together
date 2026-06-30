@@ -11,7 +11,7 @@ namespace SULFURTogether.Networking
     /// <summary>
     /// Network service for connection, handshake, session metadata, scene/run metadata,
     /// visual proxy packets, and explicitly enabled experimental Phase 4 gameplay probes.
-    /// Dead when EnableNetworking=false.
+    /// Only alive while a session is running (CoopConnection.CurrentMode != Off).
     /// Call Tick() from Plugin.Update() (Unity main thread).
     /// </summary>
     public class NetService

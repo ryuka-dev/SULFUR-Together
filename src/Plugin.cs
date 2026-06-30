@@ -28,18 +28,18 @@ namespace SULFURTogether
             Log      = new STLogger(Logger, Cfg);
 
             Log.Info($"v{ModInfo.Version} by {ModInfo.Author} loading...");
-            Log.Info("[Build] Phase 5.7-DS2: host-authoritative SpawnMinions sync (spawnMinionsOnDeath) — host tags the parent UnitSO so the async minion spawns broadcast via the runtime pipeline; client suppresses its local SpawnMinions and mirrors. Fixes LogOutput118 'never bound, late-bind failed' on a GoblinYoung minion wave. + BatchedNPCRaycasts.LateUpdate finalizer swallows the roster/Players index race (1× IndexOutOfRange during runtime spawns). gates EnableMinionSpawnSync / EnableDestroyedUnitListSweep 2026-06-25");
+            Log.Info("[Build] UI-CleanRole: networking role is runtime-only (NetworkMode/EnableNetworking dropped from the .cfg); connection settings (name/IP/port/key/maxplayers/version + EnableCoopToasts) moved to a private JSON store (CoopSettingsStore) so they stay out of Gale; retired .cfg keys pruned via OrphanedEntries reflection. + REGRESSION FIX: promoted Plan B targeting flags EnableRemotePlayerInPlayersList + EnableGhostPlayerHitbox into the dev-defaults (were local-cfg-only; a fresh/deleted config left enemies idle = 站桩). 2026-06-30");
             var harmony = new Harmony(ModInfo.GUID);
             PatchBootstrap.ApplyAll(harmony);
 
             WireCoopUi();
 
-            // Phase 2 network — dead when EnableNetworking=false or NetworkMode=Off. The connect UI (UI-3) can
-            // start/stop/switch this at runtime through CoopConnection; Awake just applies the configured mode.
+            // Phase 2 network — boots Off. The role (Host/Client) is decided at runtime by the connect UI (UI-3)
+            // via CoopConnection and is never read from the .cfg; Initialize just establishes the clean Off state.
             CoopConnection.Initialize();
 
-            Log.Info("[ConfigPolicy] Private development build: active experimental gameplay defaults are forced on load; connection settings such as NetworkMode/HostAddress/HostPort/PlayerName are left user-owned.");
-            Log.Info($"[Config] EnableDebugLog={Cfg.EnableDebugLog.Value} | EnableReverseProbe={Cfg.EnableReverseProbe.Value} | EnableNetworking={Cfg.EnableNetworking.Value} | NetworkMode={Cfg.NetworkMode.Value}");
+            Log.Info("[ConfigPolicy] Private development build: active experimental gameplay defaults are forced on load; connection settings such as HostAddress/HostPort/PlayerName are left user-owned. The networking role is runtime-only (not persisted).");
+            Log.Info($"[Config] EnableDebugLog={Cfg.EnableDebugLog.Value} | EnableReverseProbe={Cfg.EnableReverseProbe.Value} | NetMode={NetConfig.GetMode()}");
             Log.Info($"[Config] EnableInventorySerializationProbe={Cfg.EnableInventorySerializationProbe.Value} | EnableAiUpdateTargetProbe={Cfg.EnableAiUpdateTargetProbe.Value} | EnableAiSetDestinationProbe={Cfg.EnableAiSetDestinationProbe.Value}");
             Log.Info($"[Config] EnableVerbosePickupProbe={Cfg.EnableVerbosePickupProbe.Value} | EnableVerboseLootProbe={Cfg.EnableVerboseLootProbe.Value} | CompactPickupLogs={Cfg.CompactPickupLogs.Value} | CompactLootLogs={Cfg.CompactLootLogs.Value}");
             Log.Info($"[Config] EnableRunStateNegotiation={Cfg.EnableRunStateNegotiation.Value} | RunStateBroadcastIntervalSeconds={Cfg.RunStateBroadcastIntervalSeconds.Value} | WarnOnRunStateMismatch={Cfg.WarnOnRunStateMismatch.Value}");

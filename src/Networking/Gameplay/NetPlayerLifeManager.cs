@@ -1163,8 +1163,7 @@ namespace SULFURTogether.Networking.Gameplay
         private static bool IsEnabled()
         {
             if (!Plugin.Cfg.EnableCoopPlayerDownedRevive.Value) return false;
-            if (!Plugin.Cfg.EnableNetworking.Value) return false;
-            return NetConfig.GetMode() != NetMode.Off;
+            return NetConfig.GetMode() != NetMode.Off; // GetMode()==Off already means no live session
         }
 
         private static bool LooksLikePlayerUnit(object value)

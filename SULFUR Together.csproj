@@ -84,6 +84,10 @@
       <HintPath>$(SulfurManagedDir)\UnityEngine.IMGUIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.JSONSerializeModule">
+      <HintPath>$(SulfurManagedDir)\UnityEngine.JSONSerializeModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.AnimationModule">
       <HintPath>$(SulfurManagedDir)\UnityEngine.AnimationModule.dll</HintPath>
       <Private>false</Private>

@@ -291,8 +291,7 @@ namespace SULFURTogether.UI
         {
             if (!IsInGame()) return; // button is disabled out-of-game; the gate-hint row explains why
             SaveSettings();
-            Plugin.Cfg.NetworkMode.Value = NetMode.Host.ToString();
-            try { Plugin.Cfg.EnableNetworking.Value = true; } catch { }
+            // The role is runtime-only now — Apply sets CoopConnection.CurrentMode; nothing is written to the .cfg.
             CoopConnection.Apply(NetMode.Host, "ui-create");
             ApplyButtonStates();
         }
@@ -307,8 +306,7 @@ namespace SULFURTogether.UI
             // (NetManualSceneFollower.CloseIfOpen("host-driven-follow")), which on a real join always runs first.
             _closeMenuOnJoinSuccess = true;
             SaveSettings();
-            Plugin.Cfg.NetworkMode.Value = NetMode.Client.ToString();
-            try { Plugin.Cfg.EnableNetworking.Value = true; } catch { }
+            // The role is runtime-only now — Apply sets CoopConnection.CurrentMode; nothing is written to the .cfg.
             CoopConnection.Apply(NetMode.Client, "ui-join"); // synchronously enters NetConnectFeedback.Connecting
             // Link synchronously, before the (async) handshake. The host sends its current scene request on
             // handshake, so the now-linked client's auto-follow then brings it into the host's scene — no
@@ -336,8 +334,7 @@ namespace SULFURTogether.UI
         private static void OnCloseRoom()
         {
             _closeMenuOnJoinSuccess = false;
-            try { Plugin.Cfg.EnableNetworking.Value = false; } catch { }
-            CoopConnection.Stop("ui-close-room");
+            CoopConnection.Stop("ui-close-room"); // returns CoopConnection.CurrentMode to Off
             ApplyButtonStates();
         }
 
