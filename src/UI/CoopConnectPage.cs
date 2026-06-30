@@ -48,6 +48,10 @@ namespace SULFURTogether.UI
 
         private static float _nextTick;
 
+        // A Join is in flight and the menu should close once (and only if) the connection is confirmed. Set on
+        // Join, consumed in Tick when the attempt resolves: closed on success, dropped (menu kept open) on failure.
+        private static bool _closeMenuOnJoinSuccess;
+
         public static void Register()
         {
             if (_registered) return;
@@ -87,6 +91,7 @@ namespace SULFURTogether.UI
                 ApplyButtonStates();
                 ApplyJoinFeedback();
                 RefreshPlayerList();
+                PollJoinClose();
             }
             catch
             {
@@ -267,14 +272,16 @@ namespace SULFURTogether.UI
         private static void OnJoin()
         {
             if (!IsInGame()) { _ctx?.SetFooterStatus("Load a save first."); return; }
-            // Close the pause/options menu FIRST. Joining triggers an immediate host-driven level load (black-
-            // screen fade); if the menu is left open the player can wedge the game by dismissing the fade with
-            // Space while the menu still holds input. Returning to gameplay before the load avoids that.
-            CoopMenu.CloseIfOpen("ui-join");
+            // Do NOT close the menu yet — only a *successful* join should return the player to the game; a failed
+            // join keeps the menu open so the error feedback is visible. The close is deferred to PollJoinClose,
+            // which fires the moment the handshake resolves. The wedge the menu could cause over the black-screen
+            // load is independently handled host-side: the host-driven follow closes any open menu before its fade
+            // (NetManualSceneFollower.CloseIfOpen("host-driven-follow")), which on a real join always runs first.
+            _closeMenuOnJoinSuccess = true;
             SaveSettings();
             Plugin.Cfg.NetworkMode.Value = NetMode.Client.ToString();
             try { Plugin.Cfg.EnableNetworking.Value = true; } catch { }
-            CoopConnection.Apply(NetMode.Client, "ui-join");
+            CoopConnection.Apply(NetMode.Client, "ui-join"); // synchronously enters NetConnectFeedback.Connecting
             // Link synchronously, before the (async) handshake. The host sends its current scene request on
             // handshake, so the now-linked client's auto-follow then brings it into the host's scene — no
             // separate follow trigger needed (a second one would double-load and corrupt the join; Log185).
@@ -283,9 +290,24 @@ namespace SULFURTogether.UI
             ApplyJoinFeedback();
         }
 
+        /// <summary>Resolve a pending Join: close the menu once the connection is confirmed, drop the request
+        /// (leaving the menu open with its error) if it failed or was torn down. Connecting → keep waiting.</summary>
+        private static void PollJoinClose()
+        {
+            if (!_closeMenuOnJoinSuccess) return;
+            if (NetConnectFeedback.Connecting) return; // attempt still in flight
+
+            // Resolved. Success = still in Client mode with no recorded error; anything else is a failure/abort.
+            bool joined = CoopConnection.CurrentMode == NetMode.Client
+                          && string.IsNullOrEmpty(NetConnectFeedback.LastError);
+            _closeMenuOnJoinSuccess = false;
+            if (joined) CoopMenu.CloseIfOpen("ui-join-success");
+        }
+
         /// <summary>Hard stop: tear the network down entirely (host closes the room / client leaves).</summary>
         private static void OnCloseRoom()
         {
+            _closeMenuOnJoinSuccess = false;
             try { Plugin.Cfg.EnableNetworking.Value = false; } catch { }
             CoopConnection.Stop("ui-close-room");
             ApplyButtonStates();
