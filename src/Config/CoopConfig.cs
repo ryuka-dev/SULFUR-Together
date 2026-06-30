@@ -209,9 +209,9 @@ namespace SULFURTogether.Config
         public Fixed<bool>         EnableMinionSpawnSync { get; }
 
         // ----- Phase 5.6-WS player weapon bullet sync (visual-only barrage replay) -----
-        public ConfigEntry<bool>   EnablePlayerWeaponSync { get; }
+        public Fixed<bool>         EnablePlayerWeaponSync { get; }   // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogPlayerWeaponSync { get; }
-        public ConfigEntry<int>    PlayerWeaponSyncMaxProjectilesPerShot { get; }
+        public Fixed<int>          PlayerWeaponSyncMaxProjectilesPerShot { get; } // safety clamp (release-hardcoded)
 
         // ----- Phase 5.7-BR in-scene destructible (Breakable) sync -----
         public Fixed<bool>         EnableBreakableSync { get; }   // functional: always on (release-hardcoded)
@@ -237,29 +237,29 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   ShareAllLoot { get; }
 
         // ----- Phase 5.6-WS-2 remote held weapon model (with attachments) -----
-        public ConfigEntry<bool>   EnableRemoteWeaponModel { get; }
+        public Fixed<bool>         EnableRemoteWeaponModel { get; } // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogRemoteWeaponModel { get; }
 
         // ----- Phase 5.6-WS-3 player visual (billboard sprite) discovery probe -----
         public ConfigEntry<bool>   LogPlayerVisualDiscovery { get; }
         public ConfigEntry<bool>   LogPlayerSpriteAssetScan { get; }
 
-        // ----- Phase 5.6-WS-3 remote player billboard body -----
+        // ----- Phase 5.6-WS-3 remote player billboard body ----- (functional + appearance finalized, release-hardcoded)
         // Priest (Father) sprite body (embedded front/back walk sheets) takes priority; NPC-prefab body is the fallback.
-        public ConfigEntry<bool>   EnableRemotePlayerSpriteBody { get; }
-        public ConfigEntry<bool>   EnableRemotePlayerNpcBody { get; }
-        public ConfigEntry<string> RemotePlayerBodyUnitKeyword { get; }
+        public Fixed<bool>         EnableRemotePlayerSpriteBody { get; }
+        public Fixed<bool>         EnableRemotePlayerNpcBody { get; }
+        public Fixed<string>       RemotePlayerBodyUnitKeyword { get; }
         public ConfigEntry<bool>   LogRemotePlayerBody { get; }
-        public ConfigEntry<float>  RemoteBodyScale { get; }
-        public ConfigEntry<float>  RemoteBodyFeetYOffset { get; }
-        public ConfigEntry<float>  RemoteWeaponScale { get; }
-        public ConfigEntry<float>  RemoteWeaponHipHeight { get; }
-        public ConfigEntry<float>  RemoteWeaponForward { get; }
-        public ConfigEntry<float>  RemoteWeaponRight { get; }
-        public ConfigEntry<float>  RemoteBodyPitchLimit { get; }
-        public ConfigEntry<float>  RemoteBodyDepthBias { get; }
-        public ConfigEntry<float>  RemoteNameSize { get; }
-        public ConfigEntry<float>  RemoteNameHeight { get; }
+        public Fixed<float>        RemoteBodyScale { get; }
+        public Fixed<float>        RemoteBodyFeetYOffset { get; }
+        public Fixed<float>        RemoteWeaponScale { get; }
+        public Fixed<float>        RemoteWeaponHipHeight { get; }
+        public Fixed<float>        RemoteWeaponForward { get; }
+        public Fixed<float>        RemoteWeaponRight { get; }
+        public Fixed<float>        RemoteBodyPitchLimit { get; }
+        public Fixed<float>        RemoteBodyDepthBias { get; }
+        public Fixed<float>        RemoteNameSize { get; }
+        public Fixed<float>        RemoteNameHeight { get; }
 
         // ----- Phase 5.3-M P1 auto-follow + load barrier -----
         public ConfigEntry<bool>   EnableAutoFollowHostSceneRequest { get; }
@@ -843,12 +843,10 @@ namespace SULFURTogether.Config
             // count/spread/aim and broadcasts one fire event per trigger pull; receivers replay the barrage through the
             // game's real ProjectileSystem with damage stripped (empty damageComps + explicitDamage=0 → zero damage,
             // verified safe). Damage stays host-authoritative via the existing ClientHitRequest pipeline.
-            EnablePlayerWeaponSync = cfg.Bind("PlayerWeapon", "EnablePlayerWeaponSync", true,
-                "Phase 5.6-WS: show other players' weapon fire (full barrage incl. multi-projectile/tracking/laser/rocket) as visual-only bullets. Damage stays host-authoritative. Reversible.");
+            EnablePlayerWeaponSync = new Fixed<bool>(true); // Phase 5.6-WS player weapon visual sync — functional, always on.
             LogPlayerWeaponSync = cfg.Bind("PlayerWeapon", "LogPlayerWeaponSync", true,
                 "Phase 5.6-WS: verbose log for player weapon sync (capture / broadcast / replay).");
-            PlayerWeaponSyncMaxProjectilesPerShot = cfg.Bind("PlayerWeapon", "PlayerWeaponSyncMaxProjectilesPerShot", 256,
-                "Phase 5.6-WS: safety clamp on visual projectiles replayed per fire event (huge modded barrages). Local damage is unaffected.");
+            PlayerWeaponSyncMaxProjectilesPerShot = new Fixed<int>(256); // safety clamp on replayed visual projectiles.
 
             // Phase 5.7-BR: sync in-scene destructibles (Units.Breakable). Each peer breaks its own destructibles for
             // real; when one breaks we broadcast a break event keyed by the breakable's deterministic spawn position,
@@ -899,8 +897,7 @@ namespace SULFURTogether.Config
 
             // Phase 5.6-WS-2: show each remote player's currently held weapon model (rebuilt from WeaponSO + installed
             // attachments, since attachments change the model) in their proxy's hands. Visual only.
-            EnableRemoteWeaponModel = cfg.Bind("PlayerWeapon", "EnableRemoteWeaponModel", true,
-                "Phase 5.6-WS-2: display the remote player's held weapon model (with attachments) in their proxy's hands. Visual only. Reversible.");
+            EnableRemoteWeaponModel = new Fixed<bool>(true); // Phase 5.6-WS-2 remote held weapon model — functional, always on.
             LogRemoteWeaponModel = cfg.Bind("PlayerWeapon", "LogRemoteWeaponModel", true,
                 "Phase 5.6-WS-2: verbose log for remote weapon model sync (broadcast / build / attach).");
 
@@ -915,34 +912,23 @@ namespace SULFURTogether.Config
             // Phase 5.6-WS-3: the player has no directional sprite art, so represent remote players with an NPC's
             // billboard paper sprite (visual-only, gameplay stripped) instead of the plain capsule. Faces the camera via
             // the game's BillboardSpriteManager; the held weapon model stays attached.
-            EnableRemotePlayerSpriteBody = cfg.Bind("PlayerWeapon", "EnableRemotePlayerSpriteBody", true,
-                "Phase 5.6-WS-3: show remote players as the priest (Father) billboard sprite (embedded front/back walk sheets, faces camera, front/back by facing). Takes priority over the NPC-prefab body. Reversible.");
-            EnableRemotePlayerNpcBody = cfg.Bind("PlayerWeapon", "EnableRemotePlayerNpcBody", false,
-                "Phase 5.6-WS-3 fallback: show remote players as an NPC billboard paper sprite instead of a capsule (used only if the Father sprite body is disabled/unavailable). Reversible.");
-            RemotePlayerBodyUnitKeyword = cfg.Bind("PlayerWeapon", "RemotePlayerBodyUnitKeyword", "civilian,grocer,scholar,arthur,telia,citizen,man,woman",
-                "Phase 5.6-WS-3: comma-separated name keywords; the first humanoid UnitSO whose name/displayName matches is reused as the remote player body. First match wins (in keyword order).");
+            // Phase 5.6-WS-3 remote player body + carry pose — appearance finalized, hardcoded to the effective values
+            // (forced ones used their dev-default; un-forced ones their bind default). Only Log* stays in cfg.
+            EnableRemotePlayerSpriteBody = new Fixed<bool>(true);
+            EnableRemotePlayerNpcBody = new Fixed<bool>(false);
+            RemotePlayerBodyUnitKeyword = new Fixed<string>("civilian,grocer,scholar,arthur,telia,citizen,man,woman");
             LogRemotePlayerBody = cfg.Bind("PlayerWeapon", "LogRemotePlayerBody", true,
                 "Phase 5.6-WS-3: verbose log for the remote player NPC billboard body (resolve / load / build / attach).");
-            RemoteBodyScale = cfg.Bind("PlayerWeapon", "RemoteBodyScale", 1.6f,
-                "Phase 5.6-WS-3: uniform scale of the remote player billboard body (tune apparent height).");
-            RemoteBodyFeetYOffset = cfg.Bind("PlayerWeapon", "RemoteBodyFeetYOffset", 0.0f,
-                "Phase 5.6-WS-3: vertical offset (metres) of the body's feet relative to the remote player's ground position.");
-            RemoteWeaponScale = cfg.Bind("PlayerWeapon", "RemoteWeaponScale", 1.4f,
-                "Phase 5.6-WS-3: uniform scale of the remote player's held weapon model.");
-            RemoteWeaponHipHeight = cfg.Bind("PlayerWeapon", "RemoteWeaponHipHeight", 1.2f,
-                "Phase 5.6-WS-3: height (metres above feet) at which the held weapon is carried (waist level).");
-            RemoteWeaponForward = cfg.Bind("PlayerWeapon", "RemoteWeaponForward", 0.30f,
-                "Phase 5.6-WS-3: how far forward (metres, along look direction) the held weapon sits from the body.");
-            RemoteWeaponRight = cfg.Bind("PlayerWeapon", "RemoteWeaponRight", 0.375f,
-                "Phase 5.6-WS-3: how far to the right (metres) the held weapon sits.");
-            RemoteBodyPitchLimit = cfg.Bind("PlayerWeapon", "RemoteBodyPitchLimit", 25f,
-                "Phase 5.6-WS-3: max pitch (degrees) the body billboard tilts up/down toward the camera (like NPC sprites).");
-            RemoteBodyDepthBias = cfg.Bind("PlayerWeapon", "RemoteBodyDepthBias", 0.0f,
-                "Phase 5.6-WS-3: depth nudge (metres) for the body vs weapon. 0 = same layer (weapon intersects the paper sprite).");
-            RemoteNameSize = cfg.Bind("PlayerWeapon", "RemoteNameSize", 0.03f,
-                "Phase 5.6-WS-3: name label TextMesh character size (world).");
-            RemoteNameHeight = cfg.Bind("PlayerWeapon", "RemoteNameHeight", 0.45f,
-                "Phase 5.6-WS-3: extra height (metres) of the name label above the head (margin/gap).");
+            RemoteBodyScale = new Fixed<float>(1.2f);
+            RemoteBodyFeetYOffset = new Fixed<float>(0.0f);
+            RemoteWeaponScale = new Fixed<float>(1.4f);
+            RemoteWeaponHipHeight = new Fixed<float>(1.0f);
+            RemoteWeaponForward = new Fixed<float>(0.30f);
+            RemoteWeaponRight = new Fixed<float>(0.4f);
+            RemoteBodyPitchLimit = new Fixed<float>(25f);
+            RemoteBodyDepthBias = new Fixed<float>(0.0f);
+            RemoteNameSize = new Fixed<float>(0.03f);
+            RemoteNameHeight = new Fixed<float>(0.45f);
 
             // Phase 5.4-A: how a Client decides to join the Host. Default only auto-joins from a safe state
             // (Hub/Menu/SafeZone) so a player's own combat run or level-transition save is never hijacked.
@@ -1498,8 +1484,7 @@ namespace SULFURTogether.Config
             EnableWitchDeathFix.Value = true;
             // Phase 5.5-RT1 / RT3-A / 5.7-DS / DS2 — runtime/death/minion spawn sync Enable* now hardcoded (Fixed); Log* stays.
             LogRuntimeSpawnSync.Value = true;
-            // Phase 5.6-WS — player weapon bullet sync (visual-only barrage replay) default on.
-            EnablePlayerWeaponSync.Value = true;
+            // Phase 5.6-WS — EnablePlayerWeaponSync + max-projectiles hardcoded (Fixed); Log* stays.
             LogPlayerWeaponSync.Value = true;
             // Phase 5.7-BR / LD-1 / LD-1b — Enable* flags are now hardcoded (Fixed<bool>); only their Log* stay forced.
             LogBreakableSync.Value = true;
@@ -1514,25 +1499,12 @@ namespace SULFURTogether.Config
             EnableWorldItemDropSync.Value = true;
             LogWorldItemDropSync.Value = true;
             ShareAllLoot.Value = false;
-            // Phase 5.6-WS-2 — remote held weapon model default on.
-            EnableRemoteWeaponModel.Value = true;
+            // Phase 5.6-WS-2/WS-3 — remote weapon model + sprite body Enable* + all appearance values now hardcoded
+            // (Fixed); only the Log* flags stay forced/in cfg.
             LogRemoteWeaponModel.Value = true;
-            // Phase 5.6-WS-3 — player visual discovery probes default OFF now (player has no sprite art; scans done).
             LogPlayerVisualDiscovery.Value = false;
             LogPlayerSpriteAssetScan.Value = false;
-            // Phase 5.6-WS-3 — remote player Father sprite body default on; NPC-prefab body off (fallback only).
-            EnableRemotePlayerSpriteBody.Value = true;
-            EnableRemotePlayerNpcBody.Value = false;
             LogRemotePlayerBody.Value = true;
-            // Force body/weapon size + carry pose while still being tuned (overrides stale configs from earlier builds).
-            RemoteBodyScale.Value = 1.2f;
-            RemoteWeaponScale.Value = 1.4f;
-            RemoteWeaponHipHeight.Value = 1.0f;
-            RemoteWeaponForward.Value = 0.30f;
-            RemoteWeaponRight.Value = 0.4f;
-            RemoteBodyDepthBias.Value = 0.0f;   // same layer — weapon intersects the paper sprite
-            RemoteNameSize.Value = 0.03f;
-            RemoteNameHeight.Value = 0.45f;
 
             // NetworkVisualProxy — all hardcoded now (Fixed); nothing to force here.
 

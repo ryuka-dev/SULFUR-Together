@@ -28,6 +28,7 @@ namespace SULFURTogether
             Log      = new STLogger(Logger, Cfg);
 
             Log.Info($"v{ModInfo.Version} by {ModInfo.Author} loading...");
+            Log.Info("[Build] CfgCleanup batch 6 (PlayerWeapon): 16 weapon-sync + remote-player body/weapon appearance flags hardcoded (Fixed, appearance finalized), removed from .cfg. 5 Log* kept. 2026-06-30");
             Log.Info("[Build] CfgCleanup batch 5 (NetworkPlayerLifeExperimental): 8 downed/revive functional+tuning flags hardcoded (Fixed), removed from .cfg. LogPlayerLifeSync + PlayerReviveHoldKey (keybind) kept. 2026-06-30");
             Log.Info("[Build] CfgCleanup batch 4 (NetworkEnemy + NetworkGameplaySyncExperimental): 11 runtime-spawn + enemy-death-mirror functional/tuning flags hardcoded (Fixed), removed from .cfg. Log* kept. 2026-06-30");
             Log.Info("[Build] CfgCleanup batch 3 (NetworkVisualProxy): 9 remote-visual-proxy functional/tuning flags hardcoded (Fixed), removed from .cfg. 2026-06-30");

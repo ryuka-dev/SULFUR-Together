@@ -61,6 +61,12 @@ namespace SULFURTogether.Config
             "EnableCoopPlayerDownedRevive", "PlayerDownedRescueTimeoutSeconds", "PlayerReviveHoldSeconds",
             "PlayerReviveDistance", "PlayerReviveHealthRatio", "PlayerReviveInvulnerabilitySeconds",
             "PlayerDownedHealthFloor", "RequireReviveDistanceValidationOnHost",
+            // Batch 6 (PlayerWeapon — weapon sync + remote body/weapon appearance finalized; 5 Log* kept):
+            "EnablePlayerWeaponSync", "PlayerWeaponSyncMaxProjectilesPerShot", "EnableRemoteWeaponModel",
+            "EnableRemotePlayerSpriteBody", "EnableRemotePlayerNpcBody", "RemotePlayerBodyUnitKeyword",
+            "RemoteBodyScale", "RemoteBodyFeetYOffset", "RemoteWeaponScale", "RemoteWeaponHipHeight",
+            "RemoteWeaponForward", "RemoteWeaponRight", "RemoteBodyPitchLimit", "RemoteBodyDepthBias",
+            "RemoteNameSize", "RemoteNameHeight",
         };
 
         private readonly string _jsonPath;
