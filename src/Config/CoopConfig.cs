@@ -268,16 +268,16 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LoadBarrierBlockHostAdvance { get; }
         public ConfigEntry<bool>   LoadBarrierLogOnlyMode { get; }
 
-        // ----- Phase 3.0 remote visual proxy only -----
-        public ConfigEntry<bool>   EnableRemotePlayerVisualProxy { get; }
-        public ConfigEntry<float>  RemotePlayerTransformSendRateHz { get; }
-        public ConfigEntry<float>  RemotePlayerVisualTimeoutSeconds { get; }
-        public ConfigEntry<float>  RemotePlayerVisualInterpolationSpeed { get; }
-        public ConfigEntry<float>  RemotePlayerVisualSnapDistance { get; }
-        public ConfigEntry<bool>   EnableRemotePlayerProxyCollision { get; }
-        public ConfigEntry<bool>   RemotePlayerCollisionSoft { get; }
-        public ConfigEntry<float>  RemotePlayerSoftCollisionRadius { get; }
-        public ConfigEntry<float>  RemotePlayerSoftCollisionPushSpeed { get; }
+        // ----- Phase 3.0 remote visual proxy only ----- (functional + tuning: release-hardcoded)
+        public Fixed<bool>         EnableRemotePlayerVisualProxy { get; }
+        public Fixed<float>        RemotePlayerTransformSendRateHz { get; }
+        public Fixed<float>        RemotePlayerVisualTimeoutSeconds { get; }
+        public Fixed<float>        RemotePlayerVisualInterpolationSpeed { get; }
+        public Fixed<float>        RemotePlayerVisualSnapDistance { get; }
+        public Fixed<bool>         EnableRemotePlayerProxyCollision { get; }
+        public Fixed<bool>         RemotePlayerCollisionSoft { get; }
+        public Fixed<float>        RemotePlayerSoftCollisionRadius { get; }
+        public Fixed<float>        RemotePlayerSoftCollisionPushSpeed { get; }
 
         // ----- Phase 4.0 gameplay entity probe only -----
         public ConfigEntry<bool>   EnableGameplayEntityProbe { get; }
@@ -969,27 +969,16 @@ namespace SULFURTogether.Config
             LoadBarrierLogOnlyMode = cfg.Bind("NetworkSceneAuthority", "LoadBarrierLogOnlyMode", true,
                 "Phase 5.3-M P1: when true the load barrier only logs/reports and never suppresses host runtime sync. Keep true until real host-side gating is implemented.");
 
-            // Phase 3.0 remote player visual proxy only. This never creates gameplay Player/Unit objects.
-            EnableRemotePlayerVisualProxy = cfg.Bind("NetworkVisualProxy", "EnableRemotePlayerVisualProxy", true,
-                "Create local-only visual proxy GameObjects for remote players in the same scene. No gameplay synchronization.");
-            RemotePlayerTransformSendRateHz = cfg.Bind("NetworkVisualProxy", "RemotePlayerTransformSendRateHz", 10f,
-                "How many visual-only local player transform packets to send per second while connected.");
-            RemotePlayerVisualTimeoutSeconds = cfg.Bind("NetworkVisualProxy", "RemotePlayerVisualTimeoutSeconds", 3f,
-                "Hide a remote visual proxy if no visual transform update is received for this many seconds.");
-            RemotePlayerVisualInterpolationSpeed = cfg.Bind("NetworkVisualProxy", "RemotePlayerVisualInterpolationSpeed", 12f,
-                "How quickly remote visual proxies interpolate toward received transform packets. Higher values are snappier; 0 disables interpolation and snaps every update.");
-            RemotePlayerVisualSnapDistance = cfg.Bind("NetworkVisualProxy", "RemotePlayerVisualSnapDistance", 8f,
-                "If a proxy is farther than this many meters from its target, snap instead of interpolating. Set 0 to disable distance snapping.");
-            EnableRemotePlayerProxyCollision = cfg.Bind("NetworkVisualProxy", "EnableRemotePlayerProxyCollision", true,
-                "Master switch for player-vs-player collision. Disable to let players pass through each other freely.");
-            RemotePlayerCollisionSoft = cfg.Bind("NetworkVisualProxy", "RemotePlayerCollisionSoft", true,
-                "Soft mutual collision: instead of a hard immovable wall (which lets you stand on the other's head and shoves the other across the room), each side gently pushes ITS OWN player out of overlap. You can press in and the other is squeezed out, both ways. Set false for the old hard-wall behavior.");
-            RemotePlayerSoftCollisionRadius = cfg.Bind("NetworkVisualProxy", "RemotePlayerSoftCollisionRadius", 0.8f,
-                new ConfigDescription("Soft collision: minimum horizontal separation (meters) kept between two players' centers.",
-                    new AcceptableValueRange<float>(0.2f, 2.0f)));
-            RemotePlayerSoftCollisionPushSpeed = cfg.Bind("NetworkVisualProxy", "RemotePlayerSoftCollisionPushSpeed", 0.5f,
-                new ConfigDescription("Soft collision: max speed (m/s) the local player is nudged out of overlap. Higher = firmer separation, lower = softer/squishier.",
-                    new AcceptableValueRange<float>(0.05f, 20f)));
+            // Phase 3.0 remote player visual proxy only — functional behaviour + tuned values (release-hardcoded).
+            EnableRemotePlayerVisualProxy = new Fixed<bool>(true);
+            RemotePlayerTransformSendRateHz = new Fixed<float>(10f);
+            RemotePlayerVisualTimeoutSeconds = new Fixed<float>(3f);
+            RemotePlayerVisualInterpolationSpeed = new Fixed<float>(12f);
+            RemotePlayerVisualSnapDistance = new Fixed<float>(8f);
+            EnableRemotePlayerProxyCollision = new Fixed<bool>(true);
+            RemotePlayerCollisionSoft = new Fixed<bool>(true);
+            RemotePlayerSoftCollisionRadius = new Fixed<float>(0.8f);
+            RemotePlayerSoftCollisionPushSpeed = new Fixed<float>(0.5f);
 
             // Phase 4.0-A gameplay entity probe. Observation/logging only; no gameplay or network changes.
             EnableGameplayEntityProbe = cfg.Bind("NetworkGameplayProbe", "EnableGameplayEntityProbe", true,
@@ -1576,15 +1565,7 @@ namespace SULFURTogether.Config
             RemoteNameSize.Value = 0.03f;
             RemoteNameHeight.Value = 0.45f;
 
-            EnableRemotePlayerVisualProxy.Value = true;
-            EnableRemotePlayerProxyCollision.Value = true;
-            RemotePlayerCollisionSoft.Value = true;
-            RemotePlayerSoftCollisionRadius.Value = 0.8f;
-            RemotePlayerSoftCollisionPushSpeed.Value = 0.5f;
-            RemotePlayerTransformSendRateHz.Value = 10f;
-            RemotePlayerVisualTimeoutSeconds.Value = 3f;
-            RemotePlayerVisualInterpolationSpeed.Value = 12f;
-            RemotePlayerVisualSnapDistance.Value = 8f;
+            // NetworkVisualProxy — all hardcoded now (Fixed); nothing to force here.
 
             EnableGameplayEntityProbe.Value = true;
             GameplayEntityProbeSummaryIntervalSeconds.Value = 10f;

@@ -48,6 +48,10 @@ namespace SULFURTogether.Config
             "EnableRunStateNegotiation", "RunStateBroadcastIntervalSeconds",
             "EnableLevelSeedAuthority", "RequireSameLevelSeedForSceneMatch", "ApplyHostLevelSeedOnManualFollow",
             "HideRemoteVisualWhenLevelSeedMismatch", "SyncHostUsedSetsOnManualFollow",
+            // Batch 3 (NetworkVisualProxy):
+            "EnableRemotePlayerVisualProxy", "RemotePlayerTransformSendRateHz", "RemotePlayerVisualTimeoutSeconds",
+            "RemotePlayerVisualInterpolationSpeed", "RemotePlayerVisualSnapDistance", "EnableRemotePlayerProxyCollision",
+            "RemotePlayerCollisionSoft", "RemotePlayerSoftCollisionRadius", "RemotePlayerSoftCollisionPushSpeed",
         };
 
         private readonly string _jsonPath;
