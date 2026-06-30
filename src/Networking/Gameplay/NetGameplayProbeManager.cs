@@ -33,6 +33,17 @@ namespace SULFURTogether.Networking.Gameplay
         private const int CombatActionDoneAttacking = 10;
         private const int CombatActionDoneShooting = 11;
 
+        // Phase EA-B experiment gate (hardcoded, no .cfg switch — see no-new-config-switches). When true, the two
+        // per-frame "Play host's instantaneous animator state hash" paths are SKIPPED for the attack/combat state
+        // (ApplyClientEnemyAnimationMirror's full-state Play + TryApplyGenericHostCombatAnimatorStates). Diagnostic
+        // LogOutput212 proved that per-frame Play(hostHash, t≈0) replays each of GoblinYoung's ~6 attack sub-states
+        // from the start every frame (changed=True 85%) — the "crouch animation repeats several times" thrash. With
+        // this on, the attack animation is driven instead by the discrete attack-phase events (reliable Windup/Active
+        // broadcast) + the combat animator triggers (SetTrigger Attack/Shoot) + the Attack/Moving bool params, letting
+        // the client's own animator controller self-play the full attack sequence — the same model that already makes
+        // locomotion smooth. Flip to false to restore the legacy per-frame hash mirror.
+        private const bool EaSelfPlayAttackAnimation = false;
+
         private const int AiIntentKindNone = 0;
         private const int AiIntentKindDestination = 1;
         private const int AiIntentKindLookAt = 2;
@@ -124,6 +135,9 @@ namespace SULFURTogether.Networking.Gameplay
             public bool HasLastActionState { get; set; }
             public bool LastActionState { get; set; }
             public float LastActionStateFlipAt { get; set; }
+            public float LastRawActionTrueAt { get; set; }   // Phase EA-A: actionState release-grace timer.
+            public int LastReplayHash { get; set; }          // Phase EA diag: consecutive same-hash Play counter.
+            public int ReplayCount { get; set; }
             public float LastTargetAuthorityApplyAt { get; set; }
             public float LastTargetAuthorityLogAt { get; set; }
             public int LastTargetAuthorityClearedCount { get; set; }
@@ -4799,6 +4813,7 @@ namespace SULFURTogether.Networking.Gameplay
         private static void TryApplyGenericHostCombatAnimatorStates(EnemyPuppetRecord record, object runtimeObject, NetGameplayEnemyStateSnapshot hostSnapshot, int actionSequence, float now)
         {
             if (record == null || runtimeObject == null || hostSnapshot == null) return;
+            if (EaSelfPlayAttackAnimation) return;   // EA-B: stop the per-frame combat-state hash mirror; triggers + attack-phase events self-play.
             if (!Plugin.Cfg.EnableGenericHostCombatAnimatorStateMirror.Value) return;
             if (hostSnapshot.HostCombatAnimatorStateCount <= 0) return;
             // O2: when authorized combat intent is active, native root replay drives the Animator;
@@ -5083,6 +5098,22 @@ namespace SULFURTogether.Networking.Gameplay
 
                 EnsureAnimatorParameterCache(record, animator);
 
+                // Phase EA-A: actionState release grace. The host combat-action hold window (0.80s) is often shorter
+                // than a standing enemy's attack loop (~1.0s), so actionState drops to false for the ~0.17s gap each
+                // cycle and locomotion yanks the animator back to idle — the "standing animation inserted between
+                // attacks" thrash (LogOutput210). For a short grace after the raw signal drops, skip this frame's
+                // mirror entirely so the animator stays on the attack state it is already playing (no Moving=false
+                // write, no idle re-Play). A continuing attack re-arms within the grace; a real stop releases to
+                // locomotion once the grace elapses — self-tuning to the attack cadence, independent of the fixed
+                // hold value. (No config switch — see no-new-config-switches.) Treats only the layer-1 idle gap;
+                // the in-window sub-state thrash (layer 2) is a separate later step.
+                const float actionStateReleaseGraceSeconds = 0.35f;
+                bool rawActionState = IsClientEnemyActionPlaybackSnapshot(hostSnapshot);
+                if (rawActionState)
+                    record.LastRawActionTrueAt = now;
+                else if (record.LastRawActionTrueAt > 0f && now - record.LastRawActionTrueAt <= actionStateReleaseGraceSeconds)
+                    return;
+
                 if (record.HasMovingParam)
                 {
                     bool hasMovingValue = hostSnapshot.HasAnimatorMovingBool;
@@ -5103,7 +5134,9 @@ namespace SULFURTogether.Networking.Gameplay
                 if (hostSnapshot.HasAnimatorCoweringBool && record.HasCoweringParam)
                     animator.SetBool(record.CoweringParamHash, hostSnapshot.AnimatorCoweringBool);
 
-                bool actionState = IsClientEnemyActionPlaybackSnapshot(hostSnapshot);
+                // Reuse the raw value computed above for the grace check; a grace-held frame already returned, so
+                // here actionState reflects the effective (post-grace) playback state — the probe logs that.
+                bool actionState = rawActionState;
                 LogClientActionStateFlipIfChanged(record, hostSnapshot, actionState, now);
                 if (actionState && Plugin.Cfg.EnemyAnimationMirrorApplyHostCombatStatePlayback.Value)
                 {
@@ -5141,8 +5174,19 @@ namespace SULFURTogether.Networking.Gameplay
                 if (tolerance < 0.02f) tolerance = 0.02f;
                 if (tolerance > 1f) tolerance = 1f;
 
+                bool selfPlayAttack = EaSelfPlayAttackAnimation && actionState;
                 bool shouldTimeResync = !stateChanged && actionState && drift > tolerance && now - record.LastAnimatorApplyAt > 0.10f;
-                if (stateChanged || shouldTimeResync)
+                if (selfPlayAttack)
+                {
+                    // EA-B: attack state self-plays via combat triggers + attack-phase events; skip the per-frame hash
+                    // Play that replayed each sub-state from t≈0 (the crouch-repeat thrash). Throttled diag only.
+                    if (Plugin.Cfg.LogEnemyAnimationMirror.Value && (stateChanged || shouldTimeResync) && now - record.LastAnimatorApplyAt > 0.25f)
+                    {
+                        record.LastAnimatorApplyAt = now;
+                        NetLogger.Info($"[EnemyAnimMirror] idx={hostSnapshot.SpawnIndex} unit={hostSnapshot.UnitIdentifier} SELF-PLAY skip-hash hostState={hostHash} changed={stateChanged} drift={drift:F2}");
+                    }
+                }
+                else if (stateChanged || shouldTimeResync)
                 {
                     float fade = Plugin.Cfg.EnemyAnimationMirrorCrossFadeSeconds.Value;
                     if (fade <= 0f || shouldTimeResync)
@@ -5150,14 +5194,22 @@ namespace SULFURTogether.Networking.Gameplay
                     else
                         animator.CrossFade(hostHash, Mathf.Clamp(fade, 0f, 0.5f), layer, hostTime);
 
-                    bool log = Plugin.Cfg.LogEnemyAnimationMirror.Value && (record.LastAppliedAnimatorFullPathHash != hostHash || !record.LastLoggedAnimatorState);
+                    // Phase EA diag: count consecutive Plays of the SAME state hash. A high replay count on one hash
+                    // with changed=False = the shouldTimeResync path repeatedly re-Playing a looping windup (e.g.
+                    // GoblinYoung's crouch) back to host t — the "crouch animation repeats several times" bug. A churn
+                    // of changed=True across hashes = host cycling sub-states. unit= names the enemy (GoblinYoung/...).
+                    if (hostHash == record.LastReplayHash) record.ReplayCount++;
+                    else { record.LastReplayHash = hostHash; record.ReplayCount = 1; }
+
+                    bool log = Plugin.Cfg.LogEnemyAnimationMirror.Value
+                        && (record.LastAppliedAnimatorFullPathHash != hostHash || shouldTimeResync || !record.LastLoggedAnimatorState);
                     record.LastAppliedAnimatorFullPathHash = hostHash;
                     record.LastAnimatorApplyAt = now;
                     record.LastLoggedAnimatorState = true;
                     if (actionState && !Plugin.Cfg.EnemyAnimationMirrorApplyAnimatorStatePlayback.Value)
                         _clientCombatAnimatorStateApplies++;
                     if (log)
-                        NetLogger.Info($"[EnemyAnimMirror] Applied Client puppet animation idx={hostSnapshot.SpawnIndex} actor={hostSnapshot.ActorName} state={hostHash} t={hostTime:F2} changed={stateChanged} drift={drift:F2} action={actionState} moving={puppetMoving}");
+                        NetLogger.Info($"[EnemyAnimMirror] idx={hostSnapshot.SpawnIndex} unit={hostSnapshot.UnitIdentifier} state={hostHash} t={hostTime:F2} changed={stateChanged} resync={shouldTimeResync} replay={record.ReplayCount} drift={drift:F2} action={actionState} moving={puppetMoving}");
                 }
             }
             catch (Exception ex)
@@ -5206,7 +5258,7 @@ namespace SULFURTogether.Networking.Gameplay
                 && now - record.LastMotionDerivedMovingAt <= 0.25f;
             string prev = record.HasLastActionState ? record.LastActionState.ToString() : "init";
 
-            NetLogger.Info($"[ActionStateFlip] idx={hostSnapshot.SpawnIndex} actor={hostSnapshot.ActorName} {prev}->{actionState} reason={reason} sinceLastFlip={sinceLast:F2}s moving={moving} attackBool={(hostSnapshot.HasAnimatorAttackBool ? hostSnapshot.AnimatorAttackBool.ToString() : "-")}");
+            NetLogger.Info($"[ActionStateFlip] idx={hostSnapshot.SpawnIndex} unit={hostSnapshot.UnitIdentifier} {prev}->{actionState} reason={reason} sinceLastFlip={sinceLast:F2}s moving={moving} attackBool={(hostSnapshot.HasAnimatorAttackBool ? hostSnapshot.AnimatorAttackBool.ToString() : "-")}");
 
             record.HasLastActionState = true;
             record.LastActionState = actionState;
