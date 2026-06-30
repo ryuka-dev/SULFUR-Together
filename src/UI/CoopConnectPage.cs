@@ -47,6 +47,10 @@ namespace SULFURTogether.UI
         private static string _draftPort;
         private static string _draftKey;
 
+        // Auto-save: signature of the drafts last persisted to config. The fields write only to the drafts on edit;
+        // Tick persists them when this signature changes (a built-in ~0.4s debounce, no per-keystroke disk writes).
+        private static string _lastSavedSig;
+
         private static float _nextTick;
 
         // A Join is in flight and the menu should close once (and only if) the connection is confirmed. Set on
@@ -85,10 +89,10 @@ namespace SULFURTogether.UI
 
             try
             {
+                AutoSaveDrafts();
                 string status = StatusLine();
                 _statusHandle.SetText(status);
                 _statusHandle.SetColor(StatusColor());
-                _ctx.SetFooterStatus(status);
                 ApplyButtonStates();
                 ApplyJoinFeedback();
                 ApplyHostLanIp();
@@ -119,7 +123,7 @@ namespace SULFURTogether.UI
 
             // --- Connection (host / join / leave) -------------------------------------------------------
             ctx.AddSection("Connection");
-            ctx.AddDescription("Host a co-op session or join one. Editing the fields changes nothing until you press a button. Close room (host) / Leave (client) ends the session for you.");
+            ctx.AddDescription("Host a co-op session or join one. Your settings save automatically as you edit them. Close room (host) / Leave (client) ends the session for you.");
             ctx.AddInlineTextInput("Host address (IP)", _draftAddress, v => _draftAddress = v);
             ctx.AddInlineTextInput("Port", _draftPort, v => _draftPort = v);
             ctx.AddInlineTextInput("Connection key", _draftKey, v => _draftKey = v);
@@ -171,11 +175,10 @@ namespace SULFURTogether.UI
             ctx.AddSmallButton("Open-source repo", () => OpenUrl(RepoUrl));
             ctx.AddReadonlyText("Ko-fi", "Coming soon");
 
-            ctx.SetFooter("SULFUR Together", StatusLine(), "Save settings", () =>
-            {
-                SaveSettings();
-                ctx.SetFooterStatus("Settings saved.");
-            });
+            // No footer / "Save settings" button — settings persist automatically (see AutoSaveDrafts). Seed the
+            // auto-save baseline from the freshly loaded drafts so merely opening the page (incl. the Steam-name seed)
+            // doesn't rewrite config; only an actual edit moves the signature and triggers a save.
+            _lastSavedSig = DraftSig();
 
             // First paint of the live elements.
             ApplyButtonStates();
@@ -286,7 +289,7 @@ namespace SULFURTogether.UI
 
         private static void OnCreate()
         {
-            if (!IsInGame()) { _ctx?.SetFooterStatus("Load a save first."); return; }
+            if (!IsInGame()) return; // button is disabled out-of-game; the gate-hint row explains why
             SaveSettings();
             Plugin.Cfg.NetworkMode.Value = NetMode.Host.ToString();
             try { Plugin.Cfg.EnableNetworking.Value = true; } catch { }
@@ -296,7 +299,7 @@ namespace SULFURTogether.UI
 
         private static void OnJoin()
         {
-            if (!IsInGame()) { _ctx?.SetFooterStatus("Load a save first."); return; }
+            if (!IsInGame()) return; // button is disabled out-of-game; the gate-hint row explains why
             // Do NOT close the menu yet — only a *successful* join should return the player to the game; a failed
             // join keeps the menu open so the error feedback is visible. The close is deferred to PollJoinClose,
             // which fires the moment the handshake resolves. The wedge the menu could cause over the black-screen
@@ -363,6 +366,21 @@ namespace SULFURTogether.UI
             if (int.TryParse(_draftPort, out var port) && port > 0 && port < 65536)
                 Plugin.Cfg.HostPort.Value = port;
             Plugin.Cfg.ConnectionKey.Value = _draftKey ?? "";
+        }
+
+        /// <summary>Identity of the current draft field values, used to detect edits for auto-save.</summary>
+        private static string DraftSig()
+            => $"{_draftName}\0{_draftAddress}\0{_draftPort}\0{_draftKey}";
+
+        /// <summary>Auto-save: persist the drafts whenever they've changed since the last save. Called from the
+        /// throttled Tick, so editing a field saves within ~0.4s with no explicit Save button and no per-keystroke
+        /// disk churn. Validation/fallbacks live in SaveSettings (an unparsable port just leaves the old one).</summary>
+        private static void AutoSaveDrafts()
+        {
+            string sig = DraftSig();
+            if (sig == _lastSavedSig) return;
+            _lastSavedSig = sig;
+            SaveSettings();
         }
 
         // ----- Helpers ----------------------------------------------------------------------------------
