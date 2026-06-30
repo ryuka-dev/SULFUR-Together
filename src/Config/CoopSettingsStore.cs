@@ -71,6 +71,18 @@ namespace SULFURTogether.Config
             "EnableClientEnemyIntentDrivenMotion", "EnemyIntentCorrectionDistance", "EnemyIntentHardSnapDistance",
             "EnemyIntentReplayMinIntervalSeconds", "EnableHostAuthorizedIntentExecution", "HostAuthorizedIntentWindowSeconds",
             "EnableClientEnemyNativeDamageSuppression", "EnableClientPuppetAimOverride",
+            // Batch 8 (NetworkEnemyStateExperimental — 4 Log* kept):
+            "EnableHostEnemyStateSnapshotMirror", "EnemyStateSnapshotSendRateHz", "EnemyStateSnapshotMaxEnemiesPerPacket",
+            "OnlySendAliveEnemyStateSnapshots", "ApplyReceivedEnemyStateSnapshots", "EnemyStateSnapshotPositionTolerance",
+            "EnemyStateSnapshotInterpolationSpeed", "EnemyStateSnapshotPlaybackDurationMultiplier", "EnemyStateSnapshotSnapDistance",
+            "EnemyStateSnapshotApplyRotationY", "EnableClientEnemyAiSuppressionExperiment", "SuppressClientEnemyAiWhenStateMirrorEnabled",
+            "EnableClientEnemyPuppetMode", "ClientEnemyPuppetStaleReleaseSeconds", "EnableHostEnemyAnimationMirror",
+            "ApplyReceivedEnemyAnimationMirror", "EnemyAnimationMirrorCrossFadeSeconds", "EnemyAnimationMirrorNormalizedTimeTolerance",
+            "EnemyAnimationMirrorApplyAnimatorStatePlayback", "EnemyAnimationMirrorApplyHostCombatStatePlayback",
+            "EnemyAnimationMirrorReplayHostCombatMethods", "EnemyAnimationMirrorApplyCombatAnimatorFallback",
+            "EnemyAnimationMirrorHostCombatActionHoldSeconds", "EnableEnemyStateSnapshotDeltaCompression",
+            "EnemyStateSnapshotHeartbeatSeconds", "EnemyStateSnapshotPositionDeltaThreshold",
+            "EnemyStateSnapshotRotationDeltaThresholdDegrees", "EnemyStateSnapshotAnimationTimeDeltaThreshold",
         };
 
         private readonly string _jsonPath;

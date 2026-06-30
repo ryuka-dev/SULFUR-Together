@@ -309,34 +309,34 @@ namespace SULFURTogether.Config
         public ConfigEntry<KeyboardShortcut> PlayerReviveHoldKey { get; }
         public Fixed<bool>         RequireReviveDistanceValidationOnHost { get; }
 
-        // ----- Phase 4.1-A host enemy state snapshot mirror experiment -----
-        public ConfigEntry<bool>   EnableHostEnemyStateSnapshotMirror { get; }
-        public ConfigEntry<float>  EnemyStateSnapshotSendRateHz { get; }
-        public ConfigEntry<int>    EnemyStateSnapshotMaxEnemiesPerPacket { get; }
-        public ConfigEntry<bool>   OnlySendAliveEnemyStateSnapshots { get; }
+        // ----- Phase 4.1-A host enemy state snapshot mirror experiment ----- (functional + tuning hardcoded; Log* kept)
+        public Fixed<bool>         EnableHostEnemyStateSnapshotMirror { get; }
+        public Fixed<float>        EnemyStateSnapshotSendRateHz { get; }
+        public Fixed<int>          EnemyStateSnapshotMaxEnemiesPerPacket { get; }
+        public Fixed<bool>         OnlySendAliveEnemyStateSnapshots { get; }
         public ConfigEntry<bool>   LogReceivedEnemyStateSnapshots { get; }
-        public ConfigEntry<bool>   ApplyReceivedEnemyStateSnapshots { get; }
-        public ConfigEntry<float>  EnemyStateSnapshotPositionTolerance { get; }
-        public ConfigEntry<float>  EnemyStateSnapshotInterpolationSpeed { get; }
-        public ConfigEntry<float>  EnemyStateSnapshotPlaybackDurationMultiplier { get; }
-        public ConfigEntry<float>  EnemyStateSnapshotSnapDistance { get; }
-        public ConfigEntry<bool>   EnemyStateSnapshotApplyRotationY { get; }
-        public ConfigEntry<bool>   EnableClientEnemyAiSuppressionExperiment { get; }
-        public ConfigEntry<bool>   SuppressClientEnemyAiWhenStateMirrorEnabled { get; }
+        public Fixed<bool>         ApplyReceivedEnemyStateSnapshots { get; }
+        public Fixed<float>        EnemyStateSnapshotPositionTolerance { get; }
+        public Fixed<float>        EnemyStateSnapshotInterpolationSpeed { get; }
+        public Fixed<float>        EnemyStateSnapshotPlaybackDurationMultiplier { get; }
+        public Fixed<float>        EnemyStateSnapshotSnapDistance { get; }
+        public Fixed<bool>         EnemyStateSnapshotApplyRotationY { get; }
+        public Fixed<bool>         EnableClientEnemyAiSuppressionExperiment { get; }
+        public Fixed<bool>         SuppressClientEnemyAiWhenStateMirrorEnabled { get; }
         public ConfigEntry<bool>   LogSuppressedClientEnemyAi { get; }
-        public ConfigEntry<bool>   EnableClientEnemyPuppetMode { get; }
+        public Fixed<bool>         EnableClientEnemyPuppetMode { get; }
         public ConfigEntry<bool>   LogClientEnemyPuppetMode { get; }
-        public ConfigEntry<float>  ClientEnemyPuppetStaleReleaseSeconds { get; }
-        public ConfigEntry<bool>   EnableHostEnemyAnimationMirror { get; }
-        public ConfigEntry<bool>   ApplyReceivedEnemyAnimationMirror { get; }
+        public Fixed<float>        ClientEnemyPuppetStaleReleaseSeconds { get; }
+        public Fixed<bool>         EnableHostEnemyAnimationMirror { get; }
+        public Fixed<bool>         ApplyReceivedEnemyAnimationMirror { get; }
         public ConfigEntry<bool>   LogEnemyAnimationMirror { get; }
-        public ConfigEntry<float>  EnemyAnimationMirrorCrossFadeSeconds { get; }
-        public ConfigEntry<float>  EnemyAnimationMirrorNormalizedTimeTolerance { get; }
-        public ConfigEntry<bool>   EnemyAnimationMirrorApplyAnimatorStatePlayback { get; }
-        public ConfigEntry<bool>   EnemyAnimationMirrorApplyHostCombatStatePlayback { get; }
-        public ConfigEntry<bool>   EnemyAnimationMirrorReplayHostCombatMethods { get; }
-        public ConfigEntry<bool>   EnemyAnimationMirrorApplyCombatAnimatorFallback { get; }
-        public ConfigEntry<float>  EnemyAnimationMirrorHostCombatActionHoldSeconds { get; }
+        public Fixed<float>        EnemyAnimationMirrorCrossFadeSeconds { get; }
+        public Fixed<float>        EnemyAnimationMirrorNormalizedTimeTolerance { get; }
+        public Fixed<bool>         EnemyAnimationMirrorApplyAnimatorStatePlayback { get; }
+        public Fixed<bool>         EnemyAnimationMirrorApplyHostCombatStatePlayback { get; }
+        public Fixed<bool>         EnemyAnimationMirrorReplayHostCombatMethods { get; }
+        public Fixed<bool>         EnemyAnimationMirrorApplyCombatAnimatorFallback { get; }
+        public Fixed<float>        EnemyAnimationMirrorHostCombatActionHoldSeconds { get; }
         public ConfigEntry<bool>   EnemyProjectileVisualMirrorEnabled { get; }
         public ConfigEntry<bool>   EnemyProjectileVisualMirrorUseNativeShootReplay { get; }
         public ConfigEntry<float>  EnemyProjectileVisualMirrorSpeed { get; }
@@ -373,11 +373,11 @@ namespace SULFURTogether.Config
         public Fixed<bool>        EnableClientEnemyNativeDamageSuppression { get; }
         public Fixed<bool>        EnableClientPuppetAimOverride { get; }
 
-        public ConfigEntry<bool>   EnableEnemyStateSnapshotDeltaCompression { get; }
-        public ConfigEntry<float>  EnemyStateSnapshotHeartbeatSeconds { get; }
-        public ConfigEntry<float>  EnemyStateSnapshotPositionDeltaThreshold { get; }
-        public ConfigEntry<float>  EnemyStateSnapshotRotationDeltaThresholdDegrees { get; }
-        public ConfigEntry<float>  EnemyStateSnapshotAnimationTimeDeltaThreshold { get; }
+        public Fixed<bool>         EnableEnemyStateSnapshotDeltaCompression { get; }
+        public Fixed<float>        EnemyStateSnapshotHeartbeatSeconds { get; }
+        public Fixed<float>        EnemyStateSnapshotPositionDeltaThreshold { get; }
+        public Fixed<float>        EnemyStateSnapshotRotationDeltaThresholdDegrees { get; }
+        public Fixed<float>        EnemyStateSnapshotAnimationTimeDeltaThreshold { get; }
 
         // ----- Phase 5.1 Host-authoritative enemy health sync -----
         // P0: Host broadcasts damage events; client tracks puppet health and late-binds deaths.
@@ -1003,70 +1003,38 @@ namespace SULFURTogether.Config
                 "Temporary revive key used by Phase 4.3.0-A. Default E matches normal interact/pickup on many setups; can be changed if your binding differs.");
             RequireReviveDistanceValidationOnHost = new Fixed<bool>(true);
 
-            // Phase 4.1-A enemy state mirror. Network matching/drift measurement only by default; no movement or AI mutation.
-            EnableHostEnemyStateSnapshotMirror = cfg.Bind("NetworkEnemyStateExperimental", "EnableHostEnemyStateSnapshotMirror", true,
-                "Experimental/current baseline: Host periodically sends enemy state snapshots to Clients. Default true for active multiplayer testing.");
-            EnemyStateSnapshotSendRateHz = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotSendRateHz", 6f,
-                new ConfigDescription("How many Host enemy state snapshot batches to send per second. Phase 4.1.0-D default is 6Hz to reduce visible step-wise enemy motion.",
-                    new AcceptableValueRange<float>(0.1f, 20f)));
-            EnemyStateSnapshotMaxEnemiesPerPacket = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotMaxEnemiesPerPacket", 16,
-                new ConfigDescription("Maximum NPC snapshots included in one HostEnemyStateSnapshot packet chunk. Phase 4.4.0-D compact wire format can safely batch more enemies per packet than the old string-heavy format.",
-                    new AcceptableValueRange<int>(1, 64)));
-            OnlySendAliveEnemyStateSnapshots = cfg.Bind("NetworkEnemyStateExperimental", "OnlySendAliveEnemyStateSnapshots", true,
-                "When true, Host state snapshot batches exclude entities already marked dead by the gameplay probe.");
+            // Phase 4.1-A enemy state mirror — functional + tuned values hardcoded (Fixed); only the 4 Log* stay in cfg.
+            EnableHostEnemyStateSnapshotMirror = new Fixed<bool>(true);
+            EnemyStateSnapshotSendRateHz = new Fixed<float>(6f);
+            EnemyStateSnapshotMaxEnemiesPerPacket = new Fixed<int>(4); // O3: auto-splits on byte limit.
+            OnlySendAliveEnemyStateSnapshots = new Fixed<bool>(true);
             LogReceivedEnemyStateSnapshots = cfg.Bind("NetworkEnemyStateExperimental", "LogReceivedEnemyStateSnapshots", false,
                 "Log Client-side matching and position-drift summaries for received Host enemy state snapshot batches. Default false to avoid log overhead during active testing.");
-            ApplyReceivedEnemyStateSnapshots = cfg.Bind("NetworkEnemyStateExperimental", "ApplyReceivedEnemyStateSnapshots", true,
-                "Experimental/current baseline: Client smoothly mirrors matched local enemy transforms toward Host enemy state snapshots. This does not disable local AI or change attacks/damage.");
-            EnemyStateSnapshotPositionTolerance = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotPositionTolerance", 5f,
-                "Position drift threshold in meters used by Client logs when comparing local enemies against Host enemy state snapshots.");
-            EnemyStateSnapshotInterpolationSpeed = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotInterpolationSpeed", 18f,
-                new ConfigDescription("How quickly Client enemy transforms move toward the current Host snapshot playback position when ApplyReceivedEnemyStateSnapshots=true.",
-                    new AcceptableValueRange<float>(1f, 60f)));
-            EnemyStateSnapshotPlaybackDurationMultiplier = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotPlaybackDurationMultiplier", 1.10f,
-                new ConfigDescription("Phase 4.1.0-D: Client plays each Host enemy movement segment over the observed snapshot interval multiplied by this value. Slightly above 1.0 reduces stop-and-go movement between packets.",
-                    new AcceptableValueRange<float>(0.5f, 2.5f)));
-            EnemyStateSnapshotSnapDistance = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotSnapDistance", 10f,
-                new ConfigDescription("Distance in meters above which a matched Client enemy snaps directly to the Host snapshot position instead of interpolating.",
-                    new AcceptableValueRange<float>(1f, 100f)));
-            EnemyStateSnapshotApplyRotationY = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotApplyRotationY", true,
-                "When true, Client also applies Host enemy Y rotation from snapshots. Low risk because SULFUR enemies are mostly billboard/2D-style visuals.");
-            EnableClientEnemyAiSuppressionExperiment = cfg.Bind("NetworkEnemyStateExperimental", "EnableClientEnemyAiSuppressionExperiment", false,
-                "Safety gate for Phase 4.1.0-C Client enemy AI suppression/probe patches. Keep false for normal testing; old suppression/log settings are ignored while this is false.");
-            SuppressClientEnemyAiWhenStateMirrorEnabled = cfg.Bind("NetworkEnemyStateExperimental", "SuppressClientEnemyAiWhenStateMirrorEnabled", false,
-                "Experimental Phase 4.1.0-C: Client-only. Only used when EnableClientEnemyAiSuppressionExperiment=true. When true, selected enemy AI target/movement entry points are skipped only for local NPCs already controlled by Host enemy state snapshots.");
+            ApplyReceivedEnemyStateSnapshots = new Fixed<bool>(true);
+            EnemyStateSnapshotPositionTolerance = new Fixed<float>(5f);
+            EnemyStateSnapshotInterpolationSpeed = new Fixed<float>(18f);
+            EnemyStateSnapshotPlaybackDurationMultiplier = new Fixed<float>(1.10f);
+            EnemyStateSnapshotSnapDistance = new Fixed<float>(10f);
+            EnemyStateSnapshotApplyRotationY = new Fixed<bool>(true);
+            EnableClientEnemyAiSuppressionExperiment = new Fixed<bool>(false); // rolled back (puppet mode replaced it).
+            SuppressClientEnemyAiWhenStateMirrorEnabled = new Fixed<bool>(false);
             LogSuppressedClientEnemyAi = cfg.Bind("NetworkEnemyStateExperimental", "LogSuppressedClientEnemyAi", false,
                 "Only used when EnableClientEnemyAiSuppressionExperiment=true. Log throttled Phase 4.1.0-C enemy AI suppression/probe decisions for Host-mirrored Client NPCs.");
-            EnableClientEnemyPuppetMode = cfg.Bind("NetworkEnemyStateExperimental", "EnableClientEnemyPuppetMode", true,
-                "Phase 4.4.0-B: Client-only. When Host enemy state mirror controls a local NPC, disable that local NPC's behaviour tree/NavMesh/RVO movement driver and let Host transform snapshots move it. This replaces the old high-frequency AI suppression experiment.");
+            EnableClientEnemyPuppetMode = new Fixed<bool>(true);
             LogClientEnemyPuppetMode = cfg.Bind("NetworkEnemyStateExperimental", "LogClientEnemyPuppetMode", true,
                 "Log one-line begin/end events when a Client NPC enters or leaves Host-mirrored puppet mode.");
-            ClientEnemyPuppetStaleReleaseSeconds = cfg.Bind("NetworkEnemyStateExperimental", "ClientEnemyPuppetStaleReleaseSeconds", 3f,
-                new ConfigDescription("How long after the last Host enemy snapshot before Client puppet mode releases a local NPC back to its own AI. Use 0 to keep puppet mode until level clear/death.",
-                    new AcceptableValueRange<float>(0f, 30f)));
-            EnableHostEnemyAnimationMirror = cfg.Bind("NetworkEnemyStateExperimental", "EnableHostEnemyAnimationMirror", true,
-                "Phase 4.4.0-C: Host includes NPC Animator layer-0 state and known bool parameters in enemy state snapshots. Client applies them only to puppet-mode enemies.");
-            ApplyReceivedEnemyAnimationMirror = cfg.Bind("NetworkEnemyStateExperimental", "ApplyReceivedEnemyAnimationMirror", true,
-                "Phase 4.4.0-C: Client puppet enemies apply Host Animator state/parameters from enemy snapshots. Does not re-enable local AI.");
+            ClientEnemyPuppetStaleReleaseSeconds = new Fixed<float>(3f);
+            EnableHostEnemyAnimationMirror = new Fixed<bool>(true);
+            ApplyReceivedEnemyAnimationMirror = new Fixed<bool>(true);
             LogEnemyAnimationMirror = cfg.Bind("NetworkEnemyStateExperimental", "LogEnemyAnimationMirror", false,
                 "Log throttled Host/Client enemy animation mirror state changes. Keep false unless diagnosing sliding or missing attack animations.");
-            EnemyAnimationMirrorCrossFadeSeconds = cfg.Bind("NetworkEnemyStateExperimental", "EnemyAnimationMirrorCrossFadeSeconds", 0.06f,
-                new ConfigDescription("CrossFade duration used when a Client puppet switches to the Host Animator state. 0 uses Animator.Play immediately.",
-                    new AcceptableValueRange<float>(0f, 0.5f)));
-            EnemyAnimationMirrorNormalizedTimeTolerance = cfg.Bind("NetworkEnemyStateExperimental", "EnemyAnimationMirrorNormalizedTimeTolerance", 0.30f,
-                new ConfigDescription("If Client puppet is already in the Host Animator state, resync normalized time only when the fractional time drift exceeds this value.",
-                    new AcceptableValueRange<float>(0.02f, 1.0f)));
-            EnemyAnimationMirrorApplyAnimatorStatePlayback = cfg.Bind("NetworkEnemyStateExperimental", "EnemyAnimationMirrorApplyAnimatorStatePlayback", false,
-                "Phase 4.4.0-F: Client puppet enemies use Animator bools plus Host-motion-derived Moving by default. Full Animator.Play/CrossFade state-hash playback is disabled by default because it can fight Npc.Update locomotion and cause idle/walk flicker.");
-            EnemyAnimationMirrorApplyHostCombatStatePlayback = cfg.Bind("NetworkEnemyStateExperimental", "EnemyAnimationMirrorApplyHostCombatStatePlayback", true,
-                "Phase 4.4.0-I: allow selective Animator trigger/state playback only while the Host marks an enemy as actively attacking/shooting. This keeps locomotion motion-driven while letting Clients see Host-side combat animations.");
-            EnemyAnimationMirrorReplayHostCombatMethods = cfg.Bind("NetworkEnemyStateExperimental", "EnemyAnimationMirrorReplayHostCombatMethods", true,
-                "Phase 4.4.0-J/K: Client puppets may replay selected Host combat visual methods under an internal bypass. Damage remains blocked on Client puppets.");
-            EnemyAnimationMirrorApplyCombatAnimatorFallback = cfg.Bind("NetworkEnemyStateExperimental", "EnemyAnimationMirrorApplyCombatAnimatorFallback", true,
-                "Phase 4.4.0-K: When method replay is not enough, pulse likely combat triggers/bools on the Npc and child/weapon Animators for melee visual fallback.");
-            EnemyAnimationMirrorHostCombatActionHoldSeconds = cfg.Bind("NetworkEnemyStateExperimental", "EnemyAnimationMirrorHostCombatActionHoldSeconds", 0.65f,
-                new ConfigDescription("Seconds to keep a Host combat-action marker alive after TriggerAttackAnimation/TriggerShoot/SetShooting(true)/TriggerWeaponManually. This marker is serialized in enemy state snapshots.",
-                    new AcceptableValueRange<float>(0.10f, 2.0f)));
+            EnemyAnimationMirrorCrossFadeSeconds = new Fixed<float>(0.06f);
+            EnemyAnimationMirrorNormalizedTimeTolerance = new Fixed<float>(0.30f);
+            EnemyAnimationMirrorApplyAnimatorStatePlayback = new Fixed<bool>(false);
+            EnemyAnimationMirrorApplyHostCombatStatePlayback = new Fixed<bool>(true);
+            EnemyAnimationMirrorReplayHostCombatMethods = new Fixed<bool>(true);
+            EnemyAnimationMirrorApplyCombatAnimatorFallback = new Fixed<bool>(false); // effective value (forced off).
+            EnemyAnimationMirrorHostCombatActionHoldSeconds = new Fixed<float>(0.80f); // effective value (forced 0.80).
 
             EnemyProjectileVisualMirrorEnabled = cfg.Bind("NetworkEnemyTargetExperimental", "EnemyProjectileVisualMirrorEnabled", true,
                 "Phase 4.4.0-K: Create client-only no-damage visual projectiles for Host enemy shoot actions using Host origin/aim positions.");
@@ -1142,20 +1110,12 @@ namespace SULFURTogether.Config
             EnableClientEnemyNativeDamageSuppression = new Fixed<bool>(true);
             EnableClientPuppetAimOverride = new Fixed<bool>(true);
 
-            EnableEnemyStateSnapshotDeltaCompression = cfg.Bind("NetworkEnemyStateExperimental", "EnableEnemyStateSnapshotDeltaCompression", true,
-                "Phase 4.4.0-D: Host skips enemy state snapshots whose position/rotation/animation did not change enough, while still sending heartbeat updates.");
-            EnemyStateSnapshotHeartbeatSeconds = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotHeartbeatSeconds", 0.75f,
-                new ConfigDescription("Maximum seconds before Host sends an otherwise unchanged enemy snapshot. Prevents Client puppet stale release while reducing idle traffic.",
-                    new AcceptableValueRange<float>(0.1f, 5f)));
-            EnemyStateSnapshotPositionDeltaThreshold = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotPositionDeltaThreshold", 0.04f,
-                new ConfigDescription("Minimum Host enemy position movement in meters before a new snapshot is sent when delta compression is enabled.",
-                    new AcceptableValueRange<float>(0f, 1f)));
-            EnemyStateSnapshotRotationDeltaThresholdDegrees = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotRotationDeltaThresholdDegrees", 3.0f,
-                new ConfigDescription("Minimum Host enemy Y-rotation change in degrees before a new snapshot is sent when delta compression is enabled.",
-                    new AcceptableValueRange<float>(0f, 45f)));
-            EnemyStateSnapshotAnimationTimeDeltaThreshold = cfg.Bind("NetworkEnemyStateExperimental", "EnemyStateSnapshotAnimationTimeDeltaThreshold", 0.10f,
-                new ConfigDescription("Minimum Animator normalized-time fractional drift before a new animation snapshot is sent when delta compression is enabled.",
-                    new AcceptableValueRange<float>(0f, 1f)));
+            // Enemy snapshot delta compression — functional + thresholds hardcoded (Fixed).
+            EnableEnemyStateSnapshotDeltaCompression = new Fixed<bool>(true);
+            EnemyStateSnapshotHeartbeatSeconds = new Fixed<float>(0.75f);
+            EnemyStateSnapshotPositionDeltaThreshold = new Fixed<float>(0.04f);
+            EnemyStateSnapshotRotationDeltaThresholdDegrees = new Fixed<float>(3.0f);
+            EnemyStateSnapshotAnimationTimeDeltaThreshold = new Fixed<float>(0.10f);
 
             // Phase 5.1 Host-authoritative enemy health sync.
             EnableHostEnemyDamageEventSync = cfg.Bind("HostDrivenProxy", "EnableHostEnemyDamageEventSync", true,
@@ -1513,33 +1473,11 @@ namespace SULFURTogether.Config
             LogPlayerLifeSync.Value = true;
             PlayerReviveHoldKey.Value = new KeyboardShortcut(KeyCode.E);
 
-            EnableHostEnemyStateSnapshotMirror.Value = true;
-            EnemyStateSnapshotSendRateHz.Value = 6f;
-            EnemyStateSnapshotMaxEnemiesPerPacket.Value = 4; // O3: reduced from 16; SendHostEnemyStateSnapshotChunk now auto-splits on byte limit
-            OnlySendAliveEnemyStateSnapshots.Value = true;
+            // NetworkEnemyStateExperimental — Enable*/Apply*/tuning all hardcoded (Fixed); only the 4 Log* stay forced.
             LogReceivedEnemyStateSnapshots.Value = false;
-            ApplyReceivedEnemyStateSnapshots.Value = true;
-            EnemyStateSnapshotPositionTolerance.Value = 5f;
-            EnemyStateSnapshotInterpolationSpeed.Value = 18f;
-            EnemyStateSnapshotPlaybackDurationMultiplier.Value = 1.10f;
-            EnemyStateSnapshotSnapDistance.Value = 10f;
-            EnemyStateSnapshotApplyRotationY.Value = true;
-            EnableClientEnemyAiSuppressionExperiment.Value = false;
-            SuppressClientEnemyAiWhenStateMirrorEnabled.Value = false;
             LogSuppressedClientEnemyAi.Value = false;
-            EnableClientEnemyPuppetMode.Value = true;
             LogClientEnemyPuppetMode.Value = true;
-            ClientEnemyPuppetStaleReleaseSeconds.Value = 3f;
-            EnableHostEnemyAnimationMirror.Value = true;
-            ApplyReceivedEnemyAnimationMirror.Value = true;
             LogEnemyAnimationMirror.Value = false;
-            EnemyAnimationMirrorCrossFadeSeconds.Value = 0.06f;
-            EnemyAnimationMirrorNormalizedTimeTolerance.Value = 0.30f;
-            EnemyAnimationMirrorApplyAnimatorStatePlayback.Value = false;
-            EnemyAnimationMirrorApplyHostCombatStatePlayback.Value = true;
-            EnemyAnimationMirrorReplayHostCombatMethods.Value = true;
-            EnemyAnimationMirrorApplyCombatAnimatorFallback.Value = false;
-            EnemyAnimationMirrorHostCombatActionHoldSeconds.Value = 0.80f;
             EnemyProjectileVisualMirrorEnabled.Value = false;
             EnemyProjectileVisualMirrorUseNativeShootReplay.Value = false;
             EnemyProjectileVisualMirrorSpeed.Value = 26f;
@@ -1596,11 +1534,7 @@ namespace SULFURTogether.Config
             DisablePauseInMultiplayer.Value = true;
             LogPauseSuppression.Value = true;
 
-            EnableEnemyStateSnapshotDeltaCompression.Value = true;
-            EnemyStateSnapshotHeartbeatSeconds.Value = 0.75f;
-            EnemyStateSnapshotPositionDeltaThreshold.Value = 0.04f;
-            EnemyStateSnapshotRotationDeltaThresholdDegrees.Value = 3.0f;
-            EnemyStateSnapshotAnimationTimeDeltaThreshold.Value = 0.10f;
+            // Enemy snapshot delta-compression — all hardcoded (Fixed); nothing to force here.
 
             // Phase 5.3-B Client → Host hit request — on by default.
             EnableClientHitRequest.Value = true;
