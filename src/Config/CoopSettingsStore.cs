@@ -111,6 +111,28 @@ namespace SULFURTogether.Config
             "SendAllEnemySnapshotsToClients", "DisablePauseInMultiplayer", "EnemyNearCombatDistance", "EnemyFarDistance",
             "EnemyFarSnapshotHz", "EnableCombatEventCoalescing", "EnemyToClientDamageCoalesceSeconds",
             "EnemyDamageEventMinIntervalSeconds", "AttackPhaseEventMinIntervalSeconds",
+            // Batch 12-15 (NetworkSceneAuthority / LevelManifest / WorldItems / PlayerRegistry / NetworkBoss / Debug):
+            "EnableHostSceneAuthority", "EnableHostSceneRequestProtocol", "AutoSendHostSceneRequestOnDrift",
+            "HostSceneRequestIntervalSeconds", "EnableManualClientSceneFollow", "ManualClientSceneFollowRequiresHostRequest",
+            "ClientWaitHostGenerationInputBeforeFirstLoad", "ClientLoadGateTimeoutSeconds", "ClientLoadGateAllowFallbackAfterTimeout",
+            "ClientLoadGateRequestIntervalSeconds", "ClientGateDeathRespawnUntilHostHub", "ClientGateDeathRespawnTimeoutSeconds",
+            "EnableClientTransitionRelay", "AllowClientInitiatedLevelLoad", "ClientInitiatedLoadTimeoutSeconds",
+            "EnableClientReloadInPlaceRelay", "EnableAutoFollowHostSceneRequest", "EnableLoadBarrier",
+            "LoadBarrierTimeoutSeconds", "LoadBarrierBlockHostAdvance", "LoadBarrierLogOnlyMode",
+            "EnableHostLevelManifest", "QuarantineClientOnlyManifestEnemies",
+            "EnableWorldItemDropSync",
+            "EnableMultiPlayerNpcActivation", "MultiPlayerNpcActivationDistance", "MultiPlayerNpcActivationsPerFrame",
+            "EnableRemotePlayerInPlayersList", "EnableGhostPlayerHitbox", "SuppressGhostsWhileLoading",
+            "EnableBossEncounterSync", "BossEncounterClientBlockLocalStart", "BossContinuationGraceSeconds",
+            "EnableBossLifecycleProbe", "RemoveBossDialogInteractableOnStart", "EnableFaithfulBossIntro",
+            "GateBossFightOnDialogClose", "DeferBossIntroArm", "EnableBossRoomMembership", "GateBossDialogToInRoom",
+            "ExcludeOutOfRoomPlayersFromBossAttacks", "EnableBossDynamicSpawnManifest", "EnableCousinArmSync",
+            "EnableBossDamageAuthority", "EnableBossClientPresentation", "EnableBossDiscreteEventAuthority",
+            "EnableLuciaEyeAuthority", "EnableLuciaDeathAuthority", "EnableWitchPhaseDamageAuthority",
+            "EnableWitchPhaseAuthority", "EnableWitchPhase2Manifest", "EnableWitchDeathFix",
+            "EnableArenaLockdown", "EnableArenaGracePeriod", "LogAiTargetingReverseDump",
+            // Dead diagnostic logs whose gated feature is retired (feature hardcoded OFF → log never fired):
+            "LogSuppressedClientEnemyAi", "LogHostProjectileVisualSpawn", "LogRemotePlayerTargetProxy",
         };
 
         private readonly string _jsonPath;

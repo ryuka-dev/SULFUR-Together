@@ -1967,11 +1967,8 @@ namespace SULFURTogether.Networking
                 if (!NetRunStateBridge.TryGetLocalRunState(out var localState)) return;
                 if (!evt.MatchesScene(localState)) return;
 
-                if (Plugin.Cfg.LogHostProjectileVisualSpawn.Value)
-                    NetLogger.Info($"[ProjectileVisual] Received hostIdx={evt.HostSpawnIndex} seq={evt.Sequence} origin=({evt.Origin.x:F1},{evt.Origin.y:F1},{evt.Origin.z:F1}) speed={evt.Velocity.magnitude:F1}m/s");
-
                 // P2 TODO: spawn a visual-only no-damage proxy GameObject here.
-                // For now this path is disabled by default (EnableHostProjectileVisualSpawnEvent=false).
+                // For now this path is disabled (EnableHostProjectileVisualSpawnEvent=false, hardcoded).
             }
             catch (Exception ex)
             {

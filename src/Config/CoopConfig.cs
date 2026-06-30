@@ -323,7 +323,6 @@ namespace SULFURTogether.Config
         public Fixed<bool>         EnemyStateSnapshotApplyRotationY { get; }
         public Fixed<bool>         EnableClientEnemyAiSuppressionExperiment { get; }
         public Fixed<bool>         SuppressClientEnemyAiWhenStateMirrorEnabled { get; }
-        public ConfigEntry<bool>   LogSuppressedClientEnemyAi { get; }
         public Fixed<bool>         EnableClientEnemyPuppetMode { get; }
         public ConfigEntry<bool>   LogClientEnemyPuppetMode { get; }
         public Fixed<float>        ClientEnemyPuppetStaleReleaseSeconds { get; }
@@ -436,7 +435,6 @@ namespace SULFURTogether.Config
         public Fixed<bool>         EnableClientAttackPhaseAnimatorDrive { get; }
         public Fixed<float>        ClientAttackPhaseCrossFadeSeconds { get; }
         public Fixed<bool>         EnableHostProjectileVisualSpawnEvent { get; } // P2: retired/off
-        public ConfigEntry<bool>   LogHostProjectileVisualSpawn { get; }
         public Fixed<bool>         EnableEnemyInterestManagement { get; }
         public Fixed<bool>         IncludeRemotePlayersInInterest { get; }
         public Fixed<bool>         FullRateForEngagedEnemies { get; }
@@ -450,7 +448,6 @@ namespace SULFURTogether.Config
         public ConfigEntry<float>  DamageApplyHitchThresholdMs { get; }
         // Phase 5.5-P3-A2 remote-player target proxy — RETIRED (Plan B ghost registry supersedes); hardcoded off/effective.
         public Fixed<bool>         EnableRemotePlayerTargetProxy { get; }
-        public ConfigEntry<bool>   LogRemotePlayerTargetProxy { get; }
         public Fixed<bool>         RemotePlayerTargetProxySetIsPlayer { get; }
         public Fixed<bool>         RemotePlayerTargetProxyForceAggro { get; }
         public Fixed<float>        RemotePlayerTargetProxyAggroRange { get; }
@@ -944,8 +941,6 @@ namespace SULFURTogether.Config
             EnemyStateSnapshotApplyRotationY = new Fixed<bool>(true);
             EnableClientEnemyAiSuppressionExperiment = new Fixed<bool>(false); // rolled back (puppet mode replaced it).
             SuppressClientEnemyAiWhenStateMirrorEnabled = new Fixed<bool>(false);
-            LogSuppressedClientEnemyAi = cfg.Bind("NetworkEnemyStateExperimental", "LogSuppressedClientEnemyAi", false,
-                "Only used when EnableClientEnemyAiSuppressionExperiment=true. Log throttled Phase 4.1.0-C enemy AI suppression/probe decisions for Host-mirrored Client NPCs.");
             EnableClientEnemyPuppetMode = new Fixed<bool>(true);
             LogClientEnemyPuppetMode = cfg.Bind("NetworkEnemyStateExperimental", "LogClientEnemyPuppetMode", true,
                 "Log one-line begin/end events when a Client NPC enters or leaves Host-mirrored puppet mode.");
@@ -1091,12 +1086,8 @@ namespace SULFURTogether.Config
             EnableClientAttackPhaseAnimatorDrive = new Fixed<bool>(true);
             ClientAttackPhaseCrossFadeSeconds = new Fixed<float>(0.05f);
             EnableHostProjectileVisualSpawnEvent = new Fixed<bool>(false); // P2: retired/off.
-            LogHostProjectileVisualSpawn = cfg.Bind("HostDrivenProxy", "LogHostProjectileVisualSpawn", false,
-                "Log HostProjectileVisualSpawn events (very noisy in ranged combat).");
             IncludeRemotePlayersInInterest = new Fixed<bool>(true);
             EnableRemotePlayerTargetProxy = new Fixed<bool>(false); // retired (Plan B ghost registry supersedes it).
-            LogRemotePlayerTargetProxy = cfg.Bind("HostDrivenProxy", "LogRemotePlayerTargetProxy", true,
-                "Phase 5.5-P3-A2: verbose log for remote-player target proxies (create/update/destroy).");
             RemotePlayerTargetProxySetIsPlayer = new Fixed<bool>(false);
             RemotePlayerTargetProxyForceAggro = new Fixed<bool>(true);
             RemotePlayerTargetProxyAggroRange = new Fixed<float>(30f);

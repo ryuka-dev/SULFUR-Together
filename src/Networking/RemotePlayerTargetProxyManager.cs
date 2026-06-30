@@ -88,7 +88,7 @@ namespace SULFURTogether.Networking
         private static FieldInfo? _hitmeshColliderField;
 
         private static bool Enabled { get { try { return Plugin.Cfg.EnableRemotePlayerTargetProxy.Value; } catch { return false; } } }
-        private static bool LogOn  { get { try { return Plugin.Cfg.LogRemotePlayerTargetProxy.Value; } catch { return false; } } }
+        private const bool LogOn = false; // retired manager (Enabled is hardcoded false); diagnostic log removed from .cfg.
 
         public int ProxyCount => _proxies.Count;
 
