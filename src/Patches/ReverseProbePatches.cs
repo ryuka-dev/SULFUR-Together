@@ -17,6 +17,13 @@ namespace SULFURTogether.Patches
 
         public static void Apply(Harmony harmony)
         {
+            // Functional Unit.ReceiveDamage patches register FIRST and unconditionally — before the EnableReverseProbe
+            // master gate and outside every [Probe] Enable* switch — so no diagnostic toggle can disable combat. The
+            // prefix does downed-player/client damage suppression + host→client forwarding; the postfix does host Npc
+            // health-sync. (Previously gated by EnableDamageProbe/EnableUnitProbe/EnableReverseProbe — a disguised
+            // functional switch that broke combat when toggled off as a "log".)
+            ApplyDamageForwardPatches(harmony);
+
             if (!Cfg.EnableReverseProbe.Value)
             {
                 Log.Info("[ReverseProbe] Disabled by config.");
@@ -113,19 +120,33 @@ namespace SULFURTogether.Patches
             }
         }
 
-        private static void PatchReceiveDamageOverloads(Harmony harmony, Type type, string prefixName)
+        // Functional (NOT diagnostic) ReceiveDamage patches, registered unconditionally by Apply() before any probe
+        // gate — so no diagnostic toggle can disable combat. Two entry points:
+        //  • Unit.ReceiveDamage — Pre: downed-player/client damage suppression + host→client forwarding; Post: host
+        //    Npc health-sync (Phase 5.2 P0).
+        //  • Npc.ReceiveDamage — Pre only (no postfix, would double-send): client→host hit forwarding, the core of
+        //    client combat — TryClientBossHit / puppet damage authority / TrySendClientHitRequest.
+        // Both were previously buried under [Probe] switches (EnableDamageProbe / EnableNpcProbe) that read like logs.
+        // The high-frequency per-hit log lines inside both prefixes are separately gated by LogUnitReceiveDamage.
+        private static void ApplyDamageForwardPatches(Harmony harmony)
         {
-            if (!Cfg.EnableDamageProbe.Value) return;
-            var overloads = AccessTools.GetDeclaredMethods(type)
-                .Where(m => m.Name == "ReceiveDamage").ToList();
-            if (overloads.Count == 0) { Log.Warn($"[ReverseProbe] No ReceiveDamage on {type.Name}"); return; }
-            Log.Info($"[ReverseProbe] {type.Name}.ReceiveDamage candidates ({overloads.Count}):");
-            foreach (var m in overloads)
+            var unitT = FindType("PerfectRandom.Sulfur.Core.Units.Unit");
+            if (unitT != null)
             {
-                var sig = $"({string.Join(", ", m.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"))})";
-                Log.Info($"  [{m.GetParameters().Length}] {sig}");
-                try { harmony.Patch(m, prefix: Pre(prefixName)); }
-                catch (Exception ex) { Log.Error($"[ReverseProbe] ReceiveDamage patch failed {type.Name} {sig}: {ex.Message}"); }
+                foreach (var m in AccessTools.GetDeclaredMethods(unitT).Where(m => m.Name == "ReceiveDamage"))
+                {
+                    try { harmony.Patch(m, prefix: Pre(nameof(Unit_ReceiveDamage_Pre)), postfix: Post(nameof(Unit_ReceiveDamage_Post))); }
+                    catch (Exception ex) { Log.Error($"[DamageForward] Unit.ReceiveDamage patch failed: {ex.Message}"); }
+                }
+            }
+            var npcT = FindType("PerfectRandom.Sulfur.Core.Units.Npc");
+            if (npcT != null)
+            {
+                foreach (var m in AccessTools.GetDeclaredMethods(npcT).Where(m => m.Name == "ReceiveDamage"))
+                {
+                    try { harmony.Patch(m, prefix: Pre(nameof(Npc_ReceiveDamage_Pre))); }
+                    catch (Exception ex) { Log.Error($"[DamageForward] Npc.ReceiveDamage patch failed: {ex.Message}"); }
+                }
             }
         }
 
@@ -490,21 +511,8 @@ namespace SULFURTogether.Patches
             TryPatch(harmony, t, "SpawnLoot",    Pre(nameof(Unit_SpawnLoot_Pre)),    null);
             TryPatch(harmony, t, "SetUnitState", Pre(nameof(Unit_SetUnitState_Pre)), null);
             PatchAllOverloads(harmony, t, "TeleportTo", Pre(nameof(Unit_TeleportTo_Pre)));
-            PatchReceiveDamageOverloads(harmony, t, nameof(Unit_ReceiveDamage_Pre));
-
-            // Phase 5.2 P0: postfix reads health AFTER Unit.ReceiveDamage runs (where damage is
-            // actually applied to Stats.ModifyStatus) — avoids the field-scan approach that failed.
-            // Only Npc category is forwarded; Player damage is filtered inside ProbeManager.
-            if (Cfg.EnableDamageProbe.Value)
-            {
-                var dmgOverloads = AccessTools.GetDeclaredMethods(t)
-                    .Where(m => m.Name == "ReceiveDamage").ToList();
-                foreach (var m in dmgOverloads)
-                {
-                    try { harmony.Patch(m, postfix: Post(nameof(Unit_ReceiveDamage_Post))); }
-                    catch (Exception ex) { Log.Error($"[ReverseProbe] Unit.ReceiveDamage postfix failed: {ex.Message}"); }
-                }
-            }
+            // Unit.ReceiveDamage Pre+Post moved to ApplyDamageForwardPatches (registered unconditionally in Apply()):
+            // they are functional (damage suppression/forwarding + host health-sync), not part of this probe.
         }
 
         private static void Unit_Spawn_Post(object __instance)
@@ -1014,7 +1022,8 @@ namespace SULFURTogether.Patches
                 ReverseProbeSummary.IncrementDamage(category);
                 ReverseProbeKnownObjects.RegisterDamage(ID(__instance));
                 NetGameplayProbeManager.ReportDamage(__instance, "Unit.ReceiveDamage", category, damage, damageType);
-                Log.Info($"[Unit] ReceiveDamage << {F(__instance)} dmg={damage} type={damageType}");
+                if (Cfg.LogUnitReceiveDamage.Value)   // high-frequency per-hit line — separately gated so the functional patch can stay always-on
+                    Log.Info($"[Unit] ReceiveDamage << {F(__instance)} dmg={damage} type={damageType}");
             }
             catch (Exception ex) { Log.Error($"[Unit.ReceiveDamage] {ex.Message}"); }
             return true;
@@ -1069,9 +1078,8 @@ namespace SULFURTogether.Patches
             // Update: always patched; method body gates by EnableNpcUpdateProbe
             TryPatch(harmony, t, "Update",                 null,                                Post(nameof(Npc_Update_Post)));
 
-            PatchReceiveDamageOverloads(harmony, t, nameof(Npc_ReceiveDamage_Pre));
-            // Phase 5.2: health reading moved to Unit.ReceiveDamage postfix (see ApplyUnitPatches).
-            // Npc.ReceiveDamage postfix removed to avoid double-send on each damage event.
+            // Npc.ReceiveDamage Pre moved to ApplyDamageForwardPatches (registered unconditionally in Apply()): it is
+            // functional (client→host hit forwarding — the core of client combat), not part of this diagnostic probe.
         }
 
         private static void Npc_Spawn_Post(object __instance)
@@ -1395,7 +1403,8 @@ namespace SULFURTogether.Patches
                 // Phase 5.2: damage event (amount only) sent here; health is read in
                 // Unit_ReceiveDamage_Post after the actual Stats deduction in Unit.ReceiveDamage.
                 NetGameplayProbeManager.ReportHostNpcDamageForSync(__instance, damage);
-                Log.Info($"[Npc] ReceiveDamage << {F(__instance)} dmg={damage} type={damageType}");
+                if (Cfg.LogUnitReceiveDamage.Value)   // high-frequency per-hit line — separately gated so the functional patch stays always-on
+                    Log.Info($"[Npc] ReceiveDamage << {F(__instance)} dmg={damage} type={damageType}");
             }
             catch (Exception ex) { Log.Error($"[Npc.ReceiveDamage] {ex.Message}"); }
             return true;

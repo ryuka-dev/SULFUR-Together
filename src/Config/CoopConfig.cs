@@ -13,7 +13,7 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool> EnablePlayerProbe { get; }
         public ConfigEntry<bool> EnableUnitProbe   { get; }
         public ConfigEntry<bool> EnableNpcProbe    { get; }
-        public ConfigEntry<bool> EnableDamageProbe { get; }
+        public ConfigEntry<bool> LogUnitReceiveDamage { get; }  // pure diagnostic log; the damage patch itself is functional + always-on
         // Phase 5.5 diag: player teleport trigger (TeleportPlayer.DoTeleport) + local-player TeleportTo from/to + full
         // DamageSourceData dump on suppressed puppet hits — to identify the client teleport loop and the real 800 source.
         public ConfigEntry<bool> LogTeleportDiag   { get; }
@@ -498,7 +498,8 @@ namespace SULFURTogether.Config
             EnablePlayerProbe = cfg.Bind("Probe", "EnablePlayerProbe", true, "Log GameManager player/state events.");
             EnableUnitProbe   = cfg.Bind("Probe", "EnableUnitProbe",   true, "Log Unit / UnitManager lifecycle.");
             EnableNpcProbe    = cfg.Bind("Probe", "EnableNpcProbe",    true, "Log Npc events.");
-            EnableDamageProbe = cfg.Bind("Probe", "EnableDamageProbe", true, "Log ReceiveDamage calls.");
+            LogUnitReceiveDamage = cfg.Bind("Probe", "LogUnitReceiveDamage", false,
+                "Log a line per Unit/Npc ReceiveDamage call (high-frequency in combat — default OFF). NOTE: this is a PURE LOG. The damage patches themselves (downed/client damage suppression, client→host hit forwarding, host Npc health-sync) are functional and always on, independent of this switch — see ApplyDamageForwardPatches. The old EnableDamageProbe/EnableNpcProbe gates conflated the two and could break combat when toggled off as a 'log'.");
             LogTeleportDiag   = cfg.Bind("Probe", "LogTeleportDiag",   false, "Diag (default OFF — high volume; also drives the per-enemy [PosDiag] line): TeleportPlayer.DoTeleport trigger + stack, local-player TeleportTo from/to, full DamageSourceData on suppressed puppet hits. Enable to debug teleport/position.");
             EnableLootProbe   = cfg.Bind("Probe", "EnableLootProbe",   true, "Log LootManager and InventoryItem events.");
             EnablePickupProbe = cfg.Bind("Probe", "EnablePickupProbe", true, "Log InteractionManager pickup events.");

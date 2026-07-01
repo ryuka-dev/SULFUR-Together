@@ -133,6 +133,9 @@ namespace SULFURTogether.Config
             "EnableArenaLockdown", "EnableArenaGracePeriod", "LogAiTargetingReverseDump",
             // Dead diagnostic logs whose gated feature is retired (feature hardcoded OFF → log never fired):
             "LogSuppressedClientEnemyAi", "LogHostProjectileVisualSpawn", "LogRemotePlayerTargetProxy",
+            // EnableDamageProbe split: the functional Unit.ReceiveDamage patch is now always-on
+            // (ApplyDamageForwardPatches), the log became LogUnitReceiveDamage. The old conflated key is retired.
+            "EnableDamageProbe",
         };
 
         private readonly string _jsonPath;
