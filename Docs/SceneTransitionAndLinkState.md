@@ -68,7 +68,7 @@ State machine: `Idle → Waiting → HostDrivenInProgress`. `PendingKind`: `Comb
 Explicit, user-controlled state that is **the single authority** for whether the mod's multiplayer behaviour is active. It supersedes the older implicit `SessionJoinedHost` latch and `ClientJoinMode` heuristics (those still exist but are fully subordinate: linked → always follow, unlinked → independent).
 
 - **`ClientLinked`** (default OFF): while linked the client joins/follows the host AND relays ALL of its own (non-host) map switches so the host leads everyone. While unlinked the client plays its own run untouched (no intercept, no auto-follow, no relay) — this is what lets a player finish a half-done solo run before joining.
-- **`HostLinked`** (default ON): master switch for the host's broadcasting / relay-leading. Off ⇒ host behaves single-player (`SendHostSceneRequest` early-returns, relays ignored).
+- **`HostLinked`** (default ON, **hardcoded**): master switch for the host's broadcasting / relay-leading. Off ⇒ host behaves single-player (`SendHostSceneRequest` early-returns, relays ignored). The startup default `HostLinkedByDefault` is now `Fixed<bool>(true)` (retired from the `.cfg`, pruned on load): a stale/off `.cfg` value silenced the host's scene requests so a joining client never received a target and could never auto-follow ("进不去" — a silent, easy-to-hit trap). A temporary single-player host is still available in-game via `HostLinkToggleKey`.
 
 Controls (client): **PageDown** = `ManualClientSceneFollowKey` → link + follow host; **PageUp** = `ClientUnlinkKey` → unlink. Host: `HostLinkToggleKey` (PageDown) toggles `HostLinked`.
 
@@ -119,7 +119,7 @@ All-players-down used to double-load the client (stale combat request → combat
 | `NetHostTransitionGuard.cs` | Both-ends double-generate race guard |
 | `NetSceneClassify.cs` / `NetSceneName.cs` | Hub/combat classification + name canonicalization |
 
-Config (group `NetworkSceneAuthority` unless noted): `ClientWaitHostGenerationInputBeforeFirstLoad`, `ClientLoadGateTimeoutSeconds`, `ClientLoadGateRequestIntervalSeconds`, `EnableAutoFollowHostSceneRequest`, `EnableClientTransitionRelay`, `AllowClientInitiatedLevelLoad`, `ClientInitiatedLoadTimeoutSeconds`, `ClientGateDeathRespawnUntilHostHub`, `ClientGateDeathRespawnTimeoutSeconds`, `ClientLinkedByDefault`, `HostLinkedByDefault`, `ClientUnlinkKey`, `HostLinkToggleKey`, `ManualClientSceneFollowKey`, `SyncHostUsedSetsOnManualFollow`. Seed match: `EnableLevelSeedAuthority` / `RequireSameLevelSeedForSceneMatch` (group `NetworkLevelSeed`).
+Config (group `NetworkSceneAuthority` unless noted): `ClientWaitHostGenerationInputBeforeFirstLoad`, `ClientLoadGateTimeoutSeconds`, `ClientLoadGateRequestIntervalSeconds`, `EnableAutoFollowHostSceneRequest`, `EnableClientTransitionRelay`, `AllowClientInitiatedLevelLoad`, `ClientInitiatedLoadTimeoutSeconds`, `ClientGateDeathRespawnUntilHostHub`, `ClientGateDeathRespawnTimeoutSeconds`, `ClientLinkedByDefault`, `ClientUnlinkKey`, `HostLinkToggleKey`, `ManualClientSceneFollowKey`, `SyncHostUsedSetsOnManualFollow`. (`HostLinkedByDefault` is hardcoded `Fixed<bool>(true)` — retired from the `.cfg`.) Seed match: `EnableLevelSeedAuthority` / `RequireSameLevelSeedForSceneMatch` (group `NetworkLevelSeed`).
 
 ---
 

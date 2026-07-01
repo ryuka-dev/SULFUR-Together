@@ -136,6 +136,13 @@ namespace SULFURTogether.Config
             // EnableDamageProbe split: the functional Unit.ReceiveDamage patch is now always-on
             // (ApplyDamageForwardPatches), the log became LogUnitReceiveDamage. The old conflated key is retired.
             "EnableDamageProbe",
+            // EMP-2: the client Emperor worm-freeze is gameplay (always-on for the client), not a config toggle.
+            // The old default-off scaffold key is retired.
+            "EnableEmperorClientWormSuppression",
+            // JoinFollow: HostLinkedByDefault hardcoded ON. Off silenced the host's scene requests → a joining
+            // client could never auto-follow ("进不去"). Removed from the .cfg so a stale/off value can't break
+            // joining; still toggleable in-game via HostLinkToggleKey.
+            "HostLinkedByDefault",
         };
 
         private readonly string _jsonPath;

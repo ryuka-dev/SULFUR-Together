@@ -125,14 +125,22 @@ namespace SULFURTogether
             }
         }
 
+        private readonly System.Diagnostics.Stopwatch _updateProf = new System.Diagnostics.Stopwatch();
         private void Update()
         {
+            // EMP-1b: inline zero-alloc timing of the heavy per-frame ticks, so a slow frame attributes to a
+            // specific tick (or to nothing here → the cost is outside Update: LateUpdate patches / render / GC).
+            _updateProf.Restart();
             ReverseProbeSummary.Tick();
             PlayerVisualDiscoveryProbe.TryDumpOnce();
             PlayerSpriteAssetScanProbe.TryScanOnce();
+            long tPre = _updateProf.ElapsedMilliseconds;
             NetGameplayProbeManager.Tick();
+            long tGameplay = _updateProf.ElapsedMilliseconds - tPre;
             NetPlayerLifeManager.Tick();
             Networking.Gameplay.Boss.NetBossEncounterManager.Tick();
+            long tBoss = _updateProf.ElapsedMilliseconds - tPre - tGameplay;
+            Networking.Gameplay.Boss.EmperorWormDiagnostics.FrameWatchdogTick(); // EMP-1b: catch the ground-slam frame hitch
             Networking.Gameplay.Boss.BossDynamicSpawnManifest.TickReleaseStaleGated(); // RT3-A safety: release stuck gates
             Networking.Gameplay.ArenaLockdownManager.Tick(); // LD-2a: host arena lockdown timers
             CoopConnection.Tick();
@@ -140,6 +148,7 @@ namespace SULFURTogether
 #if NATIVE_UI_LIB
             UI.CoopConnectPage.Tick(); // UI-3c: drive the connect page's live status/buttons/list handles
 #endif
+            Networking.Gameplay.Boss.EmperorWormDiagnostics.ReportUpdateProfile(_updateProf.ElapsedMilliseconds, tGameplay, tBoss);
         }
 
         private void FixedUpdate()

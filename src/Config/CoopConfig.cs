@@ -137,7 +137,11 @@ namespace SULFURTogether.Config
         // switches to the host so the host leads everyone. HOST default ON (debug-friendly) — when off the host
         // acts single-player (no broadcasts, ignores client relays). HostLinkToggleKey toggles it.
         public ConfigEntry<bool>   ClientLinkedByDefault { get; }
-        public ConfigEntry<bool>   HostLinkedByDefault { get; }
+        // Hardcoded ON: the host's multiplayer master switch must default to broadcasting, otherwise a joining
+        // client never receives the host's scene request and cannot auto-follow (SendHostSceneRequest bails when
+        // !HostLinked) — a silent, easy-to-hit trap when the .cfg value was left/toggled off. Still toggleable
+        // in-game with HostLinkToggleKey; removed from the .cfg so a stale/off value can't break joining.
+        public Fixed<bool>         HostLinkedByDefault { get; }
         public ConfigEntry<KeyboardShortcut> ClientUnlinkKey { get; }
         public ConfigEntry<KeyboardShortcut> HostLinkToggleKey { get; }
 
@@ -170,7 +174,9 @@ namespace SULFURTogether.Config
         public Fixed<bool>         ExcludeOutOfRoomPlayersFromBossAttacks { get; }
         // ----- Phase 5.4-E3 BossDialogCommit + Lucia + Witch state + Emperor worm -----
         public ConfigEntry<bool>   EnableEmperorWormDiagnostics { get; }
-        public ConfigEntry<bool>   EnableEmperorClientWormSuppression { get; }
+        // EMP-1b: default-OFF stopwatch to localize the ground-slam frame hitch (native vs mod).
+        public ConfigEntry<bool>   LogEmperorWormPerf { get; }
+        public ConfigEntry<float>  EmperorWormPerfThresholdMs { get; }
         public ConfigEntry<bool>   LogBossTransitionDiagnostics { get; }
         // ----- Phase 5.4-E4 Boss dynamic spawn manifest (release-hardcoded) -----
         public Fixed<bool>         EnableBossDynamicSpawnManifest { get; }
@@ -638,8 +644,10 @@ namespace SULFURTogether.Config
             EnableClientReloadInPlaceRelay = new Fixed<bool>(true);
             ClientLinkedByDefault = cfg.Bind("NetworkSceneAuthority", "ClientLinkedByDefault", false,
                 "联机状态: whether the CLIENT starts LINKED (joining/following the host). Default false so an in-progress solo run is never hijacked — the player presses ManualClientSceneFollowKey (PageDown) to link and ClientUnlinkKey to unlink.");
-            HostLinkedByDefault = cfg.Bind("NetworkSceneAuthority", "HostLinkedByDefault", true,
-                "联机状态: whether the HOST starts LINKED (mod multiplayer active: broadcasts scene changes, leads client-relayed transitions). Default true for debugging. When off the host behaves single-player. Toggle in-game with HostLinkToggleKey.");
+            // Hardcoded ON (retired from .cfg): the host always starts broadcasting so a joining client can
+            // auto-follow. Off would silence the host's scene requests → client can't join. Toggle in-game with
+            // HostLinkToggleKey if a temporary single-player host is needed.
+            HostLinkedByDefault = new Fixed<bool>(true);
             ClientUnlinkKey = cfg.Bind("NetworkSceneAuthority", "ClientUnlinkKey", new KeyboardShortcut(KeyCode.PageUp),
                 "Client only: key to LEAVE 联机状态 (stop following/relaying and play the local run independently). PageDown links, this unlinks.");
             HostLinkToggleKey = cfg.Bind("NetworkSceneAuthority", "HostLinkToggleKey", new KeyboardShortcut(KeyCode.PageDown),
@@ -674,8 +682,10 @@ namespace SULFURTogether.Config
             // and finalize the local dialog with the real Graph.Stop(true). Witch broadcasts a minimal phase/state skeleton.
             EnableEmperorWormDiagnostics = cfg.Bind("NetworkBoss", "EnableEmperorWormDiagnostics", true,
                 "Phase 5.4-E3: probe + log Emperor worm controller state (identify the double-worm source). Diagnostic only; does not change gameplay.");
-            EnableEmperorClientWormSuppression = cfg.Bind("NetworkBoss", "EnableEmperorClientWormSuppression", false,
-                "Phase 5.4-E3 SCAFFOLD (default OFF, reversible): on the Client, block the local EmperorBossWorm.StartMovement so the client stops driving an independent second worm. Never destroys anything; Emperor-only.");
+            LogEmperorWormPerf = cfg.Bind("NetworkBoss", "LogEmperorWormPerf", false,
+                "EMP-1b (default OFF): stopwatch the Emperor worm's FixedUpdate + ground/underground native calls; log only frames slower than EmperorWormPerfThresholdMs to localize the ground-slam hitch.");
+            EmperorWormPerfThresholdMs = cfg.Bind("NetworkBoss", "EmperorWormPerfThresholdMs", 6f,
+                "EMP-1b: only log a worm perf sample when the measured call exceeds this many milliseconds.");
             LogBossTransitionDiagnostics = cfg.Bind("NetworkBoss", "LogBossTransitionDiagnostics", true,
                 "Phase 5.4-E3 (P2): log extra context when a Client receives a HostSceneRequest while already loading/transitioning. Diagnostic only — does not change transition behavior.");
 

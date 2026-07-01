@@ -142,6 +142,12 @@ namespace SULFURTogether.Networking.Gameplay
             public float LastTargetAuthorityLogAt { get; set; }
             public int LastTargetAuthorityClearedCount { get; set; }
             public string LastTargetAuthoritySummary { get; set; } = "";
+            // EMP-1b perf: skip the expensive boss child-scan (GetComponentsInChildren + reflection) for records
+            // that repeatedly clear nothing — e.g. the 10 Emperor worm sections, which have no clearable AI target
+            // members. Running that scan per-section every 0.5s was the client's ground-fight GC/CPU stall (~1.7s
+            // frames in Log219). Root-level clears (cheap, direct reflection) still run.
+            public int TargetAuthorityBarrenStreak { get; set; }
+            public bool TargetAuthoritySectionScanDisabled { get; set; }
             public float LastCombatProbeLogAt { get; set; }
             public int LastAppliedAiIntentSequence { get; set; }
             public float LastAppliedAiIntentAt { get; set; }
@@ -270,6 +276,12 @@ namespace SULFURTogether.Networking.Gameplay
         private static readonly List<string> ScratchEnemyStateTargetKeys = new List<string>(64);
         private static readonly HashSet<int> ClientPuppetNpcIds = new HashSet<int>();
         private static readonly HashSet<int> ClientPuppetAiAgentIds = new HashSet<int>();
+        // EMP-1b hot-path skip: AiAgent ids whose target-authority apply has been proven barren (section-scan-disabled).
+        // For these (e.g. the 10 Emperor worm sections) the block path still returns true — the local AI target is
+        // still suppressed — but we skip the per-frame record lookup + reflection clear + block-local-ai-target log.
+        // That log was the dominant recurring emitter in the client's boss-combat log, and the client runs sandboxed
+        // (Sandboxie) where each synchronous BepInEx write is far slower than on the host.
+        private static readonly HashSet<int> BarrenTargetAuthorityAiIds = new HashSet<int>();
         private static readonly HashSet<int> ClientPuppetMovementDriverIds = new HashSet<int>();
         private static readonly HashSet<string> PendingStableSpawnLogs = new HashSet<string>();
         // Phase 4.4.0-O: per-NPC Host-authorized intent windows (Client side only).
@@ -2102,6 +2114,19 @@ namespace SULFURTogether.Networking.Gameplay
                     MaybeLogSnapCollExclusion(snapshot, "special:" + SyncCatName(snapshot.SyncCategory));
                     continue;
                 }
+                // EMP-2 (send side): the Emperor phase-1 worm's 10 body sections are NEVER applied on the client —
+                // it runs its own local worm and the generic transform mirror skips them (IsEmperorWormSectionSnapshot
+                // in the apply loop). Sending their high-rate snapshots (10 fast-moving units) was pure waste: the
+                // client queued thousands and applied zero (enemyStateQueued climbing while enemyStateApplied=0), and
+                // that receive/deserialize load helped push the client past Time.maximumDeltaTime into the fixed-step
+                // catch-up spiral — the client-only Emperor hitch. Damage stays host-authoritative via the roster
+                // ClientHit path, which does not use these snapshots. So never collect/send them.
+                if (IsEmperorWormSectionSnapshot(snapshot))
+                {
+                    scExSpecial++;
+                    MaybeLogSnapCollExclusion(snapshot, "emperor-worm-section");
+                    continue;
+                }
                 if (result.Count >= maxCount) break;
 
                 if (snapshot.TryGetRuntimeObject(out var runtimeObject) && runtimeObject != null)
@@ -2713,6 +2738,18 @@ namespace SULFURTogether.Networking.Gameplay
                 if (IsSelfAnimatingClientBossAdd(snapshot))
                     continue;
 
+                // EMP-2: the Emperor worm is a 10-section boss with its OWN smooth section-follow (UpdateWormSections,
+                // driven from the local worm each frame). Routing its sections through the generic per-frame transform
+                // mirror teleports 30 colliders large distances every frame, which churns the PhysX broadphase — the
+                // client-only native ~1fps (proven: disabling the section colliders dropped the hitch 61→3; moving via
+                // Rigidbody.position instead of transform.position did NOT help, because the colliders are still in the
+                // broadphase being teleported). Skip the snapshot here and let the local worm move them smoothly (same
+                // pattern as the Cousin arm above). Positions diverge from host (double-worm) — the pre-existing no-lag
+                // behavior — but damage still routes host-authoritatively through the roster ClientHit path. A proper
+                // non-teleport worm position sync (stream the head, run UpdateWormSections locally) is a later design.
+                if (IsEmperorWormSectionSnapshot(snapshot))
+                    continue;
+
                 EnsureClientEnemyPuppetMode(key, snapshot, target.HostSnapshot, runtimeObject, now);
 
                 // Phase 4.4.0-O/O2: create/refresh per-NPC authorization window; determine control mode.
@@ -2956,8 +2993,13 @@ namespace SULFURTogether.Networking.Gameplay
             int aiId = ObjectIdentity(aiAgent);
             if (aiId == 0 || !ClientPuppetAiAgentIds.Contains(aiId)) return false;
 
-            float now = Time.realtimeSinceStartup;
             _clientEnemyPuppetTargetBlocks++;
+            // EMP-1b: proven-barren sections (worm) — keep blocking, but skip the record lookup + reflection apply
+            // + per-frame log entirely. The suppression (return true) is what matters; the apply clears nothing here.
+            if (BarrenTargetAuthorityAiIds.Contains(aiId))
+                return true;
+
+            float now = Time.realtimeSinceStartup;
             if (TryGetPuppetRecordForAiAgent(aiAgent, out var record))
             {
                 ApplyClientEnemyTargetAuthority(record, now, "blocked " + Clean(source));
@@ -4111,7 +4153,7 @@ namespace SULFURTogether.Networking.Gameplay
                 // brains live on CHILD GameObjects and keep their own target, so clearing only the root leaves the
                 // section AI fighting the host snapshot. Walk AI-like child components and clear their targets too.
                 // Only done for bosses, or when the root clear found nothing, so normal enemies skip the child scan.
-                if (boss || cleared == 0)
+                if ((boss || cleared == 0) && !record.TargetAuthoritySectionScanDisabled)
                     cleared += TryClearBossSectionTargets(record, clearedOn);
             }
             finally
@@ -4132,7 +4174,24 @@ namespace SULFURTogether.Networking.Gameplay
                 if (cleared > 0) _enemyTargetBossSuppressionApplied++;
                 else _enemyTargetSuppressionFailed++;
             }
-            if (cleared == 0) _enemyTargetNoKnownMember++;
+            if (cleared == 0)
+            {
+                _enemyTargetNoKnownMember++;
+                // EMP-1b: after 6 consecutive barren applies (~3s), stop the expensive child-scan for this record.
+                // Safe because it provably clears nothing; root clears above still run every cycle.
+                if (!record.TargetAuthoritySectionScanDisabled && ++record.TargetAuthorityBarrenStreak >= 6)
+                {
+                    record.TargetAuthoritySectionScanDisabled = true;
+                    // EMP-1b: also fast-path this AiAgent out of the block hot path (skip lookup/apply/log next frame on).
+                    if (record.AiAgentId != 0) BarrenTargetAuthorityAiIds.Add(record.AiAgentId);
+                    MaybeLogClientEnemyTargetAuthority(record, now, "section-scan-disabled",
+                        $"boss={boss} reason=barren-6x (no clearable target members; skipping per-frame child scan + block-path apply/log)", force: true);
+                }
+            }
+            else
+            {
+                record.TargetAuthorityBarrenStreak = 0;
+            }
 
             // Phase 5.4-C E: when we found no target member (or this is a boss), dump the real type/members once
             // so the actual target fields can be discovered instead of guessed.
@@ -4141,9 +4200,14 @@ namespace SULFURTogether.Networking.Gameplay
             string summary = clearedOn.Count == 0 ? "no-known-target-members" : string.Join(",", clearedOn.Take(8).ToArray());
             record.LastTargetAuthorityClearedCount = cleared;
             record.LastTargetAuthoritySummary = summary;
-            MaybeLogClientEnemyTargetAuthority(record, now, "apply-host-only-target", $"reason={Clean(reason)} cleared={cleared} boss={boss} members={summary}", force: false);
-            if (cleared == 0)
-                MaybeLogClientEnemyTargetAuthority(record, now, "suppression-failed", $"reason=no-target-member boss={boss}", force: false);
+            // Once a record's child-scan is disabled (barren) its result never changes — stop the per-apply logging
+            // to cut both I/O and the string allocation on the hot path.
+            if (!record.TargetAuthoritySectionScanDisabled)
+            {
+                MaybeLogClientEnemyTargetAuthority(record, now, "apply-host-only-target", $"reason={Clean(reason)} cleared={cleared} boss={boss} members={summary}", force: false);
+                if (cleared == 0)
+                    MaybeLogClientEnemyTargetAuthority(record, now, "suppression-failed", $"reason=no-target-member boss={boss}", force: false);
+            }
 
             // Phase 5.4-C G: surface the host-authoritative target the Client should defer to (data pipe for the
             // next phase's "enemies attack all players"). The Client does not yet re-assign the target object;
@@ -4418,6 +4482,21 @@ namespace SULFURTogether.Networking.Gameplay
         {
             if (snapshot == null) return false;
             try { return string.Equals(snapshot.EntityId?.UnitIdentifier, "GoblinCousinArm", StringComparison.Ordinal); }
+            catch { return false; }
+        }
+
+        // EMP-2: identify the Emperor phase-1 worm body sections (10 per worm, UnitIds ShavwaEmperorWormSection /
+        // ShavwaEmperorWormSectionVulnerable). These are excluded from the generic transform mirror — see the skip in
+        // the enemy-state apply loop for why (broadphase churn from per-frame teleports). Match on UnitId prefix so
+        // both the plain and vulnerable tail section qualify.
+        private static bool IsEmperorWormSectionSnapshot(NetGameplayEntitySnapshot? snapshot)
+        {
+            if (snapshot == null) return false;
+            try
+            {
+                string uid = snapshot.EntityId?.UnitIdentifier ?? "";
+                return uid.IndexOf("EmperorWormSection", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
             catch { return false; }
         }
 
@@ -5914,6 +5993,7 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 ClientPuppetNpcIds.Clear();
                 ClientPuppetAiAgentIds.Clear();
+                BarrenTargetAuthorityAiIds.Clear();
                 ClientPuppetMovementDriverIds.Clear();
                 ActiveEnemyPuppetsByNpcId.Clear();
                 return;
@@ -5924,6 +6004,7 @@ namespace SULFURTogether.Networking.Gameplay
 
             ClientPuppetNpcIds.Clear();
             ClientPuppetAiAgentIds.Clear();
+            BarrenTargetAuthorityAiIds.Clear();
             ClientPuppetMovementDriverIds.Clear();
             ActiveEnemyPuppetsByNpcId.Clear();
         }
@@ -5974,7 +6055,11 @@ namespace SULFURTogether.Networking.Gameplay
                 ClientPuppetNpcIds.Remove(record.NpcId);
                 ActiveEnemyPuppetsByNpcId.Remove(record.NpcId);
             }
-            if (record.AiAgentId != 0) ClientPuppetAiAgentIds.Remove(record.AiAgentId);
+            if (record.AiAgentId != 0)
+            {
+                ClientPuppetAiAgentIds.Remove(record.AiAgentId);
+                BarrenTargetAuthorityAiIds.Remove(record.AiAgentId);
+            }
             if (record.MovementDriverId != 0) ClientPuppetMovementDriverIds.Remove(record.MovementDriverId);
 
             object? npc = record.Npc;

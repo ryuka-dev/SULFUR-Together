@@ -106,6 +106,10 @@ Method/field names below are exact. Line references are into the decompiled bodi
 10. **Host-authoritative:** `owner` health + `damageUntilSubmerge`, `isSubmerged`/`waitingToReappear`, `currentPool`, `currentArm`/`spawnedArms` lifecycle, `HasSpawnedArm`.
 
 ## 6. `EmperorBossFightHelper` + `EmperorBossWorm` + `EmperorWormSectionController` (multi-entity)
+> **Deep dive:** [EmperorBossAudit.md](EmperorBossAudit.md) — full phase-1 worm reverse-engineering (spawn,
+> ballistic movement + RNG sources, weakpoint/section-destruction mechanic, death/phase-2 seam, sync design,
+> and the probe plan). The 10 points below are the summary.
+
 1. **Start entry:** `EmperorBossFightHelper.OnPlayerSpawned` → `StartPhase1()`/`StartPhase2()` (auto, NOT dialog/TriggerFight). There IS a pre-fight dialog (separate scripted NPC) — that dialog's client-input freeze is NOT our boss code.
 2. **Dialog entry:** separate scripted trigger (out of scope of boss adapters).
 3. **Main health Unit:** **the worm has no single health Unit.** `EmperorBossWorm` builds `wormNpcs` (List<Unit>) + `sectionControllers` (List<EmperorWormSectionController>); the bar attaches to `lastSectionNpc` (tail), `healthPerSection = 1/(numberOfSections-1)`, last section HP set to `GetCurrentHealth()*0.1f` (`EmperorWorm.cs:367-376`).
