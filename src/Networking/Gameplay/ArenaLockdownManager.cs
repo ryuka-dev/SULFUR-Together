@@ -36,6 +36,19 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static readonly Dictionary<string, Lockdown> _locks = new Dictionary<string, Lockdown>();
 
+        // LD-Sandstorm (Desert): a GATE-LESS arena. There is no seal trigger / door and no barrier — the sandstorm
+        // damage ring is the wall. The fight-start (boss dialog trigger) creates one of these; at t0+3 s the host tells
+        // every end in the level to pull its own local player in IF it is outside the arena radius. In/out is decided
+        // per-end by distance to the centre (no doorway sensor). Keyed by the arena centre position.
+        private sealed class SandstormArena
+        {
+            public Vector3 Pos;
+            public float   T0;
+            public string  Chapter = ""; public int Level = -1; public bool HasSeed; public int Seed;
+            public bool    PullFired;
+        }
+        private static readonly Dictionary<string, SandstormArena> _sandstormArenas = new Dictionary<string, SandstormArena>();
+
         // LD-2d grace + LD-2f mod-owned door, tracked by the GATE's InstanceID — NOT by position. The seal trigger can
         // be ~50 m from the gate it drives (Emperor: dialog/seal trigger deep inside, gate at the entrance), so a
         // position radius can't identify the gate; object identity can (the id the trigger's onTriggerEvents targets is
@@ -69,6 +82,10 @@ namespace SULFURTogether.Networking.Gameplay
 
         private const float SealDelaySeconds     = 5f;
         private const float TeleportDelaySeconds = 10f;
+        // LD-Sandstorm: how long after the boss dialog trigger before out-of-room players are pulled into the arena,
+        // and how far from the centre still counts as "in" (matches vanilla DesertClause's >20 m keep-in threshold).
+        private const float SandstormPullDelaySeconds = 3f;
+        private const float SandstormArenaRadius      = 20f;
         // How close a gate-open (boss death / AllDeadTrigger) must be to an arena to count as "this fight ended".
         private const float GateReleaseRadius    = 10f;
         // Trigger→gate proximity: the seal trigger and the gate it controls are co-located but distinct objects.
@@ -238,8 +255,67 @@ namespace SULFURTogether.Networking.Gameplay
             LocalTick();
         }
 
+        // ----------------------------------------------------------------- LD-Sandstorm (Desert): gate-less keep-in
+
+        /// <summary>HOST: a gate-less sandstorm boss (Desert) started — its dialog trigger fired. Register the arena so
+        /// that <see cref="SandstormPullDelaySeconds"/> later every out-of-room player in the level is pulled to the
+        /// centre. Called once per encounter from the boss-start broadcast. No-op off-host / feature-disabled.</summary>
+        public static void BeginSandstormArena(Vector3 center, string chapter, int level, bool hasSeed, int seed)
+        {
+            try
+            {
+                if (!Enabled || !NetGameplaySyncBridge.IsHost || !NetGameplaySyncBridge.IsSessionActive) return;
+                string key = Key(center);
+                if (_sandstormArenas.ContainsKey(key)) return; // already armed for this arena
+                _sandstormArenas[key] = new SandstormArena
+                {
+                    Pos = center, T0 = Time.unscaledTime, Chapter = chapter, Level = level, HasSeed = hasSeed, Seed = seed,
+                };
+                NetLogger.Info($"[ArenaLockdown] sandstorm arena START arena={key} level={chapter}:{level} pull in {SandstormPullDelaySeconds:0}s");
+            }
+            catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] BeginSandstormArena failed: {ex.Message}"); }
+        }
+
+        private static void HostTickSandstorm()
+        {
+            if (_sandstormArenas.Count == 0) return;
+            float now = Time.unscaledTime;
+            foreach (var kv in _sandstormArenas)
+            {
+                var sa = kv.Value;
+                if (sa.PullFired) continue;
+                if (now - sa.T0 >= SandstormPullDelaySeconds)
+                {
+                    sa.PullFired = true;
+                    IssueSandstormPull(sa);
+                }
+            }
+        }
+
+        /// <summary>HOST: tell every end in the arena's level to pull its own local player in if it is outside the
+        /// sandstorm radius. Reuses the LD command transport; each end self-decides in/out by distance (PullIn).</summary>
+        private static void IssueSandstormPull(SandstormArena sa)
+        {
+            var targets = NetGameplaySyncBridge.GetPeerIdsInLevel(sa.Chapter, sa.Level, sa.HasSeed, sa.Seed);
+            if (targets.Count == 0)
+            {
+                if (LogOn) NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(sa.Pos)} — no targets, skip");
+                return;
+            }
+            NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(sa.Pos)} targets=[{string.Join(",", targets)}] (out-of-arena players teleport in)");
+
+            if (targets.Contains(NetGameplaySyncBridge.LocalPeerId))
+                ApplyLocalCommand(ArenaCommandKind.PullIn, sa.Pos);
+
+            NetGameplaySyncBridge.BroadcastArenaCommand(new NetArenaCommand
+            {
+                Kind = ArenaCommandKind.PullIn, ArenaPos = sa.Pos, TargetPeerIds = targets,
+            });
+        }
+
         private static void HostTick()
         {
+            HostTickSandstorm();
             if (_locks.Count == 0) return;
             float now = Time.unscaledTime;
             foreach (var kv in _locks)
@@ -313,6 +389,13 @@ namespace SULFURTogether.Networking.Gameplay
                 if (m.TargetPeerIds != null) foreach (var p in m.TargetPeerIds) _clientArenaMembers.Add(p);
                 if (LogOn) NetLogger.Info($"[ArenaLockdown] client received membership arena={_clientArenaKey} members=[{string.Join(",", _clientArenaMembers)}]");
                 return;
+            }
+            // LD-Sandstorm diagnostic: log PullIn receipt UNCONDITIONALLY (once per fight) so we can tell "command never
+            // arrived" from "arrived but not a target" from "arrived + processed".
+            if (m.Kind == ArenaCommandKind.PullIn)
+            {
+                bool targeted = m.TargetPeerIds != null && m.TargetPeerIds.Contains(localPeerId);
+                NetLogger.Info($"[ArenaLockdown] client received PullIn arena={Key(m.ArenaPos)} me={localPeerId} targets=[{(m.TargetPeerIds == null ? "" : string.Join(",", m.TargetPeerIds))}] targeted={targeted}");
             }
             if (m.TargetPeerIds == null || !m.TargetPeerIds.Contains(localPeerId)) return;
             ApplyLocalCommand(m.Kind, m.ArenaPos);
@@ -417,6 +500,34 @@ namespace SULFURTogether.Networking.Gameplay
                         if (IsEffectivelyInArena(arenaPos)) break; // already inside — nothing to do
                         if (LogOn) NetLogger.Info($"[ArenaLockdown] RELEASE arena=({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0}) — fight over, entering");
                         TeleportIntoArena(arenaPos);
+                        break;
+
+                    case ArenaCommandKind.PullIn:
+                        // LD-Sandstorm (Desert): no gate/barrier — pull the local player in ONLY if it is outside the
+                        // arena radius (distance, not doorway parity). A player already fighting near the boss stays put.
+                        // Decision logged UNCONDITIONALLY (once per player per fight) — needed to diagnose why a client
+                        // did / didn't get pulled without requiring LogArenaLockdown to be on.
+                        {
+                            object pu = ResolveLocalPlayerUnit();
+                            Vector3 ppos = (pu is Component pc && pc != null) ? pc.transform.position : Vector3.positiveInfinity;
+                            float dist = Vector3.Distance(ppos, arenaPos);
+                            if (pu == null)
+                            {
+                                NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(arenaPos)} — local player unit MISSING, cannot teleport");
+                                break;
+                            }
+                            if (dist <= SandstormArenaRadius)
+                            {
+                                NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(arenaPos)} local player INSIDE (dist={dist:0.0}m ppos={ppos:F0}) — no teleport");
+                                break;
+                            }
+                            NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(arenaPos)} local player OUTSIDE (dist={dist:0.0}m ppos={ppos:F0}) — teleporting into arena");
+                            MoveLocalPlayerTo(pu, arenaPos + Vector3.up * 0.5f);
+                            // Player-facing → localize (Docs/Localization.md).
+                            Toast("Sandstorm Arena", "Pulled into the arena — the sandstorm outside would grind you down.");
+                            // Teleported in counts as entering the boss room — catch up the intro dialog if still open.
+                            try { Boss.NetBossEncounterManager.OnLocalTeleportedIntoArena(); } catch { }
+                        }
                         break;
                 }
             }
@@ -569,6 +680,23 @@ namespace SULFURTogether.Networking.Gameplay
 
         // ----------------------------------------------------------------- local player resolution
 
+        /// <summary>Teleport an already-resolved local player unit to a world position (real <c>Unit.TeleportTo</c> if
+        /// present, else a raw transform move). Returns false if the unit is missing.</summary>
+        private static bool MoveLocalPlayerTo(object unit, Vector3 dest)
+        {
+            try
+            {
+                if (unit == null) { NetLogger.Warn("[ArenaLockdown] teleport: local player unit missing"); return false; }
+                var tp = AccessTools.Method(unit.GetType(), "TeleportTo", new[] { typeof(Vector3) })
+                      ?? AccessTools.Method(unit.GetType(), "TeleportTo");
+                if (tp != null) tp.Invoke(unit, new object[] { dest });
+                else if (unit is Component c && c != null) c.transform.position = dest;
+                else return false;
+                return true;
+            }
+            catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] teleport failed: {ex.Message}"); return false; }
+        }
+
         private static object ResolveLocalPlayerUnit()
         {
             try
@@ -632,6 +760,7 @@ namespace SULFURTogether.Networking.Gameplay
         public static void Clear()
         {
             _locks.Clear();
+            _sandstormArenas.Clear();
             _gracedGates.Clear();
             _heldGates.Clear();
             _legitGateOpenUntil = -999f;

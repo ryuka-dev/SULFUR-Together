@@ -188,6 +188,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // ---- Phase 5.4-E4.2 boss health sync (generic; works for any adapter that exposes a GetHealthUnit) ----
         public virtual object? GetHealthUnit(object component) => null;
 
+        // ---- LD-Sandstorm: default = no gate-less keep-in arena (only DesertClause overrides) ----
+        public virtual bool TryGetSandstormArenaCenter(object component, out Vector3 center) { center = Vector3.zero; return false; }
+
         public virtual bool ProvidesPhaseState => false;
 
         /// <summary>Default: fill the host-authoritative health of the boss's damageable unit. Phase bosses override

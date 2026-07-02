@@ -18,6 +18,10 @@ namespace SULFURTogether.Networking.Gameplay
         NotifyEntered = 6, // LD-2e t0: heads-up toast to the player(s) who entered first (so they know it started too).
         Membership = 7, // RT3-Cousin-arms-Room: host broadcasts the arena's current in-room peer set (TargetPeerIds) so
                         // clients can filter the boss arm's group attack. Cached by ALL clients, no per-target side effect.
+        PullIn   = 8, // LD-Sandstorm (Desert): t0+3 s pull-in for a gate-less sandstorm arena. Every end in the level
+                      // self-decides in/out by DISTANCE to ArenaPos (no doorway/gate); an outside player teleports to
+                      // ArenaPos (the arena centre) + gets a toast. No barrier, no popup — the sandstorm damage zone is
+                      // the "wall", so out-of-room stragglers are simply brought in (matches vanilla's >20 m keep-in).
     }
 
     internal sealed class NetArenaCommand

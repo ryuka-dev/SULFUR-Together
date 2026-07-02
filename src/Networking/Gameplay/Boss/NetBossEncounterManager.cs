@@ -646,6 +646,22 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             BossStartBroadcast++;
             if (LogOn) Plugin.Log.Info($"[BossEncounter] host broadcasting BossEncounterStart {state.ToCompact()}");
             NetGameplaySyncBridge.BroadcastHostBossEncounterStart(state);
+            TryBeginSandstormArena(adapter, component, in ctx);
+        }
+
+        /// <summary>HOST: if this boss fights inside a gate-less sandstorm arena (Desert), arm the arena-lockdown pull-in
+        /// so out-of-room stragglers are teleported in a few seconds after the dialog trigger (the sandstorm outside the
+        /// ring would otherwise grind them down). No-op for gated / normal bosses. Called from both host start-broadcast
+        /// paths (host-triggered and client-request-driven). Never throws.</summary>
+        private static void TryBeginSandstormArena(IBossEncounterAdapter adapter, object component, in BossEncounterContext ctx)
+        {
+            try
+            {
+                if (!NetGameplaySyncBridge.IsHost) return;
+                if (!adapter.TryGetSandstormArenaCenter(component, out Vector3 center)) return;
+                ArenaLockdownManager.BeginSandstormArena(center, ctx.ChapterName, ctx.LevelIndex, ctx.HasSeed, ctx.Seed);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossEncounter] TryBeginSandstormArena failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         private static void RequestStartOnce(string key, IBossEncounterAdapter adapter, object component, in BossEncounterContext ctx, string source)
@@ -2613,6 +2629,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 BossStartBroadcast++;
                 if (LogOn) Plugin.Log.Info($"[BossEncounter] host broadcasting BossEncounterStart (from request) {state.ToCompact()}");
                 NetGameplaySyncBridge.BroadcastHostBossEncounterStart(state);
+                TryBeginSandstormArena(adapter, component, in ctx);
             }
             catch (Exception ex)
             {

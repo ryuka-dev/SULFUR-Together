@@ -24,6 +24,22 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // BossFightHelper / DesertClause / Lucia all damage `bossUnit` (the boss bar + death unit).
         public override object? GetHealthUnit(object component) => BossReflect.GetMember(component, "bossUnit");
 
+        // LD-Sandstorm: DesertClause fights inside a gate-less sandstorm ring. Vanilla keeps a strayed player in by
+        // teleporting to desertClausePerimeter.transform.position when they wander >20 m out (decompiled SkipNextPhase).
+        // We reuse that exact centre so out-of-room co-op stragglers are pulled in at fight-start (ArenaLockdownManager).
+        // Only DesertClause has OnStartInteractWithBoss among BossFightHelper types (Terrorbaum/Lucia use TriggerFight).
+        public override bool TryGetSandstormArenaCenter(object component, out Vector3 center)
+        {
+            center = Vector3.zero;
+            if (!BossReflect.HasMethod(component, "OnStartInteractWithBoss")) return false; // DesertClause only
+            var perimeter = BossReflect.GetMember(component, "desertClausePerimeter");
+            if (perimeter is Component pc && pc != null) { center = pc.transform.position; return true; }
+            // Fallback: the boss body sits at the arena centre too.
+            var bossUnit = GetHealthUnit(component);
+            if (bossUnit is Component bc && bc != null) { center = bc.transform.position; return true; }
+            return false;
+        }
+
         // DesertClause: OnStartInteractWithBoss() (player interact) -> DelayIntro coroutine -> anim event ->
         // TriggerFight() (sets fightStarted). Generic helpers (Terrorbaum/Lucia) only expose TriggerFight; the base
         // ResolveApplyMethod falls back to it when OnStartInteractWithBoss is absent on the type.

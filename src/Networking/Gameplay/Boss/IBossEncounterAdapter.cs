@@ -111,6 +111,16 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// Null if this boss has no single health unit (Emperor multi-section). Drives the boss health bar + death.</summary>
         object? GetHealthUnit(object component);
 
+        // ---- LD-Sandstorm (Desert): gate-less arena keep-in ----
+
+        /// <summary>True if this boss fights inside a GATE-LESS "sandstorm" arena — the battlefield is ringed by a
+        /// damage zone (not a door), so out-of-room players must be pulled in rather than sealed. Returns the arena
+        /// CENTRE (Desert = <c>desertClausePerimeter.transform.position</c>, the same point vanilla teleports a strayed
+        /// player to when they wander &gt;20 m out). The manager starts an <see cref="Gameplay.ArenaLockdownManager"/>
+        /// sandstorm lockdown at fight-start that pulls in stragglers a few seconds later. Default = false (has a gate
+        /// or no keep-in). Only DesertClause overrides.</summary>
+        bool TryGetSandstormArenaCenter(object component, out Vector3 center);
+
         /// <summary>Attach the boss health bar to this boss's health unit. Called ONCE per encounter by the manager
         /// (the native Attach re-subscribes each call). Returns false if there is no health unit.</summary>
         bool TryAttachBossBar(object component);
