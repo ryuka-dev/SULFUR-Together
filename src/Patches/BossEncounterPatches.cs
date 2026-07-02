@@ -33,6 +33,15 @@ namespace SULFURTogether.Patches
                 "PerfectRandom.Sulfur.Core.DesertClauseBossFightHelper", "PerfectRandom.Sulfur.Gameplay.DesertClauseBossFightHelper"),
                 "TriggerFight", "OnStartInteractWithBoss");
 
+            // LD-Sandstorm / F4 divergence: on the CLIENT the Desert fight is host-authoritative. Once the boss has
+            // assembled (fightStarted, via our TriggerFight allow), suppress its own per-frame phase combat
+            // (UpdatePhasesDeltaTime/FixedTime → UpdateAiming → weapon/missile fire) so it does NOT run an independent
+            // local fight (the client boss was firing ~6x the host's projectiles + could double-hit the player). Host
+            // projectiles replay visually via the projectile sync; health/phase stay host-authoritative (BossState).
+            // Desert-scoped (its own override); the intro is unaffected (phases only run after StartBossPhases).
+            PatchDesertPhaseSuppression(harmony, FindType("DesertClauseBossFightHelper",
+                "PerfectRandom.Sulfur.Core.DesertClauseBossFightHelper", "PerfectRandom.Sulfur.Gameplay.DesertClauseBossFightHelper"));
+
             // B. Witch standalone system.
             PatchStart(harmony, FindType("WitchBossController",
                 "PerfectRandom.Sulfur.Gameplay.WitchBossController", "PerfectRandom.Sulfur.Core.WitchBossController"),
@@ -149,6 +158,30 @@ namespace SULFURTogether.Patches
                 Log.Info($"[WitchP2Probe] patched WitchPhase2.InitPhase({(init != null)}) ShowWitches({(show != null)})");
             }
             catch (Exception ex) { Log.Error($"[WitchP2Probe] patch failed: {ex.Message}"); }
+        }
+
+        // LD-Sandstorm / F4: suppress the Desert boss's per-frame phase combat on the client (host-authoritative fight).
+        private static void PatchDesertPhaseSuppression(Harmony harmony, Type desert)
+        {
+            if (desert == null) { Log.Info("[BossCombat] DesertClause type not found (phase suppression skipped)"); return; }
+            try
+            {
+                foreach (var name in new[] { "UpdatePhasesDeltaTime", "UpdatePhasesFixedTime" })
+                {
+                    var m = AccessTools.Method(desert, name);
+                    if (m != null)
+                        harmony.Patch(m, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_UpdatePhases_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Log.Info($"[BossCombat] patched DesertClause.{name}({m != null}) — client combat suppression");
+                }
+            }
+            catch (Exception ex) { Log.Error($"[BossCombat] Desert phase suppression patch failed: {ex.Message}"); }
+        }
+
+        // Returns false (skip the phase combat) on the client once the boss has started; true otherwise (host / intro).
+        private static bool Desert_UpdatePhases_Pre(object __instance)
+        {
+            try { return !SULFURTogether.Networking.Gameplay.Boss.NetBossEncounterManager.ShouldSuppressClientBossCombat(__instance); }
+            catch { return true; }
         }
 
         private static void WitchP2_InitPhase_Pre(object __instance)

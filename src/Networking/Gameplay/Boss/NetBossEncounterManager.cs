@@ -331,6 +331,46 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try { return adapter.IsStarted(component); } catch { return false; }
         }
 
+        /// <summary>LD-Sandstorm / F4: true when a boss's per-frame combat should be SUPPRESSED on this end — i.e. we are
+        /// a joined client and the boss has started (fightStarted). On the client the fight is host-authoritative, so the
+        /// boss must not run its own aiming/firing/missile logic (that produced a divergent local fight + double damage).
+        /// The boss stays visible (already assembled) + host-driven (puppet transform/animator, BossState health).</summary>
+        public static bool ShouldSuppressClientBossCombat(object bossHelper)
+        {
+            try
+            {
+                if (!Enabled) return false;
+                if (NetGameplaySyncBridge.BossMode != NetMode.Client) return false;
+                return BossReflect.TryGetBool(bossHelper, "fightStarted", out bool fs) && fs;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>LD-Sandstorm / F4: true while a registered boss that runs a LOCAL intro presentation (Desert) is
+        /// mid-intro on this client — the host start has been applied but the fight has not yet started (the intro
+        /// animation chain is playing toward TriggerFight). The enemy-state apply loop uses this to keep the boss out of
+        /// the generic puppet system for the duration of its intro, so the intro runs locally (visible body + cutscene);
+        /// once TriggerFight fires (IsStarted), the puppet resumes and the boss is host-authoritative again.</summary>
+        public static bool IsLocalIntroPresentationActive()
+        {
+            lock (_lock)
+            {
+                foreach (var kv in _registry)
+                {
+                    var e = kv.Value;
+                    if (e.Adapter == null || e.Component == null) continue;
+                    try
+                    {
+                        if (!e.Adapter.RunsLocalIntroPresentation(e.Component)) continue;
+                        if (_appliedStart.Contains(kv.Key) && !SafeStarted(e.Adapter, e.Component))
+                            return true;
+                    }
+                    catch { }
+                }
+            }
+            return false;
+        }
+
         private static string SafeDescribe(IBossEncounterAdapter adapter, object component)
         {
             try { return adapter.DescribeForLog(component); } catch (Exception ex) { return $"describe-failed:{ex.GetType().Name}"; }
@@ -538,7 +578,18 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     // run-scope change). Introduction/StartFight are internally idempotent (introPlayed / FightStarted),
                     // so allowing them unconditionally cannot loop. Initial Trigger/TriggerIntro are NOT allowed here.
                     bool faithful = false; try { faithful = Plugin.Cfg.EnableFaithfulBossIntro.Value; } catch { }
-                    if (faithful && (source.EndsWith(".Introduction", StringComparison.Ordinal) || source.EndsWith(".StartFight", StringComparison.Ordinal)))
+                    // LD-Sandstorm / F4: Desert's fight-start is TriggerFight (not Introduction/StartFight), fired by its
+                    // OWN intro animation event after the host-authorized OnStartInteractWithBoss. The intro animation is
+                    // slow, so the E2 continuation window is usually gone by the time TriggerFight fires → it was being
+                    // blocked as a "private local start" → fightStarted never flips → the composite body never assembles
+                    // (sandSantaAnimationSprite never hidden, "BossStarted" never set) → invisible on the client. Like
+                    // Cousin's Introduction/StartFight, a client TriggerFight is only reachable after a host-authorized
+                    // OnStartInteractWithBoss (the client's own initial interact is blocked below), so it is NOT a private
+                    // start. Allow it once (guarded on !started so the non-idempotent TriggerFight can't double-run).
+                    bool introTrigger = false;
+                    try { introTrigger = source.EndsWith(".TriggerFight", StringComparison.Ordinal) && adapter.RunsLocalIntroPresentation(component) && !SafeStarted(adapter, component); }
+                    catch { }
+                    if (faithful && (source.EndsWith(".Introduction", StringComparison.Ordinal) || source.EndsWith(".StartFight", StringComparison.Ordinal) || introTrigger))
                     {
                         BossContinuationAllowed++;
                         if (LogOn) Plugin.Log.Info($"[BossEncounter] faithful intro: allowed native chain source={source} key={key} started={SafeStarted(adapter, component)}");
@@ -658,10 +709,29 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try
             {
                 if (!NetGameplaySyncBridge.IsHost) return;
-                if (!adapter.TryGetSandstormArenaCenter(component, out Vector3 center)) return;
+                if (!adapter.TryGetSandstormArenaSphere(component, out Vector3 center, out _)) return;
                 ArenaLockdownManager.BeginSandstormArena(center, ctx.ChapterName, ctx.LevelIndex, ctx.HasSeed, ctx.Seed);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossEncounter] TryBeginSandstormArena failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>LD-Sandstorm: resolve THIS end's live sandstorm-arena danger sphere (moving centre + world radius)
+        /// from the registered boss (Desert). Used by the arena lockdown for an accurate, moving in/out test instead of a
+        /// hardcoded radius. Returns false if no such boss is registered / the sphere can't be read.</summary>
+        public static bool TryGetSandstormArenaSphere(out Vector3 center, out float radius)
+        {
+            center = Vector3.zero; radius = 0f;
+            lock (_lock)
+            {
+                foreach (var kv in _registry)
+                {
+                    var e = kv.Value;
+                    if (e.Adapter == null || e.Component == null) continue;
+                    try { if (e.Adapter.TryGetSandstormArenaSphere(e.Component, out center, out radius)) return true; }
+                    catch { }
+                }
+            }
+            return false;
         }
 
         private static void RequestStartOnce(string key, IBossEncounterAdapter adapter, object component, in BossEncounterContext ctx, string source)

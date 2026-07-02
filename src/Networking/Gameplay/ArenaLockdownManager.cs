@@ -85,7 +85,11 @@ namespace SULFURTogether.Networking.Gameplay
         // LD-Sandstorm: how long after the boss dialog trigger before out-of-room players are pulled into the arena,
         // and how far from the centre still counts as "in" (matches vanilla DesertClause's >20 m keep-in threshold).
         private const float SandstormPullDelaySeconds = 3f;
+        // Fallback radius only — the real in/out test uses the live DesertClausePerimeter sphere (centre + SphereRadius).
         private const float SandstormArenaRadius      = 20f;
+        // How far BESIDE the first in-arena player pulled-in stragglers land (outward from the sphere centre, so they
+        // don't drop onto the boss which sits at the centre).
+        private const float SandstormPullBesideOffset = 3f;
         // How close a gate-open (boss death / AllDeadTrigger) must be to an arena to count as "this fight ended".
         private const float GateReleaseRadius    = 10f;
         // Trigger→gate proximity: the seal trigger and the gate it controls are co-located but distinct objects.
@@ -293,7 +297,8 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
         /// <summary>HOST: tell every end in the arena's level to pull its own local player in if it is outside the
-        /// sandstorm radius. Reuses the LD command transport; each end self-decides in/out by distance (PullIn).</summary>
+        /// sandstorm sphere. Reuses the LD command transport; each end self-decides in/out against its own live sphere
+        /// (PullIn). The command carries the TELEPORT TARGET (near the first in-arena player), not the sphere centre.</summary>
         private static void IssueSandstormPull(SandstormArena sa)
         {
             var targets = NetGameplaySyncBridge.GetPeerIdsInLevel(sa.Chapter, sa.Level, sa.HasSeed, sa.Seed);
@@ -302,15 +307,41 @@ namespace SULFURTogether.Networking.Gameplay
                 if (LogOn) NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(sa.Pos)} — no targets, skip");
                 return;
             }
-            NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(sa.Pos)} targets=[{string.Join(",", targets)}] (out-of-arena players teleport in)");
+            Vector3 tpTarget = ResolveNearFirstPlayerTarget(sa.Pos);
+            NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(sa.Pos)} target={tpTarget:F0} targets=[{string.Join(",", targets)}] (out-of-arena players teleport in)");
 
             if (targets.Contains(NetGameplaySyncBridge.LocalPeerId))
-                ApplyLocalCommand(ArenaCommandKind.PullIn, sa.Pos);
+                ApplyLocalCommand(ArenaCommandKind.PullIn, tpTarget);
 
             NetGameplaySyncBridge.BroadcastArenaCommand(new NetArenaCommand
             {
-                Kind = ArenaCommandKind.PullIn, ArenaPos = sa.Pos, TargetPeerIds = targets,
+                Kind = ArenaCommandKind.PullIn, ArenaPos = tpTarget, TargetPeerIds = targets,
             });
+        }
+
+        /// <summary>HOST: pick a teleport target for pulled-in stragglers — a spot BESIDE the first player already in the
+        /// arena, so they land with the group rather than on the boss at the sphere centre. "First player" is approximated
+        /// as the player nearest the sphere centre that is inside the sphere (the one fighting the boss). Falls back to the
+        /// sphere centre if nobody is inside yet.</summary>
+        private static Vector3 ResolveNearFirstPlayerTarget(Vector3 fallbackCenter)
+        {
+            Vector3 center = fallbackCenter; float radius = SandstormArenaRadius;
+            if (Boss.NetBossEncounterManager.TryGetSandstormArenaSphere(out var c, out var r) && r > 0f) { center = c; radius = r; }
+
+            Vector3 anchor = Vector3.zero; bool found = false; float bestSqr = float.MaxValue; float r2 = radius * radius;
+            void Consider(Vector3 p)
+            {
+                float d2 = (p - center).sqrMagnitude;
+                if (d2 <= r2 && d2 < bestSqr) { bestSqr = d2; anchor = p; found = true; }
+            }
+            try { if (ResolveLocalPlayerUnit() is Component hc && hc != null) Consider(hc.transform.position); } catch { }
+            try { NetGameplaySyncBridge.ForEachRemotePlayerPositionWithPeer((peer, pos) => Consider(pos)); } catch { }
+
+            if (!found) return center; // nobody inside yet → centre
+
+            Vector3 outward = anchor - center; outward.y = 0f;
+            if (outward.sqrMagnitude < 0.01f) outward = Vector3.forward; // anchor at centre → arbitrary horizontal dir
+            return anchor + outward.normalized * SandstormPullBesideOffset;
         }
 
         private static void HostTick()
@@ -504,25 +535,31 @@ namespace SULFURTogether.Networking.Gameplay
 
                     case ArenaCommandKind.PullIn:
                         // LD-Sandstorm (Desert): no gate/barrier — pull the local player in ONLY if it is outside the
-                        // arena radius (distance, not doorway parity). A player already fighting near the boss stays put.
-                        // Decision logged UNCONDITIONALLY (once per player per fight) — needed to diagnose why a client
-                        // did / didn't get pulled without requiring LogArenaLockdown to be on.
+                        // danger sphere. In/out is tested against THIS end's LIVE moving sphere (centre + SphereRadius,
+                        // the game's own out-of-bounds test), not a hardcoded radius. arenaPos here is the TELEPORT TARGET
+                        // (a spot near the first in-arena player, computed by the host) — NOT the sphere centre — because
+                        // the boss sits at the centre, so we drop stragglers beside the group instead of on the boss.
+                        // Decision logged UNCONDITIONALLY (once per player per fight) to diagnose without LogArenaLockdown.
                         {
                             object pu = ResolveLocalPlayerUnit();
-                            Vector3 ppos = (pu is Component pc && pc != null) ? pc.transform.position : Vector3.positiveInfinity;
-                            float dist = Vector3.Distance(ppos, arenaPos);
                             if (pu == null)
                             {
-                                NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(arenaPos)} — local player unit MISSING, cannot teleport");
+                                NetLogger.Info($"[ArenaLockdown] PullIn — local player unit MISSING, cannot teleport");
                                 break;
                             }
-                            if (dist <= SandstormArenaRadius)
+                            Vector3 ppos = (pu is Component pc && pc != null) ? pc.transform.position : Vector3.positiveInfinity;
+                            Vector3 center; float radius;
+                            if (!Boss.NetBossEncounterManager.TryGetSandstormArenaSphere(out center, out radius) || radius <= 0f)
+                            { center = arenaPos; radius = SandstormArenaRadius; } // fallback: no live sphere → target + const
+                            float dist = Vector3.Distance(ppos, center);
+                            if (dist <= radius)
                             {
-                                NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(arenaPos)} local player INSIDE (dist={dist:0.0}m ppos={ppos:F0}) — no teleport");
+                                NetLogger.Info($"[ArenaLockdown] PullIn local player INSIDE sphere (dist={dist:0.0}m r={radius:0.0} ppos={ppos:F0}) — no teleport");
                                 break;
                             }
-                            NetLogger.Info($"[ArenaLockdown] PullIn arena={Key(arenaPos)} local player OUTSIDE (dist={dist:0.0}m ppos={ppos:F0}) — teleporting into arena");
-                            MoveLocalPlayerTo(pu, arenaPos + Vector3.up * 0.5f);
+                            Vector3 dest = arenaPos + Vector3.up * 0.5f;
+                            NetLogger.Info($"[ArenaLockdown] PullIn local player OUTSIDE sphere (dist={dist:0.0}m r={radius:0.0} ppos={ppos:F0}) — teleporting to {dest:F0} (near first player)");
+                            MoveLocalPlayerTo(pu, dest);
                             // Player-facing → localize (Docs/Localization.md).
                             Toast("Sandstorm Arena", "Pulled into the arena — the sandstorm outside would grind you down.");
                             // Teleported in counts as entering the boss room — catch up the intro dialog if still open.

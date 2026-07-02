@@ -24,21 +24,40 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // BossFightHelper / DesertClause / Lucia all damage `bossUnit` (the boss bar + death unit).
         public override object? GetHealthUnit(object component) => BossReflect.GetMember(component, "bossUnit");
 
-        // LD-Sandstorm: DesertClause fights inside a gate-less sandstorm ring. Vanilla keeps a strayed player in by
-        // teleporting to desertClausePerimeter.transform.position when they wander >20 m out (decompiled SkipNextPhase).
-        // We reuse that exact centre so out-of-room co-op stragglers are pulled in at fight-start (ArenaLockdownManager).
-        // Only DesertClause has OnStartInteractWithBoss among BossFightHelper types (Terrorbaum/Lucia use TriggerFight).
-        public override bool TryGetSandstormArenaCenter(object component, out Vector3 center)
+        // LD-Sandstorm: DesertClause fights inside a gate-less sandstorm ring — a moving SphereCollider "danger zone".
+        // Decompiled DesertClausePerimeter: outside iff Distance(unit, sphereCollider.transform.position) > SphereRadius,
+        // where SphereRadius = sphereCollider.radius * |lossyScale.x| (a live public property). We read the sphere's
+        // world position + that property so the in/out test tracks the sphere as it moves / resizes. Only DesertClause
+        // has OnStartInteractWithBoss among BossFightHelper types (Terrorbaum/Lucia use TriggerFight).
+        public override bool TryGetSandstormArenaSphere(object component, out Vector3 center, out float radius)
         {
-            center = Vector3.zero;
+            center = Vector3.zero; radius = 0f;
             if (!BossReflect.HasMethod(component, "OnStartInteractWithBoss")) return false; // DesertClause only
             var perimeter = BossReflect.GetMember(component, "desertClausePerimeter");
-            if (perimeter is Component pc && pc != null) { center = pc.transform.position; return true; }
-            // Fallback: the boss body sits at the arena centre too.
-            var bossUnit = GetHealthUnit(component);
-            if (bossUnit is Component bc && bc != null) { center = bc.transform.position; return true; }
-            return false;
+            if (perimeter == null) return false;
+            // Live radius from the perimeter's SphereRadius property (radius * lossyScale.x).
+            BossReflect.TryGetFloat(perimeter, "SphereRadius", out radius);
+            // Centre = the sphereCollider's world position (the moving danger-zone sphere).
+            var sphere = BossReflect.GetMember(perimeter, "sphereCollider");
+            if (sphere is Component sc && sc != null)
+            {
+                center = sc.transform.position;
+                if (radius <= 0f) radius = sc.transform.lossyScale.x * 0.5f; // fallback: unit-sphere radius 0.5 * scale
+                return radius > 0f;
+            }
+            // Fallback: the perimeter root / boss body sits at the arena centre.
+            if (perimeter is Component pc && pc != null) center = pc.transform.position;
+            else if (GetHealthUnit(component) is Component bc && bc != null) center = bc.transform.position;
+            else return false;
+            return radius > 0f;
         }
+
+        // LD-Sandstorm / F4: DesertClause is a composite boss whose visible body is assembled by its own local intro
+        // chain (OnStartInteractWithBoss → DelayIntro → "IntroStarted" anim → animation event → TriggerFight, which hides
+        // sandSantaAnimationSprite + sets "BossStarted"). It must run that intro locally to become visible, so it is kept
+        // out of the generic puppet system for the intro's duration. Terrorbaum/Lucia appear fully-formed → false.
+        public override bool RunsLocalIntroPresentation(object component)
+            => BossReflect.HasMethod(component, "OnStartInteractWithBoss");
 
         // DesertClause: OnStartInteractWithBoss() (player interact) -> DelayIntro coroutine -> anim event ->
         // TriggerFight() (sets fightStarted). Generic helpers (Terrorbaum/Lucia) only expose TriggerFight; the base

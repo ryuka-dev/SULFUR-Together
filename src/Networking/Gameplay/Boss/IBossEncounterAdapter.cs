@@ -114,12 +114,21 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // ---- LD-Sandstorm (Desert): gate-less arena keep-in ----
 
         /// <summary>True if this boss fights inside a GATE-LESS "sandstorm" arena — the battlefield is ringed by a
-        /// damage zone (not a door), so out-of-room players must be pulled in rather than sealed. Returns the arena
-        /// CENTRE (Desert = <c>desertClausePerimeter.transform.position</c>, the same point vanilla teleports a strayed
-        /// player to when they wander &gt;20 m out). The manager starts an <see cref="Gameplay.ArenaLockdownManager"/>
-        /// sandstorm lockdown at fight-start that pulls in stragglers a few seconds later. Default = false (has a gate
-        /// or no keep-in). Only DesertClause overrides.</summary>
-        bool TryGetSandstormArenaCenter(object component, out Vector3 center);
+        /// damage zone (not a door), so out-of-room players must be pulled in rather than sealed. Returns the arena's
+        /// live danger-zone SPHERE: <paramref name="center"/> = the sphere's world position, <paramref name="radius"/> =
+        /// its world radius. This is the game's own in/out test (decompiled DesertClausePerimeter: a unit is outside iff
+        /// <c>Distance(unit, sphereCollider.transform.position) &gt; SphereRadius</c>, where
+        /// <c>SphereRadius = sphereCollider.radius * |lossyScale.x|</c>). The sphere MOVES and can be resized during the
+        /// fight, so both are read live. The manager starts an <see cref="Gameplay.ArenaLockdownManager"/> sandstorm
+        /// lockdown at fight-start that pulls in stragglers a few seconds later. Default = false. Only DesertClause.</summary>
+        bool TryGetSandstormArenaSphere(object component, out Vector3 center, out float radius);
+
+        /// <summary>LD-Sandstorm / F4: true if this boss assembles its visible body through a LOCAL intro presentation
+        /// (an animation chain that must run client-side to become visible) rather than appearing fully-formed. Such a
+        /// boss is kept OUT of the generic enemy-puppet system while its intro plays, so the intro runs locally instead
+        /// of the puppet snapping its transform + mirroring the host animator (which stalls the intro → invisible boss).
+        /// Default = false. Only DesertClause (composite: sandSantaAnimationSprite → intro anim → TriggerFight).</summary>
+        bool RunsLocalIntroPresentation(object component);
 
         /// <summary>Attach the boss health bar to this boss's health unit. Called ONCE per encounter by the manager
         /// (the native Attach re-subscribes each call). Returns false if there is no health unit.</summary>

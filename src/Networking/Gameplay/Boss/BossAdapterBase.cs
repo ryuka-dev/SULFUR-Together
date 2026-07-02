@@ -189,7 +189,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public virtual object? GetHealthUnit(object component) => null;
 
         // ---- LD-Sandstorm: default = no gate-less keep-in arena (only DesertClause overrides) ----
-        public virtual bool TryGetSandstormArenaCenter(object component, out Vector3 center) { center = Vector3.zero; return false; }
+        public virtual bool TryGetSandstormArenaSphere(object component, out Vector3 center, out float radius) { center = Vector3.zero; radius = 0f; return false; }
+
+        // ---- LD-Sandstorm / F4: default = boss appears fully-formed, no local intro to protect (only DesertClause) ----
+        public virtual bool RunsLocalIntroPresentation(object component) => false;
 
         public virtual bool ProvidesPhaseState => false;
 

@@ -2750,6 +2750,14 @@ namespace SULFURTogether.Networking.Gameplay
                 if (IsEmperorWormSectionSnapshot(snapshot))
                     continue;
 
+                // LD-Sandstorm / F4: while the Desert boss INTRO is playing on this client, keep it out of the generic
+                // puppet system so its own intro chain runs locally (visible body + intro presentation). Only during the
+                // intro (fightStarted==false, player Cinematic-locked + invulnerable) — once TriggerFight fires the puppet
+                // resumes (host-driven position/animator, AI suppressed) so the boss can't double-hit the player. See
+                // IsDesertBossSnapshot for the full rationale.
+                if (IsDesertBossSnapshot(snapshot) && Boss.NetBossEncounterManager.IsLocalIntroPresentationActive())
+                    continue;
+
                 EnsureClientEnemyPuppetMode(key, snapshot, target.HostSnapshot, runtimeObject, now);
 
                 // Phase 4.4.0-O/O2: create/refresh per-NPC authorization window; determine control mode.
@@ -4496,6 +4504,26 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 string uid = snapshot.EntityId?.UnitIdentifier ?? "";
                 return uid.IndexOf("EmperorWormSection", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch { return false; }
+        }
+
+        // LD-Sandstorm / F4: the Desert boss (DesertClauseBossFightHelper, UnitId "HellshrewDesertClause") is a COMPOSITE
+        // boss whose visible body is assembled by its OWN local intro chain (OnStartInteractWithBoss -> DelayIntro ->
+        // bossAnimator "IntroStarted" -> animation event -> TriggerFight, which hides sandSantaAnimationSprite and sets
+        // "BossStarted"). Roster-binding it as a generic enemy puppet snaps its transform to the host position (overriding
+        // the intro's RepositionBossFromCamera) AND mirrors the host animator (overriding the local "IntroStarted"), so
+        // the intro never completes locally and the real body never appears -> invisible on the client. Excluding it from
+        // the snapshot apply (same as the Cousin arm / Emperor worm above) lets the client run its real intro to completion
+        // -> boss visible + the intro presentation plays. Health stays host-authoritative via HostBossState; hits via the
+        // boss damage-authority path; neither uses this snapshot.
+        private static bool IsDesertBossSnapshot(NetGameplayEntitySnapshot? snapshot)
+        {
+            if (snapshot == null) return false;
+            try
+            {
+                string uid = snapshot.EntityId?.UnitIdentifier ?? "";
+                return uid.IndexOf("DesertClause", StringComparison.OrdinalIgnoreCase) >= 0;
             }
             catch { return false; }
         }
