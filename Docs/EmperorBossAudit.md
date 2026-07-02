@@ -25,13 +25,15 @@ The worm is **pre-placed in the scene** under `phase1Root` (not spawned by a dia
 `StartMovement()` is what makes it active. The body `npc` (the head) is permanently invulnerable; damage
 only ever lands on the vulnerable tail section (see §5).
 
-### Start path (no dialog gate in the boss code)
-`EmperorBossFightHelper.OnPlayerSpawned` (fires from `GameManager.onPlayerSpawned`) → `StartPhase1()`.
-There **is** a scripted pre-fight NPC dialog, but that is a separate scripted trigger, not part of the
-worm/helper code — its client-input freeze is out of scope of the boss adapter (same as the other bosses,
-see [BossPreFightFlow.md](BossPreFightFlow.md)). `EmperorBossWorm.StartMovement()` is the real activation:
-it plays music, captures the player transform, `await Initialize()` (spawns sections), then kicks the
-first `JumpTo`.
+### Start path — **CORRECTION (see [BossSyncReuseMap.md](BossSyncReuseMap.md) §4a)**
+`EmperorBossFightHelper.OnPlayerSpawned` (fires from `GameManager.onPlayerSpawned`) → `StartPhase1()`, which
+**only toggles the phase-2 spider parent off** — it does **NOT** call `StartMovement()`. `EmperorBossWorm.StartMovement()`
+is `public` and is invoked by an **external scripted trigger — almost certainly the pre-fight NPC dialog** ("最神圣的
+皇帝陛下", Log216 `[DialogFlow]`) on completion. So the fight start **IS dialog/trigger-gated**, same shape as
+Cousin/Lucia — the earlier "no dialog gate in the boss code" framing here was misleading (the *helper* doesn't gate,
+but the dialog does). This is the hook to reuse the dialog-commit sync (gate `StartMovement` as the Emperor's
+"StartFight equivalent"). `StartMovement` itself plays music, captures the player transform, `await Initialize()`
+(spawns sections), then kicks the first `JumpTo`.
 
 > **Double-worm reality (the core sync problem):** both host and client load the same scene, so both run
 > `EmperorBossFightHelper.OnPlayerSpawned` → both spawn their own worm and both run `StartMovement`. The
@@ -235,9 +237,12 @@ Keep `UpdateWormSections` + visuals. Never `Destroy` locally except via a host d
   vulnerable tail up) instead of re-deriving from health.
 
 ### 7.5 Damage routing
-Client hit on its local vulnerable tail → `ClientBossHitRequest` (role = worm tail / single target) → host
-`lastSectionNpc.ReceiveDamage` → native `WeakpointHit` advances → host broadcasts health + any destroy
-events. Single-target, so this is the *simplest* of all the bosses' damage routing.
+Client hit on its local vulnerable tail → host `lastSectionNpc.ReceiveDamage` → native `WeakpointHit` advances →
+host broadcasts health + any destroy events. Single-target, so this is the *simplest* of all the bosses' damage
+routing. **Originally assumed to ride the ordinary roster `ClientHitRequest` path (Log216); that turned out to be
+wrong once the worm is head-streamed** — the runtime-spawned tail gets quarantined as "client-only" and hits never
+reach the host (see §8.8). Implemented instead as a dedicated single-target route, **EMP-3d** (`ClientEmperorWormHit`,
+msg 60 → `BossDamageReflect.TryApplyRealDamage` on the host's `lastSectionNpc`), bypassing the roster bind.
 
 ### 7.6 Death + phase-2 handoff
 Host drives real death; broadcasts terminal + `StartPhase2` trigger; client plays visual death and takes
@@ -380,6 +385,104 @@ sustained ~1 fps (unplayable) to occasional brief ~155 ms blips (playable, smoot
 co-op combat mirroring (12 NPCs / 72 units / boss adds + projectiles). A diagnostics-off build drops the
 logging-I/O share. **Deferred:** section-destruction sync (EMP-3b), death + phase-2 handoff (EMP-3c, §7.6); the
 client's local `WeakpointHit` bookkeeping still diverges (cosmetic — damage is host-authoritative, §7.5).
+
+## 8.7 EMP-3b/3c shipped — section destroy + terminal death, both by replaying the real native method
+
+Both follow-ups reuse the same trick as §7.5's damage routing: instead of re-deriving the host's stateful math on
+the client, replay the host's exact **call**, through reflection, on the client's own worm. Neither needed a new
+suppression layer, because §7b already established that the client's local `WeakpointHit` never actually fires —
+its damage is fully redirected to the host through the ordinary roster `ClientHitRequest` path — so the client
+never independently reaches a section-destroy or a lethal-health threshold on its own.
+
+- **EMP-3b (section destroy):** a host postfix on the real `DestroySection(index)` broadcasts
+  (`HostEmperorWormSectionDestroy`, msg 58, `ReliableOrdered`). The client mirrors by invoking the same native
+  `DestroySection(index)` **followed by** `MoveVulnerableSectionUp()` on its own worm — the exact pair
+  `WeakpointHit` calls (§5) — with `index` recomputed as `lastActiveIndex - 1` from the client's OWN state. This
+  stays in lockstep because the client's `lastActiveIndex` only ever changes in response to this same event
+  (`MoveVulnerableSectionUp` decrements it), so host and client apply the identical sequence of indices even
+  though neither side sends the index over the wire. Reusing the native call gets the white-flash, frag
+  explosion, gib spawn, `Npc.Die()`, hitbox-invulnerable, and list-shrink bookkeeping for free — none of that is
+  reimplemented.
+- **Bug found while wiring EMP-3b, fixed in the same change:** `EnsureWormVisualOnly` (EMP-3a) picked which
+  section's collider to keep enabled by indexing the **unshrunk** `wormNpcs` list (every section ever spawned,
+  original order, never shrinks) with `lastActiveIndex` — an index into the **shrinking** `wormSections`/
+  `sectionControllers` lists. That only happens to line up before the first section dies (`lastActiveIndex == 9`
+  == `wormNpcs.Count - 1`); after the first `DestroySection`, `lastActiveIndex` decrements to 8 but
+  `wormNpcs[8]` is still the *original* section 8 (now destroyed) — the real, still-alive vulnerable tail
+  (`lastSectionNpc`, always `wormNpcs[9]`) would have its collider left disabled, i.e. unhittable on the client
+  after the very first section died. Fixed by keying off the `lastSectionNpc` field's object identity instead of
+  any index — that field never changes across the worm's life, only its transform teleports (§5).
+- **EMP-3c (terminal death + phase-2 handoff):** a host postfix on `DeathAnimation()`'s kickoff — the outer
+  method that constructs the compiler-generated coroutine state machine, which Harmony patches at the point
+  `StartCoroutine(DeathAnimation())` is called, i.e. immediately when `WeakpointHit` decides the worm is dead, not
+  5 s later when the coroutine body finishes — broadcasts (`HostEmperorWormDeath`, msg 59, `ReliableOrdered`,
+  one-shot). The client mirrors by reflectively invoking `DeathAnimation()` on its own worm and passing the
+  returned `IEnumerator` to its own `StartCoroutine`. Because `DeathAnimation` is the real method, the client
+  automatically gets the full vanilla sequence — lerp to `roomCenter`, camera shake, fog blink, ground slam,
+  frag explosion + gibs, `lastSectionNpc.AttachToBossUI(false)`, `npc.Die()`, `CleanupDestroyedSections()`,
+  **and `emperorBossFightHelper.StartPhase2()`** (the phase-1→phase-2 seam, §6) — all without a single line of
+  it being reimplemented. The client's head-stream driver (`DriveClientWorm`, EMP-3a) checks a
+  `_clientDeathApplied` flag and stops writing `transform`/`rb.position` once death starts, so it doesn't fight
+  the coroutine's own position lerp.
+- **Scope boundary:** `StartPhase2()` only **activates** the client's own Phase-2 spider root — same
+  each-side-runs-its-own-instance model as the rest of this boss. It does not sync spider position, legs, or
+  attacks; that is its own large effort (§9), deferred.
+- Both messages are functional patches registered unconditionally (same reasoning as the FixedUpdate head-sync
+  patch, §8.6): they must survive `EnableEmperorWormDiagnostics` being turned off. Build 0 errors; not yet
+  verified against a real two-end fight through to a section kill / worm death.
+
+## 8.8 Log250–252 — EMP-3b/3c untestable; the real blocker was client→host damage (EMP-3d)
+
+The first two-end test of EMP-3b/3c (Log250 host+client, then 251/252) surfaced four things. Recording all of
+them so the next attempt starts from fact, not re-derivation.
+
+### (a) EMP-3b/3c never executed — nothing to verify yet
+Across all three host logs, `host DestroySection`/`host DeathAnimation` broadcasts fired **0 times** and there
+were **0 exceptions**. The worm's tail HP never dropped below ~0.978 (WeakpointHit only ever saw the host's own
+slow hits), so no section was ever destroyed and the worm never died → the EMP-3b/3c code paths were never
+reached. They remain **unverified**, blocked behind (b).
+
+### (b) Client→host worm damage was fully broken → the actual blocker (fixed as EMP-3d)
+All six logs: host `hitRecv=0`, client `clientHitSent=0`. The worm's vulnerable tail
+(`ShavwaEmperorWormSectionVulnerable`) was repeatedly **quarantined as "client-only CombatEnemy"** (16× in Log250,
+31× in Log251). Root cause: the tail is a runtime `SpawnUnitAsync(this,…)` add (not in the level-load manifest),
+and the Emperor is **not a registered boss encounter** (`EmperorBossAdapter` is diagnostic-only, empty start
+chain), so it is caught by neither the RT3 boss-add binding (needs a registered encounter) nor a stable roster
+bind (the head-streamed local worm's tail position/timing diverges from the host's at reconcile time). The generic
+roster path then quarantines it as a rogue client-only enemy → it is not a puppet → `TrySendClientHitRequest`
+skips it (`clientHitSkipNoPuppet`) → the host never receives the hit. §7b's "damage already routes (Log216)" no
+longer holds once the worm is head-streamed (EMP-3a) — that assumption is retired.
+
+**Fix — EMP-3d (dedicated single-target damage authority), the §7.5 design done explicitly instead of relying on
+the roster path:** a client hit on the worm's vulnerable tail (identified by comparing the damaged Npc's
+GameObject to the client worm's `lastSectionNpc`) is forwarded to the host (`ClientEmperorWormHit`, msg 60,
+ReliableOrdered — damage + damageType + seq) and the local damage is suppressed; the host applies it to its **real**
+`lastSectionNpc` through the vanilla `ReceiveDamage` (`BossDamageReflect.TryApplyRealDamage`, source =
+`GameManager.Instance.PlayerUnit`), firing `onDamageRecieved → WeakpointHit` so the real mechanic advances
+(health, section-destroy, death). Health syncs back through the existing enemy health-state path; destroy/death
+through EMP-3b/3c. This bypasses the fragile roster bind/quarantine entirely. Inserted in `Npc_ReceiveDamage_Pre`
+**before** the ordinary `TrySendClientHitRequest`. Only the tail's collider is left enabled (§8.6
+`EnsureWormVisualOnly`), so the tail is the only worm part the client can hit anyway. `[EmperorWorm] client -> host
+worm hit …` / `host applied client worm hit …`. Build 0 err, deployed — **pending real-match verification** (the
+first test that can actually reach a section kill + worm death, which then also validates EMP-3b/3c).
+
+### (c) Host frame hitch — NOT caused by EMP-3b/3c; the EMP-2 native-physics spiral, now on the host
+The host dropped to 1–3 fps (`[EmperorWormFrame]` dt=1000–3400 ms) in the 2nd/3rd encounters, escalating per
+encounter and surviving a same-level reload. But: EMP-3b/3c broadcasts never fired (b), 0 exceptions, `gc0Δ≈0`
+(not GC), and `[UpdateProf]` showed our Update body at only 50–118 ms while the stall was 1000–3400 ms → **the
+stall is native (physics/render), outside our C#**. This is the same fundamental "raw `EmperorBossWorm.FixedUpdate`
+ballistic physics is too heavy under co-op per-frame overhead → fixed-step catch-up spiral" that §8.5 pinned on
+the *client*. The host is the authority and has always run the full native worm; the EMP-3a verification (Log249)
+was a single short encounter so it never exercised the host's multi-encounter degradation. **Not an EMP-3
+regression — a pre-existing hard problem** (needs a real Unity Profiler, per §8.5's own conclusion). One
+contributing, reducible lever seen here: `NetBossEncounterManager.Tick` (`bossTick`) cost 50–118 ms/frame on the
+host during the fight — co-op overhead that compounds the spiral; worth profiling separately. **Deferred /
+known issue.**
+
+### (d) Host cannot advance the pre-fight dialog on a 2nd/3rd re-entry
+0 exceptions; the client could still dialog. Matches the known "F3 / client-ahead premature boss-level load →
+seed/progress split → phase-2 dialog orphaned" issue (see [BossPreFightFlow.md](BossPreFightFlow.md) and the
+Cousin infinite-dialog / seed-split note). Unrelated to EMP-3; **known issue**, not addressed here.
 
 ## 8. Probe plan — `EmperorWormDiagnostics` (validate before building)
 

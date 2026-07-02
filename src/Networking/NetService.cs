@@ -604,6 +604,85 @@ namespace SULFURTogether.Networking
             catch (Exception ex) { NetLogger.Warn($"[EmperorWormHead] malformed packet: {ex.Message}"); }
         }
 
+        // EMP-3b: discrete, reliable — a section was destroyed on the host worm; the client mirrors it exactly once.
+        internal void BroadcastEmperorWormSectionDestroy(int seq)
+        {
+            if (_mode != NetMode.Host || _net == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostEmperorWormSectionDestroy);
+                    w.Put(seq);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] section-destroy broadcast failed: {ex.Message}"); }
+            }
+        }
+
+        private void HandleEmperorWormSectionDestroy(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            try
+            {
+                int seq = reader.GetInt();
+                Gameplay.Boss.NetEmperorWormSync.OnSectionDestroyReceived(seq);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] malformed section-destroy packet: {ex.Message}"); }
+        }
+
+        // EMP-3c: one-shot terminal death — the client mirrors the real DeathAnimation coroutine (which itself
+        // drives the phase-1 -> phase-2 handoff via EmperorBossFightHelper.StartPhase2()).
+        internal void BroadcastEmperorWormDeath(int seq)
+        {
+            if (_mode != NetMode.Host || _net == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostEmperorWormDeath);
+                    w.Put(seq);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] death broadcast failed: {ex.Message}"); }
+            }
+        }
+
+        private void HandleEmperorWormDeath(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            try
+            {
+                int seq = reader.GetInt();
+                Gameplay.Boss.NetEmperorWormSync.OnDeathReceived(seq);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] malformed death packet: {ex.Message}"); }
+        }
+
+        // EMP-3d: client forwards a hit on the worm's vulnerable tail to the host (single-target damage authority).
+        internal void SendClientEmperorWormHit(float damage, int damageTypeInt, int seq)
+        {
+            if (_mode != NetMode.Client || _net == null || _hostPeer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientEmperorWormHit);
+                w.Put(damage); w.Put(damageTypeInt); w.Put(seq);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] failed to send worm hit: {ex.Message}"); }
+        }
+
+        private void HandleClientEmperorWormHit(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            try
+            {
+                float damage = reader.GetFloat(); int damageTypeInt = reader.GetInt(); int seq = reader.GetInt();
+                Gameplay.Boss.NetEmperorWormSync.HostApplyClientWormHit(damage, damageTypeInt, seq);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] malformed worm-hit packet: {ex.Message}"); }
+        }
+
         private void HandleClientBossDialogCommitRequest(NetPeer peer, NetDataReader reader)
         {
             if (_mode != NetMode.Host) return;
@@ -2476,6 +2555,18 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.HostEmperorWormHead:
                         HandleEmperorWormHead(peer, reader);
+                        break;
+
+                    case NetMessageType.HostEmperorWormSectionDestroy:
+                        HandleEmperorWormSectionDestroy(peer, reader);
+                        break;
+
+                    case NetMessageType.HostEmperorWormDeath:
+                        HandleEmperorWormDeath(peer, reader);
+                        break;
+
+                    case NetMessageType.ClientEmperorWormHit:
+                        HandleClientEmperorWormHit(peer, reader);
                         break;
 
                     case NetMessageType.HostBossDynamicSpawn:

@@ -1385,6 +1385,12 @@ namespace SULFURTogether.Patches
                 if (SULFURTogether.Networking.Gameplay.Boss.NetBossEncounterManager.TryClientBossHit(__instance, damage, damageTypeInt))
                     return false;
 
+                // EMP-3d: the Emperor is not a registered boss encounter, and its vulnerable tail is a runtime spawn
+                // that the roster ClientHitRequest path below quarantines as "client-only" (Log250-252: hits never
+                // reach the host). Route a client hit on the worm's vulnerable tail straight to the host's real worm.
+                if (SULFURTogether.Networking.Gameplay.Boss.NetEmperorWormSync.TryClientWormHit(__instance, damage, damageTypeInt))
+                    return false;
+
                 // Phase 5.5-RT3-A2: a host-driven puppet is host-authoritative over all its damage. Drop non-player
                 // (physics/explosion/environment) damage locally and DO NOT forward it — the host simulates the
                 // environment authoritatively and syncs HP back. This is what mis-killed snapped adds ~0.2s after spawn.

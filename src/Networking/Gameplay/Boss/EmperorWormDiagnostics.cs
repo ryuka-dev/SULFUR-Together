@@ -50,6 +50,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             // worm invisible). See NetEmperorWormSync.
             PatchNamed(harmony, worm, "FixedUpdate", prefix: Post(nameof(FixedUpdate_WormSync_Pre)));
 
+            // EMP-3b/3c: section-destruction + terminal-death mirroring — FUNCTIONAL, registered unconditionally
+            // (same reasoning as FixedUpdate above: must survive EnableEmperorWormDiagnostics being turned off).
+            // Host-only postfixes; the client side is driven entirely by the resulting network messages
+            // (NetEmperorWormSync.OnSectionDestroyReceived / OnDeathReceived), not by a patch on this type.
+            PatchNamed(harmony, worm, "DestroySection", postfix: Post(nameof(DestroySection_FunctionalPost)));
+            PatchNamed(harmony, worm, "DeathAnimation", postfix: Post(nameof(DeathAnimation_FunctionalPost)));
+
             if (!DiagEnabled) { Plugin.Log.Info("[EmperorWorm] worm head-sync active; diagnostics off."); return; }
 
             var evtPost = Post(nameof(Worm_Post));
@@ -117,6 +124,30 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             }
             catch { }
             return true; // unlinked solo client / anything else: run normally
+        }
+
+        // EMP-3b: host-only. A real DestroySection just ran natively (called from the host's real WeakpointHit) —
+        // broadcast it so every linked client mirrors the same destroy on its own worm.
+        private static void DestroySection_FunctionalPost(object __instance, int index)
+        {
+            try
+            {
+                if (NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                NetEmperorWormSync.HostAnnounceSectionDestroy(__instance, index);
+            }
+            catch { }
+        }
+
+        // EMP-3c: host-only. The real DeathAnimation coroutine was just kicked off (host's WeakpointHit hit lethal
+        // health) — broadcast immediately (not 5s later) so clients start their own mirror in step.
+        private static void DeathAnimation_FunctionalPost(object __instance)
+        {
+            try
+            {
+                if (NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                NetEmperorWormSync.HostAnnounceDeath(__instance);
+            }
+            catch { }
         }
 
         private static void PatchNamed(Harmony harmony, Type worm, string name, HarmonyMethod prefix = null, HarmonyMethod postfix = null)

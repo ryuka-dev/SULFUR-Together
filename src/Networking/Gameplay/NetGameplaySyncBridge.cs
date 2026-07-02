@@ -190,6 +190,18 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastEmperorWormHead(float x, float y, float z, float rotY, int seq)
             => _service?.BroadcastEmperorWormHead(x, y, z, rotY, seq);
 
+        // EMP-3b: Emperor worm section-destruction event (host → clients).
+        public static void BroadcastEmperorWormSectionDestroy(int seq)
+            => _service?.BroadcastEmperorWormSectionDestroy(seq);
+
+        // EMP-3c: Emperor worm terminal death (host → clients).
+        public static void BroadcastEmperorWormDeath(int seq)
+            => _service?.BroadcastEmperorWormDeath(seq);
+
+        // EMP-3d: Emperor worm damage authority (client → host).
+        public static void SendClientEmperorWormHit(float damage, int damageTypeInt, int seq)
+            => _service?.SendClientEmperorWormHit(damage, damageTypeInt, seq);
+
         // Phase RM: room-membership substrate.
         public static void SendClientRoomEnter(SULFURTogether.Networking.Gameplay.Boss.NetClientRoomEnter msg)
             => _service?.SendClientRoomEnter(msg);

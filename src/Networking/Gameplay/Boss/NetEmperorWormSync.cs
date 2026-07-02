@@ -41,16 +41,30 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static FieldInfo  _rootField;
         private static FieldInfo  _rbField;
         private static MethodInfo _updateSectionsMi;
+        // EMP-3b/3c: section-destroy + death mirror.
+        private static MethodInfo _destroySectionMi;
+        private static MethodInfo _moveVulnerableUpMi;
+        private static MethodInfo _deathAnimationMi;
+        private static FieldInfo  _lastSectionNpcField;
 
         private static void EnsureReflect(object worm)
         {
             if (_reflectTried) return;
             _reflectTried = true;
             var t = worm.GetType();
-            _rootField        = AccessTools.Field(t, "root");
-            _rbField          = AccessTools.Field(t, "rb");
-            _updateSectionsMi = AccessTools.Method(t, "UpdateWormSections");
+            _rootField           = AccessTools.Field(t, "root");
+            _rbField             = AccessTools.Field(t, "rb");
+            _updateSectionsMi    = AccessTools.Method(t, "UpdateWormSections");
+            _destroySectionMi    = AccessTools.Method(t, "DestroySection");
+            _moveVulnerableUpMi  = AccessTools.Method(t, "MoveVulnerableSectionUp");
+            _deathAnimationMi    = AccessTools.Method(t, "DeathAnimation");
+            _lastSectionNpcField = AccessTools.Field(t, "lastSectionNpc");
         }
+
+        // Cached so a message-received callback (which has no worm reference of its own) can find the live worm.
+        // Only one Emperor worm is ever active at a time, so a single static ref is sufficient.
+        private static Component _clientWormRef;
+        private static Component _hostWormRef; // EMP-3d: host's live worm, for applying inbound client hits.
 
         private static float _lastSendLogAt = -999f;
 
@@ -60,6 +74,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public static void HostCapture(object worm)
         {
             if (!(worm is Component c) || c == null) return;
+            _hostWormRef = c; // EMP-3d: so an inbound client worm-hit can reach the host's live worm + its lastSectionNpc.
+            EnsureReflect(worm);
             float now = Time.realtimeSinceStartup;
             if (now - _lastSendAt < SendIntervalSeconds) return;
             _lastSendAt = now;
@@ -108,6 +124,22 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (!(worm is Component c) || c == null) return;
             EnsureReflect(worm);
 
+            // EMP-3c: nothing calls ResetClient() on a scene/session boundary today, so detect a fresh worm
+            // instance by identity instead (a repeat encounter, retry, or reload spawns a NEW EmperorBossWorm).
+            // Without this, _clientDeathApplied from a PRIOR worm would permanently stop this one from ever being
+            // head-driven, and a stale _hasHead/_headSeq would render one stray frame at the old worm's last pose.
+            if (_clientWormRef == null || _clientWormRef.GetInstanceID() != c.GetInstanceID())
+            {
+                _hasHead = false; _headSeq = -1; _headRecvAt = 0f; _prevRecvAt = 0f;
+                _clientDeathApplied = false;
+                Plugin.Log.Info("[EmperorWorm] client tracking a new worm instance — prior worm's stream/death state reset.");
+            }
+            _clientWormRef = c; // EMP-3b/3c: so a network-thread-free message callback can reach the live worm.
+
+            // EMP-3c: once the host's terminal death has been mirrored, the DeathAnimation coroutine on THIS worm
+            // owns transform/rb.position (lerp to roomCenter, slam, etc.) — stop overwriting it with the head stream.
+            if (_clientDeathApplied) return;
+
             // Keep the body kinematic so PhysX never integrates it (we also skip native FixedUpdate; belt-and-suspenders).
             if (_rbField?.GetValue(worm) is Rigidbody rb && rb != null && !rb.isKinematic)
                 rb.isKinematic = true;
@@ -146,12 +178,16 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static readonly System.Collections.Generic.Dictionary<int, Collider[]> _sectionColliders
             = new System.Collections.Generic.Dictionary<int, Collider[]>();
         private static FieldInfo _wormNpcsField;
-        private static FieldInfo _lastActiveField;
 
         /// <summary>Client visual-only worm: disable the colliders that PhysX would otherwise re-broadphase every substep
         /// as the head streams around. The worm root's own colliders are disabled once; each section's colliders are
-        /// disabled except the current weakpoint (<c>lastActiveIndex</c>, which moves as sections are destroyed) so the
-        /// player can still shoot the tail. Per-frame work is a cheap enabled-flag toggle (only written on change).</summary>
+        /// disabled except the current weakpoint. EMP-3b note: the weakpoint is identified by the <c>lastSectionNpc</c>
+        /// FIELD (a stable entity reference), NOT by indexing <c>wormNpcs[lastActiveIndex]</c> — <c>wormNpcs</c> keeps
+        /// every section ever spawned in its original order and never shrinks, while <c>lastActiveIndex</c> is an index
+        /// into the SHRINKING <c>wormSections</c>/<c>sectionControllers</c> lists (it decrements every
+        /// <c>DestroySection</c>). Indexing wormNpcs by lastActiveIndex only happens to work before the first section
+        /// dies; after that it points at an already-destroyed section and leaves the real (still-alive) tail's collider
+        /// disabled — unhittable. Per-frame work is a cheap enabled-flag toggle (only written on change).</summary>
         private static void EnsureWormVisualOnly(object worm, Component c)
         {
             try
@@ -165,11 +201,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     Plugin.Log.Info($"[EmperorWormHead] client disabled {headCols.Length} head collider(s) (visual-only worm).");
                 }
 
-                // 2) Sections — keep only the current weakpoint hittable, disable the rest.
-                if (_wormNpcsField == null)   _wormNpcsField   = AccessTools.Field(worm.GetType(), "wormNpcs");
-                if (_lastActiveField == null) _lastActiveField = AccessTools.Field(worm.GetType(), "lastActiveIndex");
+                // 2) Sections — keep only the persistent vulnerable tail hittable, disable the rest.
+                if (_wormNpcsField == null) _wormNpcsField = AccessTools.Field(worm.GetType(), "wormNpcs");
                 if (!(_wormNpcsField?.GetValue(worm) is System.Collections.IList npcs) || npcs.Count == 0) return; // not spawned yet
-                int vulnerable = (_lastActiveField?.GetValue(worm) is int li) ? li : npcs.Count - 1;
+                var tail = _lastSectionNpcField?.GetValue(worm) as Component;
 
                 for (int i = 0; i < npcs.Count; i++)
                 {
@@ -180,12 +215,162 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         cols = uc.GetComponentsInChildren<Collider>(true);
                         _sectionColliders[sid] = cols;
                     }
-                    bool keep = (i == vulnerable);
+                    bool keep = ReferenceEquals(uc, tail);
                     foreach (var col in cols)
                         if (col != null && col.enabled != keep) col.enabled = keep;
                 }
             }
             catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorWormHead] EnsureWormVisualOnly failed: {ex.Message}"); }
+        }
+
+        // ================================================================ EMP-3d: damage authority (CLIENT -> HOST)
+
+        private static int _wormHitSendSeq;
+        private static float _lastWormHitLogAt = -999f;
+
+        /// <summary>Client: if <paramref name="npc"/> is the local worm's vulnerable tail section, forward the hit to the
+        /// host (which applies it to its real worm) and suppress the local damage. Returns true when the caller should
+        /// swallow the damage (routed to host). Called from Npc_ReceiveDamage_Pre BEFORE the ordinary roster
+        /// ClientHitRequest path — the worm's runtime-spawned tail is quarantined as "client-only" by that path, so
+        /// hits would otherwise never reach the host (Log250-252). Single target, so no role/target resolution needed.</summary>
+        public static bool TryClientWormHit(object npc, float damage, int damageTypeInt)
+        {
+            try
+            {
+                if (npc == null) return false;
+                if (NetGameplaySyncBridge.BossMode != NetMode.Client || !SULFURTogether.Networking.NetLinkState.ClientLinked) return false;
+                var worm = _clientWormRef;
+                if (worm == null) return false; // no worm being driven → not an Emperor worm hit
+                if (_clientDeathApplied) return true; // worm already dying — swallow stray hits, don't spam the host
+
+                var tail = _lastSectionNpcField?.GetValue(worm) as Component;
+                if (tail == null) return false;
+                // The damaged Npc must be THE vulnerable tail. Only the tail's collider is left enabled
+                // (EnsureWormVisualOnly), so in practice this is the only worm part the player can hit anyway.
+                if (!(npc is Component nc) || nc == null) return false;
+                if (nc.gameObject.GetInstanceID() != tail.gameObject.GetInstanceID()) return false;
+
+                _wormHitSendSeq++;
+                NetGameplaySyncBridge.SendClientEmperorWormHit(damage, damageTypeInt, _wormHitSendSeq);
+                float now = Time.realtimeSinceStartup;
+                if (now - _lastWormHitLogAt > 1f)
+                {
+                    _lastWormHitLogAt = now;
+                    Plugin.Log.Info($"[EmperorWorm] client -> host worm hit dmg={damage:F1} dtype={damageTypeInt} seq={_wormHitSendSeq} (local damage suppressed)");
+                }
+                return true; // suppress local: the host is authoritative; its WeakpointHit drives destroy/death which we mirror
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Host: apply a client-forwarded worm hit to the real vulnerable tail via the vanilla ReceiveDamage.
+        /// This fires onDamageRecieved → WeakpointHit, advancing the real mechanic (health, section-destroy, death),
+        /// whose results are broadcast back through the existing enemy health-state sync + EMP-3b/3c events.</summary>
+        public static void HostApplyClientWormHit(float damage, int damageTypeInt, int seq)
+        {
+            try
+            {
+                var worm = _hostWormRef;
+                if (worm == null) { Plugin.Log.Warn($"[EmperorWorm] client worm hit seq={seq} but no host worm is active — dropped."); return; }
+                var tail = _lastSectionNpcField?.GetValue(worm);
+                if (tail == null) { Plugin.Log.Warn($"[EmperorWorm] client worm hit seq={seq}: host lastSectionNpc is null — dropped."); return; }
+
+                object? source = BossDamageReflect.ResolveHostPlayerUnit();
+                bool ok = BossDamageReflect.TryApplyRealDamage(tail, damage, damageTypeInt, source, out bool vanillaResult, out string detail);
+                float now = Time.realtimeSinceStartup;
+                if (now - _lastWormHitLogAt > 1f)
+                {
+                    _lastWormHitLogAt = now;
+                    Plugin.Log.Info($"[EmperorWorm] host applied client worm hit seq={seq} dmg={damage:F1} ok={ok} vanilla={vanillaResult} ({detail})");
+                }
+            }
+            catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorWorm] HostApplyClientWormHit seq={seq} failed: {ex.Message}"); }
+        }
+
+        // ================================================================ EMP-3b: section destroy (HOST -> CLIENT)
+
+        private static int _sectionDestroySendSeq;
+
+        /// <summary>Host: a real DestroySection(index) just ran natively — tell clients to mirror it. Called from a
+        /// postfix on EmperorBossWorm.DestroySection (unconditional, host-only gate applied by the caller).</summary>
+        public static void HostAnnounceSectionDestroy(object worm, int index)
+        {
+            _sectionDestroySendSeq++;
+            NetGameplaySyncBridge.BroadcastEmperorWormSectionDestroy(_sectionDestroySendSeq);
+            Plugin.Log.Info($"[EmperorWorm] host DestroySection index={index} -> broadcast seq={_sectionDestroySendSeq}");
+        }
+
+        /// <summary>Client: mirror one host-authoritative section destruction on the LOCAL worm. The client's own
+        /// WeakpointHit never runs a real destroy (its damage is fully redirected to the host), so this is the only
+        /// place client sections shrink. Replays the exact same call pair the host's WeakpointHit makes
+        /// (DestroySection(lastActiveIndex-1) + MoveVulnerableSectionUp()) so gibs/frag/invuln/list-shrink/tail-teleport
+        /// all run through the real native code — nothing here re-derives that math.</summary>
+        public static void OnSectionDestroyReceived(int seq)
+        {
+            try
+            {
+                var worm = _clientWormRef;
+                if (worm == null) { Plugin.Log.Warn($"[EmperorWorm] section-destroy seq={seq} received before any client worm is being driven — dropped."); return; }
+                EnsureReflect(worm);
+                if (_destroySectionMi == null || _moveVulnerableUpMi == null)
+                { Plugin.Log.Warn("[EmperorWorm] section-destroy: DestroySection/MoveVulnerableSectionUp not resolved."); return; }
+
+                int lastActive = ReadLastActiveIndex(worm);
+                int index = lastActive - 1;
+                if (index < 0)
+                { Plugin.Log.Warn($"[EmperorWorm] section-destroy seq={seq}: lastActiveIndex={lastActive}, nothing left to destroy — dropped."); return; }
+
+                _destroySectionMi.Invoke(worm, new object[] { index });
+                _moveVulnerableUpMi.Invoke(worm, null);
+                Plugin.Log.Info($"[EmperorWorm] client mirrored DestroySection seq={seq} index={index}");
+            }
+            catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorWorm] OnSectionDestroyReceived seq={seq} failed: {ex.Message}"); }
+        }
+
+        private static FieldInfo _lastActiveIndexField;
+        private static int ReadLastActiveIndex(object worm)
+        {
+            if (_lastActiveIndexField == null) _lastActiveIndexField = AccessTools.Field(worm.GetType(), "lastActiveIndex");
+            return (_lastActiveIndexField?.GetValue(worm) is int li) ? li : -1;
+        }
+
+        // ================================================================ EMP-3c: death (HOST -> CLIENT)
+
+        private static int  _deathSendSeq;
+        private static bool _clientDeathApplied;
+
+        /// <summary>Host: the real DeathAnimation() coroutine was just kicked off (WeakpointHit hit lethal health) —
+        /// tell clients right away so both ends play the ~5s death sequence in step, not 5s apart.</summary>
+        public static void HostAnnounceDeath(object worm)
+        {
+            _deathSendSeq++;
+            NetGameplaySyncBridge.BroadcastEmperorWormDeath(_deathSendSeq);
+            Plugin.Log.Info($"[EmperorWorm] host DeathAnimation started -> broadcast seq={_deathSendSeq}");
+        }
+
+        /// <summary>Client: mirror the host's terminal worm death by starting the SAME native DeathAnimation coroutine
+        /// on the local worm. The client's own WeakpointHit never reaches lethal health (damage is fully
+        /// host-authoritative), so this is the only place the client's worm dies. DeathAnimation itself plays the
+        /// full vanilla sequence AND calls EmperorBossFightHelper.StartPhase2() at the end — the phase-1/phase-2
+        /// handoff comes for free by reusing the real method instead of hand-rolling it.</summary>
+        public static void OnDeathReceived(int seq)
+        {
+            try
+            {
+                if (_clientDeathApplied) { Plugin.Log.Info($"[EmperorWorm] death seq={seq} ignored — already applied for this worm."); return; }
+                var worm = _clientWormRef;
+                if (!(worm is MonoBehaviour mb) || mb == null)
+                { Plugin.Log.Warn($"[EmperorWorm] death seq={seq} received before any client worm is being driven — dropped."); return; }
+                EnsureReflect(worm);
+                if (_deathAnimationMi == null)
+                { Plugin.Log.Warn("[EmperorWorm] death: DeathAnimation not resolved."); return; }
+
+                _clientDeathApplied = true; // stop the head stream from fighting DeathAnimation's own position lerp
+                if (_deathAnimationMi.Invoke(worm, null) is System.Collections.IEnumerator routine)
+                    mb.StartCoroutine(routine);
+                Plugin.Log.Info($"[EmperorWorm] client mirrored DeathAnimation seq={seq}");
+            }
+            catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorWorm] OnDeathReceived seq={seq} failed: {ex.Message}"); }
         }
 
         /// <summary>Reset per-encounter client state (call on scene/session change if needed).</summary>
@@ -197,6 +382,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _prevRecvAt = 0f;
             _headCollidersDisabled.Clear();
             _sectionColliders.Clear();
+            _clientWormRef = null;
+            _hostWormRef = null;
+            _clientDeathApplied = false;
+            _sectionDestroySendSeq = 0;
+            _deathSendSeq = 0;
+            _wormHitSendSeq = 0;
         }
     }
 }

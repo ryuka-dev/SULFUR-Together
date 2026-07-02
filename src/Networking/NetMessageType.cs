@@ -240,5 +240,29 @@ namespace SULFURTogether.Networking
         // the head from this stream, running only the cheap local UpdateWormSections section-follow. Payload: head
         // world pos (x,y,z) + yaw + sequence.
         HostEmperorWormHead = 57,
+
+        // EMP-3b Emperor worm section-destruction event (Host→clients, ReliableOrdered). Sent from a postfix on the
+        // Host's real DestroySection(index) call. The client's local WeakpointHit never fires (damage is fully
+        // host-authoritative), so it never derives this itself — it mirrors by invoking the SAME native
+        // DestroySection(index)+MoveVulnerableSectionUp() pair on its own worm (index recomputed locally from its
+        // own lastActiveIndex, which stays in lockstep because it only ever changes in response to this event).
+        // Payload: sequence (diagnostic/log only — order/delivery already guaranteed by the channel).
+        HostEmperorWormSectionDestroy = 58,
+
+        // EMP-3c Emperor worm terminal death (Host→clients, ReliableOrdered, one-shot). Sent from a postfix on the
+        // Host's DeathAnimation() kickoff (fires the instant WeakpointHit starts the coroutine, not 5s later). The
+        // client's local WeakpointHit never reaches lethal health itself, so it never starts its own DeathAnimation
+        // — it mirrors by starting the SAME coroutine on its own worm, which natively plays the death sequence and
+        // calls EmperorBossFightHelper.StartPhase2() at the end — the phase-1→phase-2 handoff, for free.
+        HostEmperorWormDeath = 59,
+
+        // EMP-3d Emperor worm damage authority (Client→Host, ReliableOrdered). The worm's vulnerable tail section is a
+        // runtime SpawnUnitAsync add (not in the level-load manifest) and the Emperor is not a registered boss
+        // encounter, so the ordinary roster ClientHitRequest path quarantines it as "client-only" → client hits never
+        // reach the host (Log250-252: hitRecv=0, section quarantined 16-31×). This dedicated single-target route
+        // forwards a client hit on the tail straight to the host, which applies it to its real lastSectionNpc via the
+        // vanilla ReceiveDamage (fires onDamageRecieved → WeakpointHit → section-destroy/death). Payload: damage +
+        // damageType + seq. Mirrors the §7.5 design that was assumed working but the head-streamed local worm broke.
+        ClientEmperorWormHit = 60,
     }
 }
