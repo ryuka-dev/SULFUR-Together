@@ -457,3 +457,36 @@ enter the room but never reach the boss).
   authority — PF-1 should *reuse* `NetRunState` seed equality, not invent a new check.)
 - Is blocking at `EventStarted`/`Trigger` enough, or does the dialog need to be held earlier (at the
   dialog-open) to avoid the player reading a desynced dialog?
+
+## 5. Investigation (SHELVED) — "dialog can't advance, and it persists" (multiple-choice not clickable)
+
+A recurring co-op bug: a boss/NPC dialog reaches a **multiple-choice** and the player cannot pick any option
+(clicking does nothing); the state persists across a level switch. Reverse-engineered + probed (`DialogInputProbe`,
+now reverted) across Log269–271. Recording the findings so the next attempt starts from fact.
+
+**Ruled out (all measured, not guessed):**
+- **NOT melee / holding the attack key.** `Fire` (weapon) and `AcceptDialogOption` (dialog advance) *do* both bind
+  Mouse leftButton, and our no-pause mod (`PauseControlPatches`) *does* block the vanilla `Dialog` pause padlock
+  (`ModifyGamePauseState`) so the game keeps running during dialog — but the probe showed `LMB held-at-open=False`
+  every time. The held-LMB "no fresh press edge" theory is wrong.
+- **NOT cursor lock.** `cursor = None/vis=True` at every dialog open (free + visible).
+- **NOT a null `selectedButton`.** It is `NULL` in BOTH the working and stuck dialogs, so it isn't the differentiator
+  (mouse selection goes through the button's own `onClick`/EventSystem, not `selectedButton`).
+- **NOT a fullscreen raycast-blocking overlay.** An EventSystem `RaycastAll` at each stuck click returned
+  `rayTop=NONE` — the click hit *nothing*, not a blocker.
+
+**What it actually is (pinned to the mechanism, not yet the trigger):** during the stuck dialog the **player-options
+panel does not intercept clicks**. The NPC text box (`CharacterDialog`/`DialogBodyText`) *is* raycastable (probe hit
+it), but clicks aimed at the options land on empty space (`rayTop=NONE`), and the option `onClick` → `Finalize`
+**never fires** (vs the working dialog, where `Finalize` fired). Relevant code fact: `DialogController.
+SetOptionsInteractable(state)` only sets `playerDialogCanvasGroup.interactable`, **not `blocksRaycasts`** — so if the
+options `CanvasGroup` isn't blocking raycasts (or the panel isn't truly active/visible), the buttons are shown but
+don't catch the mouse. It correlates with a messy reload/teleport session (the probe also saw F3 level-select menu
+hits, `LevelMenuButton`/`ChapterPanel`), so a clean repro (no F3) is needed to isolate the trigger.
+
+**Not yet pinned:** *why* the options panel stops blocking raycasts on a subsequent dialog (CanvasGroup
+`blocksRaycasts`/`alpha` vs `activeSelf` vs an EventSystem/GraphicRaycaster left disabled after a teleport/reload).
+**Next probe if revisited:** log the `PlayerDialog` panel's `activeSelf` + `CanvasGroup.alpha`/`blocksRaycasts`
++ EventSystem presence at the moment a stuck multiple-choice is shown, with a clean (no-F3) repro. **Likely fix**
+once confirmed: set `blocksRaycasts=true` alongside `interactable` (or re-activate the options panel) when a
+multiple-choice is shown. **SHELVED per decision; probe reverted, no code shipped.**
