@@ -174,6 +174,8 @@ namespace SULFURTogether.Config
         public Fixed<bool>         ExcludeOutOfRoomPlayersFromBossAttacks { get; }
         // ----- Phase 5.4-E3 BossDialogCommit + Lucia + Witch state + Emperor worm -----
         public ConfigEntry<bool>   EnableEmperorWormDiagnostics { get; }
+        // EMP-6a: observe-only probe for the Emperor phase-2 SPIDER (validate the sync model before writing sync code).
+        public ConfigEntry<bool>   EnableEmperorSpiderDiagnostics { get; }
         // EMP-1b: default-OFF stopwatch to localize the ground-slam frame hitch (native vs mod).
         public ConfigEntry<bool>   LogEmperorWormPerf { get; }
         public ConfigEntry<float>  EmperorWormPerfThresholdMs { get; }
@@ -682,6 +684,8 @@ namespace SULFURTogether.Config
             // and finalize the local dialog with the real Graph.Stop(true). Witch broadcasts a minimal phase/state skeleton.
             EnableEmperorWormDiagnostics = cfg.Bind("NetworkBoss", "EnableEmperorWormDiagnostics", true,
                 "Phase 5.4-E3: probe + log Emperor worm controller state (identify the double-worm source). Diagnostic only; does not change gameplay.");
+            EnableEmperorSpiderDiagnostics = cfg.Bind("NetworkBoss", "EnableEmperorSpiderDiagnostics", true,
+                "EMP-6a: observe-only probe for the Emperor phase-2 spider (lifecycle/startup-caller/position-divergence/defend/death). Diagnostic only; does not change gameplay.");
             LogEmperorWormPerf = cfg.Bind("NetworkBoss", "LogEmperorWormPerf", false,
                 "EMP-1b (default OFF): stopwatch the Emperor worm's FixedUpdate + ground/underground native calls; log only frames slower than EmperorWormPerfThresholdMs to localize the ground-slam hitch.");
             EmperorWormPerfThresholdMs = cfg.Bind("NetworkBoss", "EmperorWormPerfThresholdMs", 6f,

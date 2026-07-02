@@ -111,6 +111,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             try
             {
+                _lastWormTickAt = Time.realtimeSinceStartup; // heartbeat: a worm's FixedUpdate is actually running now
                 var mode = NetGameplaySyncBridge.BossMode;
                 if (mode == NetMode.Host)
                 {
@@ -194,6 +195,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static bool _wormActive;
         private static float _lastGroundEventTime = -999f;
         private static float _lastFrameLogTime = -999f;
+        // Heartbeat: set every frame a worm's FixedUpdate actually ticks. The old _wormActive flag was set true on
+        // StartMovement and only cleared on death — so after a reload-without-death it stayed true forever and the
+        // watchdog mis-tagged ALL later hitches (loading, hub, next fight) as worm hitches (Log263: 80% of
+        // [EmperorWormFrame] lines had sinceGroundEvent > 2s = not actually in worm combat). A timeout auto-clears it.
+        private static float _lastWormTickAt = -999f;
+        private static bool WormTicking => Time.realtimeSinceStartup - _lastWormTickAt < 0.5f;
 
         private static int _lastGc0 = -1;
 
@@ -208,7 +215,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             try
             {
-                if (!_wormActive || !DiagEnabled) return;
+                if (!WormTicking || !DiagEnabled) return;
                 if (totalMs < 50) return;
                 Plugin.Log.Info($"[UpdateProf] side={Side()} updateBody={totalMs}ms (gameplayTick={gameplayMs}ms bossTick={bossMs}ms) — if the frame hitch is bigger than this, the cost is outside Update (LateUpdate/render/GC)");
             }
@@ -219,7 +226,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             try
             {
-                if (!_wormActive || !DiagEnabled) return;
+                if (!DiagEnabled) return;
+                if (!WormTicking) return;
                 float dt = Time.unscaledDeltaTime;
                 if (dt < 0.12f) return; // ~<8 fps only
                 float now = Time.realtimeSinceStartup;
@@ -233,6 +241,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             }
             catch { }
         }
+
+        // (EMP-6e reload-residue census removed after it did its job: Log264/265 showed NO leak — always exactly
+        //  liveWorms=1 / liveSpiders=1 / liveLegs=8 / liveHelpers=1 across every reload + hub round-trip. The host 1fps
+        //  is a SINGLE worm's native ballistic physics doing long-distance sweeps to chase an out-of-position host, not
+        //  accumulated instances. The census's per-3s Resources.FindObjectsOfTypeAll was itself the periodic hitch.)
 
         // JumpTo(Vector3 targetPosition, float jumpTime): the per-jump destination. Host vs client target lists
         // will NOT match — the empirical proof that the worm must be host-streamed.

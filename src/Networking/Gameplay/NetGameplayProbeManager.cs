@@ -9683,7 +9683,13 @@ namespace SULFURTogether.Networking.Gameplay
         /// Reflection is used because EntityAttribute and EntityStats are in PerfectRandom.Sulfur.Core.dll
         /// which is not directly referenced as a strongly-typed assembly in this project.
         /// </summary>
-        private static bool TryWriteUnitHealthNative(object unit, float newHealth)
+        /// <summary>Public health-write wrapper (EMP-6c: the Emperor phase-2 arena has no net-run-state so the generic
+        /// enemy-state snapshot mirror is inactive — the spider streams its health explicitly and writes it here, with
+        /// <paramref name="raiseEvent"/> true so the attached boss health bar updates).</summary>
+        public static bool TryWriteUnitHealth(object unit, float newHealth, bool raiseEvent)
+            => TryWriteUnitHealthNative(unit, newHealth, raiseEvent);
+
+        private static bool TryWriteUnitHealthNative(object unit, float newHealth, bool raiseEvent = false)
         {
             if (unit == null) return false;
             try
@@ -9789,7 +9795,7 @@ namespace SULFURTogether.Networking.Gameplay
                 }
 
                 object[] args = pms.Length >= 3
-                    ? new object[] { enumArg, newHealth, false }
+                    ? new object[] { enumArg, newHealth, raiseEvent }
                     : new object[] { enumArg, newHealth };
                 try
                 {

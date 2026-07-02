@@ -108,6 +108,8 @@ namespace SULFURTogether.Patches
             SULFURTogether.Networking.Gameplay.Boss.BossTypeDiscovery.LogEmperorTypes();
             // Phase 5.4-E3: Emperor dual-worm-controller diagnosis + optional client-side suppression scaffold.
             SULFURTogether.Networking.Gameplay.Boss.EmperorWormDiagnostics.Apply(harmony);
+            // EMP-6a: Emperor phase-2 SPIDER probe (observe-only; validates the spider sync model before writing it).
+            SULFURTogether.Networking.Gameplay.Boss.EmperorSpiderDiagnostics.Apply(harmony);
         }
 
         /// <summary>Phase 5.4-G2: WitchBossController.ChangePhase is the single phase-transition chokepoint. PREFIX blocks

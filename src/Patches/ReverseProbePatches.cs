@@ -1391,6 +1391,12 @@ namespace SULFURTogether.Patches
                 if (SULFURTogether.Networking.Gameplay.Boss.NetEmperorWormSync.TryClientWormHit(__instance, damage, damageTypeInt))
                     return false;
 
+                // EMP-6b: the Emperor phase-2 spider npc is a normal roster unit, but the client runs its own local boss
+                // (not a puppet) so its hits aren't forwarded (Log259 clientHitSent=0). Route a client hit on the spider
+                // npc straight to the host's real spider, same single-target authority as the worm's tail.
+                if (SULFURTogether.Networking.Gameplay.Boss.NetEmperorSpiderSync.TryClientSpiderHit(__instance, damage, damageTypeInt))
+                    return false;
+
                 // Phase 5.5-RT3-A2: a host-driven puppet is host-authoritative over all its damage. Drop non-player
                 // (physics/explosion/environment) damage locally and DO NOT forward it — the host simulates the
                 // environment authoritatively and syncs HP back. This is what mis-killed snapped adds ~0.2s after spawn.

@@ -239,6 +239,8 @@ namespace SULFURTogether.Networking
         // kinematic (no autonomous ballistic FixedUpdate — that native physics is the client-only ~1fps) and drives
         // the head from this stream, running only the cheap local UpdateWormSections section-follow. Payload: head
         // world pos (x,y,z) + yaw + sequence.
+        // (EMP-6d: also carries the tail's absolute currentHealth so the client P1 boss bar tracks the host — the
+        //  quarantined worm tail is not reliably covered by the generic enemy-state mirror.)
         HostEmperorWormHead = 57,
 
         // EMP-3b Emperor worm section-destruction event (Host→clients, ReliableOrdered). Sent from a postfix on the
@@ -279,5 +281,33 @@ namespace SULFURTogether.Networking
         // Host→Clients: "commit — start the worm now." Every client invokes the real StartMovement on its local worm so
         // Initialize/emergence/music all begin in step with the host. Carries nothing.
         HostEmperorFightStart = 62,
+
+        // ===== EMP-6b Emperor phase-2 SPIDER sync (see Docs/EmperorBossAudit.md §9). The spider is kinematic and walks
+        // a fixed waypoint path at a speed proportional to the LOCAL player distance, so the two ends drift in path
+        // progress (Log259). Same host-authoritative shape as the worm: stream the body transform, gate the
+        // dialog-driven fight-start (Initialize), route damage client→host, and mirror discrete mechanics + death. =====
+
+        // Host→clients (Unreliable, latest-wins): the spider body transform stream — position + yaw + the two waypoint
+        // indices (so the client's CheckDeathTriggerReached converges to the same death waypoint) + absolute currentHealth
+        // (EMP-6c: the P2 arena has no net-run-state so the generic enemy-state health mirror is inactive) + seq.
+        HostEmperorSpiderTransform = 63,
+
+        // EMP-6b fight-start: the spider's Initialize() is invoked by the phase-2 dialog (a NodeCanvas action, same
+        // transport as the worm's StartMovement — Log259). Gate it host-authoritatively so all ends stand up together
+        // regardless of who does the dialog / who has jumped down into the phase-2 pit yet.
+        // Client→Host: "my player triggered the phase-2 dialog; please commit." Carries nothing.
+        ClientEmperorSpiderFightStart = 64,
+        // Host→Clients: "commit — Initialize the spider now." Every client invokes the real Initialize on its local
+        // spider so the startup animation / stand-up / boss UI begin in step. Carries nothing.
+        HostEmperorSpiderFightStart = 65,
+
+        // EMP-6b damage authority (client→host, Reliable): the spider npc is a normal roster unit but the client runs
+        // its own local boss (not a puppet), so its hits are not forwarded (Log259 clientHitSent=0). Route them like the
+        // worm's EMP-3d: damage + damageType + seq → host applies the real ReceiveDamage on its spider npc.
+        ClientEmperorSpiderHit = 66,
+
+        // EMP-6b discrete mechanic + death (host→clients, Reliable): eventCode + seq. Codes: 1=Defend (invuln window),
+        // 2=RapidFire (rocket launcher), 3=Death (OnNpcDeath walk-to-death begins). Client replays the native method.
+        HostEmperorSpiderEvent = 67,
     }
 }

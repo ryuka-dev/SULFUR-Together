@@ -577,7 +577,7 @@ namespace SULFURTogether.Networking
         }
 
         // EMP-3a: stream the Emperor phase-1 worm head to clients (high-rate, unreliable — latest-wins).
-        internal void BroadcastEmperorWormHead(float x, float y, float z, float rotY, int seq)
+        internal void BroadcastEmperorWormHead(float x, float y, float z, float rotY, float tailHp, int seq)
         {
             if (_mode != NetMode.Host || _net == null || _clients.Count == 0) return;
             foreach (var peer in _clients.ToArray())
@@ -585,7 +585,7 @@ namespace SULFURTogether.Networking
                 try
                 {
                     var w = NetMessage.For(NetMessageType.HostEmperorWormHead);
-                    w.Put(x); w.Put(y); w.Put(z); w.Put(rotY); w.Put(seq);
+                    w.Put(x); w.Put(y); w.Put(z); w.Put(rotY); w.Put(tailHp); w.Put(seq);
                     peer.Send(w, DeliveryMethod.Unreliable);
                 }
                 catch (Exception ex) { NetLogger.Warn($"[EmperorWormHead] broadcast failed: {ex.Message}"); }
@@ -598,8 +598,8 @@ namespace SULFURTogether.Networking
             try
             {
                 float x = reader.GetFloat(); float y = reader.GetFloat(); float z = reader.GetFloat();
-                float rotY = reader.GetFloat(); int seq = reader.GetInt();
-                Gameplay.Boss.NetEmperorWormSync.OnHeadReceived(new UnityEngine.Vector3(x, y, z), rotY, seq);
+                float rotY = reader.GetFloat(); float tailHp = reader.GetFloat(); int seq = reader.GetInt();
+                Gameplay.Boss.NetEmperorWormSync.OnHeadReceived(new UnityEngine.Vector3(x, y, z), rotY, tailHp, seq);
             }
             catch (Exception ex) { NetLogger.Warn($"[EmperorWormHead] malformed packet: {ex.Message}"); }
         }
@@ -722,6 +722,128 @@ namespace SULFURTogether.Networking
             if (_mode != NetMode.Client) return;
             try { Gameplay.Boss.NetEmperorWormSync.OnFightStartCommitReceived(); }
             catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] fight-start commit handling failed: {ex.Message}"); }
+        }
+
+        // ================================================================ EMP-6b: Emperor phase-2 spider
+
+        // EMP-6b: stream the spider body transform (+ waypoint indices) to clients (high-rate, unreliable).
+        internal void BroadcastEmperorSpiderTransform(float x, float y, float z, float rotY, int wp, int tgt, float hp, int seq)
+        {
+            if (_mode != NetMode.Host || _net == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostEmperorSpiderTransform);
+                    w.Put(x); w.Put(y); w.Put(z); w.Put(rotY); w.Put(wp); w.Put(tgt); w.Put(hp); w.Put(seq);
+                    peer.Send(w, DeliveryMethod.Unreliable);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] transform broadcast failed: {ex.Message}"); }
+            }
+        }
+
+        private void HandleEmperorSpiderTransform(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            try
+            {
+                float x = reader.GetFloat(); float y = reader.GetFloat(); float z = reader.GetFloat();
+                float rotY = reader.GetFloat(); int wp = reader.GetInt(); int tgt = reader.GetInt();
+                float hp = reader.GetFloat(); int seq = reader.GetInt();
+                Gameplay.Boss.NetEmperorSpiderSync.OnTransformReceived(new UnityEngine.Vector3(x, y, z), rotY, wp, tgt, hp, seq);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] malformed transform packet: {ex.Message}"); }
+        }
+
+        // EMP-6b fight-start (dialog) gate — client requests, host commits + broadcasts.
+        internal void SendClientEmperorSpiderFightStart()
+        {
+            if (_mode != NetMode.Client || _net == null || _hostPeer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientEmperorSpiderFightStart);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] failed to send fight-start request: {ex.Message}"); }
+        }
+
+        private void HandleClientEmperorSpiderFightStart(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            try { Gameplay.Boss.NetEmperorSpiderSync.HostOnClientFightStartRequest(); }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] fight-start request handling failed: {ex.Message}"); }
+        }
+
+        internal void BroadcastEmperorSpiderFightStart()
+        {
+            if (_mode != NetMode.Host || _net == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostEmperorSpiderFightStart);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] fight-start broadcast failed: {ex.Message}"); }
+            }
+        }
+
+        private void HandleEmperorSpiderFightStart(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            try { Gameplay.Boss.NetEmperorSpiderSync.OnFightStartCommitReceived(); }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] fight-start commit handling failed: {ex.Message}"); }
+        }
+
+        // EMP-6b: client forwards a hit on the spider npc to the host (single-target damage authority).
+        internal void SendClientEmperorSpiderHit(float damage, int damageTypeInt, int seq)
+        {
+            if (_mode != NetMode.Client || _net == null || _hostPeer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientEmperorSpiderHit);
+                w.Put(damage); w.Put(damageTypeInt); w.Put(seq);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] failed to send spider hit: {ex.Message}"); }
+        }
+
+        private void HandleClientEmperorSpiderHit(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            try
+            {
+                float damage = reader.GetFloat(); int damageTypeInt = reader.GetInt(); int seq = reader.GetInt();
+                Gameplay.Boss.NetEmperorSpiderSync.HostApplyClientSpiderHit(damage, damageTypeInt, seq);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] malformed spider-hit packet: {ex.Message}"); }
+        }
+
+        // EMP-6b: discrete mechanic / death event — client replays the native method exactly once.
+        internal void BroadcastEmperorSpiderEvent(int eventCode, int seq)
+        {
+            if (_mode != NetMode.Host || _net == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostEmperorSpiderEvent);
+                    w.Put(eventCode); w.Put(seq);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] event broadcast failed: {ex.Message}"); }
+            }
+        }
+
+        private void HandleEmperorSpiderEvent(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            try
+            {
+                int eventCode = reader.GetInt(); int seq = reader.GetInt();
+                Gameplay.Boss.NetEmperorSpiderSync.OnEventReceived(eventCode, seq);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] malformed event packet: {ex.Message}"); }
         }
 
         private void HandleClientBossDialogCommitRequest(NetPeer peer, NetDataReader reader)
@@ -2616,6 +2738,21 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.HostEmperorFightStart:
                         HandleEmperorFightStart(peer, reader);
+                        break;
+                    case NetMessageType.HostEmperorSpiderTransform:
+                        HandleEmperorSpiderTransform(peer, reader);
+                        break;
+                    case NetMessageType.ClientEmperorSpiderFightStart:
+                        HandleClientEmperorSpiderFightStart(peer, reader);
+                        break;
+                    case NetMessageType.HostEmperorSpiderFightStart:
+                        HandleEmperorSpiderFightStart(peer, reader);
+                        break;
+                    case NetMessageType.ClientEmperorSpiderHit:
+                        HandleClientEmperorSpiderHit(peer, reader);
+                        break;
+                    case NetMessageType.HostEmperorSpiderEvent:
+                        HandleEmperorSpiderEvent(peer, reader);
                         break;
 
                     case NetMessageType.HostBossDynamicSpawn:

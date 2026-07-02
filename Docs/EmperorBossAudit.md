@@ -484,6 +484,49 @@ known issue.**
 seed/progress split → phase-2 dialog orphaned" issue (see [BossPreFightFlow.md](BossPreFightFlow.md) and the
 Cousin infinite-dialog / seed-split note). Unrelated to EMP-3; **known issue**, not addressed here.
 
+## 8.9 Host 1 fps IS the client's original 1 fps (same root) — record + the "first fight is fine" puzzle
+
+Recorded per user direction (Log264/265). The host-side 1 fps is **not a new problem and not the phase-2 spider** —
+it is the *same* defect that plagued the client for ~12 log iterations and was fixed there: the native
+**`EmperorBossWorm` ballistic rigidbody `FixedUpdate` physics** (the non-kinematic rigidbody integration) is too
+heavy under co-op per-frame overhead and drives Unity's fixed-timestep into the "spiral of death."
+
+**Do NOT re-run the experiments already eliminated on the client** (all were *measured*, not guessed — §8.5/§8.8c):
+- NOT our C# (`[UpdateProf]` ≪ the hitch), NOT GC (`gc0Δ≈0`), NOT particles, NOT window focus.
+- NOT the section colliders / PhysX broadphase: an ablation disabling **all 34** colliders on the *non-kinematic*
+  worm did not help — "**it's the rigidbody integration, not the broadphase**." The broadphase only became a cost on
+  the client *after* it was made kinematic (a second, separate cost, fixed by `EnsureWormVisualOnly`).
+- NOT the travel distance / "boss racing to a far player": tested before; and Log265 confirms the lag also happens at
+  normal in-arena distance (the host was only out-of-position once). **An earlier same-turn hypothesis that the host
+  lag was broadphase churn from the worm racing to an out-of-position host is RETRACTED** — that is a retread of the
+  eliminated broadphase/distance path. Teleport-in (#5) is a legitimate *feature* but is **not** the lag fix.
+- NOT instance accumulation: the EMP-6e census proved there is always exactly **one** worm / one spider / 8 legs /
+  one helper across every reload + hub round-trip (no leak). (That census's per-3 s `Resources.FindObjectsOfTypeAll`
+  was itself the periodic hitch the user saw, and has been removed; the `_wormActive`→`WormTicking` heartbeat fix was
+  kept so `[EmperorWormFrame]` no longer mis-tags loading/hub stalls.)
+
+**The client's real fix, and the host's direction:** the client escaped by **not running the native physics** — keep
+the worm `rb.isKinematic=true` so `FixedUpdate` early-returns (`if (rb.isKinematic || isDead || inDeathAnimation)
+return;`), i.e. zero rigidbody integration, and drive position from a cheap external source (the host head stream +
+`UpdateWormSections`). The host is the authority with no upstream to stream from, but the **same principle applies**:
+drive the host worm kinematically from a **cheap scripted/authored approximation of the ballistic jumps** (compute
+the authoritative path without PhysX rigidbody integration), then stream it to clients as today. That removes the
+heavy physics on the host the same way it did on the client. This is the intended direction — **not** more collider
+/ GC / distance testing.
+
+**Open puzzle (user's only remaining question): why is the FIRST fight fine but every reload laggy?** — same single
+worm, normal distance, same code. Working hypothesis (not yet proven): the fixed-timestep spiral is **self-sustaining
+once entered**. Unity queues catch-up `FixedUpdate` substeps when frames run long; if the per-substep worm physics is
+heavier than real time advances, the accumulator never drains and the game runs many FixedUpdates per render frame
+*forever*. The **trigger is a burst of slow frames while the worm is already active** — a level **reload/regeneration**
+is exactly that (heavy generation stutter with the worm present right after regen), so physics falls behind during the
+stutter and, being too heavy to catch back up, stays spiralling. The **first** fight loads the worm "clean" (fresh
+process, empty physics accumulator, no regen stutter grinding the worm) so it never falls behind → no spiral. This
+also fits: survives a hub round-trip (the return is itself a regen that re-triggers, and/or the spiral simply
+persists), and a **process restart fixes it** (resets the Time/physics accumulator). To *prove* it would need
+`Time.deltaTime` + FixedUpdate-count-per-render-frame instrumentation — but the kinematic-host fix above sidesteps it
+entirely (no heavy physics ⇒ nothing to spiral), so proving the exact trigger is optional.
+
 ## 8. Probe plan — `EmperorWormDiagnostics` (validate before building)
 
 Observe-only, config-gated (`EnableEmperorWormDiagnostics` + `LogBossEncounter`), tagged with side
@@ -511,13 +554,254 @@ sync code, so the pipeline is built once against real data.
 
 ---
 
-## 9. Deferred — Phase 2 (spider)
+## 9. Phase 2 — the spider (EMP-6 audit + sync design)
 
-`EmperorBossSpider` (+ `EmperorBossSpiderClaw`, `EmperorBossSpiderRocket(Launcher)`, `EmperorPillar(Controller)`,
-`EmperorHoleBlower`) is a large separate coroutine-driven boss (defend phases, leg destruction, rocket
-bursts, pillars). It is out of scope for the phase-1 worm effort and gets its own audit + pipeline once the
-worm is synced. `EmperorBossFightHelper.StartPhase2()` is the seam; `*Endless` variants are the endless-mode
-worm/spider and are not part of the campaign encounter.
+Reverse-engineered from the same `PerfectRandom.Sulfur.Gameplay.dll`. Phase 2 is `EmperorBossSpider` (+
+`EmperorBossSpiderClaw` IK legs, `EmperorBossSpiderRocketLauncher`/`EmperorBossSpiderRocket`, `EmperorHoleBlower`
+death seam). `*Endless` variants are endless-mode and not part of the campaign encounter. Method/field names are
+exact.
+
+**Working method (same as the worm): probe first.** The immediate deliverable is the observe-only probe
+`EmperorSpiderDiagnostics` (EMP-6a); the sync pipeline (EMP-6b+) is written only after the probe validates this
+model on real host+client logs — the worm's EMP-2 saga (≈12 log iterations chasing the wrong hitch) is exactly
+what probe-first avoids.
+
+### 9.1 Entities and lifecycle
+| Type | Role |
+|------|------|
+| `EmperorBossSpider` | Root body. Static `Instance`. Kinematic (`rb.isKinematic=true` set EVERY `FixedUpdate`+`LateUpdate`). Walks a FIXED `waypoints` path; owns the single health Npc, defend phase, damage stages, two-stage death. |
+| `EmperorBossSpiderClaw[]` (`leftClaws`/`rightClaws`) | IK legs. Pure visual + RNG stepping. `PotentiallySpawnEnemy` (5 %/leg-reach) spawns adds via `spawnableUnit.GetAsset().SpawnUnitAsync(this,…)` (mono = the claw). |
+| `EmperorBossSpiderRocketLauncher` | Bursts of rockets (`Instantiate` a prefab, NOT a Unit) at the LOCAL player/camera; rapid-fire below 0.1 health. |
+| `EmperorBossSpiderRocket` | Homing corkscrew projectile; `ExplosionTypes.EmperorRocket` on impact (does damage). |
+| `EmperorHoleBlower` | Death seam: `BlowHole` → desert transition + `SpawnLoot` (level completion). |
+
+**Start seam:** `EmperorBossFightHelper.StartPhase2()` just `SetActive(true)` on `phase2Root` + the spider's
+parent. It is reached two ways: (a) the phase-1 worm's `DeathAnimation` calls it at the end — **already mirrored
+by EMP-3c** (the client replays `DeathAnimation`, so `StartPhase2` runs on both ends); (b) a scene
+`SecondPhaseTrigger` (Log258 saw an F3'd client step it). Once active: `Awake` (npc invulnerable + `Instance=this`)
+→ `Initialize()` → startup animation → `StandUp()` (becomes vulnerable).
+
+**`Initialize()` and `StandUp()` are `public` with NO C# caller in the DLL** → driven by an **animation event /
+scene UnityEvent**, the same shape as the worm's dialog-invoked `StartMovement` (Log254). `Initialize` captures
+`playerTransform = LOCAL player`, `AttachToBossUI`, subscribes `onDamageRecieved += OnDamageTaken` /
+`onDeath += OnNpcDeath`, caches `maxHealthValue`, plays the startup animation. `StandUp` (fires at the end of the
+startup animation) inits the legs and clears invulnerability. **Confirming these callers + their host-vs-client
+timing is EMP-6a probe unknown #1** (one-shot stack traces).
+
+### 9.2 Movement model — kinematic waypoint follow (NOT ballistic)
+`LateUpdate` → `MaintainDistance()` computes `currentSpeed` from `Vector3.Distance(transform, LOCAL player)`
+(`baseMovespeed`→`maxMovespeed` by distance) → `MoveAlongPath()` advances along `waypoints[currentWaypointIndex]
+→ [targetWaypointIndex]`, wrapping the index at each node. `UpdateRootTransform()` adds `LookAt(local player)` +
+sin/perlin secondary motion. `UpdateStepping()`/`MoveLegsInGroup()` drive the IK legs (RNG: `legTargetRandomness`,
+`groupTimingRandomness`, per-leg timing offsets).
+
+> **Divergence source (the core sync problem, milder than the worm):** the spider is kinematic and follows a
+> *deterministic* path — no ballistic RNG — but its **speed depends on the LOCAL player position**, so each end
+> advances the path at a different rate and the two spiders drift in PATH PROGRESS (waypoint index + fractional
+> position). There is **no physics spiral** (kinematic, transform-driven), so the client will NOT have the worm's
+> 1 fps problem — the fix is purely positional, not a physics stopgap.
+
+### 9.3 Damage / health / defend / stages
+- **Single health owner:** the spider `npc` (`AttachToBossUI(true)` in `Initialize`). All hits land on it. It is
+  **pre-placed in the scene** (under `phase2Root`) but activated late — **whether a client hit rides the ordinary
+  roster `ClientHitRequest` path (`[ClientHit] ACCEPT`) or quarantines as "client-only" like the worm tail (needs
+  a bespoke EMP-3d-style single-target route) is EMP-6a probe unknown #3.**
+- **Defend phase:** `OnDamageTaken` at `health/max ≤ defendTriggerHealthPercent` (0.5), once (`hasTriggeredDefend`)
+  → `TriggerDefendPhase` → `ExecuteDefendPhase` coroutine: **invulnerable for `defendDuration` (3 s)** while two
+  legs cover the body. Host-authoritative (only the host reaches the threshold once damage is host-authoritative);
+  mirror the trigger, client replays `TriggerDefendPhase`.
+- **Damage particle stages:** `UpdateDamageParticleEffects` at `≤0.4 / 0.25 / 0.1` health plays particle systems;
+  at `≤0.1` also `emperorBossSpiderRocketLauncher.ActivateRapidFire()` (doubles rockets, halves interval). Mostly
+  cosmetic, but rapid-fire is a mechanic → mirror off the health-fraction crossings (host-authoritative).
+
+### 9.4 Death — two stage
+1. `OnNpcDeath` (npc `onDeath`): stops defend, destroys legs sequentially (`DestroyLegsSequentially`, RNG order),
+   stops the rocket launcher, `isWalkingToDeath = true`, floors health to `maxHealthValue * minHealthThreshold`
+   (0.03), blinks the boss bar + repeated white flash. The spider then **walks (fast) to a death waypoint**.
+2. `CheckDeathTriggerReached` (in `LateUpdate` while walking) matches `waypoints[currentWaypointIndex]` against
+   `deathWaypointData` → sets `blower` → `ExecuteActualDeath()`: `isDead`, death animation, detach boss UI,
+   `PlayerProgress.SetCheckpointReached("BossDead_Emperor")`, stop music. `BlowHoleFromAnimation()` (an **animation
+   event**) then fires `blower.BlowHole()` → the **desert transition + `SpawnLoot`** (level completion seam).
+
+Death is host-authoritative and stateful (RNG leg order, walk-to-waypoint, floor-health top-up) → same lesson as
+the worm: **replay the real native methods on the client** (mirror `OnNpcDeath`, and the walk-to-death converges
+because position is host-streamed so both reach the same death waypoint; `ExecuteActualDeath`/`BlowHole` are
+animation-event-driven and run per-end) rather than re-deriving. Loot / checkpoint stay host-authoritative
+(client suppresses `PlaceLoot`/save like Lucia/Witch terminal death).
+
+### 9.5 Sync design (host-authoritative) — the plan EMP-6a must validate
+- **Position:** EMP-3a-style stream the spider root transform (position + yaw), client suppresses
+  `MaintainDistance`/`MoveAlongPath`/`UpdateRootTransform` and runs `UpdateStepping`/IK locally for the legs. No
+  kinematic/collider gymnastics needed (already kinematic, no broadphase churn like the worm — but confirm with the
+  probe's position timeline). Snapshot-interpolate like the worm head (reuse the EMP-3a interpolation pattern).
+- **Startup:** gate `Initialize`/`StandUp` so both ends stand up together (the invuln window must match) — approach
+  depends on probe unknown #1 (if animation-event-driven and deterministic, may already be in step; if not, a
+  host-authoritative commit like EMP-4).
+- **Damage:** single target; reuse `BossDamageReflect.TryApplyRealDamage` on the host `npc`. Route via roster if
+  the probe shows `[ClientHit] ACCEPT`, else a bespoke EMP-3d-style message.
+- **Defend / stages:** broadcast the health-crossing events; client replays `TriggerDefendPhase` /
+  `ActivateRapidFire` (don't re-derive from local health).
+- **Adds (claw spawns):** ride the RT3 `UnitSO.SpawnUnit` chokepoint (mono = the claw); same special-add handling
+  as the worm sections / Cousin arms.
+- **Rockets:** each end fires at its own local player — evaluate from the probe whether that is acceptable
+  (per-end cosmetic + host-authoritative player damage) or needs host-authoritative rocket spawn.
+- **Death:** host-authoritative two-stage death; mirror `OnNpcDeath` (replay native), converge the walk via the
+  position stream, suppress client loot/checkpoint.
+
+### 9.6 EMP-6a probe — `EmperorSpiderDiagnostics` (observe-only, `EnableEmperorSpiderDiagnostics` + `LogBossEncounter`)
+Postfix-only, tagged `side=host/client`. Captures: **`Awake`** (one-shot manifest: legs L/R, waypoints, npc UnitId,
+add UnitId), **`Initialize`/`StandUp`** (+ one-shot caller **stack trace** — unknown #1), **`OnDamageTaken`**
+(throttled: health-fraction + `hasTriggeredDefend`), **`TriggerDefendPhase`**, **`OnNpcDeath`** /
+**`ExecuteActualDeath`** / **`BlowHoleFromAnimation`** (one-shot each — the two-stage death + desert seam), a
+throttled **`LateUpdate` position/state timeline** (pos, `currentWaypointIndex→targetWaypointIndex`,
+`currentSpeed`, health, `isInStartupAnimation`/`stoodUp`/`isDefending`/`isWalkingToDeath`/`isDead` — the
+divergence data; alloc-free hot path via a direct-float throttle), and a throttled **`LaunchMissile`** marker
+(per-end rocket firing). **No functional/suppression patches** — the sync code comes after this data.
+
+**Live test (EMP-6a):** host + client both reach the Emperor and kill the phase-1 worm (EMP-3c hands off to
+phase 2). Enable `LogBossEncounter`. Collect one host + one client log through: spider stand-up → damage it past
+50 % (defend) → past 0.4/0.25/0.1 (stages/rapid-fire) → kill it (two-stage death + desert transition). Diff the
+two logs to read: (1) who calls Initialize/StandUp and whether both fire on the client; (2) the position/waypoint
+divergence magnitude; (3) whether client hits ACCEPT via roster or quarantine; (4) defend/stage/death timing per
+end. That validates §9.5 before any sync code is written.
+
+### 9.7 EMP-6a probe result (Log259 — one clean two-end run, 0 exceptions)
+The full flow ran (worm killed → EMP-3c handoff → spider stand-up → defend at 50 % → stages → two-stage death →
+desert transition). All three unknowns resolved:
+
+- **#1 Initialize / StandUp callers (identical both ends):** `Initialize` is a **NodeCanvas graph action**
+  (`ExecuteFunction_Multiplatform.OnExecute → reflection Invoke`) — the **same transport as the worm's
+  StartMovement** (Log254), fired per-end. `StandUp` is an **animation event** (no managed caller above it in the
+  stack) at the end of the startup animation, per-end. In this run both ends stood up at the same pos
+  `(-15.6,-95.1,-2.5)` at nearly the same time (EMP-3c enters phase 2 together + fixed-length startup animation), so
+  **startup is not badly desynced** → a startup gate is low priority.
+- **#2 Position / path divergence:** the spider walks the SAME fixed 111-waypoint path; the two paths are
+  shape-identical (both hug x≈81.4 climbing +z). Worst mid-fight gap ≈ **10 m in z** (at the death trigger: host
+  z=86 vs client z=96, because damage timing differs → walk-to-death starts at different moments), and the two ends
+  **re-converge exactly at the death waypoint** `(81.6,-103.8,111.8)` (`CheckDeathTriggerReached` snaps). Bounded,
+  no physics spiral (kinematic) → EMP-3a-style root-transform streaming is straightforward.
+- **#3 Damage routing (key):** the spider `npc` is a **normal level-manifest roster unit** (`[LevelGen]
+  RegisterAndSpawnUnit` + `[WorldRoster] Bound 1:1 dist=0.0m`) — it does **NOT** quarantine like the worm tail (the
+  quarantined units are the leftover phase-1 `ShavwaEmperorWormSection`s). **But damage is currently NOT synced at
+  all:** `clientHitSent=0` / `hostHitRecv=0`, each end damages its own local spider → health diverges hard (host at
+  z=87 already 0.030 floor while client at z=88 is still 0.255). The client's local hits on its own live boss are
+  NOT forwarded (the client runs its own boss, not a puppet). So spider damage sync must be BUILT; a bespoke
+  single-target route (EMP-3d analog) is the fit, since the client spider becomes a visual puppet under
+  head-streaming (it won't run local combat).
+- **Defend / stages** fired on both ends independently at their own local health crossing 0.5 → confirms they need
+  host-authoritative mirroring. **EMP-3c handoff worked** (`host DeathAnimation broadcast seq=1` →
+  `client mirrored DeathAnimation seq=1` → both StartPhase2 → both spiders). A **client double-spider spawn** was
+  seen (a host-id-range instance spawned then `RemoveNpc`'d, the client's own `-250508` kept + bound) — the known
+  client level-reload / roster-reconcile churn (the worm log also shows two "tracking a new worm instance"), not
+  spider-specific; one live spider fought.
+
+**Net:** §9.5 is validated. EMP-6b = (a) EMP-3a-style root-transform streaming + client suppression of
+`MaintainDistance`/`MoveAlongPath`/`UpdateRootTransform` (keep legs/IK local, reuse the worm-head interpolation);
+(b) EMP-3d-style bespoke single-target damage authority on the spider `npc` (health syncs back via the existing
+roster enemy-state — verify); (c) host-authoritative defend/stage/rapid-fire broadcast → client replays the native
+method; (d) host-authoritative two-stage death mirror (replay `OnNpcDeath`, converge the walk via the position
+stream, suppress client loot/checkpoint). Startup gate is low priority (proven near-synced).
+
+**User clarifications (2026-07-02) that reshaped EMP-6b:** (1) the near-synced startup in Log259 was **coincidental**
+— both players finished the phase-2 dialog at ~the same time; dialog sync does NOT cover phase 2, so the startup
+gate is actually **required**, not optional. (2) The phase-2 arena is **underground, entered by the player actively
+jumping into the pit below the phase-1 arena** → real games WILL have players who haven't jumped down (or not yet)
+when another player activates the boss. So the fight-start gate must be "whoever commits starts it for everyone,
+out-of-pit players not required" (FF14 RM intent). The host-authoritative position stream makes this safe: a player
+still up top just has a host-driven spider running down in the pit.
+
+### 9.8 EMP-6b IMPLEMENTED (not yet tested) — spider sync
+`NetEmperorSpiderSync` + functional patches in `EmperorSpiderDiagnostics` (registered unconditionally, before the
+probe gate) + messages 63–67. All host-authoritative, reusing the worm's building blocks:
+- **Position (msg 63, Unreliable):** host `LateUpdate` prefix captures the spider body transform + both waypoint
+  indices (20 Hz); a linked client applies the snapshot-interpolated pose (reused worm-head interpolation) and snaps
+  the waypoint indices, with `MaintainDistance` prefix-blocked so the local path advance can't fight the stream.
+  Legs/IK + cosmetic root motion + `CheckDeathTriggerReached` run natively off the streamed pose.
+- **Fight-start gate (msg 64/65, EMP-4 analog):** `Initialize` prefix — host commits inline + broadcasts + runs it;
+  a linked client blocks its own local Initialize (its phase-2 dialog) and requests, then runs it via the reentry
+  invoke. Keyed by spider instanceID (self-rearms per encounter). A client request before the host spider is live is
+  deferred to the next `HostCapture`; a commit received before the client's Initialize uses the `Instance` fallback.
+  → all ends stand up together regardless of who does the dialog / who has jumped into the pit.
+- **Damage (msg 66, EMP-3d analog):** `TryClientSpiderHit` in `Npc_ReceiveDamage_Pre` (after the worm hook) routes a
+  client hit on the spider npc to the host's real `ReceiveDamage`; host mechanic advances; health syncs back via the
+  existing roster enemy-state (spider is roster-bound, §9.7).
+- **Defend / rapid-fire / death (msg 67):** host postfix on `TriggerDefendPhase` / launcher `ActivateRapidFire` /
+  `OnNpcDeath` broadcasts a coded event once per encounter; client replays the native method. Death replays
+  `OnNpcDeath` (walk-to-death); the walk converges to the same death waypoint via the position stream, where the
+  client's native `CheckDeathTriggerReached` fires the real `ExecuteActualDeath` (blower resolved). The stream keeps
+  driving through walk-to-death and only stops once `isDead` (post-ExecuteActualDeath).
+- **UNCERTAIN — verify in test (the one part not confidently reasoned):** how the client spider actually *dies*.
+  With client damage suppressed, the client npc no longer dies from local damage; it dies via (a) our OnNpcDeath
+  replay (which does NOT call `npc.Die()` → no `SpawnLoot`) and/or (b) the generic roster enemy-death-mirror (which
+  DOES call `Die()` → `SpawnLoot`). Log259 showed BOTH ends `SpawnLoot` (double loot) in the pre-6b double-boss. The
+  test must reveal whether 6b yields double loot / a double OnNpcDeath fire / an un-Die()'d lingering client npc — and
+  whether client loot/checkpoint (`SpawnLoot`/`SetCheckpointReached("BossDead_Emperor")`) need suppression (Lucia/
+  Witch pattern). Everything else (position / fight-start / damage / defend / rapid-fire) is the confident core.
+- Pure-cosmetic damage-particle stages (0.4/0.25 blood) are NOT synced (client's `OnDamageTaken` no longer fires) —
+  minor, deferred. Build 0 err, deployed both ends.
+
+### 9.9 EMP-6b test (Log260) + EMP-6c fixes
+**Log260 (one two-end run, 0 exceptions, user manually quit before the desert entrance):** position sync is
+**lockstep** (host `sent transform seq/pos` ↔ client `recv` identical); the fight-start gate worked (client picked
+first → requested → host committed → both Initialize'd); damage is host-authoritative and works — **18 client hits
+= 18 host-applied**, the host spider went 0.999→0.030→death driven entirely by the client (the host player wasn't
+in the pit); death mirrored cleanly. **Double-loot fear resolved:** host `SpawnLoot`=1, client `SpawnLoot`=**0** —
+with client damage suppressed the client npc never `Die()`s (it dies via the OnNpcDeath replay + ExecuteActualDeath,
+neither of which calls `Die()`), so loot is host-only for free.
+
+**Three real issues found → fixed as EMP-6c:**
+1. **Boss only chased the host (msg 63 unchanged, targeting fix):** the spider's `playerTransform` is its LOCAL
+   player (host's own); with the host up top it raced at max speed hunting an absent player, so the client (down in
+   the pit) couldn't catch it. Fix: on the host, `UpdateHostTarget` (every frame in `HostCapture`) points
+   `playerTransform` at a small anchor Transform placed at the NEAREST of all players (host + remote ghosts via
+   `ForEachRemotePlayerPosition`). Rockets are unaffected (they target `PlayerUnit`/camera separately).
+2. **Client boss health bar frozen:** the P2 arena has **no net-run-state**, so the generic enemy-state health
+   mirror is inactive (`enemyStateTargets=0`, client `hp` stuck at 1.000). Fix: the transform stream (msg 63) now
+   also carries the spider's absolute `currentHealth`; the client writes it to its spider npc via
+   `NetGameplayProbeManager.TryWriteUnitHealth(npc, hp, raiseEvent:true)` (new public wrapper — the existing writer
+   hard-coded `raiseEvent:false`, which wouldn't update the attached bar). Written only on real change (>0.5 HP).
+3. **Dialog not disabled after fight-start → a late player re-triggered it (2nd host `Initialize` mid-fight):** fix
+   nulls the spider npc's `dialog` on every commit path (`DisableSpiderDialog`, same primitive as the worm/EMP-4)
+   AND the fight-start gate now hard-blocks any `Initialize` once committed for that spider instance.
+
+Deferred per user: rockets stay per-end/local (future: Cousin-arm-style multiplayer balance or pure-visual +
+collidable); late-jumping players teleporting to the first phase-2-trigger player's position (future, via the pit
+entrance trigger, no room-membership needed). Build 0 err, deployed both ends — pending re-test.
+
+### 9.10 EMP-6c test (Log261) + EMP-6d fixes
+**EMP-6c confirmed working (user):** the boss now chases the NEAREST player (#2 fixed — host absent, client in the
+pit gets engaged), and a late-arriving player no longer re-triggers the dialog (#1 gate fixed). 0 real exceptions
+(the one host warning is the benign pre-existing BatchedNPCRaycasts roster-race, already swallowed).
+
+**Issues found → EMP-6d:**
+1. **P2 spider dialog stuck open, not closeable by the host (the main bug):** EMP-6c added `DisableSpiderDialog`
+   (nulls `npc.dialog`, prevents *re-opening*) but omitted the worm's `FinalizeLocalDialog` (`Graph.Stop(true)`,
+   *closes* the currently-open dialog). So when the host committed, the non-picking client's already-open spider
+   dialog was never closed. **Fix:** call `BossDialogReflect.TryFinalizeCurrentDialog` in the two mirror-apply paths
+   (`OnFightStartCommitReceived`, `HostCommitFightStart`), exactly like the worm — now committing closes every
+   non-picking end's dialog (P1 already behaved this way, which is why P1 "could be ended"). (The separate "client
+   can't click-advance the boss dialog" is the general host-authoritative-dialog behaviour — the host driving the
+   commit/close makes the flow functional; independent client advance is a bigger dialog-input item, deferred.)
+2. **P2 no hit feedback (white flash):** the client's local damage is suppressed so vanilla `DoWhiteFlash` never
+   fires. **Fix:** play `DoWhiteFlash` optimistically on the client spider npc in `TryClientSpiderHit`, skipped while
+   `isDefending` (boss invulnerable → host rejects → no flash is correct) or dead. (Health bar itself synced fine —
+   EMP-6c #4 confirmed working.)
+3. **P1 worm client health bar intermittent:** same root cause as the P2 health gap — the worm arena doesn't reliably
+   drive the generic enemy-state mirror and the worm tail is a *quarantined* runtime add, so the bar was stale
+   between destroys. **Fix:** the worm head stream (msg 57) now also carries the tail's absolute currentHealth; the
+   client writes it to its tail npc (`TryWriteUnitHealth`, raiseEvent, on-change) — the same trick the spider uses.
+4. **Host 1 fps (NOT fixed — confirmed pre-existing, phase-1):** `[UpdateProf]` showed our Update body at 50–104 ms
+   (one 551 ms) while the frame hitches were 1000–2391 ms with `gc0Δ=0` → the cost is **native, outside our C#**, and
+   every hitch is tagged `[EmperorWormFrame]` (the phase-1 WORM watchdog). It is the same native `EmperorBossWorm`
+   ballistic-rigidbody `FixedUpdate` physics that was the *client's* original 1 fps (§8.5/8.8c) — the user's
+   connection is correct. The client escaped it by NOT running the physics (kinematic head-stream); the **host is the
+   authority and must run the real worm**, and an earlier collider ablation showed the cost is the rigidbody
+   integration itself, not the broadphase, so disabling host colliders won't help. This needs the worm re-architected
+   off ballistic physics (loses the jump feel) or a real Unity Profiler pass — **deferred hard problem, orthogonal to
+   the phase-2 spider work.** (Worse over a multi-encounter session: Log261 had 4 worm starts in one session.)
+
+Build 0 err, deployed. EMP-6d re-test: P2 dialog closes on every end when either player commits; P2 shows white-flash
+on client hits (not while defending); P1 client boss bar tracks the host smoothly.
 
 ---
 

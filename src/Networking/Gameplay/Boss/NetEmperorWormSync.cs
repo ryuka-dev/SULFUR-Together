@@ -30,6 +30,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static float   _prevRecvAt;
         private static int     _headSeq = -1;
         private static bool    _hasHead;
+        private static float   _headTailHp = -1f;       // EMP-6d: streamed tail currentHealth (client boss bar)
+        private static float   _lastWrittenTailHp = -1f;
 
         // ---- host send throttle ----
         private const float SendIntervalSeconds = 1f / 20f; // 20 Hz
@@ -99,12 +101,18 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
             Vector3 p = c.transform.position;
             float rotY = c.transform.eulerAngles.y;
+            // EMP-6d (P1 health fix): the worm arena, like the P2 spider arena, does not reliably drive the generic
+            // enemy-state health mirror (the tail is a quarantined runtime add), so the client's boss bar was
+            // intermittently stale (Log261). Stream the tail's absolute currentHealth alongside the head.
+            float tailHp = -1f;
+            var tail = _lastSectionNpcField?.GetValue(worm);
+            if (tail != null) BossReflect.TryCallFloat(tail, "GetCurrentHealth", out tailHp);
             _sendSeq++;
-            NetGameplaySyncBridge.BroadcastEmperorWormHead(p.x, p.y, p.z, rotY, _sendSeq);
+            NetGameplaySyncBridge.BroadcastEmperorWormHead(p.x, p.y, p.z, rotY, tailHp, _sendSeq);
             if (now - _lastSendLogAt > 1f)
             {
                 _lastSendLogAt = now;
-                Plugin.Log.Info($"[EmperorWormHead] host sent seq={_sendSeq} pos={p:F1}");
+                Plugin.Log.Info($"[EmperorWormHead] host sent seq={_sendSeq} pos={p:F1} tailHp={tailHp:F0}");
             }
         }
 
@@ -112,7 +120,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         // ================================================================ CLIENT
         /// <summary>Client: store a received head sample (drop out-of-order / duplicate).</summary>
-        public static void OnHeadReceived(Vector3 pos, float rotY, int seq)
+        public static void OnHeadReceived(Vector3 pos, float rotY, float tailHp, int seq)
         {
             if (_headSeq != -1 && seq <= _headSeq) return;
             float now = Time.realtimeSinceStartup;
@@ -125,6 +133,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _headSeq    = seq;
             _headPos    = pos;
             _headRotY   = rotY;
+            _headTailHp = tailHp; // EMP-6d: streamed tail health for the client boss bar
             _headRecvAt = now;
             _hasHead    = true;
             if (now - _lastRecvLogAt > 1f)
@@ -148,6 +157,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (_clientWormRef == null || _clientWormRef.GetInstanceID() != c.GetInstanceID())
             {
                 _hasHead = false; _headSeq = -1; _headRecvAt = 0f; _prevRecvAt = 0f;
+                _headTailHp = -1f; _lastWrittenTailHp = -1f;
                 _clientDeathApplied = false;
                 Plugin.Log.Info("[EmperorWorm] client tracking a new worm instance — prior worm's stream/death state reset.");
             }
@@ -186,6 +196,17 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (_rootField?.GetValue(worm) is Transform root && root != null)
                 root.SetPositionAndRotation(pos, rot);
             _updateSectionsMi?.Invoke(worm, null);
+
+            // EMP-6d: write the streamed tail health to the client's boss-bar unit (raiseEvent=true) so the P1 bar tracks
+            // the host. Only on real change → no per-frame onHealthChange spam. DestroySection events already sync the
+            // section count; this fills in the continuous health between destroys (the generic enemy-state mirror is
+            // unreliable for the quarantined worm tail — Log261 intermittent P1 bar).
+            if (_headTailHp >= 0f && Mathf.Abs(_headTailHp - _lastWrittenTailHp) > 0.5f)
+            {
+                var tail = _lastSectionNpcField?.GetValue(worm);
+                if (tail != null && NetGameplayProbeManager.TryWriteUnitHealth(tail, _headTailHp, true))
+                    _lastWrittenTailHp = _headTailHp;
+            }
         }
 
         // Head assembly: colliders disabled once (worm root's own colliders; sections are separate scene objects).
@@ -556,6 +577,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _headSeq = -1;
             _headRecvAt = 0f;
             _prevRecvAt = 0f;
+            _headTailHp = -1f;
+            _lastWrittenTailHp = -1f;
             _headCollidersDisabled.Clear();
             _sectionColliders.Clear();
             _clientWormRef = null;

@@ -187,8 +187,8 @@ namespace SULFURTogether.Networking.Gameplay
             => _service?.BroadcastHostBossState(msg);
 
         // EMP-3a: Emperor phase-1 worm head stream (host → clients).
-        public static void BroadcastEmperorWormHead(float x, float y, float z, float rotY, int seq)
-            => _service?.BroadcastEmperorWormHead(x, y, z, rotY, seq);
+        public static void BroadcastEmperorWormHead(float x, float y, float z, float rotY, float tailHp, int seq)
+            => _service?.BroadcastEmperorWormHead(x, y, z, rotY, tailHp, seq);
 
         // EMP-3b: Emperor worm section-destruction event (host → clients).
         public static void BroadcastEmperorWormSectionDestroy(int seq)
@@ -208,6 +208,18 @@ namespace SULFURTogether.Networking.Gameplay
 
         public static void BroadcastEmperorFightStart()
             => _service?.BroadcastEmperorFightStart();
+
+        // EMP-6b: Emperor phase-2 spider.
+        public static void BroadcastEmperorSpiderTransform(float x, float y, float z, float rotY, int wp, int tgt, float hp, int seq)
+            => _service?.BroadcastEmperorSpiderTransform(x, y, z, rotY, wp, tgt, hp, seq);
+        public static void SendClientEmperorSpiderFightStart()
+            => _service?.SendClientEmperorSpiderFightStart();
+        public static void BroadcastEmperorSpiderFightStart()
+            => _service?.BroadcastEmperorSpiderFightStart();
+        public static void SendClientEmperorSpiderHit(float damage, int damageTypeInt, int seq)
+            => _service?.SendClientEmperorSpiderHit(damage, damageTypeInt, seq);
+        public static void BroadcastEmperorSpiderEvent(int eventCode, int seq)
+            => _service?.BroadcastEmperorSpiderEvent(eventCode, seq);
 
         // Phase RM: room-membership substrate.
         public static void SendClientRoomEnter(SULFURTogether.Networking.Gameplay.Boss.NetClientRoomEnter msg)
