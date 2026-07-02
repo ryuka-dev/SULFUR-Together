@@ -458,7 +458,14 @@ enter the room but never reach the boss).
 - Is blocking at `EventStarted`/`Trigger` enough, or does the dialog need to be held earlier (at the
   dialog-open) to avoid the player reading a desynced dialog?
 
-## 5. Investigation (SHELVED) — "dialog can't advance, and it persists" (multiple-choice not clickable)
+## 5. Investigation — "dialog can't advance, and it persists" (multiple-choice not clickable)
+
+**Root cause CONFIRMED (user, later real-match observation): a missing overlay layer.** Clicking the blank area of a
+stuck dialog reports hit type `none`; in a healthy dialog clicking blank space should **advance** the dialog. So the
+defect is that the full-screen overlay that is supposed to sit under the dialog, catch clicks on empty space, and turn
+them into "advance" is absent — blank clicks fall through to `none` and nothing happens. **Fix direction:** restore /
+re-enable that full-screen click-catching overlay when a dialog / multiple-choice is shown (or make a blank-space
+click advance the dialog). This supersedes the "shelved" state below; the probe findings are kept for context.
 
 A recurring co-op bug: a boss/NPC dialog reaches a **multiple-choice** and the player cannot pick any option
 (clicking does nothing); the state persists across a level switch. Reverse-engineered + probed (`DialogInputProbe`,

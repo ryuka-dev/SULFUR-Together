@@ -572,6 +572,9 @@ iteration) — the kinematic direction already killed the main lag (Log266) — 
 
 ## 8.11 EMP-7 — worm sequential in-room player targeting
 
+**Status: verified in a real match and committed (`61dac85`).** Rotation, out-of-room exclusion, and the leave/death
+boundaries all behaved as intended.
+
 The vanilla worm always targets its LOCAL player (`player` field, set in StartMovement to the host's own player), so
 in co-op it only ever chases the host. Requirement: attack the players **in the boss room, in turn**.
 
