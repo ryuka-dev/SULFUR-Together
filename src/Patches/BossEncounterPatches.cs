@@ -522,6 +522,9 @@ namespace SULFURTogether.Patches
         // RM-2b: block the boss dialog for an OUT-OF-ROOM player (the boss appears but they get no dialog cutscene).
         private static bool NpcInteract_Pre(object __instance)
         {
+            // EMP-6g: a late arrival to the Emperor phase-2 pit hits the (now-disabled) spider dialog → pull them to the
+            // fight-starter instead of a dead interaction. Handled + swallowed here when it applies.
+            try { if (SULFURTogether.Networking.Gameplay.Boss.NetEmperorSpiderSync.TryTeleportLateP2Player(__instance)) return false; } catch { }
             try { if (NetBossEncounterManager.ShouldBlockBossDialogNpc(__instance)) return false; } catch { }
             return true;
         }

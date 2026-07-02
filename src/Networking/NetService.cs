@@ -770,11 +770,13 @@ namespace SULFURTogether.Networking
         private void HandleClientEmperorSpiderFightStart(NetPeer peer, NetDataReader reader)
         {
             if (_mode != NetMode.Host) return;
-            try { Gameplay.Boss.NetEmperorSpiderSync.HostOnClientFightStartRequest(); }
+            // EMP-6g: the requesting client is the P2 fight-starter — resolve its peerId so late arrivals can be pulled to it.
+            string requesterPeerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            try { Gameplay.Boss.NetEmperorSpiderSync.HostOnClientFightStartRequest(requesterPeerId); }
             catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] fight-start request handling failed: {ex.Message}"); }
         }
 
-        internal void BroadcastEmperorSpiderFightStart()
+        internal void BroadcastEmperorSpiderFightStart(string starterPeerId)
         {
             if (_mode != NetMode.Host || _net == null || _clients.Count == 0) return;
             foreach (var peer in _clients.ToArray())
@@ -782,6 +784,7 @@ namespace SULFURTogether.Networking
                 try
                 {
                     var w = NetMessage.For(NetMessageType.HostEmperorSpiderFightStart);
+                    w.Put(starterPeerId ?? ""); // EMP-6g: who started the fight (late-arrival teleport target)
                     peer.Send(w, DeliveryMethod.ReliableOrdered);
                 }
                 catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] fight-start broadcast failed: {ex.Message}"); }
@@ -791,7 +794,11 @@ namespace SULFURTogether.Networking
         private void HandleEmperorSpiderFightStart(NetPeer peer, NetDataReader reader)
         {
             if (_mode != NetMode.Client) return;
-            try { Gameplay.Boss.NetEmperorSpiderSync.OnFightStartCommitReceived(); }
+            try
+            {
+                string starterPeerId = reader.GetString(); // EMP-6g
+                Gameplay.Boss.NetEmperorSpiderSync.OnFightStartCommitReceived(starterPeerId);
+            }
             catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] fight-start commit handling failed: {ex.Message}"); }
         }
 

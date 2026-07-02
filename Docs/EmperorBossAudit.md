@@ -830,8 +830,8 @@ neither of which calls `Die()`), so loot is host-only for free.
    AND the fight-start gate now hard-blocks any `Initialize` once committed for that spider instance.
 
 Deferred per user: rockets stay per-end/local (future: Cousin-arm-style multiplayer balance or pure-visual +
-collidable); late-jumping players teleporting to the first phase-2-trigger player's position (future, via the pit
-entrance trigger, no room-membership needed). Build 0 err, deployed both ends — pending re-test.
+collidable). Late-jumping players teleporting to the fight-starter's position is now **implemented as EMP-6g** (§9.12).
+Build 0 err, deployed both ends — pending re-test.
 
 ### 9.10 EMP-6c test (Log261) + EMP-6d fixes
 **EMP-6c confirmed working (user):** the boss now chases the NEAREST player (#2 fixed — host absent, client in the
@@ -867,6 +867,35 @@ pit gets engaged), and a late-arriving player no longer re-triggers the dialog (
 
 Build 0 err, deployed. EMP-6d re-test: P2 dialog closes on every end when either player commits; P2 shows white-flash
 on client hits (not while defending); P1 client boss bar tracks the host smoothly.
+
+### 9.12 EMP-6g IMPLEMENTED (not yet tested) — late-arrival teleport to the fight-starter
+
+The deferred #5. P2 is a **separate underground pit** reached only by jumping down; unlike P1 (an arena sealed by a
+MetalGate + `PlayerTrigger`, handled by the LD-2 lockdown popup/barrier), the pit has no gate/seal. A player who drops
+in **after** the fight started necessarily hits the spider's dialog trigger (`Npc.Interact` on `ShavwaEmperorSpider`,
+Log258), which is a dead interaction post-commit because `DisableSpiderDialog` nulls the dialog. EMP-6g repurposes that
+hit: **teleport the late arrival onto the fight-starter (the first phase-2 triggerer)** so they catch up to the roaming
+spider. This is the "new teleport method" the dual-scene / dual-phase boss needs — not a mass pull, but per-player and
+reactive to the dialog trigger.
+
+Wiring (host-authoritative starter identity, local teleport):
+- **Who is the starter:** captured at every fight-start commit path. Host local pick → `LocalPeerId`. Client pick → the
+  requesting peer's id (resolved from `_peerIds` in `HandleClientEmperorSpiderFightStart`). Broadcast to all ends on the
+  fight-start commit (`HostEmperorSpiderFightStart` / msg 65 now carries a `starterPeerId` string; the deferred
+  before-spider-live path reuses the held `_pendingStarterPeerId`).
+- **The hook:** `NetEmperorSpiderSync.TryTeleportLateP2Player(npc)` from the existing `Npc.Interact` prefix
+  (`BossEncounterPatches.NpcInteract_Pre`, always-on via `GateBossFightOnDialogClose`). Fires only when: session active,
+  fight committed, the interacted npc **is** the committed spider's npc, this end is **not** the starter, and it hasn't
+  already pulled this fight (`_p2LatePulled`, reset per commit). Returns true to swallow the dead interact.
+- **Destination:** the starter's **live** position, resolved by peerId from the synced remote-player positions
+  (`ForEachRemotePlayerPositionWithPeer`). Fallback to the spider itself (`EmperorBossSpider.Instance`) if the starter
+  isn't a tracked remote — still lands them at the fight. Teleport is a local action (`GameManager.PlayerUnit.TeleportTo`,
+  same primitive as the arena lockdown), so no extra networking beyond the starter id.
+- **Mode-agnostic:** the late arrival can be the host (a client started) or a client (the host started). No config
+  (always-on). Only the spider (P2) is affected; P1 keeps the LD-2 arena lockdown.
+
+**Verified (Log273):** a late arrival hitting the spider dialog trigger is pulled onto the fight-starter; the starter
+is not teleported; no repeat pulls; works with the host as the late arrival too. Committed.
 
 ---
 

@@ -109,7 +109,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (_hostFightStartPending && _fightStartCommittedId != c.GetInstanceID())
             {
                 _hostFightStartPending = false;
-                HostCommitFightStart(c, "deferred client request");
+                HostCommitFightStart(c, "deferred client request", _pendingStarterPeerId);
             }
 
             float now = Time.realtimeSinceStartup;
@@ -267,6 +267,71 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorSpider] DisableSpiderDialog failed: {ex.Message}"); }
         }
 
+        // ================================================================ EMP-6g: late-arrival teleport to the fight-starter
+        // P2 is a separate underground pit reached only by jumping down, and a late arrival necessarily hits the spider's
+        // dialog trigger (Npc.Interact). Since the fight already started, that dialog is disabled (DisableSpiderDialog), so
+        // the interaction is otherwise dead. Instead, pull that player to the fight-starter (the first phase-2 triggerer)
+        // so they catch up to the roaming spider. Called from the Npc.Interact prefix; returns true to swallow the interact.
+        // Mode-agnostic: the late player can be the host (a client started) or a client (the host started).
+        public static bool TryTeleportLateP2Player(object npc)
+        {
+            try
+            {
+                if (NetGameplaySyncBridge.BossMode == NetMode.Off || !NetGameplaySyncBridge.IsSessionActive) return false;
+                if (_fightStartCommittedId == 0 || string.IsNullOrEmpty(_p2StarterPeerId)) return false; // fight not started
+                if (_p2LatePulled) return false;                                        // already pulled this fight
+                if (_p2StarterPeerId == NetGameplaySyncBridge.LocalPeerId) return false; // this end IS the starter — already in
+
+                var spider = _hostSpiderRef ?? _clientSpiderRef ?? FindLocalSpider();
+                if (spider == null) return false;
+                EnsureReflect(spider);
+                var spiderNpc = _npcField?.GetValue(spider) as Component;
+                if (spiderNpc == null || !(npc is Component nc) || nc == null) return false;
+                if (nc.gameObject.GetInstanceID() != spiderNpc.gameObject.GetInstanceID()) return false; // not the spider dialog
+
+                Vector3 dest = ResolveStarterPos() ?? spider.transform.position; // live starter pos; fallback the spider itself
+                TeleportLocalPlayerTo(dest);
+                _p2LatePulled = true;
+                Plugin.Log.Info($"[EmperorSpider] P2 late arrival pulled to fight-starter '{_p2StarterPeerId}' at ({dest.x:0.0},{dest.y:0.0},{dest.z:0.0})");
+                return true; // swallow the (disabled) dialog interact
+            }
+            catch { return false; }
+        }
+
+        /// <summary>The fight-starter's live position, resolved by peerId from the synced remote-player positions. Null if
+        /// the starter isn't a tracked remote (e.g. left / not yet streamed) → the caller falls back to the spider itself.</summary>
+        private static Vector3? ResolveStarterPos()
+        {
+            Vector3? found = null;
+            try
+            {
+                NetGameplaySyncBridge.ForEachRemotePlayerPositionWithPeer((peerId, pos) =>
+                {
+                    if (found == null && peerId == _p2StarterPeerId) found = pos;
+                });
+            }
+            catch { }
+            return found;
+        }
+
+        private static void TeleportLocalPlayerTo(Vector3 dest)
+        {
+            try
+            {
+                var gmType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.GameManager");
+                var gm = gmType == null ? null : AccessTools.Property(gmType, "Instance")?.GetValue(null, null);
+                var pu = gm == null ? null : AccessTools.Property(gmType, "PlayerUnit")?.GetValue(gm, null);
+                if (pu is UnityEngine.Object uo && uo == null) pu = null;
+                if (pu == null) { Plugin.Log.Warn("[EmperorSpider] P2 late teleport: local player unit missing"); return; }
+                Vector3 d = dest + Vector3.up * 0.5f;
+                var tp = AccessTools.Method(pu.GetType(), "TeleportTo", new[] { typeof(Vector3) })
+                      ?? AccessTools.Method(pu.GetType(), "TeleportTo");
+                if (tp != null) tp.Invoke(pu, new object[] { d });
+                else if (pu is Component c && c != null) c.transform.position = d;
+            }
+            catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorSpider] P2 late teleport failed: {ex.Message}"); }
+        }
+
         /// <summary>Prefix on <c>MaintainDistance</c>: a linked client never advances the spider along the path itself
         /// (that is local-player-speed driven → divergence); the host stream drives it. Returns false to block on a
         /// linked client, true otherwise.</summary>
@@ -282,6 +347,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static int  _fightStartRequestedId;
         private static bool _hostFightStartPending;
         private static bool _inFightStartCommit;
+
+        // EMP-6g: the P2 fight-starter (first phase-2 triggerer) + late-arrival pull state. P2 is a separate underground
+        // pit reached only by jumping down; a player who drops in AFTER the fight started is teleported to the starter.
+        private static string _p2StarterPeerId;      // peerId of whoever committed the fight (teleport target for late arrivals)
+        private static bool   _p2LatePulled;         // this end's local player has already been pulled to the starter this fight
+        private static string _pendingStarterPeerId; // requester peerId held when a client request arrives before the host spider is live
 
         /// <summary>Prefix on <c>EmperorBossSpider.Initialize</c>. Host commits inline + broadcasts and runs it; a linked
         /// client blocks its own local Initialize (its own phase-2 dialog) and requests the host commit, then runs it via
@@ -306,7 +377,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 {
                     _fightStartCommittedId = c.GetInstanceID();
                     _hostSpiderRef = c;
-                    NetGameplaySyncBridge.BroadcastEmperorSpiderFightStart();
+                    _p2StarterPeerId = NetGameplaySyncBridge.LocalPeerId; // EMP-6g: host picked → host is the fight-starter
+                    _p2LatePulled = false;
+                    NetGameplaySyncBridge.BroadcastEmperorSpiderFightStart(_p2StarterPeerId);
                     DisableSpiderDialog(c); // picking host: prevent any re-trigger during combat
                     Plugin.Log.Info($"[EmperorSpider] host fight-start (local dialog) spider={c.GetInstanceID()} -> broadcast commit");
                     return true;
@@ -328,8 +401,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch { return true; }
         }
 
-        public static void HostOnClientFightStartRequest()
+        public static void HostOnClientFightStartRequest(string requesterPeerId)
         {
+            _pendingStarterPeerId = requesterPeerId; // EMP-6g: the requesting client is the fight-starter
             var spider = _hostSpiderRef;
             if (!(spider is Component c) || c == null)
             {
@@ -338,21 +412,25 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 return;
             }
             if (_fightStartCommittedId == c.GetInstanceID()) return; // already committed; its broadcast already went out
-            HostCommitFightStart(c, "client request");
+            HostCommitFightStart(c, "client request", requesterPeerId);
         }
 
-        private static void HostCommitFightStart(Component spider, string origin)
+        private static void HostCommitFightStart(Component spider, string origin, string starterPeerId)
         {
             _fightStartCommittedId = spider.GetInstanceID();
-            NetGameplaySyncBridge.BroadcastEmperorSpiderFightStart();
+            _p2StarterPeerId = starterPeerId; // EMP-6g
+            _p2LatePulled = false;
+            NetGameplaySyncBridge.BroadcastEmperorSpiderFightStart(starterPeerId);
             InvokeInitialize(spider, origin);
             FinalizeLocalDialog(origin);   // host did NOT pick (a client did) → CLOSE its own open phase-2 dialog
             DisableSpiderDialog(spider);   // and prevent it re-opening during combat
-            Plugin.Log.Info($"[EmperorSpider] host fight-start ({origin}) spider={spider.GetInstanceID()} -> committed + broadcast");
+            Plugin.Log.Info($"[EmperorSpider] host fight-start ({origin}) spider={spider.GetInstanceID()} starter={starterPeerId} -> committed + broadcast");
         }
 
-        public static void OnFightStartCommitReceived()
+        public static void OnFightStartCommitReceived(string starterPeerId)
         {
+            // EMP-6g: record the starter up front so a late arrival can be pulled to it even if the spider ref isn't cached yet.
+            if (!string.IsNullOrEmpty(starterPeerId)) { _p2StarterPeerId = starterPeerId; _p2LatePulled = false; }
             var spider = _clientSpiderRef ?? FindLocalSpider();
             if (!(spider is Component c) || c == null)
             {
@@ -542,6 +620,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _sendSeq = 0; _eventSendSeq = 0; _hitSendSeq = 0;
             _fightStartCommittedId = 0; _fightStartRequestedId = 0;
             _hostFightStartPending = false; _inFightStartCommit = false;
+            _p2StarterPeerId = null; _p2LatePulled = false; _pendingStarterPeerId = null; // EMP-6g
             _defendAnnounced = _rapidFireAnnounced = _deathAnnounced = false;
         }
     }

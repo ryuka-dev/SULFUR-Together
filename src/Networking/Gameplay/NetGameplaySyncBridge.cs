@@ -214,8 +214,8 @@ namespace SULFURTogether.Networking.Gameplay
             => _service?.BroadcastEmperorSpiderTransform(x, y, z, rotY, wp, tgt, hp, seq);
         public static void SendClientEmperorSpiderFightStart()
             => _service?.SendClientEmperorSpiderFightStart();
-        public static void BroadcastEmperorSpiderFightStart()
-            => _service?.BroadcastEmperorSpiderFightStart();
+        public static void BroadcastEmperorSpiderFightStart(string starterPeerId)
+            => _service?.BroadcastEmperorSpiderFightStart(starterPeerId);
         public static void SendClientEmperorSpiderHit(float damage, int damageTypeInt, int seq)
             => _service?.SendClientEmperorSpiderHit(damage, damageTypeInt, seq);
         public static void BroadcastEmperorSpiderEvent(int eventCode, int seq)
