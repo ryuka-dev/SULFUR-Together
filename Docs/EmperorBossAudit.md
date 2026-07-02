@@ -527,6 +527,49 @@ persists), and a **process restart fixes it** (resets the Time/physics accumulat
 `Time.deltaTime` + FixedUpdate-count-per-render-frame instrumentation — but the kinematic-host fix above sidesteps it
 entirely (no heavy physics ⇒ nothing to spiral), so proving the exact trigger is optional.
 
+## 8.10 EMP-6f — host kinematic worm drive (ATTEMPTED, then REVERTED)
+
+The §8.9 direction was implemented and tested, then reverted (`git restore` to the EMP-6d commit). Recording it so
+the next attempt starts from the findings, not from scratch.
+
+**What it did.** On the co-op host, the worm's FixedUpdate prefix drove the worm **kinematically** (skip native
+ballistic FixedUpdate, return false) and **reused every native decision method** (`HitGround`, `JumpToNextTarget`,
+`UpdateUndergroundTravelVisuals`, `UpdateWormSections`, `AllSectionsBelowGround`), replacing only the three PhysX
+integration lines with a manual integrator (`vel += scale*gravity*dt`, `pos += scale*vel*dt`).
+
+**Result — the direction WORKS for the lag (Log266).** With the host worm kinematic, the host 1 fps was **gone**:
+`[EmperorWormFrame]` hitches dropped from 100+ to 4, and those 4 were all stale startup frames
+(`sinceGroundEvent ≈ 1,000,000 ms`). This confirms §8.9: the host lag is the native ballistic-rigidbody physics, and
+not running it (kinematic) removes it — exactly as on the client.
+
+**Two porting bugs found (the reason it was reverted, not the direction failing):**
+1. **Free-fall (fixed):** a kinematic Rigidbody does not retain `linearVelocity` across frames (next-frame read
+   returns 0), so using `rb.linearVelocity` as the velocity store made the worm free-fall (Log266: JumpTo set
+   `vel.y=+25` but the worm only fell). Fixed by keeping our OWN `_hostVel`, captured from a functional JumpTo postfix
+   the instant JumpTo sets it (same-frame read is valid).
+2. **"Jumps up once, never cycles" (root-caused, NOT fixed — Log267):** the worm launched correctly but then fell
+   past its ground-Y every time without `HitGround` completing the cycle, hit the −100 fail-safe, reset to spawn,
+   re-jumped, fell again — a tight reset loop. **Root cause:** `EnsureWormVisualOnly` (copied from the client) disables
+   all non-tail section colliders **including the per-section `AboveGroundTrigger` triggers**, and
+   `AllSectionsBelowGround()` — which gates the underground-travel→re-emerge step — reads exactly those triggers. With
+   them disabled it never returns true, so the worm never travels underground / re-emerges. The reset loop then
+   hammered the native decision methods (`TryFindValidJumpPosition` 3× spherecast, `SetExitPoint` 8× spherecast) many
+   times per frame → the "random hitches" seen in Log267 (11 real combat hitches vs 4 in the free-fall Log266). This
+   is a **small fix** (on the host, don't disable those colliders, or replace `AllSectionsBelowGround` with a
+   trigger-independent check), not a dead end.
+
+**Workload for a full hand-written worm (no native decision calls), if that path is chosen instead:** ~400–600 lines
+re-implementing the movement AI — ballistic integration (~50, done) + target selection with its validation
+spherecasts + `jumpsBeforeTargetingPlayer` (~100) + underground travel with the 8-spherecast exit-point pick + timing
+(~120) + rage paths (read the scene `ragePathDictionary` + sequencing) (~80) + RNG matching + reflect ~20 serialized
+tunables (~80) — plus several test iterations to tune arcs/timing/RNG to feel like vanilla (the client movement took
+~12). Sections / weakpoint / destroy / death / phase-2 handoff stay as-is (already synced). **Two caveats:** (a) a
+hand-written worm still calls `Physics.SphereCast`/`Raycast` (picking valid jump/exit points against the level is a
+Unity-API query, not a worm method) — so if the residual hitches come from those queries, a rewrite doesn't remove
+them; (b) it is the authoritative boss, so a bug breaks P1 for everyone, and it permanently forks from any future
+game update to the worm. **Recommendation if revisited: fix the collider / `AllSectionsBelowGround` bug first (~1
+iteration) — the kinematic direction already killed the main lag (Log266) — before committing to a full rewrite.**
+
 ## 8. Probe plan — `EmperorWormDiagnostics` (validate before building)
 
 Observe-only, config-gated (`EnableEmperorWormDiagnostics` + `LogBossEncounter`), tagged with side
