@@ -234,5 +234,11 @@ namespace SULFURTogether.Networking
         // teleport, t0+10 s), or Release (boss death / fight over → force teleport in + drop the barrier). A receiving end
         // acts only when its local peer id is in the target list; the host applies its own ("host") target locally.
         ArenaCommand = 56,
+
+        // EMP-3a Emperor phase-1 worm HEAD stream (Host→clients, high-rate/unreliable). The client runs its worm
+        // kinematic (no autonomous ballistic FixedUpdate — that native physics is the client-only ~1fps) and drives
+        // the head from this stream, running only the cheap local UpdateWormSections section-follow. Payload: head
+        // world pos (x,y,z) + yaw + sequence.
+        HostEmperorWormHead = 57,
     }
 }

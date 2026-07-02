@@ -576,6 +576,34 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // EMP-3a: stream the Emperor phase-1 worm head to clients (high-rate, unreliable — latest-wins).
+        internal void BroadcastEmperorWormHead(float x, float y, float z, float rotY, int seq)
+        {
+            if (_mode != NetMode.Host || _net == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostEmperorWormHead);
+                    w.Put(x); w.Put(y); w.Put(z); w.Put(rotY); w.Put(seq);
+                    peer.Send(w, DeliveryMethod.Unreliable);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[EmperorWormHead] broadcast failed: {ex.Message}"); }
+            }
+        }
+
+        private void HandleEmperorWormHead(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            try
+            {
+                float x = reader.GetFloat(); float y = reader.GetFloat(); float z = reader.GetFloat();
+                float rotY = reader.GetFloat(); int seq = reader.GetInt();
+                Gameplay.Boss.NetEmperorWormSync.OnHeadReceived(new UnityEngine.Vector3(x, y, z), rotY, seq);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorWormHead] malformed packet: {ex.Message}"); }
+        }
+
         private void HandleClientBossDialogCommitRequest(NetPeer peer, NetDataReader reader)
         {
             if (_mode != NetMode.Host) return;
@@ -2444,6 +2472,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.HostBossState:
                         HandleHostBossState(peer, reader);
+                        break;
+
+                    case NetMessageType.HostEmperorWormHead:
+                        HandleEmperorWormHead(peer, reader);
                         break;
 
                     case NetMessageType.HostBossDynamicSpawn:

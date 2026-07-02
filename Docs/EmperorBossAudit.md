@@ -218,7 +218,8 @@ Two candidate designs — probe divergence data decides:
   section-follow + visuals.
 - **(B) Stream every section transform.** Heavier, exact. Fallback if (A) drifts visibly.
 Start with (A); the probe's position-divergence timeline (§8) tells us the drift magnitude and whether
-`BelowGround`/sound gating stays acceptable.
+`BelowGround`/sound gating stays acceptable. → **(A) shipped as EMP-3a (§8.6)** — head-only stream, client
+kinematic, colliders disabled (visual + one hittable weakpoint), snapshot-interpolated.
 
 ### 7.3 Client suppression
 Extend the existing `EmperorWormDiagnostics` scaffold: on the client, block the autonomous movement (already
@@ -331,7 +332,54 @@ worm is pre-placed underground and only emerges via `StartMovement→Initialize`
 **Real fix = EMP-3 / §7.2 head-streaming:** let `Initialize` run (sections spawn + emerge, visible) but keep the
 worm kinematic (no autonomous physics), stream the host worm's **head transform** each tick, and drive the client
 worm from it (head applied from the stream, `UpdateWormSections` run locally for the cheap section follow). That
-gives a visible, moving, synced, non-laggy client worm and supersedes the EMP-2b stopgap.
+gives a visible, moving, synced, non-laggy client worm and supersedes the EMP-2b stopgap. **Shipped as EMP-3a —
+see §8.6.**
+
+## 8.6 EMP-3a shipped — head-streaming (design A), and the two residual fixes it took
+
+Head-streaming (§7.2 design **A**) replaces the EMP-2b stopgap. `EmperorWormDiagnostics` now hooks
+`EmperorBossWorm.FixedUpdate` (registered unconditionally, before the diagnostics gate). On the **host** the prefix
+captures the worm head and lets native run; on a **linked client** it drives the local worm and returns `false`
+(skips native — redundant belt-and-suspenders, since native `FixedUpdate` already bails on a kinematic body, §4.2).
+`NetEmperorWormSync` is the core:
+
+- **Host** (`HostCapture`): throttled **20 Hz**, broadcast `HostEmperorWormHead` (msg 57 — 4 floats + seq,
+  `DeliveryMethod.Unreliable`): head `position` + `eulerAngles.y`.
+- **Client** (`DriveClientWorm`): keep `rb` kinematic → native physics never integrates; apply the streamed head to
+  the worm root + the `root` follow-anchor; run `UpdateWormSections` locally (the game's own cheap section trail).
+  The 10 sections spawn kinematic already, so the *worm logic* costs ~nothing.
+
+That alone did **not** fix the client lag — it took two more iterations, each pinned from a diagnostic build's
+`[EmperorWormHead]` / `[EmperorWormFrame]` / `[UpdateProf]` lines (Log245–249):
+
+1. **The real residual was PhysX broadphase churn, not the worm logic (Log247).** With the worm kinematic and its
+   logic inert, the client was *still* ~1 fps — and the hitch tracked head-jump distance **exactly**: smooth while
+   the head sat still, 1–8 fps the instant it began its 20 Hz long-range teleports, worse on wide burrow spacing
+   than on stairs (the user's own terrain observation). Cause: driving the head streams ~11 **kinematic colliders**
+   (head + 10 sections) as hard teleports across the static arena every substep; PhysX rebuilds the broadphase AABBs
+   + regenerates contact pairs against every wall/floor/breakable in the sweep — cost ∝ teleport distance × collider
+   count, amplified by the fixed-step catch-up. (This corrects §8.5's "it's the rigidbody integration, *not* the
+   broadphase" — the native integration was the EMP-2b cause; going kinematic then exposed a *second*,
+   broadphase cost that only appears once you move the colliders.) **Fix (`EnsureWormVisualOnly`):** the client worm
+   is visual + one hittable weakpoint, so disable colliders on the head + the 9 non-weakpoint sections, keeping only
+   the current tail (`lastActiveIndex`, which moves as sections die) enabled so the player can still shoot it.
+   Per-frame cost is a cached enabled-flag toggle (no alloc). **Log248: ~1 fps → occasional ~180 ms blips, playable.**
+   (An earlier guess — that the *sections'* rigidbodies needed pinning kinematic — was a dead end: they already spawn
+   kinematic, `pinned 0/10`.)
+2. **Snapshot interpolation for the visual stair-step (Log249).** The 20 Hz head was applied as a hard snap each
+   sample → the worm teleport-flickered and the body stretched+snapped. `OnHeadReceived` now keeps the last two
+   samples and `DriveClientWorm` renders between them over the measured interval, ~one interval (~50 ms) in the past —
+   standard entity interpolation: continuous motion, a small **fixed** delay (not a velocity-proportional trail, so it
+   still tracks fast jumps), `Unreliable` drops handled by clamping `t`. Removes the flicker; the head no longer
+   displaces far within a single frame.
+
+**Final state (Log249):** the "fixed 10 000 times, never fixed" client Emperor phase-1 lag is resolved — from
+sustained ~1 fps (unplayable) to occasional brief ~155 ms blips (playable, smooth motion). The remaining blips are
+**not** the worm: correlating each against neighbouring log lines shows fight-start init, a one-shot
+`PlayerSpriteAssetScanProbe` frame, the diagnostic build's own `[ProbeSummary]` synchronous disk flush, and general
+co-op combat mirroring (12 NPCs / 72 units / boss adds + projectiles). A diagnostics-off build drops the
+logging-I/O share. **Deferred:** section-destruction sync (EMP-3b), death + phase-2 handoff (EMP-3c, §7.6); the
+client's local `WeakpointHit` bookkeeping still diverges (cosmetic — damage is host-authoritative, §7.5).
 
 ## 8. Probe plan — `EmperorWormDiagnostics` (validate before building)
 

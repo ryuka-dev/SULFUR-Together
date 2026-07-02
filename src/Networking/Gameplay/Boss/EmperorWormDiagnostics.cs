@@ -41,18 +41,16 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
             HarmonyMethod Post(string m) => new HarmonyMethod(typeof(EmperorWormDiagnostics).GetMethod(m, BindingFlags.Static | BindingFlags.NonPublic));
 
-            // EMP-2 stopgap — FUNCTIONAL (client-only), registered FIRST and UNCONDITIONALLY (before the diagnostics
-            // gate) so turning EmperorWormDiagnostics off can never re-enable the 1fps worm. A LINKED client's local
-            // phase-1 worm is unsynchronized (worm sync not built) and its native FixedUpdate physics tips this end
-            // into Unity's fixed-step spiral — confirmed by measurement: worm alive = ~1fps on the client, worm
-            // dead / level-reload = smooth, and single-player with the SAME worm is smooth (Log241-243). Blocking
-            // StartMovement keeps rb.isKinematic true so FixedUpdate bails every frame (audit §4.2) → zero physics
-            // cost; the worm simply stays put at spawn. Safe now that nothing teleport-mirrors the sections (the
-            // generic mirror skips them — IsEmperorWormSectionSnapshot — and the host no longer sends their
-            // snapshots), so there is no broadphase churn. Remove when §7.2 head-streaming sync lands.
-            PatchNamed(harmony, worm, "StartMovement", prefix: Post(nameof(StartMovement_SuppressPre)));
+            // EMP-3a worm head-streaming — FUNCTIONAL, registered FIRST and UNCONDITIONALLY (before the diagnostics
+            // gate) so turning EmperorWormDiagnostics off can never re-enable the client-only 1fps worm. One prefix on
+            // FixedUpdate splits by role: HOST captures the head (throttled) then runs native movement; a LINKED
+            // CLIENT drives its worm from the host head stream + runs the cheap section-follow and SKIPS the native
+            // ballistic FixedUpdate (that raw rigidbody physics is the ~1fps — audit §8.5). Host / single-player /
+            // unlinked-solo client run the worm normally. Supersedes the EMP-2b StartMovement block (which left the
+            // worm invisible). See NetEmperorWormSync.
+            PatchNamed(harmony, worm, "FixedUpdate", prefix: Post(nameof(FixedUpdate_WormSync_Pre)));
 
-            if (!DiagEnabled) { Plugin.Log.Info("[EmperorWorm] client worm suppression active; diagnostics off."); return; }
+            if (!DiagEnabled) { Plugin.Log.Info("[EmperorWorm] worm head-sync active; diagnostics off."); return; }
 
             var evtPost = Post(nameof(Worm_Post));
             var jumpPost = Post(nameof(JumpTo_Post));
@@ -87,28 +85,38 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 Plugin.Log.Info($"[EmperorWorm] perf stopwatch registered (logs calls > {PerfThresholdMs:F0}ms; frame watchdog on).");
             }
 
-            Plugin.Log.Info("[EmperorWorm] diagnostics registered (manifest/jump/weakpoint/destroy; event-driven, no per-frame sampling; client phase-1 worm suppressed).");
+            Plugin.Log.Info("[EmperorWorm] diagnostics registered (manifest/jump/weakpoint/destroy; event-driven, no per-frame sampling; client phase-1 worm head-driven from host).");
         }
 
-        // EMP-2 stopgap: on a LINKED client, block the local worm's autonomous movement so its FixedUpdate physics
-        // never runs (rb stays kinematic → FixedUpdate early-return). Host and single-player (or an UNLINKED solo
-        // client fighting the boss on its own) run the worm normally. Not config-gated — this is gameplay, always on
-        // for a linked client until real head-streaming sync exists.
-        private static bool _loggedWormSuppress;
-        private static bool StartMovement_SuppressPre(object __instance)
+        // EMP-3a: role-split FixedUpdate prefix (not config-gated — gameplay, always on).
+        //  • HOST: capture the worm head (throttled 20 Hz broadcast) then let the native ballistic FixedUpdate run.
+        //  • LINKED CLIENT: drive the worm from the streamed host head + run the cheap UpdateWormSections, then SKIP
+        //    the native FixedUpdate (return false) so its expensive rigidbody physics never runs → no 1fps spiral.
+        //  • Host / single-player / UNLINKED solo client: run the worm normally.
+        private static bool _loggedWormClientDrive;
+        private static bool FixedUpdate_WormSync_Pre(object __instance)
         {
             try
             {
-                if (NetGameplaySyncBridge.BossMode != NetMode.Client) return true;         // host / single-player
-                if (!SULFURTogether.Networking.NetLinkState.ClientLinked) return true;      // unlinked solo client keeps its worm
-                if (!_loggedWormSuppress)
+                var mode = NetGameplaySyncBridge.BossMode;
+                if (mode == NetMode.Host)
                 {
-                    _loggedWormSuppress = true;
-                    Plugin.Log.Info($"[EmperorWorm] client worm suppressed (linked client): blocking StartMovement on {Identify(__instance)} — local phase-1 worm frozen (kinematic) to avoid the fixed-step physics spiral until head-streaming sync exists.");
+                    NetEmperorWormSync.HostCapture(__instance);
+                    return true; // host runs the authoritative worm
                 }
-                return false; // skip StartMovement → rb stays kinematic → FixedUpdate no-op → no client lag
+                if (mode == NetMode.Client && SULFURTogether.Networking.NetLinkState.ClientLinked)
+                {
+                    if (!_loggedWormClientDrive)
+                    {
+                        _loggedWormClientDrive = true;
+                        Plugin.Log.Info($"[EmperorWorm] client worm head-driven (linked client): skipping native FixedUpdate on {Identify(__instance)}; head streamed from host, sections follow locally.");
+                    }
+                    NetEmperorWormSync.DriveClientWorm(__instance);
+                    return false; // skip native ballistic FixedUpdate → no client physics spiral
+                }
             }
-            catch { return true; }
+            catch { }
+            return true; // unlinked solo client / anything else: run normally
         }
 
         private static void PatchNamed(Harmony harmony, Type worm, string name, HarmonyMethod prefix = null, HarmonyMethod postfix = null)

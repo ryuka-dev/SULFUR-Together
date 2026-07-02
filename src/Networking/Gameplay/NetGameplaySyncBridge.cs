@@ -186,6 +186,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastHostBossState(SULFURTogether.Networking.Gameplay.Boss.NetBossState msg)
             => _service?.BroadcastHostBossState(msg);
 
+        // EMP-3a: Emperor phase-1 worm head stream (host → clients).
+        public static void BroadcastEmperorWormHead(float x, float y, float z, float rotY, int seq)
+            => _service?.BroadcastEmperorWormHead(x, y, z, rotY, seq);
+
         // Phase RM: room-membership substrate.
         public static void SendClientRoomEnter(SULFURTogether.Networking.Gameplay.Boss.NetClientRoomEnter msg)
             => _service?.SendClientRoomEnter(msg);
