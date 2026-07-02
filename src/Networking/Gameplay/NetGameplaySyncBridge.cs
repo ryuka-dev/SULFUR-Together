@@ -202,6 +202,13 @@ namespace SULFURTogether.Networking.Gameplay
         public static void SendClientEmperorWormHit(float damage, int damageTypeInt, int seq)
             => _service?.SendClientEmperorWormHit(damage, damageTypeInt, seq);
 
+        // EMP-4: Emperor fight-start (dialog) commit — client requests, host broadcasts the authoritative start.
+        public static void SendClientEmperorFightStart()
+            => _service?.SendClientEmperorFightStart();
+
+        public static void BroadcastEmperorFightStart()
+            => _service?.BroadcastEmperorFightStart();
+
         // Phase RM: room-membership substrate.
         public static void SendClientRoomEnter(SULFURTogether.Networking.Gameplay.Boss.NetClientRoomEnter msg)
             => _service?.SendClientRoomEnter(msg);

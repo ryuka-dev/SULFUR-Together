@@ -46,6 +46,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static MethodInfo _moveVulnerableUpMi;
         private static MethodInfo _deathAnimationMi;
         private static FieldInfo  _lastSectionNpcField;
+        // EMP-4: fight-start (dialog) commit.
+        private static MethodInfo _startMovementMi;
 
         private static void EnsureReflect(object worm)
         {
@@ -59,12 +61,20 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _moveVulnerableUpMi  = AccessTools.Method(t, "MoveVulnerableSectionUp");
             _deathAnimationMi    = AccessTools.Method(t, "DeathAnimation");
             _lastSectionNpcField = AccessTools.Field(t, "lastSectionNpc");
+            _startMovementMi     = AccessTools.Method(t, "StartMovement");
         }
 
         // Cached so a message-received callback (which has no worm reference of its own) can find the live worm.
         // Only one Emperor worm is ever active at a time, so a single static ref is sufficient.
         private static Component _clientWormRef;
         private static Component _hostWormRef; // EMP-3d: host's live worm, for applying inbound client hits.
+
+        /// <summary>True while an Emperor worm is live on this end (its FixedUpdate has set our worm ref). Used to scope
+        /// the Emperor dialog probe so it fires without needing the LogBossPreFight config toggle.</summary>
+        public static bool IsWormActive
+        {
+            get { var w = _hostWormRef ?? _clientWormRef; return w != null; }
+        }
 
         private static float _lastSendLogAt = -999f;
 
@@ -76,6 +86,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (!(worm is Component c) || c == null) return;
             _hostWormRef = c; // EMP-3d: so an inbound client worm-hit can reach the host's live worm + its lastSectionNpc.
             EnsureReflect(worm);
+            // EMP-4: a client's fight-start request may have arrived before the host worm was live (host still loading
+            // into the Emperor level). Now that the host worm exists, honour the deferred request.
+            if (_hostFightStartPending && _fightStartCommittedWormId != c.GetInstanceID())
+            {
+                _hostFightStartPending = false;
+                HostCommitFightStart(c, "deferred client request");
+            }
             float now = Time.realtimeSinceStartup;
             if (now - _lastSendAt < SendIntervalSeconds) return;
             _lastSendAt = now;
@@ -287,6 +304,165 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorWorm] HostApplyClientWormHit seq={seq} failed: {ex.Message}"); }
         }
 
+        // ================================================================ EMP-4: fight-start (dialog) authority
+        // Log254: EmperorBossWorm.StartMovement is the fight-start (Initialize spawns the 10 sections, then the worm
+        // emerges + the music/emergence play), invoked by the pre-fight dialog's final MultipleChoiceNode option —
+        // fired INDEPENDENTLY on each end by that player's own dialog choice → unsynced start. Make it
+        // host-authoritative: whoever picks the option commits, the host broadcasts, and every end runs the SAME
+        // native StartMovement together. The client's local StartMovement (its own dialog pick) is blocked and
+        // deferred to the host commit; the reentry flag lets our own authoritative invoke pass the gate.
+
+        private static int  _fightStartCommittedWormId;   // instanceID of the worm whose fight-start is committed (0 = none)
+        private static int  _fightStartRequestedWormId;    // client: worm id we've already requested a commit for
+        private static bool _hostFightStartPending;        // host: a client requested before the host worm was live
+        private static bool _inFightStartCommit;           // reentry: our own StartMovement invoke must pass the gate
+
+        /// <summary>Prefix on <c>EmperorBossWorm.StartMovement</c>. Returns false to BLOCK the native start (a linked
+        /// client deferring to the host's authoritative commit), true to let it run (single-player, unlinked-solo, the
+        /// host's own commit, or our own reentry invoke). Registered unconditionally (functional, not diagnostic).</summary>
+        public static bool TryGateFightStart(object worm)
+        {
+            try
+            {
+                if (_inFightStartCommit) return true; // our own authoritative invoke — always run
+                if (!(worm is Component c) || c == null) return true;
+                var mode = NetGameplaySyncBridge.BossMode;
+
+                if (mode == NetMode.Host)
+                {
+                    // Host's own dialog pick starts the fight. Commit once (broadcast to clients), then let it run natively.
+                    if (_fightStartCommittedWormId != c.GetInstanceID())
+                    {
+                        _fightStartCommittedWormId = c.GetInstanceID();
+                        NetGameplaySyncBridge.BroadcastEmperorFightStart();
+                        DisableBossDialogOnFightStart(); // picking host: its dialog closes natively; prevent any re-open
+                        Plugin.Log.Info($"[EmperorWorm] host fight-start (local dialog) worm={c.GetInstanceID()} -> broadcast commit");
+                    }
+                    return true;
+                }
+
+                if (mode == NetMode.Client && SULFURTogether.Networking.NetLinkState.ClientLinked)
+                {
+                    // Linked client: never start the worm off its own dialog choice. Ask the host to commit and wait for
+                    // the broadcast (which invokes StartMovement here via reentry). Request once per worm instance.
+                    if (_fightStartCommittedWormId == c.GetInstanceID()) return false; // already committed → block strays
+                    if (_fightStartRequestedWormId != c.GetInstanceID())
+                    {
+                        _fightStartRequestedWormId = c.GetInstanceID();
+                        NetGameplaySyncBridge.SendClientEmperorFightStart();
+                        Plugin.Log.Info($"[EmperorWorm] client fight-start (local dialog) worm={c.GetInstanceID()} -> requested host commit (local start blocked)");
+                    }
+                    return false;
+                }
+
+                return true; // Off / unlinked-solo client → vanilla start
+            }
+            catch { return true; }
+        }
+
+        /// <summary>Host: a client picked the fight-start option. Commit authoritatively (if not already), which starts
+        /// the host worm and broadcasts to every client. If the host worm isn't live yet, defer to the next HostCapture.</summary>
+        public static void HostOnClientFightStartRequest()
+        {
+            var worm = _hostWormRef;
+            if (!(worm is Component c) || c == null)
+            {
+                _hostFightStartPending = true; // host still loading into the level — commit when the worm appears
+                Plugin.Log.Info("[EmperorWorm] client fight-start request arrived before host worm is live — deferred.");
+                return;
+            }
+            if (_fightStartCommittedWormId == c.GetInstanceID())
+            {
+                // Already committed (host picked first, or an earlier request). The commit broadcast already reached
+                // this client, so nothing to do — its own OnFightStartCommitReceived starts its worm.
+                return;
+            }
+            HostCommitFightStart(c, "client request");
+        }
+
+        /// <summary>Host: run the authoritative fight-start — mark committed, broadcast to clients, and invoke the real
+        /// StartMovement on the host worm via reentry (bypassing the gate). Used for a client-originated commit; the
+        /// host's OWN dialog pick commits inline in TryGateFightStart (StartMovement is already running natively).</summary>
+        private static void HostCommitFightStart(Component worm, string origin)
+        {
+            _fightStartCommittedWormId = worm.GetInstanceID();
+            NetGameplaySyncBridge.BroadcastEmperorFightStart();
+            InvokeStartMovement(worm, origin);
+            FinalizeLocalDialog(origin); // host did NOT pick the option (a client did) → close its own open pre-fight dialog
+            DisableBossDialogOnFightStart(); // and prevent it from re-opening during combat
+            Plugin.Log.Info($"[EmperorWorm] host fight-start ({origin}) worm={worm.GetInstanceID()} -> committed + broadcast");
+        }
+
+        /// <summary>Client: the host committed the fight-start — run the same native StartMovement on the local worm so
+        /// Initialize/emergence/music begin in step with the host.</summary>
+        public static void OnFightStartCommitReceived()
+        {
+            var worm = _clientWormRef;
+            if (!(worm is Component c) || c == null)
+            {
+                Plugin.Log.Warn("[EmperorWorm] fight-start commit received before any client worm is being driven — dropped.");
+                return;
+            }
+            if (_fightStartCommittedWormId == c.GetInstanceID())
+            {
+                Plugin.Log.Info($"[EmperorWorm] fight-start commit ignored — worm={c.GetInstanceID()} already started.");
+                return;
+            }
+            _fightStartCommittedWormId = c.GetInstanceID();
+            InvokeStartMovement(c, "host commit");
+            FinalizeLocalDialog("host commit"); // this client did NOT pick the option → close its own open pre-fight dialog
+            DisableBossDialogOnFightStart(); // and prevent it from re-opening during combat
+            Plugin.Log.Info($"[EmperorWorm] client mirrored fight-start (host commit) worm={c.GetInstanceID()}");
+        }
+
+        // Close this end's open pre-fight dialog when the fight commits but this end did NOT pick the fight-start option
+        // (the picking end's dialog closes natively via the option). Reuses the real Graph.Stop(true); no-ops when no
+        // dialog is open. Matches the FF14 intent "committing the fight closes every player's boss dialog".
+        private static void FinalizeLocalDialog(string origin)
+        {
+            if (BossDialogReflect.TryFinalizeCurrentDialog(out string detail))
+                Plugin.Log.Info($"[EmperorWorm] fight-start ({origin}) closed local pre-fight dialog — {detail}");
+        }
+
+        private static System.Type   _npcType;
+        private static PropertyInfo   _npcDialogProp;
+
+        /// <summary>Fight committed: DISABLE the phase-1 worm boss dialog on THIS end so it can't be re-opened once
+        /// combat starts (Log258: the speaker is the worm head Npc, <c>[0]-ShavwaEmperorWorm</c>, unitHasDialog=True).
+        /// Nulls the Npc's <c>dialog</c> — <c>HasDialog =&gt; dialog != null</c>, so <c>Npc.Interact</c> (which the
+        /// <c>NEWPlayerTrigger_StartEvent</c> re-fires) skips the dialog branch — the same trigger-agnostic primitive
+        /// Cousin uses (BossAdapterBase.TryRemoveDialogInteractable). Idempotent. Does NOT touch the phase-2 SPIDER
+        /// dialog (a different Npc, <c>ShavwaEmperorSpider</c>), which must stay reachable after the real StartPhase2.</summary>
+        public static void DisableBossDialogOnFightStart()
+        {
+            try
+            {
+                Component wc = _hostWormRef ?? _clientWormRef;
+                if (wc == null) return;
+                if (_npcType == null) _npcType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.Npc");
+                if (_npcType == null) return;
+                var npc = wc.GetComponent(_npcType) ?? wc.GetComponentInChildren(_npcType);
+                if (npc == null) { Plugin.Log.Warn("[EmperorWorm] fight-start: worm boss Npc not found (dialog not disabled)"); return; }
+                if (_npcDialogProp == null) _npcDialogProp = _npcType.GetProperty("dialog", BindingFlags.Public | BindingFlags.Instance);
+                if (_npcDialogProp != null && _npcDialogProp.CanWrite && _npcDialogProp.GetValue(npc) != null)
+                {
+                    _npcDialogProp.SetValue(npc, null);
+                    Plugin.Log.Info("[EmperorWorm] fight-start disabled P1 boss dialog (worm can no longer be re-talked during combat)");
+                }
+            }
+            catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorWorm] DisableBossDialogOnFightStart failed: {ex.Message}"); }
+        }
+
+        private static void InvokeStartMovement(Component worm, string origin)
+        {
+            EnsureReflect(worm);
+            if (_startMovementMi == null) { Plugin.Log.Warn($"[EmperorWorm] fight-start ({origin}): StartMovement not resolved."); return; }
+            _inFightStartCommit = true;
+            try { _startMovementMi.Invoke(worm, null); }
+            catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorWorm] fight-start ({origin}) invoke failed: {ex.Message}"); }
+            finally { _inFightStartCommit = false; }
+        }
+
         // ================================================================ EMP-3b: section destroy (HOST -> CLIENT)
 
         private static int _sectionDestroySendSeq;
@@ -388,6 +564,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _sectionDestroySendSeq = 0;
             _deathSendSeq = 0;
             _wormHitSendSeq = 0;
+            // EMP-4: fight-start commit state (self-rearms per worm instance, but clear on full teardown).
+            _fightStartCommittedWormId = 0;
+            _fightStartRequestedWormId = 0;
+            _hostFightStartPending = false;
+            _inFightStartCommit = false;
         }
     }
 }

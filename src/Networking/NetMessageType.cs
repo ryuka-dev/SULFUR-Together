@@ -264,5 +264,20 @@ namespace SULFURTogether.Networking
         // vanilla ReceiveDamage (fires onDamageRecieved → WeakpointHit → section-destroy/death). Payload: damage +
         // damageType + seq. Mirrors the §7.5 design that was assumed working but the head-streamed local worm broke.
         ClientEmperorWormHit = 60,
+
+        // EMP-4 Emperor fight-start (dialog) sync. Log254 pinned the Emperor's fight-start: EmperorBossWorm.StartMovement
+        // is invoked by the pre-fight dialog's final MultipleChoiceNode option (a NodeCanvas ActionNode →
+        // ExecuteFunction_Multiplatform reflection-invoke), fired INDEPENDENTLY per end on each player's own dialog
+        // choice → unsynced Initialize (section spawn) / emergence / music. The Emperor is not a registered encounter
+        // (its adapter is diagnostic-only), so the ClientBossDialogCommit (30/31) machinery does not apply — this is a
+        // dedicated bespoke gate reusing only the primitives. Whoever picks the option commits; the fight starts
+        // host-authoritatively on every end at once.
+        //
+        // Client→Host: "my player picked the Emperor fight-start dialog option; please commit." Carries nothing (the
+        // single active worm is implicit).
+        ClientEmperorFightStart = 61,
+        // Host→Clients: "commit — start the worm now." Every client invokes the real StartMovement on its local worm so
+        // Initialize/emergence/music all begin in step with the host. Carries nothing.
+        HostEmperorFightStart = 62,
     }
 }

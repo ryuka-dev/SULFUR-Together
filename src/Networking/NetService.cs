@@ -683,6 +683,47 @@ namespace SULFURTogether.Networking
             catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] malformed worm-hit packet: {ex.Message}"); }
         }
 
+        // EMP-4: client → host "my player picked the Emperor fight-start option". Host commits authoritatively.
+        internal void SendClientEmperorFightStart()
+        {
+            if (_mode != NetMode.Client || _net == null || _hostPeer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientEmperorFightStart);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] failed to send fight-start request: {ex.Message}"); }
+        }
+
+        private void HandleClientEmperorFightStart(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            try { Gameplay.Boss.NetEmperorWormSync.HostOnClientFightStartRequest(); }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] fight-start request handling failed: {ex.Message}"); }
+        }
+
+        // EMP-4: host → clients "commit — start the worm now". Every client starts its local worm in step.
+        internal void BroadcastEmperorFightStart()
+        {
+            if (_mode != NetMode.Host || _net == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostEmperorFightStart);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] fight-start broadcast failed: {ex.Message}"); }
+            }
+        }
+
+        private void HandleEmperorFightStart(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            try { Gameplay.Boss.NetEmperorWormSync.OnFightStartCommitReceived(); }
+            catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] fight-start commit handling failed: {ex.Message}"); }
+        }
+
         private void HandleClientBossDialogCommitRequest(NetPeer peer, NetDataReader reader)
         {
             if (_mode != NetMode.Host) return;
@@ -2567,6 +2608,14 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.ClientEmperorWormHit:
                         HandleClientEmperorWormHit(peer, reader);
+                        break;
+
+                    case NetMessageType.ClientEmperorFightStart:
+                        HandleClientEmperorFightStart(peer, reader);
+                        break;
+
+                    case NetMessageType.HostEmperorFightStart:
+                        HandleEmperorFightStart(peer, reader);
                         break;
 
                     case NetMessageType.HostBossDynamicSpawn:

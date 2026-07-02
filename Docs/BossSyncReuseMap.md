@@ -79,18 +79,32 @@ multi-section body with no TriggerFight/dialog start hook in the boss code**. It
   not a registered encounter (no `EncounterKey`).
 - **EMP-3d** damage authority (60) — bespoke single-target route because it bypasses the encounter/roster path
   (the runtime-spawned tail quarantines as "client-only"). Still calls the shared `BossDamageReflect`.
+- **EMP-4** fight-start (dialog) authority (61 client-request / 62 host-commit) — host-authoritative gate on
+  `StartMovement` (the dialog-choice fight-start, §4a). A linked client blocks its own local start and requests;
+  the host commits (its own dialog pick commits inline) and broadcasts so every end runs the SAME native
+  `StartMovement` together (Initialize/section-spawn/emergence/music in step). Bespoke messages, NOT the
+  encounter `ClientBossDialogCommit`(30/31) — the Emperor is not a registered encounter (§4c). See
+  `NetEmperorWormSync.TryGateFightStart`.
 
-### 4a. Fight-start IS dialog-gated (corrects EmperorBossAudit §1)
+### 4a. Fight-start IS dialog-gated — CONFIRMED by Log254 stack trace (corrects EmperorBossAudit §1)
 Decompile fact: `EmperorBossFightHelper.OnPlayerSpawned → StartPhase1()` **only toggles the spider parent off** —
-it does **not** call `StartMovement()`. `StartMovement()` is `public` and is invoked by an **external scripted
-trigger**, almost certainly the pre-fight NPC dialog ("最神圣的皇帝陛下", seen in Log216 `[DialogFlow]`) on
-completion. So the Emperor's fight start is dialog/trigger-gated, same shape as Cousin/Lucia — **audit §1's
-"StartMovement fires from OnPlayerSpawned" is wrong** and is corrected here.
+it does **not** call `StartMovement()`. **Log254's `StartMovement` stack-trace probe (EmperorBossAudit §10)
+pins the exact caller**: a NodeCanvas `DialogueTree` — the pre-fight dialog's final `MultipleChoiceNode`
+option runs a `Jumper → ActionNode → ExecuteFunction_Multiplatform` that reflection-invokes
+`EmperorBossWorm.StartMovement()`. So fight start is a **dialog-choice callback**, same shape as Cousin/Lucia
+(**not** a PlayerTrigger, **not** an animation event) — **audit §1's "StartMovement fires from
+OnPlayerSpawned" is wrong** and is corrected here. Log254 also shows **both ends fire `StartMovement`
+independently** on their own local dialog choice (host inst=-161832 / client inst=-231850, same root/pos) →
+the unsynced-start desync is real and per-end.
 
-→ **To reuse dialog sync:** register the Emperor as an encounter, then gate **`StartMovement`** as its
-"StartFight equivalent" (client prefix-blocks local `StartMovement`; host-authoritative fight-commit fires it on
-all ends together). Map the dialog actor "最神圣的皇帝陛下" to the Emperor encounter so dialog-commit knows the
-dialog belongs to it (it may be a separate speaker NPC, not the worm — confirm).
+→ **IMPLEMENTED as EMP-4** (bespoke, NOT via the encounter machinery — §4c explains why): a functional prefix
+on `StartMovement` gates it. A linked client blocks its own local start and sends `ClientEmperorFightStart`(61);
+the host commits (its own dialog pick commits inline, broadcasting; a client request commits + invokes the host
+worm's `StartMovement` via reentry) and broadcasts `HostEmperorFightStart`(62) so **every end runs the same
+native `StartMovement` together**. A reentry flag lets the authoritative invoke pass the gate; the commit is
+keyed by worm instanceID so it self-rearms per encounter and fires exactly once. A client request that arrives
+before the host worm is live is deferred to the next `HostCapture`. See `NetEmperorWormSync` EMP-4 region.
+**Pending live test** (below).
 
 ### 4b. Multi-phase dialog — the phase-2 complication (open design note)
 The Emperor has **two** dialogs: a phase-1 intro **and a separate phase-2 dialog** (fires when the spider
@@ -105,6 +119,51 @@ dialog unreachable. Design intent captured from discussion:
   phase ordering correct.
 - This must compose with FF14 dialog-scoping: "everyone *can* dialog (per phase), opt-outs are respected."
 
+### 4d. Emperor gate takeover + dialog behavioural model (user spec, 2026-07-02)
+
+**Gate (mod fully owns the Emperor door).** Two triggers exist (Lucia-shaped):
+- A **front-of-door trigger** (outside the arena) that drives the **door**. Any player crossing it opens the door
+  for everyone already — synced, correct, and attributed to every peer registering the others as ghost players
+  (the door's PlayerTrigger fires on each end's ghost too). **Leave this alone.**
+- A **large inside trigger** (covers most of the interior, like Lucia's) that opens the **dialog** — and vanilla
+  **bundles a door-CLOSE onto it**. That bundled close is what must be **excised** (do NOT let the inside dialog
+  trigger close the door directly). The user's earlier "don't close the door immediately" is exactly this.
+- **Requirement (simplified per user 2026-07-02):** the mod TAKES OVER the door — **once the mod closes it, it
+  STAYS closed until release** (boss death / lockdown release). Do **not** chase *why* it reopens; instead, while a
+  lockdown is **active** (post-seal, pre-release) for the arena, **block any `MetalGate.Open` on that arena's gate**,
+  and allow it only on release.
+- **IMPLEMENTED as LD-2f** (in `ArenaLockdownManager` + `MetalGatePatches`, no new config). Tracked by the **gate's
+  InstanceID, NOT position** — Log257 proved the Emperor's dialog/seal trigger `NEWPlayerTrigger_StartEvent`
+  (5.4,7.5,6.1, fires `[Npc.Interact, MetalGate.Close]`) is **~50 m from the gate** it closes (the gate the front
+  trigger `PlayerTrigger_OpenDoor` @ -44,11,-0 opens), so a position radius never matched → grace didn't defer the
+  close (door closed immediately) and held never blocked the reopen. Fixed by resolving the gate the trigger drives
+  (`ArenaBarrierManager.ResolveMetalGateIds`, reads `onTriggerEvents` MetalGate.Close/Open targets):
+  - **grace** = `_gracedGates` (arenaKey→gate ids): a `MetalGate.Close` prefix blocks that gate's close during the
+    ~5 s grace, so the trigger's bundled close is deferred to the host's t0+5 s CloseDoor (matches "don't close
+    immediately, close at the 5 s node").
+  - **held** = `_heldGates` (arenaKey→gate ids): at CloseDoor the gate is closed for real + registered held; a
+    `MetalGate.Open` prefix blocks that gate's reopen until release, EXCEPT host-vetted mirror opens and the one
+    legit "all enemies dead" reopen (`AllDeadTrigger.CheckAllDead` prefix opens a short `_legitGateOpenUntil`
+    window). Release / scene-change `Clear()` drop the hold.
+  - **Safe for Cousin** (trigger≈gate; all-dead release passes the window). Emperor has no AllDeadTrigger → gate
+    stays closed until scene-change = desired. SetActive-door arenas (Lucia) NOT covered (MetalGate only).
+- Timing note: `SealDelaySeconds`/`TeleportDelaySeconds` are already centralised as consts in
+  `ArenaLockdownManager` — the "change 5s/10s in one place" requirement is satisfied; keep any new door timing
+  there too.
+
+**Dialog (delete is NOT available on the Emperor — §4b — so CLOSE + gate is the model).** Reproduce Cousin's
+combat/dialog behaviour, driven by room-membership:
+1. **Before anyone triggers:** the native inside position-trigger opens the first dialog (vanilla).
+2. **Before fight start, any player triggers → everyone *in the room* gets the dialog too** (catch-up for in-room
+   players; opt-outs / out-of-room players are not dragged in). = Cousin RM-2b catch-up. **Reuse the existing
+   in-room player list** — for the Emperor that is the **arena-lockdown in-room set** (already fed for it; RM's
+   `_roomMembers` is not, since the Emperor isn't a registered encounter). This in-room list logic is a **shared
+   primitive most bosses need** (see §5).
+3. **After fight start: nobody can open the dialog** (block it — since we can't null the scene-scripted speaker's
+   `dialog`, block `Npc.Interact`/the trigger for the encounter instead).
+4. **Phase 2 REVIVES the dialog** (the separate phase-2 DialogueTree must become reachable again — do NOT
+   permanently kill dialog the way Cousin does). Ties into §4b per-client phase-2 handling.
+
 ### 4c. Why the desync risk is smaller than Cousin (but still worth fixing)
 Cousin *had* to sync fight-start because its behaviour tree / intro animation events run locally (e.g.
 `DoneAppearing` clearing invuln at the end of the intro animation → a client that never finishes it leaves the
@@ -116,8 +175,28 @@ improve.
 
 ---
 
-## 5. Forward goal
+## 5. Forward goal + the two per-boss requirements to always check
+
 Every future boss (and elite room) should ship with the **FF14 arena lockdown** (RM + seal/popup/teleport/release
 + grace) and the **dialog join optimization** (all players can reach the dialog per phase; opt-outs respected;
 fight starts host-authoritatively) by default — these are framework features, not per-boss work, once the boss is
 a registered encounter.
+
+**When syncing ANY new boss, always evaluate these two requirements (they recur and are easy to miss):**
+1. **Dialog sync** — the pre-fight dialog behavioural model (from §4d, generalised): before anyone triggers, the
+   native trigger opens the first dialog; before fight-start any player triggering gives every *in-room* player the
+   dialog (catch-up, opt-outs respected); after fight-start nobody can open it; **later phases that have their own
+   dialog must REVIVE it** (don't permanently kill dialog). Prefer the real "delete" (`Npc.dialog=null` via
+   `TryRemoveDialogInteractable`) when the speaker Npc is statically reachable; fall back to CLOSE + block when the
+   dialog is scene-scripted with no static speaker (Emperor).
+2. **Gate lock** — does the arena seal via a vanilla trigger→`MetalGate.Close` / door `SetActive`? If the CLOSE is
+   **bundled onto a dialog/other trigger**, it must be excised so the mod owns the door (close at the lockdown t+5
+   node, keep it closed through teleport-in). Confirm the trigger wiring with a probe before excising.
+
+Both requirements sit on a **shared substrate: the in-room player list** (who has crossed into the arena). Most
+bosses need it — for dialog catch-up/scoping AND for the lockdown's seal/teleport targeting. Reuse one in-room
+list, don't grow a second per boss (Emperor uses the arena-lockdown in-room set; registered encounters can use
+RM `_roomMembers`; unify where practical).
+
+Keep the boundaries clean and the knobs central: door/lockdown timing lives as consts in `ArenaLockdownManager`
+(`SealDelaySeconds`/`TeleportDelaySeconds`/…) — one place to change 5s/10s.

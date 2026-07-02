@@ -39,7 +39,25 @@ namespace SULFURTogether.Patches
                     harmony.Patch(close, prefix: new HarmonyMethod(
                         typeof(MetalGatePatches).GetMethod(nameof(MetalGate_Close_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
 
+                // LD-2f "mod owns the door": block a spurious reopen while the mod is holding this gate closed
+                // (post-seal, pre-release). The one legit reopen (all enemies dead) is allowed via a short window.
+                var open = AccessTools.DeclaredMethod(type, "Open", Type.EmptyTypes);
+                if (open != null)
+                    harmony.Patch(open, prefix: new HarmonyMethod(
+                        typeof(MetalGatePatches).GetMethod(nameof(MetalGate_Open_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+
                 Plugin.Log.Info("[GateSync] Patched MetalGate.Awake/Close/Open (combat-room gate sync).");
+
+                // LD-2f: AllDeadTrigger is the standard MetalGate-room reopen (all enemies dead → Open). Detect it so the
+                // legit reopen passes the door-hold; every other reopen while held is blocked.
+                var allDead = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.AllDeadTrigger");
+                var check = allDead == null ? null : AccessTools.DeclaredMethod(allDead, "CheckAllDead", Type.EmptyTypes);
+                if (check != null)
+                {
+                    harmony.Patch(check, prefix: new HarmonyMethod(
+                        typeof(MetalGatePatches).GetMethod(nameof(AllDeadTrigger_CheckAllDead_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Plugin.Log.Info("[GateSync] Patched AllDeadTrigger.CheckAllDead (legit gate-reopen window).");
+                }
             }
             catch (Exception ex) { Plugin.Log.Error($"[GateSync] Apply failed: {ex.Message}"); }
 
@@ -105,12 +123,43 @@ namespace SULFURTogether.Patches
         {
             try
             {
-                if (__instance is UnityEngine.Component c && c != null
-                    && ArenaLockdownManager.IsGateInLocalGrace(c.transform.position))
+                if (__instance is UnityEngine.Object o && o != null
+                    && ArenaLockdownManager.IsGateGraced(o.GetInstanceID()))
                     return false; // hold the gate open; host's CloseDoor closes it at t0+5 s
             }
             catch { }
             return true;
+        }
+
+        // LD-2f "mod owns the door": once the mod has closed this gate (post-seal), block any reopen until release, so
+        // a player re-stepping the open-door trigger can't unseal the fight. Mirrored opens are host-vetted → allowed;
+        // the all-enemies-dead reopen is allowed via the short legit window. Returns false to hold the gate closed.
+        private static bool MetalGate_Open_Pre(object __instance)
+        {
+            try
+            {
+                if (GateSyncManager.IsApplyingMirror) return true; // host-vetted mirror open — allow
+                if (__instance is UnityEngine.Object o && o != null
+                    && ArenaLockdownManager.IsGateHeld(o.GetInstanceID())
+                    && !ArenaLockdownManager.IsLegitGateOpenWindow())
+                    return false; // mod holds it closed until release / all-dead
+            }
+            catch { }
+            return true;
+        }
+
+        // LD-2f: AllDeadTrigger.CheckAllDead — when the last enemy is dead it Invokes its events (opens the gate) then
+        // self-destructs. Detect that here (before the invoke) so the imminent gate Open passes the door-hold and the
+        // arena releases. allAliveNpcs is private → read the count reflectively.
+        private static void AllDeadTrigger_CheckAllDead_Pre(object __instance)
+        {
+            try
+            {
+                var f = AccessTools.Field(__instance.GetType(), "allAliveNpcs");
+                if (f?.GetValue(__instance) is System.Collections.ICollection alive && alive.Count == 0)
+                    ArenaLockdownManager.NotifyAllEnemiesDead();
+            }
+            catch { }
         }
 
         // LD-2d: start the local grace window BEFORE the trigger fires its events, so the same-frame MetalGate.Close()

@@ -518,3 +518,95 @@ sync code, so the pipeline is built once against real data.
 bursts, pillars). It is out of scope for the phase-1 worm effort and gets its own audit + pipeline once the
 worm is synced. `EmperorBossFightHelper.StartPhase2()` is the seam; `*Endless` variants are the endless-mode
 worm/spider and are not part of the campaign encounter.
+
+---
+
+## 10. EMP fight-start probe result (Log254) — CONFIRMED dialog-gated
+
+One-shot `StackTrace` probe on `EmperorBossWorm.StartMovement` (the fight-start method). Captured on both
+ends, fresh Emperor entry with the intro dialog played from the start. **Result is definitive** and corrects
+the last unknown blocking the dialog-sync design.
+
+### 10.1 What invokes `StartMovement` (the exact chain, identical host + client)
+```
+DialogController.SelectOption            (player picks a dialog choice)
+  → MultipleChoiceNode.OnOptionSelected
+  → DialogueTree.Continue(index)
+  → DialogueTree.EnterNode → Jumper.OnExecute → EnterNode
+  → ActionNode.OnExecute
+  → ActionTask.Execute
+  → ExecuteFunction_Multiplatform.OnExecute      (NodeCanvas action task)
+  → MethodBase.Invoke                            (reflection)
+  → EmperorBossWorm.StartMovement()
+```
+So the pre-fight sequence is a **NodeCanvas `DialogueTree`** whose final **`MultipleChoiceNode`** option runs a
+`Jumper` into an `ActionNode` carrying an **`ExecuteFunction_Multiplatform`** action that reflection-invokes
+`EmperorBossWorm.StartMovement()`. **The Emperor's fight start is a dialog-choice callback**, same *shape* as
+Cousin/Lucia — confirms BossSyncReuseMap §4a; **audit §1's "StartMovement fires from OnPlayerSpawned" is
+wrong** (already corrected) and 4a's "almost certainly the pre-fight dialog" is now **CONFIRMED**, with the
+precise wiring (NodeCanvas action task, not a PlayerTrigger and not an animation event).
+
+### 10.2 The desync is real and per-end (the thing to fix)
+Both ends fired `StartMovement` **independently**, each on its *own* local dialog-choice selection:
+- Host `inst=-161832`, Client `inst=-231850` — different worm instances (expected: pre-placed per scene), but
+  **same** `root=[0]-ShavwaEmperorWorm`, same `path`, same `pos=(15.3,-0.7,0.1)`, `sections=10`,
+  `tailHp=1.000`. Worm placement/state is deterministic across ends → good; only the *start trigger* diverges.
+- Each player picking the dialog option starts the worm locally → **unsynced fight start**, exactly the
+  Cousin/Lucia failure mode (music / emergence / `Initialize` timing / dialog→fight transition drift). The
+  worm *combat* is already host-authoritative (EMP-3a…3d), so this is a presentation/transition desync, not a
+  mechanic desync (BossSyncReuseMap §4c) — still worth a clean gate.
+
+### 10.3 Why the existing StartFight machinery still doesn't apply
+The trigger is a **generic `DialogueTree` action node**, not a `BossFightHelper.TriggerFight` / controller
+`StartFight` (the log confirms only the four registered controller bosses got `[BossEncounter] patched …`).
+There is no `EncounterKey` and no registered adapter for the Emperor. Retrofitting `NetBossEncounterManager`
+(which keys on `source.EndsWith(".StartFight")` + registered encounter) would be forcing a square peg — the
+bespoke gate is the right call, reusing only the *primitives*.
+
+### 10.4 The gate — IMPLEMENTED (EMP-4)
+`StartMovement` is Harmony-hooked with a functional prefix (`EmperorWormDiagnostics.StartMovement_FightGate_Pre`
+→ `NetEmperorWormSync.TryGateFightStart`), registered unconditionally alongside the EMP-3 functional patches.
+- **Client (linked):** the prefix blocks the local `StartMovement` (its own dialog choice must not start the
+  worm) and sends `ClientEmperorFightStart`(61) once per worm; the worm starts when the host's commit arrives.
+- **Host:** its own dialog pick commits inline — the prefix marks committed (keyed by worm instanceID),
+  broadcasts `HostEmperorFightStart`(62), and lets the native `StartMovement` run. A client request
+  (`HostOnClientFightStartRequest`) commits the same way but *also* invokes the host worm's `StartMovement` via
+  a reentry flag (`_inFightStartCommit`) that bypasses the gate. A request that lands before the host worm is
+  live is deferred to the next `HostCapture`.
+- **Every client** mirrors the commit (`OnFightStartCommitReceived`) by invoking its own worm's native
+  `StartMovement` via the same reentry flag → Initialize (section spawn) / emergence / music in step.
+- **Idempotent per encounter:** the commit is keyed by worm instanceID, so a re-encounter/reload self-rearms
+  and each worm commits exactly once; single-player / unlinked-solo fall through to the vanilla start.
+- **Dialog scoping:** the fight-start option is a `MultipleChoiceNode` choice → "players who want to dialog can;
+  whoever picks the fight-start option commits; the fight starts host-authoritatively" (FF14 RM intent).
+- **Phase-2 dialog (still open, §4b):** the phase-2 dialog is a *separate* `DialogueTree`; handle it per-client
+  on the local phase-2 trigger, not a global restart. NOT part of EMP-4.
+
+**Dialog close (Log255 fix):** the picking end closes its own pre-fight dialog natively (by selecting the
+option); the **non-picking** end never picks, so its dialog stayed open when the worm emerged via the broadcast
+(user report: "boss came out but the dialog wasn't deleted"). Fixed by finalizing the local dialog
+(`BossDialogReflect.TryFinalizeCurrentDialog` = the real `Graph.Stop(true)`, no-op when nothing is open) in the
+two mirror-apply paths — `OnFightStartCommitReceived` (a client applying the host commit) and
+`HostCommitFightStart` (the host committing from a client's request). The picking end is deliberately NOT
+finalized inline: that call runs inside the dialog tree's own action-node execution (StartMovement prefix), so
+stopping the tree mid-execute is unsafe — native close handles it. This matches the FF14 intent "committing the
+fight closes every player's boss dialog".
+
+**Status: EMP-4 fight-start sync VERIFIED (Log255 Test A + Test B both lockstep); dialog-close fix implemented,
+build clean, deployed. Pending re-test of the dialog close** (see §10.5).
+
+### 10.5 EMP-4 live test procedure
+1. Host + client both load into the Emperor level; both walk to the pre-fight dialog (worm pre-placed, not yet
+   moving). Enable `LogBossEncounter` for the `[EmperorWorm]` lines.
+2. **Test A (host picks first):** host advances the dialog to the fight-start option and selects it. Expect
+   host log `host fight-start (local dialog) … -> broadcast commit`; each client log `client mirrored fight-start
+   (host commit)`. Both worms emerge + play music at the same time; client did NOT double-start.
+3. **Test B (client picks first):** fresh encounter; the *client* selects the fight-start option. Expect client
+   log `client fight-start (local dialog) … -> requested host commit (local start blocked)`, host log `host
+   fight-start (client request) … -> committed + broadcast`, then the client's `client mirrored fight-start`.
+   The worm starts on both ends together, host worm authoritative.
+4. **Test C (opt-out client):** one player commits while the other is still in / hasn't opened the dialog — the
+   worm must still start for the non-committing client (via the broadcast). Its dialog staying open is the known
+   cosmetic loose end above.
+5. In all cases confirm EMP-3a…3d still work end-to-end after the synced start (head stream, section destroy,
+   client→host tail damage, death→StartPhase2) and there are 0 exceptions.

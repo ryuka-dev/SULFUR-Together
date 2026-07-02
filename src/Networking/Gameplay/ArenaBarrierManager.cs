@@ -139,6 +139,39 @@ namespace SULFURTogether.Networking.Gameplay
             _barriers.Clear();
         }
 
+        /// <summary>LD-2f: the InstanceIDs of the <c>MetalGate</c> component(s) this seal trigger drives (its
+        /// <c>onTriggerEvents</c> MetalGate.Close/Open targets). Used to hold that exact gate open (grace) / closed
+        /// (post-seal), because the seal trigger can be far from the gate it controls (Emperor: ~50 m apart), so a
+        /// position radius does NOT identify the gate — the object identity does. The gate the trigger closes is the
+        /// same object a nearby "open door" trigger opens, so blocking it by id catches the reopen too.</summary>
+        public static List<int> ResolveMetalGateIds(object trigger)
+        {
+            var ids = new List<int>();
+            try
+            {
+                if (trigger == null) return ids;
+                if (_eventField == null)
+                    _eventField = trigger.GetType().GetField("onTriggerEvents", BindingFlags.Public | BindingFlags.Instance);
+                if (!(_eventField?.GetValue(trigger) is UnityEventBase evt)) return ids;
+                int n = evt.GetPersistentEventCount();
+                for (int i = 0; i < n; i++)
+                {
+                    string method = evt.GetPersistentMethodName(i);
+                    var target = evt.GetPersistentTarget(i);
+                    if (target == null) continue;
+                    if ((string.Equals(method, "Close", StringComparison.Ordinal) || string.Equals(method, "Open", StringComparison.Ordinal))
+                        && target.GetType().Name.IndexOf("MetalGate", StringComparison.Ordinal) >= 0)
+                        ids.Add(target.GetInstanceID());
+                }
+            }
+            catch { }
+            return ids;
+        }
+
+        /// <summary>LD-2f: resolve the MetalGate id(s) for the arena by finding its seal trigger first.</summary>
+        public static List<int> ResolveMetalGateIdsFromArena(Vector3 arenaPos)
+            => ResolveMetalGateIds(FindMatchTrigger(arenaPos));
+
         // ----------------------------------------------------------------- barrier construction
 
         private static GameObject BuildBarrier((Transform t, Bounds bounds, bool hasBounds, int layer) anchor)

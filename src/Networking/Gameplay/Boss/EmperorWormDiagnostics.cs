@@ -57,6 +57,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             PatchNamed(harmony, worm, "DestroySection", postfix: Post(nameof(DestroySection_FunctionalPost)));
             PatchNamed(harmony, worm, "DeathAnimation", postfix: Post(nameof(DeathAnimation_FunctionalPost)));
 
+            // EMP-4: fight-start (dialog) authority — FUNCTIONAL, registered unconditionally. StartMovement is the
+            // worm's fight-start (Log254: the pre-fight dialog's final choice invokes it, per-end). The prefix makes it
+            // host-authoritative: a linked client blocks its own local start and waits for the host's broadcast commit,
+            // so Initialize/emergence/music begin in step on every end. See NetEmperorWormSync.TryGateFightStart.
+            PatchNamed(harmony, worm, "StartMovement", prefix: Post(nameof(StartMovement_FightGate_Pre)));
+
             if (!DiagEnabled) { Plugin.Log.Info("[EmperorWorm] worm head-sync active; diagnostics off."); return; }
 
             var evtPost = Post(nameof(Worm_Post));
@@ -125,6 +131,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch { }
             return true; // unlinked solo client / anything else: run normally
         }
+
+        // EMP-4: fight-start (dialog) gate. Returns false to block a linked client's local StartMovement (deferred to
+        // the host's authoritative commit); true otherwise (single-player, unlinked, host, or our own reentry invoke).
+        private static bool StartMovement_FightGate_Pre(object __instance)
+            => NetEmperorWormSync.TryGateFightStart(__instance);
 
         // EMP-3b: host-only. A real DestroySection just ran natively (called from the host's real WeakpointHit) —
         // broadcast it so every linked client mirrors the same destroy on its own worm.

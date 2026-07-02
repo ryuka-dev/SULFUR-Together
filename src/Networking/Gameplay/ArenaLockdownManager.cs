@@ -36,9 +36,21 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static readonly Dictionary<string, Lockdown> _locks = new Dictionary<string, Lockdown>();
 
-        // LD-2d grace: arenas (key→trigger pos) where THIS end is holding its combat-room gate OPEN during the grace
-        // window so teammates can still walk in. Closed (for real) when the host's CloseDoor command lands at t0+5 s.
-        private static readonly Dictionary<string, Vector3> _localGrace = new Dictionary<string, Vector3>();
+        // LD-2d grace + LD-2f mod-owned door, tracked by the GATE's InstanceID — NOT by position. The seal trigger can
+        // be ~50 m from the gate it drives (Emperor: dialog/seal trigger deep inside, gate at the entrance), so a
+        // position radius can't identify the gate; object identity can (the id the trigger's onTriggerEvents targets is
+        // the same id the MetalGate.Close/Open prefix sees, and the same gate a nearby open-door trigger reopens).
+        //   _gracedGates: arenaKey → gate ids held OPEN during the ~5 s grace (Close blocked); moved to _heldGates at t0+5.
+        //   _heldGates:   arenaKey → gate ids the mod holds CLOSED post-seal (Open blocked) until release.
+        private static readonly Dictionary<string, HashSet<int>> _gracedGates = new Dictionary<string, HashSet<int>>();
+        private static readonly Dictionary<string, HashSet<int>> _heldGates   = new Dictionary<string, HashSet<int>>();
+
+        // The one legit reopen is "all enemies dead" (AllDeadTrigger → gate Open → release). CheckAllDead sets this
+        // short window so that open passes the hold; every other open while held is blocked. Generic: AllDeadTrigger is
+        // the standard MetalGate-room reopen (covers Cousin etc.); an arena with no AllDeadTrigger (Emperor) simply
+        // stays closed until scene-change Clear — which is exactly "the mod keeps it closed."
+        private static float _legitGateOpenUntil = -999f;
+        private const float LegitGateOpenWindowSeconds = 2f;
 
         // LD-2e: arenas (key) whose seal trigger THIS end's local player has crossed at least once (fallback in/out when
         // no doorway sensor data exists).
@@ -106,28 +118,48 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!Enabled || !GraceEnabled || !NetGameplaySyncBridge.IsSessionActive) return;
                 if (!IsSealTrigger(trigger, out Vector3 pos)) return;
                 string key = Key(pos);
-                if (_localGrace.ContainsKey(key)) return;
-                _localGrace[key] = pos;
-                if (LogOn) NetLogger.Info($"[ArenaLockdown] grace begin arena={key} (gate held open ~{SealDelaySeconds:0}s)");
+                if (_gracedGates.ContainsKey(key)) return;
+                var ids = ArenaBarrierManager.ResolveMetalGateIds(trigger); // the gate this trigger drives (id, not pos)
+                _gracedGates[key] = new HashSet<int>(ids);
+                if (LogOn) NetLogger.Info($"[ArenaLockdown] grace begin arena={key} gates=[{string.Join(",", ids)}] (held open ~{SealDelaySeconds:0}s)");
             }
             catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] BeginLocalGrace failed: {ex.Message}"); }
         }
 
-        /// <summary>MetalGate.Close PREFIX: true if a grace window is active near this gate (→ block the close so the
-        /// gate stays open during grace).</summary>
-        public static bool IsGateInLocalGrace(Vector3 gatePos)
+        /// <summary>MetalGate.Close PREFIX: true if THIS gate (by id) is being held OPEN during a grace window (→ block
+        /// the close so the gate stays open until the host's t0+5 s CloseDoor).</summary>
+        public static bool IsGateGraced(int gateId)
         {
-            if (_localGrace.Count == 0) return false;
-            float r2 = GraceGateRadius * GraceGateRadius;
-            foreach (var kv in _localGrace)
-                if ((kv.Value - gatePos).sqrMagnitude <= r2) return true;
+            foreach (var kv in _gracedGates) if (kv.Value.Contains(gateId)) return true;
             return false;
         }
 
         private static void EndLocalGrace(Vector3 arenaPos)
         {
             string key = Key(arenaPos);
-            if (_localGrace.Remove(key) && LogOn) NetLogger.Info($"[ArenaLockdown] grace end arena={key}");
+            if (_gracedGates.Remove(key) && LogOn) NetLogger.Info($"[ArenaLockdown] grace end arena={key}");
+        }
+
+        // ----------------------------------------------------------------- LD-2f mod-owned door (keep closed until release)
+
+        /// <summary>MetalGate.Open PREFIX query: true if THIS gate (by id) is being held CLOSED by the mod (post-seal),
+        /// so a spurious reopen should be blocked.</summary>
+        public static bool IsGateHeld(int gateId)
+        {
+            foreach (var kv in _heldGates) if (kv.Value.Contains(gateId)) return true;
+            return false;
+        }
+
+        /// <summary>True during the brief window after all enemies died (AllDeadTrigger) — the ONE legit gate reopen,
+        /// which must pass the hold so the arena releases normally.</summary>
+        public static bool IsLegitGateOpenWindow() => Time.unscaledTime <= _legitGateOpenUntil;
+
+        /// <summary>AllDeadTrigger.CheckAllDead detected all enemies dead → it is about to Open the gate. Open a short
+        /// window so that (and only that) open passes the mod door-hold.</summary>
+        public static void NotifyAllEnemiesDead()
+        {
+            _legitGateOpenUntil = Time.unscaledTime + LegitGateOpenWindowSeconds;
+            if (LogOn) NetLogger.Info($"[ArenaLockdown] all-enemies-dead → legit gate-open window ({LegitGateOpenWindowSeconds:0}s)");
         }
 
         // ----------------------------------------------------------------- local entry (PlayerTrigger.Trigger postfix)
@@ -349,9 +381,12 @@ namespace SULFURTogether.Networking.Gameplay
                     case ArenaCommandKind.CloseDoor:
                         // Grace over: end the local hold and close the door for real (replay the trigger's seal action
                         // on its actual door target — robust regardless of gate registry/position).
-                        EndLocalGrace(arenaPos);
+                        EndLocalGrace(arenaPos); // clears the grace hold so the close below isn't blocked
                         int closedDoors = ArenaBarrierManager.CloseArenaDoorsLocal(arenaPos);
-                        if (LogOn) NetLogger.Info($"[ArenaLockdown] CloseDoor arena={Key(arenaPos)} closedDoors={closedDoors}");
+                        // LD-2f: from now the mod OWNS this door — hold the gate (by id) closed until release.
+                        var heldIds = ArenaBarrierManager.ResolveMetalGateIdsFromArena(arenaPos);
+                        if (heldIds.Count > 0) _heldGates[Key(arenaPos)] = new HashSet<int>(heldIds);
+                        if (LogOn) NetLogger.Info($"[ArenaLockdown] CloseDoor arena={Key(arenaPos)} closedDoors={closedDoors} heldGates=[{string.Join(",", heldIds)}] (door now held closed)");
                         break;
 
                     case ArenaCommandKind.Seal:
@@ -376,6 +411,9 @@ namespace SULFURTogether.Networking.Gameplay
                         break;
 
                     case ArenaCommandKind.Release:
+                        // LD-2f: fight over — the mod releases the door (stop blocking reopens for this arena).
+                        _heldGates.Remove(Key(arenaPos));
+                        _gracedGates.Remove(Key(arenaPos));
                         if (IsEffectivelyInArena(arenaPos)) break; // already inside — nothing to do
                         if (LogOn) NetLogger.Info($"[ArenaLockdown] RELEASE arena=({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0}) — fight over, entering");
                         TeleportIntoArena(arenaPos);
@@ -450,6 +488,8 @@ namespace SULFURTogether.Networking.Gameplay
         public static void OnGateOpened(Vector3 gatePos)
         {
             if (!Enabled || !NetGameplaySyncBridge.IsHost || _locks.Count == 0) return;
+            // LD-2f note: a spurious reopen is already blocked by the MetalGate.Open prefix (by gate id), so it never
+            // reaches here; only a genuine open (enter, or all-dead) does. Release detection stays position-based below.
             try
             {
                 Lockdown best = null; float bestSqr = GateReleaseRadius * GateReleaseRadius;
@@ -592,7 +632,9 @@ namespace SULFURTogether.Networking.Gameplay
         public static void Clear()
         {
             _locks.Clear();
-            _localGrace.Clear();
+            _gracedGates.Clear();
+            _heldGates.Clear();
+            _legitGateOpenUntil = -999f;
             _localCrossed.Clear();
             _doorwayCrossings.Clear();
             _activeArenaKey = "";
