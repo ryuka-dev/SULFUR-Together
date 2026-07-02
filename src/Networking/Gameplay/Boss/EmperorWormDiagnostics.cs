@@ -63,6 +63,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             // so Initialize/emergence/music begin in step on every end. See NetEmperorWormSync.TryGateFightStart.
             PatchNamed(harmony, worm, "StartMovement", prefix: Post(nameof(StartMovement_FightGate_Pre)));
 
+            // EMP-7: sequential in-room player targeting — FUNCTIONAL, unconditional. A prefix on JumpToNextTarget
+            // advances the host worm to the next in-room player before each jump. Host-only inside the handler.
+            PatchNamed(harmony, worm, "JumpToNextTarget", prefix: Post(nameof(JumpToNextTarget_Target_Pre)));
+
             if (!DiagEnabled) { Plugin.Log.Info("[EmperorWorm] worm head-sync active; diagnostics off."); return; }
 
             var evtPost = Post(nameof(Worm_Post));
@@ -137,6 +141,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // the host's authoritative commit); true otherwise (single-player, unlinked, host, or our own reentry invoke).
         private static bool StartMovement_FightGate_Pre(object __instance)
             => NetEmperorWormSync.TryGateFightStart(__instance);
+
+        // EMP-7: host advances the worm to the next in-room player before each jump (sequential targeting).
+        private static void JumpToNextTarget_Target_Pre(object __instance)
+            => NetEmperorWormSync.HostAdvanceWormTarget(__instance);
 
         // EMP-3b: host-only. A real DestroySection just ran natively (called from the host's real WeakpointHit) —
         // broadcast it so every linked client mirrors the same destroy on its own worm.

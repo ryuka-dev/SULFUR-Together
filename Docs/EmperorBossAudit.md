@@ -570,6 +570,25 @@ them; (b) it is the authoritative boss, so a bug breaks P1 for everyone, and it 
 game update to the worm. **Recommendation if revisited: fix the collider / `AllSectionsBelowGround` bug first (~1
 iteration) — the kinematic direction already killed the main lag (Log266) — before committing to a full rewrite.**
 
+## 8.11 EMP-7 — worm sequential in-room player targeting
+
+The vanilla worm always targets its LOCAL player (`player` field, set in StartMovement to the host's own player), so
+in co-op it only ever chases the host. Requirement: attack the players **in the boss room, in turn**.
+
+Implementation (host-only, the worm runs native on the host): all of the worm's targeting funnels through the single
+`player` field (`JumpToNextTarget`, `GetRandomPointAroundPlayer`, `TryFindValidJumpPosition`, and the airborne
+homing). So we point `player` at a reused anchor Transform placed on the currently-targeted in-room player:
+- **Per frame** (from `HostCapture`, before native FixedUpdate) `HostUpdateWormTarget` keeps the anchor on the current
+  target's live position and sets `player = anchor`, so homing tracks that player.
+- **Per jump** a prefix on `JumpToNextTarget` (`HostAdvanceWormTarget`) advances to the next in-room player and
+  repositions the anchor, so successive jumps attack players in turn.
+- **In-room filter:** the rotation is built from the arena-lockdown in-room set
+  (`ArenaLockdownManager.TryGetActiveArenaInRoom` — ids are `"host"` + client peer ids) intersected with the players
+  actually present (`ForEachRemotePlayerPositionWithPeer`). Out-of-room players are skipped. **Fail-open:** if no
+  in-room set is known, it falls back to the host player (never leaves the worm without a target).
+- The original host player transform is captured once (before the field is ever overridden) as the fallback; state
+  resets on a fresh worm instance. Client unaffected (head-streamed). No config (always-on host targeting).
+
 ## 8. Probe plan — `EmperorWormDiagnostics` (validate before building)
 
 Observe-only, config-gated (`EnableEmperorWormDiagnostics` + `LogBossEncounter`), tagged with side

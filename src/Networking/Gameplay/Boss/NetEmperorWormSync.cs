@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -50,6 +51,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static FieldInfo  _lastSectionNpcField;
         // EMP-4: fight-start (dialog) commit.
         private static MethodInfo _startMovementMi;
+        // EMP-7: sequential in-room player targeting.
+        private static FieldInfo  _playerField;
 
         private static void EnsureReflect(object worm)
         {
@@ -64,6 +67,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _deathAnimationMi    = AccessTools.Method(t, "DeathAnimation");
             _lastSectionNpcField = AccessTools.Field(t, "lastSectionNpc");
             _startMovementMi     = AccessTools.Method(t, "StartMovement");
+            _playerField         = AccessTools.Field(t, "player");
         }
 
         // Cached so a message-received callback (which has no worm reference of its own) can find the live worm.
@@ -88,6 +92,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (!(worm is Component c) || c == null) return;
             _hostWormRef = c; // EMP-3d: so an inbound client worm-hit can reach the host's live worm + its lastSectionNpc.
             EnsureReflect(worm);
+            HostUpdateWormTarget(c); // EMP-7: keep the worm's `player` on the current in-room target (runs before native FixedUpdate)
             // EMP-4: a client's fight-start request may have arrived before the host worm was live (host still loading
             // into the Emperor level). Now that the host worm exists, honour the deferred request.
             if (_hostFightStartPending && _fightStartCommittedWormId != c.GetInstanceID())
@@ -117,6 +122,136 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         }
 
         private static float _lastRecvLogAt = -999f;
+
+        // ================================================================ EMP-7: sequential in-room player targeting
+        // The vanilla worm always targets its LOCAL player (the host's own — `player` field set in StartMovement), so in
+        // co-op it only ever attacks the host. Requirement: attack the players IN THE BOSS ROOM, in turn. On the host we
+        // point the worm's `player` field at a small anchor Transform placed on the currently-targeted in-room player,
+        // and advance to the next in-room player each jump (JumpToNextTarget). All the worm's targeting
+        // (GetRandomPointAroundPlayer / direct-player jumps / airborne homing) reads `player`, so this rotates the whole
+        // attack. Out-of-room players (not in the arena-lockdown in-room set) are skipped. Fail-open: if no in-room set is
+        // known, fall back to the host player so the worm always has a target.
+        private static Transform _wormAnchor;       // reused anchor placed on the current target each frame
+        private static Transform _wormHostPlayerTf; // the worm's original `player` (host local player), captured once
+        private static int       _wormAnchorWormId;
+        private static readonly List<string> _wormRotation = new List<string>(); // in-room ids, stable order
+        private static int    _wormRotIndex;
+        private static string _wormTargetId;
+        private static float  _lastWormTargetLogAt = -999f;
+
+        /// <summary>Host, per-frame (from HostCapture, before native FixedUpdate): place the anchor on the current in-room
+        /// target and point the worm's `player` at it. Captures the original host player once so we can fall back to it.</summary>
+        private static void HostUpdateWormTarget(Component worm)
+        {
+            try
+            {
+                if (NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                EnsureReflect(worm);
+                if (_playerField == null) return;
+
+                // Fresh worm → recapture the host player and reset the rotation.
+                if (_wormAnchorWormId != worm.GetInstanceID())
+                {
+                    _wormAnchorWormId = worm.GetInstanceID();
+                    _wormHostPlayerTf = null; _wormTargetId = null; _wormRotation.Clear(); _wormRotIndex = 0;
+                }
+                if (_wormHostPlayerTf == null)
+                {
+                    _wormHostPlayerTf = _playerField.GetValue(worm) as Transform; // captured BEFORE we ever override it
+                    if (_wormHostPlayerTf == null) return; // not initialized yet (pre-StartMovement)
+                }
+
+                if (_wormTargetId == null) RebuildRotationAndAdvance(); // first target
+                PositionAnchorOnTarget(worm);
+            }
+            catch { }
+        }
+
+        /// <summary>Host, on each JumpToNextTarget (prefix): advance to the next in-room player so successive jumps attack
+        /// players in turn, then immediately point the anchor at the new target so the jump that follows uses it.</summary>
+        public static void HostAdvanceWormTarget(object worm)
+        {
+            try
+            {
+                if (NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                if (!(worm is Component c) || c == null) return;
+                EnsureReflect(worm);
+                if (_playerField == null || _wormHostPlayerTf == null) return; // targeting not initialized yet
+                RebuildRotationAndAdvance();
+                PositionAnchorOnTarget(c);
+            }
+            catch { }
+        }
+
+        /// <summary>Place the reused anchor on the current target's live position and point the worm's `player` at it.</summary>
+        private static void PositionAnchorOnTarget(Component worm)
+        {
+            if (!TryResolvePlayerPos(_wormTargetId, out Vector3 targetPos)) targetPos = _wormHostPlayerTf.position;
+            if (_wormAnchor == null)
+            {
+                var go = new GameObject("EmperorWormTargetAnchor");
+                Object.DontDestroyOnLoad(go);
+                _wormAnchor = go.transform;
+            }
+            _wormAnchor.position = targetPos;
+            _playerField.SetValue(worm, _wormAnchor);
+        }
+
+        private static void RebuildRotationAndAdvance()
+        {
+            // Current in-room id set (host authoritative). Fail-open → host-only rotation.
+            HashSet<string> inRoom = null;
+            try { SULFURTogether.Networking.Gameplay.ArenaLockdownManager.TryGetActiveArenaInRoom(out inRoom); } catch { }
+
+            // Build a stable list of in-room targetable ids: "host" (if in-room or no set) + each remote peer present.
+            var next = new List<string>();
+            bool hostIn = inRoom == null || inRoom.Contains("host");
+            if (hostIn) next.Add("host");
+            try
+            {
+                NetGameplaySyncBridge.ForEachRemotePlayerPositionWithPeer((peerId, _) =>
+                {
+                    if (string.IsNullOrEmpty(peerId)) return;
+                    if (inRoom != null && !inRoom.Contains(peerId)) return; // out-of-room → skip
+                    if (!next.Contains(peerId)) next.Add(peerId);
+                });
+            }
+            catch { }
+            if (next.Count == 0) next.Add("host"); // never leave the worm without a target
+
+            // Preserve position in the rotation where possible; advance by one.
+            _wormRotation.Clear(); _wormRotation.AddRange(next);
+            int cur = _wormTargetId != null ? _wormRotation.IndexOf(_wormTargetId) : -1;
+            _wormRotIndex = (cur < 0) ? 0 : (cur + 1) % _wormRotation.Count;
+            string newId = _wormRotation[_wormRotIndex];
+            if (newId != _wormTargetId)
+            {
+                _wormTargetId = newId;
+                float now = Time.realtimeSinceStartup;
+                if (now - _lastWormTargetLogAt > 0.5f)
+                {
+                    _lastWormTargetLogAt = now;
+                    Plugin.Log.Info($"[EmperorWorm] worm now targeting in-room player '{_wormTargetId}' (rotation {_wormRotIndex + 1}/{_wormRotation.Count})");
+                }
+            }
+            else _wormTargetId = newId;
+        }
+
+        /// <summary>Resolve an in-room id ("host" or a remote peer) to its current world position on the host.</summary>
+        private static bool TryResolvePlayerPos(string id, out Vector3 pos)
+        {
+            pos = Vector3.zero;
+            if (string.IsNullOrEmpty(id)) return false;
+            if (id == "host") { if (_wormHostPlayerTf == null) return false; pos = _wormHostPlayerTf.position; return true; }
+            Vector3 found = Vector3.zero; bool ok = false;
+            try
+            {
+                NetGameplaySyncBridge.ForEachRemotePlayerPositionWithPeer((peerId, p) =>
+                { if (!ok && peerId == id) { found = p; ok = true; } });
+            }
+            catch { }
+            pos = found; return ok;
+        }
 
         // ================================================================ CLIENT
         /// <summary>Client: store a received head sample (drop out-of-order / duplicate).</summary>
