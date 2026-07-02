@@ -346,6 +346,16 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch { return false; }
         }
 
+        /// <summary>LD-Sandstorm / F4: true on a joined client — the boss position is host-authoritative, so the client
+        /// must NOT reposition the boss to its OWN camera during the intro (DesertClause.RepositionBossFromCamera places
+        /// the rig 12 m in front of each end's camera → the ~35 m divergence). The host keeps its reposition (cinematic);
+        /// the client leaves the boss at its placed position and follows the host. Not gated on fightStarted (pre-fight).</summary>
+        public static bool ShouldSuppressClientBossReposition()
+        {
+            try { return Enabled && NetGameplaySyncBridge.BossMode == NetMode.Client; }
+            catch { return false; }
+        }
+
         /// <summary>LD-Sandstorm / F4: true while a registered boss that runs a LOCAL intro presentation (Desert) is
         /// mid-intro on this client — the host start has been applied but the fight has not yet started (the intro
         /// animation chain is playing toward TriggerFight). The enemy-state apply loop uses this to keep the boss out of

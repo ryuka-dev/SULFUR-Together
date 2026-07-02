@@ -179,6 +179,14 @@ namespace SULFURTogether.Patches
                         harmony.Patch(m, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_UpdatePhases_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
                     Log.Info($"[BossCombat] patched DesertClause.{name}({m != null}) — client combat/transition suppression");
                 }
+
+                // Position: the intro's RepositionBossFromCamera places the rig 12 m in front of the LOCAL camera, so
+                // each end puts the boss somewhere different (~35 m apart). Block it on the client — the boss stays at its
+                // placed (seed-synced) position and follows the host; the host keeps its own reposition for the cinematic.
+                var repos = AccessTools.Method(desert, "RepositionBossFromCamera");
+                if (repos != null)
+                    harmony.Patch(repos, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_RepositionBossFromCamera_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[BossCombat] patched DesertClause.RepositionBossFromCamera({repos != null}) — client reposition suppression");
             }
             catch (Exception ex) { Log.Error($"[BossCombat] Desert phase suppression patch failed: {ex.Message}"); }
         }
@@ -187,6 +195,13 @@ namespace SULFURTogether.Patches
         private static bool Desert_UpdatePhases_Pre(object __instance)
         {
             try { return !SULFURTogether.Networking.Gameplay.Boss.NetBossEncounterManager.ShouldSuppressClientBossCombat(__instance); }
+            catch { return true; }
+        }
+
+        // Returns false (skip the camera reposition) on a joined client so the boss stays host-positioned; true on host.
+        private static bool Desert_RepositionBossFromCamera_Pre()
+        {
+            try { return !SULFURTogether.Networking.Gameplay.Boss.NetBossEncounterManager.ShouldSuppressClientBossReposition(); }
             catch { return true; }
         }
 
