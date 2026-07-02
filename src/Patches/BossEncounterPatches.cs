@@ -166,12 +166,18 @@ namespace SULFURTogether.Patches
             if (desert == null) { Log.Info("[BossCombat] DesertClause type not found (phase suppression skipped)"); return; }
             try
             {
-                foreach (var name in new[] { "UpdatePhasesDeltaTime", "UpdatePhasesFixedTime" })
+                // Approach B (host-authoritative): on the client the boss is a passive puppet. Suppress its per-frame
+                // phase combat (UpdatePhases*) AND its local phase TRANSITION (TransitionTo). The latter is critical:
+                // BossPhase.Update runs its own CheckValidTransition → TransitionTo → PhaseTransition() which sets the
+                // boss invulnerable and is only cleared by the (suppressed) UpdatePhases → the client boss half-transitions
+                // and freezes at the phase threshold (LogOutput279: BossState apply stalls at ~70%). Blocking TransitionTo
+                // keeps the client boss fully passive; phase/dialog/adds come host-authoritatively (host-mirror stages).
+                foreach (var name in new[] { "UpdatePhasesDeltaTime", "UpdatePhasesFixedTime", "TransitionTo" })
                 {
                     var m = AccessTools.Method(desert, name);
                     if (m != null)
                         harmony.Patch(m, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_UpdatePhases_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
-                    Log.Info($"[BossCombat] patched DesertClause.{name}({m != null}) — client combat suppression");
+                    Log.Info($"[BossCombat] patched DesertClause.{name}({m != null}) — client combat/transition suppression");
                 }
             }
             catch (Exception ex) { Log.Error($"[BossCombat] Desert phase suppression patch failed: {ex.Message}"); }
