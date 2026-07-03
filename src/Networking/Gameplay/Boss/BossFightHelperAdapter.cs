@@ -1,4 +1,8 @@
 using System;
+using System.Collections;
+using System.Linq;
+using System.Reflection;
+using PerfectRandom.Sulfur.Core;
 using UnityEngine;
 
 namespace SULFURTogether.Networking.Gameplay.Boss
@@ -58,6 +62,192 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // out of the generic puppet system for the intro's duration. Terrorbaum/Lucia appear fully-formed → false.
         public override bool RunsLocalIntroPresentation(object component)
             => BossReflect.HasMethod(component, "OnStartInteractWithBoss");
+
+        // ---- LD-Sandstorm / F4 Stage 2: mid-fight dialog sync (Desert airstrike / sniper / terminator) ----
+        // The Desert boss opens mid-fight dialogs by setting bossNPC.dialog.graph to one of these fields then calling
+        // bossNPC.Interact(null). On the client the boss is passive (UpdatePhases suppressed), so it never opens them.
+        // The host detects the open (Npc.Interact postfix → OnHostBossDialogInteract), identifies the graph here, and
+        // broadcasts a "Dialog:<id>" discrete event; the client sets the same graph + Interact to play the same cutscene.
+        private static readonly string[] DesertDialogFields = { "airstrikeDialogue", "sniperDialogue", "terminatorDialogue" };
+        private static readonly string[] DesertDialogIds    = { "airstrike", "sniper", "terminator" };
+
+        private static object? GetBossNpc(object component)
+            => BossReflect.GetMember(component, "bossNPC") ?? BossReflect.GetMember(component, "bossUnit");
+
+        /// <summary>HOST: if the boss's NPC currently has one of the mid-fight dialog graphs set, return its id.</summary>
+        public override bool TryGetActiveMidFightDialogId(object component, out string dialogId)
+        {
+            dialogId = "";
+            try
+            {
+                if (!BossReflect.HasMethod(component, "OnStartInteractWithBoss")) return false; // DesertClause only
+                var npc = GetBossNpc(component);
+                var dialog = npc == null ? null : BossReflect.GetMember(npc, "dialog");
+                var graph = dialog == null ? null : BossReflect.GetMember(dialog, "graph");
+                if (graph == null) return false;
+                for (int i = 0; i < DesertDialogFields.Length; i++)
+                    if (ReferenceEquals(BossReflect.GetMember(component, DesertDialogFields[i]), graph)) { dialogId = DesertDialogIds[i]; return true; }
+                return false;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>CLIENT: apply a host "Dialog:&lt;id&gt;" event — set the same dialog graph + open it locally.</summary>
+        public override bool TryApplyDiscreteEvent(object component, string eventName, bool hasPos, Vector3 pos, out string detail)
+        {
+            detail = "";
+            // CLIENT (LD-Sandstorm / F4 Stage 3, phase-action sync): the host boss dismounted its pike. On the client the
+            // boss body is welded to the local mount — the native DesertPikeCarrier.AttachUnit parents the body to a mount
+            // point AND disables its animator, and its Update() forces every attachedUnit's localPosition to Vector3.zero
+            // each frame. So a bare SetBool does nothing, and even after reparenting the body away the pike keeps zeroing
+            // it (Log286: placed correctly for one frame, then snapped to world (0,0,0) = localPosition 0 under UnitRoot).
+            // Replay the native detach AND sever the attachedUnits link so Update() stops touching it: remove from the
+            // pike carrier's list, reparent to unitRoot, re-enable the animator, play "JumpingOffPike", and — since the
+            // client has no local jump-arc physics — bring the body down to the host's landing position with a short arc.
+            if (eventName == "BossJump" || eventName == "BossLand")
+            {
+                bool jumping = eventName == "BossJump";
+                var npc = GetBossNpc(component);
+                if (!(npc is Component bodyC) || bodyC == null) { detail = "no boss body"; return false; }
+                var animator = BossReflect.GetMember(npc, "animator") as Animator;
+                SeverBossFromPike(component, npc);
+                DetachBossFromMount(npc, bodyC.transform, animator);
+                if (jumping)
+                {
+                    if (animator != null) animator.SetBool("JumpingOffPike", true);
+                    detail = "detached mount + JumpingOffPike=true";
+                    return true;
+                }
+                // BossLand: end the jump-off; descend to the host landing spot (short arc via coroutine, snap as fallback).
+                TrySetMember(npc, "isAttachedToUnit", false);
+                if (hasPos && component is MonoBehaviour mb && mb != null)
+                {
+                    mb.StartCoroutine(DescendThenLand(bodyC.transform, pos, animator));
+                    detail = $"land descend -> {pos:F1}";
+                }
+                else
+                {
+                    if (hasPos) bodyC.transform.position = pos;
+                    if (animator != null) animator.SetBool("JumpingOffPike", false);
+                    detail = hasPos ? $"land snap -> {pos:F1}" : "land (no pos)";
+                }
+                return true;
+            }
+            // CLIENT: the host's boss dialog closed → finalize our copy (the client's dialog won't end on its own,
+            // because the boss actions it waits on are suppressed here). Real Graph.Stop(true) via BossDialogReflect.
+            if (eventName == "DialogClose")
+            {
+                bool closed = BossDialogReflect.TryFinalizeCurrentDialog(out string cd);
+                detail = $"dialog close finalized={closed} ({cd})";
+                return true;
+            }
+            if (eventName == null || !eventName.StartsWith("Dialog:", StringComparison.Ordinal)) { detail = "not-a-dialog-event"; return false; }
+            string id = eventName.Substring(7);
+            int idx = Array.IndexOf(DesertDialogIds, id);
+            if (idx < 0) { detail = "unknown-dialog:" + id; return false; }
+            try
+            {
+                var npc = GetBossNpc(component);
+                var dialog = npc == null ? null : BossReflect.GetMember(npc, "dialog");
+                var graph = BossReflect.GetMember(component, DesertDialogFields[idx]);
+                if (npc == null || dialog == null || graph == null) { detail = $"missing npc/dialog/graph (npc={npc != null} dialog={dialog != null} graph={graph != null})"; return false; }
+                if (!TrySetMember(dialog, "graph", graph)) { detail = "set-graph-failed"; return false; }
+                var interact = FindInteract(npc.GetType());
+                if (interact == null) { detail = "Interact(1-arg) not found"; return false; }
+                interact.Invoke(npc, new object?[] { null });
+                detail = $"opened dialog {id}";
+                return true;
+            }
+            catch (Exception ex) { detail = $"ex {ex.GetType().Name}: {ex.Message}"; return false; }
+        }
+
+        private static MethodInfo? FindInteract(Type npcType)
+        {
+            for (Type? t = npcType; t != null; t = t.BaseType)
+            {
+                var m = t.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+                         .FirstOrDefault(mi => mi.Name == "Interact" && mi.GetParameters().Length == 1);
+                if (m != null) return m;
+            }
+            return null;
+        }
+
+        private static bool TrySetMember(object obj, string name, object value)
+        {
+            for (Type? t = obj.GetType(); t != null; t = t.BaseType)
+            {
+                var f = t.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                if (f != null) { f.SetValue(obj, value); return true; }
+                var p = t.GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                if (p != null && p.CanWrite) { p.SetValue(obj, value); return true; }
+            }
+            return false;
+        }
+
+        // LD-Sandstorm / F4 Stage 3: remove the boss from its pike carrier's `attachedUnits` list on the client. The
+        // carrier's Update() zeroes every attached unit's localPosition every frame (decomp DesertPikeCarrier.Update), so
+        // until the boss is off that list any position we set is stomped back to the mount/origin. spawnedBossPike is the
+        // boss's pike Unit; the DesertPikeCarrier is a component on it holding the list. Idempotent.
+        private static void SeverBossFromPike(object helper, object bossNpc)
+        {
+            try
+            {
+                var pike = BossReflect.GetMember(helper, "spawnedBossPike");
+                if (!(pike is Component pikeC) || pikeC == null) return;
+                foreach (var comp in pikeC.GetComponents<Component>())
+                {
+                    if (comp == null) continue;
+                    var f = comp.GetType().GetField("attachedUnits", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (f == null) continue;
+                    if (f.GetValue(comp) is IList list && list.Contains(bossNpc))
+                    {
+                        list.Remove(bossNpc);
+                        Plugin.Log.Info("[BossPhaseAction] severed boss from pike attachedUnits (client)");
+                    }
+                    return;
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossPhaseAction] SeverBossFromPike failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // LD-Sandstorm / F4 Stage 3: replay the native pike-carrier detach on the client boss so it can leave the mount.
+        // The native attach parents the body to a mount point + disables its animator; detach reparents to unitRoot,
+        // re-enables the animator, unflips the sprite scale and re-enables billboard rotation. Idempotent (safe to call
+        // for both BossJump and BossLand).
+        private static void DetachBossFromMount(object npc, Transform body, Animator? animator)
+        {
+            try
+            {
+                Transform? root = null;
+                try { root = GameManager.Instance != null ? GameManager.Instance.unitRoot : null; } catch { }
+                if (body.parent != root) body.SetParent(root, worldPositionStays: true);
+                var s = body.localScale; s.x = Mathf.Abs(s.x); body.localScale = s;
+                if (animator != null) animator.enabled = true;
+                var billboard = BossReflect.GetMember(npc, "billboard");
+                if (billboard != null) TrySetMember(billboard, "disableBillboardRotation", false);
+            }
+            catch { }
+        }
+
+        // Bring the detached boss down to the host's landing position over a short parabolic arc (the client has no local
+        // jump-arc physics), then clear the jump-off animation. Runs on the boss helper MonoBehaviour.
+        private static IEnumerator DescendThenLand(Transform body, Vector3 landing, Animator? animator)
+        {
+            Vector3 start = body != null ? body.position : landing;
+            const float dur = 0.5f;
+            float t = 0f;
+            while (t < dur && body != null)
+            {
+                t += Time.deltaTime;
+                float u = Mathf.Clamp01(t / dur);
+                Vector3 p = Vector3.Lerp(start, landing, u);
+                p.y += Mathf.Sin(u * Mathf.PI) * 1.5f; // small leap arc
+                body.position = p;
+                yield return null;
+            }
+            if (body != null) body.position = landing;
+            if (animator != null) animator.SetBool("JumpingOffPike", false);
+        }
 
         // DesertClause: OnStartInteractWithBoss() (player interact) -> DelayIntro coroutine -> anim event ->
         // TriggerFight() (sets fightStarted). Generic helpers (Terrorbaum/Lucia) only expose TriggerFight; the base

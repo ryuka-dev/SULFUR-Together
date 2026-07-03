@@ -130,6 +130,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// Default = false. Only DesertClause (composite: sandSantaAnimationSprite → intro anim → TriggerFight).</summary>
         bool RunsLocalIntroPresentation(object component);
 
+        /// <summary>LD-Sandstorm / F4 Stage 2 (dialog sync): HOST — if the boss's NPC currently has a mid-fight dialog
+        /// graph set (Desert airstrike/sniper/terminator), return its id so the host can broadcast it and the client can
+        /// open the same dialog locally (via <see cref="TryApplyDiscreteEvent"/> with "Dialog:&lt;id&gt;"). Default false.</summary>
+        bool TryGetActiveMidFightDialogId(object component, out string dialogId);
+
         /// <summary>Attach the boss health bar to this boss's health unit. Called ONCE per encounter by the manager
         /// (the native Attach re-subscribes each call). Returns false if there is no health unit.</summary>
         bool TryAttachBossBar(object component);

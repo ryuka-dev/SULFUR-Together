@@ -194,6 +194,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // ---- LD-Sandstorm / F4: default = boss appears fully-formed, no local intro to protect (only DesertClause) ----
         public virtual bool RunsLocalIntroPresentation(object component) => false;
 
+        // ---- LD-Sandstorm / F4 Stage 2: default = no mid-fight dialog to sync (only DesertClause) ----
+        public virtual bool TryGetActiveMidFightDialogId(object component, out string dialogId) { dialogId = ""; return false; }
+
         public virtual bool ProvidesPhaseState => false;
 
         /// <summary>Default: fill the host-authoritative health of the boss's damageable unit. Phase bosses override

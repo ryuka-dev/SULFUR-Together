@@ -42,6 +42,13 @@ namespace SULFURTogether.Patches
             PatchDesertPhaseSuppression(harmony, FindType("DesertClauseBossFightHelper",
                 "PerfectRandom.Sulfur.Core.DesertClauseBossFightHelper", "PerfectRandom.Sulfur.Gameplay.DesertClauseBossFightHelper"));
 
+            // LD-Sandstorm / F4 Stage 3: phase-action / presentation sync. The client boss is a passive puppet whose
+            // pike machinery is suppressed, so its dismount (OnBossJump/OnBossLand → the "JumpingOffPike" animator bool)
+            // never plays and it stays frozen on the mount. The host broadcasts the dismount as a discrete event; the
+            // client replays the animator state (the body's translation already follows via position snapshots).
+            PatchDesertDismount(harmony, FindType("DesertClauseBossFightHelper",
+                "PerfectRandom.Sulfur.Core.DesertClauseBossFightHelper", "PerfectRandom.Sulfur.Gameplay.DesertClauseBossFightHelper"));
+
             // B. Witch standalone system.
             PatchStart(harmony, FindType("WitchBossController",
                 "PerfectRandom.Sulfur.Gameplay.WitchBossController", "PerfectRandom.Sulfur.Core.WitchBossController"),
@@ -203,6 +210,44 @@ namespace SULFURTogether.Patches
         {
             try { return !SULFURTogether.Networking.Gameplay.Boss.NetBossEncounterManager.ShouldSuppressClientBossReposition(); }
             catch { return true; }
+        }
+
+        // LD-Sandstorm / F4 Stage 3: phase-action / presentation sync. The Desert boss dismounts its pike via the private
+        // OnBossJump / OnBossLand / OnBossLandTerminator callbacks (pikeCarrier.onJump/onLand delegates), which set the
+        // "JumpingOffPike" animator bool. On the host these run the real dismount; on the client the pike machinery is
+        // suppressed so they never fire. Postfix them (Desert-scoped) so the host broadcasts the dismount; the client
+        // replays the animator state via NetBossDiscreteEvent ("BossJump"/"BossLand"). Same-named methods on a different
+        // (legacy) boss type are NOT patched — only DesertClauseBossFightHelper.
+        private static void PatchDesertDismount(Harmony harmony, Type desert)
+        {
+            if (desert == null) { Log.Info("[BossPhaseAction] DesertClause type not found (dismount sync skipped)"); return; }
+            try
+            {
+                var jump = new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_OnBossJump_Post), BindingFlags.Static | BindingFlags.NonPublic));
+                var land = new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_OnBossLand_Post), BindingFlags.Static | BindingFlags.NonPublic));
+                var j = AccessTools.Method(desert, "OnBossJump");
+                if (j != null) harmony.Patch(j, postfix: jump);
+                Log.Info($"[BossPhaseAction] patched DesertClause.OnBossJump({j != null})");
+                foreach (var name in new[] { "OnBossLand", "OnBossLandTerminator" })
+                {
+                    var m = AccessTools.Method(desert, name);
+                    if (m != null) harmony.Patch(m, postfix: land);
+                    Log.Info($"[BossPhaseAction] patched DesertClause.{name}({m != null})");
+                }
+            }
+            catch (Exception ex) { Log.Error($"[BossPhaseAction] Desert dismount patch failed: {ex.Message}"); }
+        }
+
+        // Host-only (guarded inside): broadcast the pike jump-off so the passive client plays the "JumpingOffPike" anim.
+        private static void Desert_OnBossJump_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostBossPikeDismount(__instance, jumping: true);
+        }
+
+        // Host-only (guarded inside): broadcast the pike landing so the passive client clears "JumpingOffPike".
+        private static void Desert_OnBossLand_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostBossPikeDismount(__instance, jumping: false);
         }
 
         private static void WitchP2_InitPhase_Pre(object __instance)
@@ -588,6 +633,8 @@ namespace SULFURTogether.Patches
             SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnNpcInteract(__instance, __runOriginal);
             // Phase PF (Plan B): a boss Npc opened its dialog → arm the dialog-close fight commit for its encounter.
             if (__runOriginal) NetBossEncounterManager.NotifyBossDialogOpened(__instance);
+            // LD-Sandstorm / F4 Stage 2: host broadcasts a mid-fight boss dialog (Desert) so the passive client plays it.
+            if (__runOriginal) NetBossEncounterManager.OnHostBossDialogInteract(__instance);
         }
 
         // ================================================================== RM-2b: out-of-room intro effect suppression
@@ -686,6 +733,8 @@ namespace SULFURTogether.Patches
             SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnSetCurrentSpeakable(speakable);
             // Phase PF (Plan B): the dialog closed (null speakable) → if a gated boss dialog was open, commit the fight.
             if (speakable == null) NetBossEncounterManager.NotifyDialogClosed();
+            // LD-Sandstorm / F4 Stage 2: dialog close sync — if a boss dialog was open, tell the client to finalize its copy.
+            if (speakable == null) NetBossEncounterManager.OnHostBossDialogClosed();
         }
 
         private static void PlayerTrigger_Post(object __instance)

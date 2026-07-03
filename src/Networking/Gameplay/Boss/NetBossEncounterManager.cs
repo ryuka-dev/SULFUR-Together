@@ -356,6 +356,87 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch { return false; }
         }
 
+        /// <summary>LD-Sandstorm / F4 Stage 2 (dialog sync): HOST — a boss NPC just opened its dialog (Npc.Interact
+        /// postfix). If it is a registered, started boss with an active mid-fight dialog graph (Desert
+        /// airstrike/sniper/terminator), broadcast it as a "Dialog:&lt;id&gt;" discrete event so the client — whose boss
+        /// is a passive puppet and never opens the dialog itself — plays the same cutscene. No-op off-host.</summary>
+        public static void OnHostBossDialogInteract(object npc)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || npc == null) return;
+                string? key = null; IBossEncounterAdapter? adapter = null; object? component = null;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (!(e.Component is UnityEngine.Object uo) || uo == null) continue;
+                        object? hu = null; try { hu = e.Adapter.GetHealthUnit(e.Component); } catch { }
+                        if (hu != null && ReferenceEquals(hu, npc)) { key = kv.Key; adapter = e.Adapter; component = e.Component; break; }
+                    }
+                }
+                if (adapter == null || component == null || key == null) return;
+                // Track that a boss dialog is open (for the close sync below) — for ANY boss dialog (intro or mid-fight),
+                // so the host can tell the client to finalize when it closes. The intro dialog opens via the existing
+                // machinery, so only its CLOSE needs syncing; mid-fight dialogs get both open + close from here.
+                lock (_lock) { _desertDialogOpenKey = key; }
+                if (!SafeStarted(adapter, component)) return; // mid-fight OPEN broadcast only after the fight has started
+                if (!adapter.TryGetActiveMidFightDialogId(component, out string id) || string.IsNullOrEmpty(id)) return;
+                NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, EventName = "Dialog:" + id });
+                Plugin.Log.Info($"[BossDialogSync] host broadcast OPEN dialog={id} key={key}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogSync] OnHostBossDialogInteract failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // LD-Sandstorm / F4 Stage 2: the boss encounter whose dialog is currently open (host-tracked, for the close sync).
+        private static string? _desertDialogOpenKey;
+
+        /// <summary>HOST: a dialog just closed (DialogController.SetCurrentSpeakable(null)). If a boss dialog was open,
+        /// broadcast a "DialogClose" so the client finalizes ITS copy of the dialog at the same time (the client's dialog
+        /// won't end on its own — the boss actions it waits on are suppressed there). Covers intro + mid-fight dialogs.</summary>
+        public static void OnHostBossDialogClosed()
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                string? key; lock (_lock) { key = _desertDialogOpenKey; _desertDialogOpenKey = null; }
+                if (key == null) return;
+                NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, EventName = "DialogClose" });
+                Plugin.Log.Info($"[BossDialogSync] host broadcast CLOSE key={key}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogSync] OnHostBossDialogClosed failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>LD-Sandstorm / F4 Stage 3 (phase-action / presentation sync): HOST — the Desert boss just mounted-off
+        /// its pike. The native dismount is <c>pikeCarrier.onJump → OnBossJump</c> (sets the "JumpingOffPike" animator
+        /// bool + detaches the body) and <c>onLand → OnBossLand</c> (clears the bool, then Interact/resume). On the client
+        /// the boss is a passive puppet whose pike machinery is suppressed, so the dismount never runs and it stands
+        /// frozen on the mount. Broadcast it as a discrete "BossJump"/"BossLand" event; the client replays just the
+        /// visible animator state (its body's translation already follows the host via position snapshots). No-op
+        /// off-host.</summary>
+        public static void OnHostBossPikeDismount(object component, bool jumping)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || component == null) return;
+                if (!TryGetEncounterKeyForBoss(component, out string key, out string bossType)) return;
+                string ev = jumping ? "BossJump" : "BossLand";
+                // Carry the boss body's world position so the client can bring its (locally mount-welded, non-position-
+                // synced) boss down to the same spot. At OnBossLand the host body is already at the ground landing point.
+                bool hasPos = false; UnityEngine.Vector3 pos = UnityEngine.Vector3.zero;
+                try
+                {
+                    var adapter = ResolveAdapter(component);
+                    if (adapter?.GetHealthUnit(component) is UnityEngine.Component bodyC && bodyC != null) { pos = bodyC.transform.position; hasPos = true; }
+                }
+                catch { }
+                NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, BossType = bossType, EventName = ev, HasPos = hasPos, Position = pos });
+                Plugin.Log.Info($"[BossPhaseAction] host broadcast {ev} key={key} pos={(hasPos ? pos.ToString("F1") : "?")}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossPhaseAction] OnHostBossPikeDismount failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
         /// <summary>LD-Sandstorm / F4: true while a registered boss that runs a LOCAL intro presentation (Desert) is
         /// mid-intro on this client — the host start has been applied but the fight has not yet started (the intro
         /// animation chain is playing toward TriggerFight). The enemy-state apply loop uses this to keep the boss out of
