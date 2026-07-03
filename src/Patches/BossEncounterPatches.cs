@@ -292,7 +292,11 @@ namespace SULFURTogether.Patches
             catch (Exception ex) { Log.Error($"[BossPhaseAction] DesertPikeCarrier.AttachUnit patch failed: {ex.Message}"); }
         }
 
-        private static void Desert_PikeUpdate_Post() => NetBossEncounterManager.ProbeDesertVisibility();
+        private static void Desert_PikeUpdate_Post()
+        {
+            NetBossEncounterManager.UpdateBossPikeVisual();
+            NetBossEncounterManager.ProbeDesertVisibility();
+        }
 
         private static void WitchP2_InitPhase_Pre(object __instance)
             => SULFURTogether.Networking.Gameplay.Boss.WitchPhase2Probe.OnInitPhase(__instance);

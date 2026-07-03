@@ -298,6 +298,87 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             return base.TryApplyHostStart(component, state, out detail);
         }
 
+        private Renderer? _pikeVisual;
+        private Renderer? _pikeVisualSource;
+        private bool _pikeVisualLogged;
+
+        // LD-Sandstorm / F4 (pike-riding visibility): cosmetic, BOTH ends. The real boss body's "Sprite" renderer flakily
+        // gets stuck enabled=false in co-op (native JumpTowards re-enable lost — Log311 showed the client hitting it too,
+        // not just the host) and CANNOT be forced on without fighting the burrow cycle. So instead of touching the real
+        // renderer, mirror it onto an OWNED renderer that native never manages: a clone parented under the real Sprite's
+        // transform, mirroring its visual state each frame (the animator keeps driving the disabled renderer's data). The
+        // clone rides the pike and burrows with it (its parent GameObject toggles active). Only enabled while the real
+        // Sprite renderer is OFF — on an end where native works the clone stays disabled. Type-agnostic (Log312: the
+        // SpriteRenderer-only search silently never matched — the body renderer may be a MeshRenderer quad): a
+        // SpriteRenderer source mirrors sprite/flip/color; any other Renderer type mirrors mesh + materials + property
+        // block. Logs what it does so a silent no-op can't recur.
+        public void EnsureBossPikeVisual(object component)
+        {
+            try
+            {
+                var npc = GetBossNpc(component);
+                if (!(npc is Component bc) || bc == null) return;
+                Renderer? real = _pikeVisualSource;
+                if (real == null)
+                {
+                    foreach (var r in bc.GetComponentsInChildren<Renderer>(true))
+                        if (r != null && r.gameObject.name == "Sprite") { real = r; break; }
+                    if (real == null)
+                    {
+                        if (!_pikeVisualLogged) { _pikeVisualLogged = true; Plugin.Log.Warn("[BossPhaseAction] pike visual: no renderer named 'Sprite' on the boss body"); }
+                        return;
+                    }
+                    _pikeVisualSource = real;
+                }
+                if (real.enabled) { if (_pikeVisual != null && _pikeVisual.enabled) _pikeVisual.enabled = false; return; }
+                if (_pikeVisual == null)
+                {
+                    var go = new GameObject("CoopBossPikeVisual");
+                    go.transform.SetParent(real.transform, worldPositionStays: false);
+                    go.transform.localPosition = Vector3.zero;
+                    go.transform.localRotation = Quaternion.identity;
+                    go.transform.localScale = Vector3.one;
+                    if (real is SpriteRenderer)
+                    {
+                        _pikeVisual = go.AddComponent<SpriteRenderer>();
+                    }
+                    else
+                    {
+                        // Generic path (e.g. MeshRenderer quad): mirror the mesh + materials.
+                        var srcFilter = real.GetComponent<MeshFilter>();
+                        if (srcFilter != null) go.AddComponent<MeshFilter>().sharedMesh = srcFilter.sharedMesh;
+                        _pikeVisual = (Renderer)go.AddComponent(real.GetType());
+                    }
+                    Plugin.Log.Info($"[BossPhaseAction] pike visual clone created (source type={real.GetType().Name})");
+                }
+                var c = _pikeVisual;
+                if (real is SpriteRenderer sr && c is SpriteRenderer csr)
+                {
+                    csr.sprite = sr.sprite;
+                    csr.flipX = sr.flipX; csr.flipY = sr.flipY;
+                    csr.color = sr.color;
+                }
+                else
+                {
+                    var srcFilter = real.GetComponent<MeshFilter>();
+                    var dstFilter = c.GetComponent<MeshFilter>();
+                    if (srcFilter != null && dstFilter != null && dstFilter.sharedMesh != srcFilter.sharedMesh)
+                        dstFilter.sharedMesh = srcFilter.sharedMesh;
+                    var mpb = new MaterialPropertyBlock();
+                    real.GetPropertyBlock(mpb);
+                    c.SetPropertyBlock(mpb);
+                }
+                c.sharedMaterials = real.sharedMaterials;
+                c.sortingLayerID = real.sortingLayerID;
+                c.sortingOrder = real.sortingOrder;
+                c.enabled = true;
+            }
+            catch (Exception ex)
+            {
+                if (!_pikeVisualLogged) { _pikeVisualLogged = true; Plugin.Log.Warn($"[BossPhaseAction] pike visual failed: {ex.GetType().Name}: {ex.Message}"); }
+            }
+        }
+
         // LD-Sandstorm / F4 (pike-riding visibility probe): dump the Desert boss body's actual render + transform state so
         // we can see WHY it is invisible in co-op though SP shows it riding the pike persistently — is it (a) positioned
         // underground (y), (b) its GameObject inactive, (c) its renderers disabled, or (d) parented off/on the mount?
@@ -309,19 +390,21 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (!(npc is Component bc) || bc == null) { Plugin.Log.Info($"[DesertVis] {mode} no bossNPC"); return; }
                 var body = bc.transform;
                 var rends = bc.GetComponentsInChildren<Renderer>(true);
-                // Per-renderer: name=on/off (on = renderer.enabled AND its GameObject activeInHierarchy = actually drawing).
+                // Per-renderer: name=state where state = on(enabled+active) / OFF-rend / OFF-go, plus /vis (Renderer.isVisible
+                // = actually drawn by a camera this frame) — distinguishes "enabled but culled/blank" from "truly drawing".
                 var sb = new System.Text.StringBuilder();
                 foreach (var r in rends)
                 {
                     if (r == null) continue;
-                    bool drawing = r.enabled && r.gameObject.activeInHierarchy;
-                    sb.Append(r.gameObject.name).Append('=').Append(drawing ? "on" : (!r.enabled ? "OFF-rend" : "OFF-go")).Append(' ');
+                    bool en = r.enabled && r.gameObject.activeInHierarchy;
+                    sb.Append(r.gameObject.name).Append('=').Append(en ? (r.isVisible ? "on/vis" : "on/CULLED") : (!r.enabled ? "OFF-rend" : "OFF-go")).Append(' ');
                 }
                 string parent = body.parent != null ? body.parent.name : "<root>";
-                Vector3 rootPos = body.root != null ? body.root.position : Vector3.zero;
+                var animator = BossReflect.GetMember(npc, "animator") as Animator;
+                string anim = animator == null ? "null" : $"en={animator.enabled} spd={animator.speed:F1} scale={bc.transform.lossyScale.x:F2}";
                 var bossUnit = BossReflect.GetMember(component, "bossUnit");
                 Vector3 unitPos = (bossUnit is Component buc && buc != null) ? buc.transform.position : Vector3.zero;
-                Plugin.Log.Info($"[DesertVis] {mode} pos={body.position:F1} activeHier={bc.gameObject.activeInHierarchy} parent={parent} rootPos={rootPos:F1} bossUnitPos={unitPos:F1} rends[{sb.ToString().TrimEnd()}]");
+                Plugin.Log.Info($"[DesertVis] {mode} pos={body.position:F1} activeHier={bc.gameObject.activeInHierarchy} parent={parent} bossUnitPos={unitPos:F1} anim[{anim}] rends[{sb.ToString().TrimEnd()}]");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[DesertVis] failed: {ex.GetType().Name}: {ex.Message}"); }
         }

@@ -612,6 +612,36 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (Exception ex) { Plugin.Log.Warn($"[BossPhaseAction] OnLocalBossSandstorm failed: {ex.GetType().Name}: {ex.Message}"); return true; }
         }
 
+        private static int _pikeVisualFrame = -1;
+
+        /// <summary>LD-Sandstorm / F4 (pike-riding visibility): drive the cosmetic pike-visual clone for the started Desert
+        /// boss (see BossFightHelperAdapter.EnsureBossPikeVisual). Runs on BOTH ends, once per frame. The native Sprite
+        /// re-enable (JumpTowards) is flaky in co-op — either end can get the body "Sprite" renderer stuck off (Log311: the
+        /// client, whose earlier good run in Log308 was just luck). The clone only activates when the real Sprite is off and
+        /// NEVER touches the real renderer, so it is safe on both ends (unlike the reverted force-enable, Log310).</summary>
+        public static void UpdateBossPikeVisual()
+        {
+            try
+            {
+                if (!Enabled) return;
+                if (UnityEngine.Time.frameCount == _pikeVisualFrame) return;
+                _pikeVisualFrame = UnityEngine.Time.frameCount;
+                BossFightHelperAdapter? bfa = null; object? comp = null;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (!(e.Adapter is BossFightHelperAdapter a) || e.Component == null) continue;
+                        try { if (!a.RunsLocalIntroPresentation(e.Component) || !SafeStarted(a, e.Component)) continue; } catch { continue; }
+                        bfa = a; comp = e.Component; break;
+                    }
+                }
+                if (bfa != null && comp != null) bfa.EnsureBossPikeVisual(comp);
+            }
+            catch { }
+        }
+
         private static float _desertVisProbeNext;
 
         /// <summary>LD-Sandstorm / F4 (pike-riding visibility probe): throttled dump of the Desert boss body's render +
