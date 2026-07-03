@@ -31,6 +31,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static readonly Dictionary<string, Entry> _registry = new Dictionary<string, Entry>();
 
         private static readonly HashSet<string> _hostBroadcast = new HashSet<string>();
+        private static readonly HashSet<string> _hostCombatEntryBroadcast = new HashSet<string>(); // F4: TriggerFight broadcast once (distinct from the intro start)
+        private static readonly HashSet<string> _hostSandstormBroadcast = new HashSet<string>(); // F4: sandstorm broadcast once (host)
+        private static readonly HashSet<string> _sandstormSeen = new HashSet<string>();          // F4: StartSandstorm has run on THIS end (dedup, both roles)
         private static readonly HashSet<string> _clientRequested = new HashSet<string>();
         private static readonly HashSet<string> _appliedStart = new HashSet<string>();
         private static string _runScope = "";
@@ -188,7 +191,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             {
                 _registry.Clear();
                 _hostBroadcast.Clear();
+                _hostCombatEntryBroadcast.Clear();
+                _hostSandstormBroadcast.Clear();
+                _sandstormSeen.Clear();
                 _clientRequested.Clear();
+                _localIntroDialogKey = null;
+                _applyingHostDialogClose = false;
+                _introFinishRequested.Clear();
                 _appliedStart.Clear();
                 _continuation.Clear();
                 _pendingVerify.Clear();
@@ -247,7 +256,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _runScope = runScope;
                 _registry.Clear();
                 _hostBroadcast.Clear();
+                _hostCombatEntryBroadcast.Clear();
+                _hostSandstormBroadcast.Clear();
+                _sandstormSeen.Clear();
                 _clientRequested.Clear();
+                _localIntroDialogKey = null;
+                _applyingHostDialogClose = false;
+                _introFinishRequested.Clear();
                 _appliedStart.Clear();
                 _continuation.Clear();
                 _pendingVerify.Clear();
@@ -397,6 +412,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // LD-Sandstorm / F4 Stage 2: the boss encounter whose dialog is currently open (host-tracked, for the close sync).
         private static string? _desertDialogOpenKey;
 
+        // LD-Sandstorm / F4 (intro-finish sync): this END's currently-open boss INTRO dialog (either end). When it closes
+        // (the local player read it to the end), that end commits the fight authoritatively. _applyingHostDialogClose
+        // guards the client's finalize of a host-driven DialogClose so it doesn't echo back as a local "finish".
+        private static string? _localIntroDialogKey;
+        private static bool _applyingHostDialogClose;
+        private static readonly HashSet<string> _introFinishRequested = new HashSet<string>(); // client: intro-finish sent once/key
+
         /// <summary>HOST: a dialog just closed (DialogController.SetCurrentSpeakable(null)). If a boss dialog was open,
         /// broadcast a "DialogClose" so the client finalizes ITS copy of the dialog at the same time (the client's dialog
         /// won't end on its own — the boss actions it waits on are suppressed there). Covers intro + mid-fight dialogs.</summary>
@@ -411,6 +433,153 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 Plugin.Log.Info($"[BossDialogSync] host broadcast CLOSE key={key}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossDialogSync] OnHostBossDialogClosed failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // ================================================================== F4 intro-finish sync (client read → all commit)
+
+        /// <summary>LD-Sandstorm / F4 (intro-finish sync): DialogController.SetCurrentSpeakable fired on THIS end (either
+        /// role). A non-null speaker that belongs to a not-yet-started local-intro boss (Desert) means its intro dialog is
+        /// open → remember it. A null speaker means the dialog just closed → if the local player read the intro to the end
+        /// (and this isn't us applying a host-driven close), commit the fight authoritatively: the host runs its real
+        /// TriggerFight (→ combat-entry broadcast); a client asks the host to. Whoever reads first drives everyone.</summary>
+        public static void OnLocalDialogSpeakableChanged(object? speakable)
+        {
+            try
+            {
+                if (!Enabled) return;
+                NetMode mode = NetGameplaySyncBridge.BossMode;
+                if (mode != NetMode.Host && mode != NetMode.Client) return;
+
+                if (speakable != null)
+                {
+                    if (TryMatchSpeakableToIntroBoss(speakable, out string openKey))
+                    {
+                        bool isNew; lock (_lock) { isNew = _localIntroDialogKey != openKey; _localIntroDialogKey = openKey; }
+                        if (isNew && LogOn) Plugin.Log.Info($"[BossDialogSync] local intro dialog open key={openKey} mode={mode}");
+                    }
+                    return;
+                }
+
+                // Dialog closed on this end.
+                string? key; bool applyingHostClose;
+                lock (_lock) { key = _localIntroDialogKey; _localIntroDialogKey = null; applyingHostClose = _applyingHostDialogClose; }
+                if (key == null || applyingHostClose) return; // no intro tracked, or WE closed it on the host's behalf
+                OnLocalBossIntroDialogFinished(key);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogSync] OnLocalDialogSpeakableChanged failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Match a DialogSpeaker to a registered, not-yet-started boss that runs a LOCAL intro presentation
+        /// (Desert). Root-compares the speaker's unit against the boss's dialog Npc (bossNPC/bossUnit share a root). No
+        /// match (or unresolvable speaker) → false, so a non-boss dialog is never mistaken for the intro.</summary>
+        private static bool TryMatchSpeakableToIntroBoss(object speakable, out string key)
+        {
+            key = "";
+            var spkUnit = BossReflect.GetMember(speakable, "unit") ?? BossReflect.GetMember(speakable, "npc");
+            var spkRoot = (spkUnit as Component)?.transform.root;
+            if (spkRoot == null) return false;
+            lock (_lock)
+            {
+                foreach (var kv in _registry)
+                {
+                    var e = kv.Value;
+                    if (e.Adapter == null || e.Component == null) continue;
+                    try
+                    {
+                        if (!e.Adapter.RunsLocalIntroPresentation(e.Component)) continue;
+                        if (SafeStarted(e.Adapter, e.Component)) continue;
+                        // The Desert intro speaker is the boss's health Unit (bossUnit); bossNPC/bossUnit share a root.
+                        var dnpc = e.Adapter.GetHealthUnit(e.Component) as Component;
+                        if (dnpc != null && dnpc.transform.root == spkRoot) { key = kv.Key; return true; }
+                    }
+                    catch { }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>The local player finished reading a boss intro dialog. HOST reading its OWN intro: no-op — its native
+        /// intro chain (dialog → sandstorm presentation → TriggerFight) runs on its own and drives every client via the
+        /// combat-entry broadcast, so we keep the host's presentation intact. CLIENT reading: ask the host to commit the
+        /// fight for everyone (once per key), since the client has no authority to start it. No-op once started.</summary>
+        private static void OnLocalBossIntroDialogFinished(string key)
+        {
+            NetMode mode = NetGameplaySyncBridge.BossMode;
+            if (mode != NetMode.Client) return; // host's own read runs the native flow (keeps its sandstorm presentation)
+
+            if (!TryFindLocalEncounter(key, out var adapter, out var component)) return;
+            try { if (!adapter.RunsLocalIntroPresentation(component)) return; } catch { return; }
+            if (SafeStarted(adapter, component)) return; // already in combat — nothing to commit
+
+            bool joined = false; try { joined = NetClientJoinFlow.SessionJoinedHost; } catch { }
+            if (!joined) return; // not networked — the local intro drives combat on its own
+            lock (_lock) { if (!_introFinishRequested.Add(key)) return; }
+            if (!TryBuildContext(out var ctx, out _)) return;
+            var msg = BuildDialogCommit(key, component, in ctx, "intro-finish");
+            Plugin.Log.Info($"[BossDialogSync] client read intro to end → request host commit {msg.ToCompact()}");
+            NetGameplaySyncBridge.SendClientBossDialogCommitRequest(msg);
+        }
+
+        /// <summary>HOST: a client read the Desert intro dialog to the end while the host's own intro is idle (the host
+        /// player didn't read it — client-first). The host's native intro is stuck waiting on ITS dialog to be read to the
+        /// end (the sandstorm + TriggerFight anim-events fire only on natural dialog completion, which `Graph.Stop` does NOT
+        /// trigger — Log301 run A: dialog closed but the intro never advanced, host frozen). So drive the two presentation
+        /// beats host-authoritatively instead of hoping the native chain resumes: (1) close the host's dialog (→ CLOSE
+        /// broadcast); (2) `Anim_OnTriggerSandstorm` → the real `StartSandstorm` runs the sandstorm + releases the Cinematic
+        /// lock at its tail (unfreezes the host) AND its prefix broadcasts the sandstorm so every client mirrors it; (3)
+        /// `TriggerFight` → base sets fightStarted + StartBossPhases and flows through the combat-entry gate → broadcast so
+        /// every client enters combat. Never throws.</summary>
+        private static void CommitHostIntroDialog(string key, IBossEncounterAdapter adapter, object component, string reason)
+        {
+            try
+            {
+                if (SafeStarted(adapter, component))
+                {
+                    if (LogOn) Plugin.Log.Info($"[BossEncounter] host intro-finish no-op (already started) key={key} reason={reason}");
+                    return;
+                }
+                bool closed = BossDialogReflect.IsDialogActive() && BossDialogReflect.TryFinalizeCurrentDialog(out _);
+                // Sandstorm presentation (releases the host Cinematic lock + broadcasts to clients via the prefix).
+                bool sand = BossReflect.TryInvoke(component, "Anim_OnTriggerSandstorm", out string sd);
+                // Combat entry (flows through the start gate's combat-entry branch → BroadcastCombatEntryOnce).
+                bool fight = BossReflect.TryInvoke(component, "TriggerFight", out string fd);
+                Plugin.Log.Info($"[BossEncounter] host committed intro key={key} reason={reason} dialogClosed={closed} sandstorm={sand}({sd}) fight={fight}({fd})");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossEncounter] CommitHostIntroDialog failed key={key}: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>LD-Sandstorm / F4 (sandstorm presentation sync): prefix entry for `DesertClauseBossFightHelper.
+        /// Anim_OnTriggerSandstorm` on BOTH ends. The sandstorm is a boss presentation (arena-edge storm + Cinematic-lock
+        /// release) that natively fires only on the end whose local player reads the intro to the end. Make it host-authored
+        /// and mirrored: the first run per key (native anim-event OR a mirror invoke) is allowed and, on the host, broadcast
+        /// as a discrete "Sandstorm" event so every client plays it too; a repeat run is blocked so `StartSandstorm` can't
+        /// run twice on one end. Returns true to run the original StartSandstorm, false to skip it. Never throws (fail-open
+        /// = run the native sandstorm).</summary>
+        public static bool OnLocalBossSandstorm(object component)
+        {
+            try
+            {
+                if (!Enabled || component == null) return true;
+                if (!TryGetEncounterKeyForBoss(component, out string key, out string bossType)) return true;
+                bool first;
+                lock (_lock) { first = _sandstormSeen.Add(key); }
+                if (!first)
+                {
+                    if (LogOn) Plugin.Log.Info($"[BossPhaseAction] sandstorm suppressed (already played) key={key}");
+                    return false; // block a second StartSandstorm on this end
+                }
+                if (NetGameplaySyncBridge.BossMode == NetMode.Host)
+                {
+                    bool broadcast; lock (_lock) { broadcast = _hostSandstormBroadcast.Add(key); }
+                    if (broadcast)
+                    {
+                        NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, BossType = bossType, EventName = "Sandstorm" });
+                        Plugin.Log.Info($"[BossPhaseAction] host broadcast Sandstorm key={key}");
+                    }
+                }
+                return true; // run the real StartSandstorm on this end
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossPhaseAction] OnLocalBossSandstorm failed: {ex.GetType().Name}: {ex.Message}"); return true; }
         }
 
         /// <summary>LD-Sandstorm / F4 Stage 3 (phase-action / presentation sync): HOST — the Desert boss just mounted-off
@@ -635,6 +804,28 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
                 if (mode == NetMode.Host)
                 {
+                    // COMBAT-ENTRY (LD-Sandstorm / F4): Desert's TriggerFight is the real combat-entry animation-event —
+                    // a SECOND authoritative step after the intro start (OnStartInteractWithBoss). Broadcast it once on
+                    // its OWN gate: the intro start already consumed the _hostBroadcast gate in the host-first case, so
+                    // routing TriggerFight through BroadcastStartOnce silently no-ops and clients never learn the fight
+                    // actually began (Log298: host-first client stuck at fightStarted=false, boss frozen). Handle it here,
+                    // ahead of the re-entry guard (harmless: at the TriggerFight prefix fightStarted is not yet set).
+                    if (adapter.IsCombatEntrySource(component, source))
+                    {
+                        // Idempotent guard: base.TriggerFight (StartBossPhases) must never run twice. The intro clip's own
+                        // TriggerFight anim-event is the single driver now (client-first: the host's dialog is closed via
+                        // CommitHostIntroDialog, then the native intro reaches this anim-event on its own) — suppress any
+                        // duplicate (e.g. an encounter re-trigger) once fightStarted is set.
+                        if (SafeStarted(adapter, component))
+                        {
+                            BossDuplicateSuppressed++;
+                            if (LogOn) Plugin.Log.Info($"[BossEncounter] host suppressed duplicate combat-entry source={source} key={key} (already started)");
+                            return false;
+                        }
+                        BroadcastCombatEntryOnce(key, adapter, component, in ctx, source);
+                        return true; // host runs the original TriggerFight
+                    }
+
                     // HOST RE-ENTRY GUARD (Log123 root fix): vanilla relies on the encounter initiator firing exactly
                     // once (PlayerTrigger.onlyOnce / RemoveInteractable). In MP the fight can start REMOTELY (a client's
                     // commit), so the host's LOCAL initiator was never consumed — when the host player later reaches it,
@@ -796,6 +987,21 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             TryBeginSandstormArena(adapter, component, in ctx);
         }
 
+        /// <summary>HOST (LD-Sandstorm / F4): broadcast the boss's real combat-entry (Desert TriggerFight) exactly once,
+        /// on its OWN gate — distinct from the intro start's <see cref="BroadcastStartOnce"/>. Reuses the encounter-start
+        /// message (so a late client still gets full state); the client detects the TriggerFight StartSource and applies
+        /// TriggerFight idempotently even after the intro start already ran. Also arms the sandstorm pull-in (idempotent),
+        /// since in the client-first case this is the first host broadcast for the key.</summary>
+        private static void BroadcastCombatEntryOnce(string key, IBossEncounterAdapter adapter, object component, in BossEncounterContext ctx, string source)
+        {
+            lock (_lock) { if (!_hostCombatEntryBroadcast.Add(key)) return; }
+            var state = BuildState(key, adapter, component, in ctx, source);
+            BossStartBroadcast++;
+            Plugin.Log.Info($"[BossEncounter] host broadcasting combat-entry (TriggerFight) {state.ToCompact()}");
+            NetGameplaySyncBridge.BroadcastHostBossEncounterStart(state);
+            TryBeginSandstormArena(adapter, component, in ctx);
+        }
+
         /// <summary>HOST: if this boss fights inside a gate-less sandstorm arena (Desert), arm the arena-lockdown pull-in
         /// so out-of-room stragglers are teleported in a few seconds after the dialog trigger (the sandstorm outside the
         /// ring would otherwise grind them down). No-op for gated / normal bosses. Called from both host start-broadcast
@@ -932,6 +1138,23 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 {
                     BossStartRejectedSession++;
                     Plugin.Log.Warn($"[BossDialogCommit] reject request from {peerId}: run mismatch req={msg.ChapterName}:{msg.LevelIndex} host={ctx.ChapterName}:{ctx.LevelIndex}");
+                    return;
+                }
+
+                // LD-Sandstorm / F4 (intro-finish sync): a client read the Desert intro dialog to the end. Dismiss the
+                // host's OWN intro dialog and let the native intro finish it out (sandstorm → Cinematic-lock release →
+                // TriggerFight anim-event → combat-entry broadcast → every client enters combat; the close also broadcasts
+                // CLOSE). Mirrors the host-first path. Distinct from the gated-boss IsFightCommit (Cousin) + INTRO apply below.
+                if (string.Equals(msg.CommitSource, "intro-finish", StringComparison.Ordinal))
+                {
+                    if (!TryFindLocalEncounter(msg.EncounterKey, out var ifAdapter, out var ifComp))
+                    {
+                        BossEncounterNotFound++;
+                        Plugin.Log.Warn($"[BossDialogSync] host has no encounter for client intro-finish key={msg.EncounterKey}; candidates: {DescribeCandidates()}");
+                        return;
+                    }
+                    Plugin.Log.Info($"[BossDialogSync] host received client intro-finish from {peerId}: {msg.ToCompact()}");
+                    CommitHostIntroDialog(msg.EncounterKey, ifAdapter, ifComp, "client-intro-finish:" + peerId);
                     return;
                 }
 
@@ -1571,24 +1794,39 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     return;
                 }
 
-                // Open a continuation window so the StartFight invoked by the commit (and any chain step) is allowed.
-                OpenContinuation(msg.EncounterKey, adapter, component, "HostBossDialogCommit:" + msg.CommitSource);
-                lock (_lock) { _appliedStart.Add(msg.EncounterKey); }
+                // DUAL-PATH DEDUP (LD-Sandstorm / F4 foundation): for a dialog boss the host pairs the dialog-commit
+                // broadcast with a BossEncounterStart broadcast (see the host gate: BroadcastStartOnce + then
+                // BroadcastDialogCommitOnce), so a client receives BOTH and each would apply the boss start. _appliedStart
+                // is the shared "start applied" gate — whichever path (this one or HandleHostBossEncounterStart) wins the
+                // Add drives the start; the loser must NOT re-run the intro/start apply (that re-fires the native intro
+                // chain and, pre-fix, killed the just-opened intro dialog via TryApplyDialogCommit's finalize).
+                bool startAlreadyApplied;
+                lock (_lock) { startAlreadyApplied = !_appliedStart.Add(msg.EncounterKey); }
 
-                BeginApply();
-                bool ok; string detail;
-                try { ok = ApplyIntroCutsceneGated(msg.EncounterKey, adapter, component, msg, out detail); }
-                finally { EndApply(); }
-
-                if (ok)
+                if (!startAlreadyApplied)
                 {
-                    BossDialogCommitApplied++;
-                    Plugin.Log.Info($"[BossDialogCommit] applied + dialog finalized key={msg.EncounterKey}: {detail} after[{SafeDescribe(adapter, component)}]");
-                    try { adapter.OnClientPresentationStart(component); } catch { } // F2: enter combat presentation
+                    // Open a continuation window so the StartFight invoked by the commit (and any chain step) is allowed.
+                    OpenContinuation(msg.EncounterKey, adapter, component, "HostBossDialogCommit:" + msg.CommitSource);
+
+                    BeginApply();
+                    bool ok; string detail;
+                    try { ok = ApplyIntroCutsceneGated(msg.EncounterKey, adapter, component, msg, out detail); }
+                    finally { EndApply(); }
+
+                    if (ok)
+                    {
+                        BossDialogCommitApplied++;
+                        Plugin.Log.Info($"[BossDialogCommit] applied key={msg.EncounterKey}: {detail} after[{SafeDescribe(adapter, component)}]");
+                        try { adapter.OnClientPresentationStart(component); } catch { } // F2: enter combat presentation
+                    }
+                    else
+                    {
+                        Plugin.Log.Warn($"[BossDialogCommit] client failed to apply commit key={msg.EncounterKey}: {detail}");
+                    }
                 }
-                else
+                else if (LogOn)
                 {
-                    Plugin.Log.Warn($"[BossDialogCommit] client failed to apply commit key={msg.EncounterKey}: {detail}");
+                    Plugin.Log.Info($"[BossDialogCommit] start already applied via host-start path key={msg.EncounterKey}; skipping redundant intro apply");
                 }
 
                 // Phase PF FAITHFUL INTRO: when on, the client is about to play the boss's REAL intro dialog via its
@@ -1986,10 +2224,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     Plugin.Log.Info($"[CousinDeath] client received death event {msg.ToCompact()}; local Cousin resolved");
                 }
 
+                // F4 intro-finish guard: applying a host-driven DialogClose calls SetCurrentSpeakable(null) locally, which
+                // must NOT be mistaken for "the local player finished the intro" (it would echo an intro-finish back).
+                bool isDialogClose = string.Equals(msg.EventName, "DialogClose", StringComparison.Ordinal);
+                if (isDialogClose) lock (_lock) { _applyingHostDialogClose = true; }
                 BeginApply();
                 bool ok; string detail;
                 try { ok = adapter.TryApplyDiscreteEvent(component, msg.EventName, msg.HasPos, msg.Position, out detail); }
-                finally { EndApply(); }
+                finally { EndApply(); if (isDialogClose) lock (_lock) { _applyingHostDialogClose = false; } }
                 if (ok) BossDiscreteApplied++;
                 if (terminal)
                 {
@@ -2826,7 +3068,19 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
                 if (LogOn) Plugin.Log.Info($"[BossEncounter] client received HostBossEncounterStart {state.ToCompact()}");
 
-                lock (_lock) { if (!_appliedStart.Add(state.EncounterKey)) { if (LogOn) Plugin.Log.Info($"[BossEncounter] start already applied key={state.EncounterKey}"); return; } }
+                // A TriggerFight-sourced message is the host's COMBAT-ENTRY (LD-Sandstorm / F4) — a SECOND event after the
+                // intro start. It must apply even when the intro start already ran (_appliedStart set), so a client whose
+                // own local intro animation never reached its TriggerFight anim-event (out-of-arena / animator culled)
+                // still enters combat. Every other source is a one-shot start, deduped on _appliedStart.
+                bool combatEntrySource = state.StartSource != null && state.StartSource.EndsWith(".TriggerFight", StringComparison.Ordinal);
+
+                bool firstApply;
+                lock (_lock) { firstApply = _appliedStart.Add(state.EncounterKey); }
+                if (!firstApply && !combatEntrySource)
+                {
+                    if (LogOn) Plugin.Log.Info($"[BossEncounter] start already applied key={state.EncounterKey}");
+                    return;
+                }
 
                 if (!TryFindLocalEncounter(state.EncounterKey, out var adapter, out var component))
                 {
@@ -2838,6 +3092,32 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (adapter.IsStarted(component))
                 {
                     if (LogOn) Plugin.Log.Info($"[BossEncounter] client boss already started key={state.EncounterKey}");
+                    return;
+                }
+
+                // COMBAT-ENTRY catch-up (F4): the intro start already applied (the boss appeared) but this client's local
+                // intro animation never reached the TriggerFight anim-event → fightStarted stayed false and the boss is
+                // frozen OUT of the puppet system (IsLocalIntroPresentationActive stays true → its snapshot is skipped).
+                // Drive TriggerFight directly (idempotent): fightStarted + StartBossPhases → the intro-presentation guard
+                // clears → the puppet resumes (host-driven position + host-authoritative combat).
+                if (combatEntrySource && !firstApply && adapter.IsCombatEntrySource(component, state.StartSource))
+                {
+                    OpenContinuation(state.EncounterKey, adapter, component, "HostCombatEntry:" + state.StartSource);
+                    BeginApply();
+                    bool cok; string cdetail;
+                    try { cok = adapter.TryApplyCombatEntry(component, out cdetail); }
+                    finally { EndApply(); }
+                    if (cok)
+                    {
+                        BossStartApplied++;
+                        Plugin.Log.Info($"[BossEncounter] client applied combat-entry key={state.EncounterKey}: {cdetail} after[{SafeDescribe(adapter, component)}]");
+                        try { adapter.OnClientPresentationStart(component); } catch { }
+                    }
+                    else
+                    {
+                        BossStartApplyFailed++;
+                        Plugin.Log.Warn($"[BossEncounter] client failed to apply combat-entry key={state.EncounterKey}: {cdetail}");
+                    }
                     return;
                 }
 

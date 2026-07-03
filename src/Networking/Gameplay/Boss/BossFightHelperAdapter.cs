@@ -63,6 +63,39 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public override bool RunsLocalIntroPresentation(object component)
             => BossReflect.HasMethod(component, "OnStartInteractWithBoss");
 
+        // LD-Sandstorm / F4 combat-entry sync: Desert enters real combat through TriggerFight (an animation-event on the
+        // intro clip: base.TriggerFight sets fightStarted + StartBossPhases). On a client whose local intro animation
+        // never reached that event (out-of-arena / animator culled — Log298 host-first), fightStarted stays false, the
+        // boss is frozen out of the puppet system, and no combat begins. The host broadcasts its own TriggerFight and the
+        // client applies it here (idempotent). Only Desert (RunsLocalIntroPresentation); generic helpers start via the
+        // normal encounter-start path, so they never see a "second" combat-entry event.
+        public override bool IsCombatEntrySource(object component, string source)
+            => ParseSourceMethod(source) == "TriggerFight" && RunsLocalIntroPresentation(component);
+
+        public override bool TryApplyCombatEntry(object component, out string detail)
+        {
+            if (IsStarted(component)) { detail = "already-started"; return true; }
+            bool ok = BossReflect.TryInvoke(component, "TriggerFight", out detail);
+            // The client's local intro applied OnStartInteractWithBoss, which took the Cinematic controller-lock +
+            // invulnerability (decomp 4814/4815). Natively they are released at the END of the StartSandstorm coroutine —
+            // which we are skipping (we jump straight to combat). base.TriggerFight does NOT release them, so release them
+            // here (mirrors StartSandstorm's tail) or the local player stays frozen + invulnerable forever.
+            string lockDetail = "no-op";
+            try
+            {
+                var gm = GameManager.Instance;
+                if (gm != null)
+                {
+                    gm.ModifyPlayerInvulnerability(LockStatePadlock.Cinematic, state: false);
+                    gm.ModifyControllerLock(LockStatePadlock.Cinematic, state: false);
+                    lockDetail = "released Cinematic lock+invuln";
+                }
+            }
+            catch (Exception ex) { lockDetail = $"lock-release ex {ex.GetType().Name}"; }
+            detail = $"TriggerFight: {detail}; {lockDetail}";
+            return ok;
+        }
+
         // ---- LD-Sandstorm / F4 Stage 2: mid-fight dialog sync (Desert airstrike / sniper / terminator) ----
         // The Desert boss opens mid-fight dialogs by setting bossNPC.dialog.graph to one of these fields then calling
         // bossNPC.Interact(null). On the client the boss is passive (UpdatePhases suppressed), so it never opens them.
@@ -138,6 +171,16 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 bool closed = BossDialogReflect.TryFinalizeCurrentDialog(out string cd);
                 detail = $"dialog close finalized={closed} ({cd})";
                 return true;
+            }
+            // CLIENT (LD-Sandstorm / F4): the host played the sandstorm presentation → play it here too. Invoke the real
+            // Anim_OnTriggerSandstorm (→ StartSandstorm: arena-edge storm + music + fog, releases the Cinematic lock at its
+            // tail). Its prefix (OnLocalBossSandstorm) dedups per key, so if this end already played the sandstorm via its
+            // own local intro the invoke is a harmless no-op (StartSandstorm is skipped).
+            if (eventName == "Sandstorm")
+            {
+                bool ok = BossReflect.TryInvoke(component, "Anim_OnTriggerSandstorm", out string sd);
+                detail = $"sandstorm {sd}";
+                return ok;
             }
             if (eventName == null || !eventName.StartsWith("Dialog:", StringComparison.Ordinal)) { detail = "not-a-dialog-event"; return false; }
             string id = eventName.Substring(7);
@@ -315,7 +358,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         public override bool TryApplyDialogCommit(object component, NetBossDialogCommit commit, out string detail)
         {
-            bool finalized = BossDialogReflect.TryFinalizeCurrentDialog(out string dlgDetail);
+            // LD-Sandstorm / F4 (foundation): in faithful mode the boss's native intro chain
+            // (OnStartInteractWithBoss → Dialog_DesertClauseIntro → anim-event TriggerFight) is meant to play out on
+            // THIS end, so we must NOT finalize/kill the current dialog — that would Stop the very intro cutscene we
+            // want the local player to watch. Only the legacy fake-start path (faithful off) finalizes here.
+            bool faithful = false; try { faithful = Plugin.Cfg.EnableFaithfulBossIntro.Value; } catch { }
+            bool finalized = false; string dlgDetail = "skipped (faithful intro)";
+            if (!faithful) finalized = BossDialogReflect.TryFinalizeCurrentDialog(out dlgDetail);
             string startDetail = "already-started";
             if (!IsStarted(component))
             {

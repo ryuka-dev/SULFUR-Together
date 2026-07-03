@@ -130,6 +130,17 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// Default = false. Only DesertClause (composite: sandSantaAnimationSprite → intro anim → TriggerFight).</summary>
         bool RunsLocalIntroPresentation(object component);
 
+        /// <summary>LD-Sandstorm / F4 (combat-entry sync): true if <paramref name="source"/> is this boss's real
+        /// combat-entry step (the animation-event that flips fightStarted + starts the phase machine — Desert's
+        /// TriggerFight). Distinct from the intro start. Default false. Only bosses that RunsLocalIntroPresentation.</summary>
+        bool IsCombatEntrySource(object component, string source);
+
+        /// <summary>CLIENT: drive the boss into combat directly (idempotent) when its own local intro animation never
+        /// reached the combat-entry anim-event (out-of-arena / animator culled) so fightStarted stayed false. Invokes
+        /// the real combat-entry (Desert: TriggerFight) → fightStarted + StartBossPhases → the puppet resumes. Default
+        /// unsupported (false); only bosses that RunsLocalIntroPresentation implement it.</summary>
+        bool TryApplyCombatEntry(object component, out string detail);
+
         /// <summary>LD-Sandstorm / F4 Stage 2 (dialog sync): HOST — if the boss's NPC currently has a mid-fight dialog
         /// graph set (Desert airstrike/sniper/terminator), return its id so the host can broadcast it and the client can
         /// open the same dialog locally (via <see cref="TryApplyDiscreteEvent"/> with "Dialog:&lt;id&gt;"). Default false.</summary>

@@ -234,6 +234,16 @@ namespace SULFURTogether.Patches
                     if (m != null) harmony.Patch(m, postfix: land);
                     Log.Info($"[BossPhaseAction] patched DesertClause.{name}({m != null})");
                 }
+                // LD-Sandstorm / F4 (sandstorm presentation sync): the arena-edge sandstorm is `Anim_OnTriggerSandstorm`
+                // (→ StartSandstorm: sandstorm anim + music + fog, releases the intro Cinematic lock at its tail). Natively
+                // it is an animation-event on the intro clip, so it only fires on an end whose local player reads the intro
+                // to the end — the host in a client-first start (player elsewhere) and any client preempted by combat-entry
+                // never play it (Log301). Postfix it (Desert-scoped): the host broadcasts the sandstorm so every end mirrors
+                // it; a per-key guard makes it run exactly once per end whether via the native anim-event or a mirror invoke.
+                var sand = new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_Anim_OnTriggerSandstorm_Pre), BindingFlags.Static | BindingFlags.NonPublic));
+                var s = AccessTools.Method(desert, "Anim_OnTriggerSandstorm");
+                if (s != null) harmony.Patch(s, prefix: sand);
+                Log.Info($"[BossPhaseAction] patched DesertClause.Anim_OnTriggerSandstorm({s != null})");
             }
             catch (Exception ex) { Log.Error($"[BossPhaseAction] Desert dismount patch failed: {ex.Message}"); }
         }
@@ -249,6 +259,12 @@ namespace SULFURTogether.Patches
         {
             if (__runOriginal) NetBossEncounterManager.OnHostBossPikeDismount(__instance, jumping: false);
         }
+
+        // Prefix on BOTH ends. Runs once per key (dedup): first call (native intro anim-event OR a mirror invoke) runs the
+        // real StartSandstorm; the host also broadcasts the sandstorm so every end mirrors it. A repeat call is blocked so
+        // StartSandstorm can't run twice. Returns true to run the original, false to skip. See OnLocalBossSandstorm.
+        private static bool Desert_Anim_OnTriggerSandstorm_Pre(object __instance)
+            => NetBossEncounterManager.OnLocalBossSandstorm(__instance);
 
         private static void WitchP2_InitPhase_Pre(object __instance)
             => SULFURTogether.Networking.Gameplay.Boss.WitchPhase2Probe.OnInitPhase(__instance);
@@ -735,6 +751,9 @@ namespace SULFURTogether.Patches
             if (speakable == null) NetBossEncounterManager.NotifyDialogClosed();
             // LD-Sandstorm / F4 Stage 2: dialog close sync — if a boss dialog was open, tell the client to finalize its copy.
             if (speakable == null) NetBossEncounterManager.OnHostBossDialogClosed();
+            // LD-Sandstorm / F4 (intro-finish sync): track the local boss INTRO dialog open/close on EITHER end so whoever
+            // reads it to the end commits the fight authoritatively (client → host request; host → force TriggerFight).
+            NetBossEncounterManager.OnLocalDialogSpeakableChanged(speakable);
         }
 
         private static void PlayerTrigger_Post(object __instance)

@@ -194,6 +194,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // ---- LD-Sandstorm / F4: default = boss appears fully-formed, no local intro to protect (only DesertClause) ----
         public virtual bool RunsLocalIntroPresentation(object component) => false;
 
+        // ---- LD-Sandstorm / F4 combat-entry sync: default = no separate combat-entry step (only DesertClause) ----
+        public virtual bool IsCombatEntrySource(object component, string source) => false;
+        public virtual bool TryApplyCombatEntry(object component, out string detail) { detail = "combat-entry not supported by this adapter"; return false; }
+
         // ---- LD-Sandstorm / F4 Stage 2: default = no mid-fight dialog to sync (only DesertClause) ----
         public virtual bool TryGetActiveMidFightDialogId(object component, out string dialogId) { dialogId = ""; return false; }
 
