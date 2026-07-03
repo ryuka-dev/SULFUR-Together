@@ -298,6 +298,34 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             return base.TryApplyHostStart(component, state, out detail);
         }
 
+        // LD-Sandstorm / F4 (pike-riding visibility probe): dump the Desert boss body's actual render + transform state so
+        // we can see WHY it is invisible in co-op though SP shows it riding the pike persistently — is it (a) positioned
+        // underground (y), (b) its GameObject inactive, (c) its renderers disabled, or (d) parented off/on the mount?
+        public void LogDesertVisibility(object component, NetMode mode)
+        {
+            try
+            {
+                var npc = GetBossNpc(component);
+                if (!(npc is Component bc) || bc == null) { Plugin.Log.Info($"[DesertVis] {mode} no bossNPC"); return; }
+                var body = bc.transform;
+                var rends = bc.GetComponentsInChildren<Renderer>(true);
+                // Per-renderer: name=on/off (on = renderer.enabled AND its GameObject activeInHierarchy = actually drawing).
+                var sb = new System.Text.StringBuilder();
+                foreach (var r in rends)
+                {
+                    if (r == null) continue;
+                    bool drawing = r.enabled && r.gameObject.activeInHierarchy;
+                    sb.Append(r.gameObject.name).Append('=').Append(drawing ? "on" : (!r.enabled ? "OFF-rend" : "OFF-go")).Append(' ');
+                }
+                string parent = body.parent != null ? body.parent.name : "<root>";
+                Vector3 rootPos = body.root != null ? body.root.position : Vector3.zero;
+                var bossUnit = BossReflect.GetMember(component, "bossUnit");
+                Vector3 unitPos = (bossUnit is Component buc && buc != null) ? buc.transform.position : Vector3.zero;
+                Plugin.Log.Info($"[DesertVis] {mode} pos={body.position:F1} activeHier={bc.gameObject.activeInHierarchy} parent={parent} rootPos={rootPos:F1} bossUnitPos={unitPos:F1} rends[{sb.ToString().TrimEnd()}]");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertVis] failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
         // F3 diagnostic for DesertClause (composite boss). LogOutput28/29: replaying OnStartInteractWithBoss keeps the
         // old man VISIBLE but leaves the Cinematic controller lock stuck (it is released ONLY at the end of the
         // StartSandstorm() coroutine, which the Client's intro animation chain doesn't reach). Skipping the intro made

@@ -527,8 +527,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// beats host-authoritatively instead of hoping the native chain resumes: (1) close the host's dialog (→ CLOSE
         /// broadcast); (2) `Anim_OnTriggerSandstorm` → the real `StartSandstorm` runs the sandstorm + releases the Cinematic
         /// lock at its tail (unfreezes the host) AND its prefix broadcasts the sandstorm so every client mirrors it; (3)
-        /// `TriggerFight` → base sets fightStarted + StartBossPhases and flows through the combat-entry gate → broadcast so
-        /// every client enters combat. Never throws.</summary>
+        /// `TriggerFight` AFTER the sandstorm plays (~sandstormLoopLength). Native fires TriggerFight ~8 s into the intro,
+        /// after the sandstorm; firing it immediately (Log302) preempted the sandstorm with combat-entry before it could
+        /// spread (client saw no arena-edge storm) and ran SetBossPike's "AttachToPike" concurrently with the sandstorm's
+        /// bossAnimator triggers (boss not visibly on the pike). Delaying restores the native beat. Never throws.</summary>
         private static void CommitHostIntroDialog(string key, IBossEncounterAdapter adapter, object component, string reason)
         {
             try
@@ -541,11 +543,39 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 bool closed = BossDialogReflect.IsDialogActive() && BossDialogReflect.TryFinalizeCurrentDialog(out _);
                 // Sandstorm presentation (releases the host Cinematic lock + broadcasts to clients via the prefix).
                 bool sand = BossReflect.TryInvoke(component, "Anim_OnTriggerSandstorm", out string sd);
-                // Combat entry (flows through the start gate's combat-entry branch → BroadcastCombatEntryOnce).
-                bool fight = BossReflect.TryInvoke(component, "TriggerFight", out string fd);
-                Plugin.Log.Info($"[BossEncounter] host committed intro key={key} reason={reason} dialogClosed={closed} sandstorm={sand}({sd}) fight={fight}({fd})");
+                // Combat entry AFTER the sandstorm — scheduled on the boss MonoBehaviour so it fires at the native beat.
+                float delay = 8f;
+                try { if (BossReflect.GetMember(component, "sandstormLoopLength") is float f && f > 0f) delay = f; } catch { }
+                bool scheduled = false;
+                if (component is UnityEngine.MonoBehaviour mb && mb != null)
+                {
+                    mb.StartCoroutine(DelayedCombatEntry(key, adapter, component, delay));
+                    scheduled = true;
+                }
+                else
+                {
+                    // No MonoBehaviour to host the wait — fall back to an immediate TriggerFight (better than never starting).
+                    BossReflect.TryInvoke(component, "TriggerFight", out _);
+                }
+                Plugin.Log.Info($"[BossEncounter] host committed intro key={key} reason={reason} dialogClosed={closed} sandstorm={sand}({sd}) combatEntryDelay={(scheduled ? delay + "s" : "immediate")}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossEncounter] CommitHostIntroDialog failed key={key}: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>HOST: fire the boss's real TriggerFight (→ combat-entry gate → broadcast) after the sandstorm cutscene,
+        /// matching the native ~8 s beat. Runs on the boss MonoBehaviour; no-op if the fight already started meanwhile.</summary>
+        private static System.Collections.IEnumerator DelayedCombatEntry(string key, IBossEncounterAdapter adapter, object component, float delay)
+        {
+            yield return new UnityEngine.WaitForSeconds(delay);
+            bool started = true;
+            try { started = SafeStarted(adapter, component); } catch { }
+            if (started) { if (LogOn) Plugin.Log.Info($"[BossEncounter] delayed combat-entry no-op (already started) key={key}"); yield break; }
+            try
+            {
+                BossReflect.TryInvoke(component, "TriggerFight", out string fd);
+                Plugin.Log.Info($"[BossEncounter] host delayed combat-entry (post-sandstorm) key={key}: {fd}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossEncounter] DelayedCombatEntry failed key={key}: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         /// <summary>LD-Sandstorm / F4 (sandstorm presentation sync): prefix entry for `DesertClauseBossFightHelper.
@@ -581,6 +611,37 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossPhaseAction] OnLocalBossSandstorm failed: {ex.GetType().Name}: {ex.Message}"); return true; }
         }
+
+        private static float _desertVisProbeNext;
+
+        /// <summary>LD-Sandstorm / F4 (pike-riding visibility probe): throttled dump of the Desert boss body's render +
+        /// transform state on BOTH ends (called from DesertPikeCarrier.Update, so it runs every frame — hard-throttled to
+        /// ~1.5 s). Diagnostic only; removed once the invisibility root cause is found.</summary>
+        public static void ProbeDesertVisibility()
+        {
+            try
+            {
+                if (!Enabled || !LogOn) return;
+                float now = UnityEngine.Time.realtimeSinceStartup;
+                if (now < _desertVisProbeNext) return;
+                _desertVisProbeNext = now + 1.5f;
+                NetMode mode = NetGameplaySyncBridge.BossMode;
+                BossFightHelperAdapter? bfa = null; object? comp = null;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (!(e.Adapter is BossFightHelperAdapter a) || e.Component == null) continue;
+                        try { if (!a.RunsLocalIntroPresentation(e.Component) || !SafeStarted(a, e.Component)) continue; } catch { continue; }
+                        bfa = a; comp = e.Component; break;
+                    }
+                }
+                if (bfa != null && comp != null) bfa.LogDesertVisibility(comp, mode);
+            }
+            catch { }
+        }
+
 
         /// <summary>LD-Sandstorm / F4 Stage 3 (phase-action / presentation sync): HOST — the Desert boss just mounted-off
         /// its pike. The native dismount is <c>pikeCarrier.onJump → OnBossJump</c> (sets the "JumpingOffPike" animator

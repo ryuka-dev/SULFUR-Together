@@ -49,6 +49,16 @@ namespace SULFURTogether.Patches
             PatchDesertDismount(harmony, FindType("DesertClauseBossFightHelper",
                 "PerfectRandom.Sulfur.Core.DesertClauseBossFightHelper", "PerfectRandom.Sulfur.Gameplay.DesertClauseBossFightHelper"));
 
+            // LD-Sandstorm / F4 (pike-riding visibility): when the boss mounts its pike (DivingAround), DesertPikeCarrier.
+            // AttachUnit hides the boss body (mainRenderer SetActive(false) — it starts burrowed) + parents it to the mount,
+            // and the carrier's Update zeroes its localPosition each frame. Native, that's fine (the pike's own jump cycle
+            // re-shows it). But the CLIENT boss is a host-driven puppet whose local pike cycle doesn't sync → it stays
+            // hidden + drifts to origin (Log303: invisible boss, maxErr 132 m). Postfix AttachUnit (client-only, boss-only)
+            // to take the boss off the pike and keep it visible; the puppet position (host boss, which encodes the burrow
+            // arc) drives it.
+            PatchDesertPikeAttach(harmony, FindType("DesertPikeCarrier",
+                "PerfectRandom.Sulfur.Core.DesertPikeCarrier", "PerfectRandom.Sulfur.Gameplay.DesertPikeCarrier"));
+
             // B. Witch standalone system.
             PatchStart(harmony, FindType("WitchBossController",
                 "PerfectRandom.Sulfur.Gameplay.WitchBossController", "PerfectRandom.Sulfur.Core.WitchBossController"),
@@ -265,6 +275,24 @@ namespace SULFURTogether.Patches
         // StartSandstorm can't run twice. Returns true to run the original, false to skip. See OnLocalBossSandstorm.
         private static bool Desert_Anim_OnTriggerSandstorm_Pre(object __instance)
             => NetBossEncounterManager.OnLocalBossSandstorm(__instance);
+
+        // LD-Sandstorm / F4 (pike-riding visibility): postfix DesertPikeCarrier.AttachUnit so the CLIENT takes its
+        // host-driven boss puppet off the pike's burrow cycle (stays visible + follows the host). No-op off-client and for
+        // non-boss pikes (regular enemy pikes are unaffected).
+        private static void PatchDesertPikeAttach(Harmony harmony, Type pikeCarrier)
+        {
+            if (pikeCarrier == null) { Log.Info("[BossPhaseAction] DesertPikeCarrier type not found (pike-riding visibility skipped)"); return; }
+            try
+            {
+                // Diagnostic (throttled inside): dump the Desert boss body's render/transform state on both ends.
+                var upd = AccessTools.Method(pikeCarrier, "Update");
+                if (upd != null) harmony.Patch(upd, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_PikeUpdate_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[BossPhaseAction] patched DesertPikeCarrier.Update({upd != null}) — visibility probe");
+            }
+            catch (Exception ex) { Log.Error($"[BossPhaseAction] DesertPikeCarrier.AttachUnit patch failed: {ex.Message}"); }
+        }
+
+        private static void Desert_PikeUpdate_Post() => NetBossEncounterManager.ProbeDesertVisibility();
 
         private static void WitchP2_InitPhase_Pre(object __instance)
             => SULFURTogether.Networking.Gameplay.Boss.WitchPhase2Probe.OnInitPhase(__instance);
