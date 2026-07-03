@@ -7889,6 +7889,15 @@ namespace SULFURTogether.Networking.Gameplay
             if (entity == null) return SyncCatUnknown;
             try
             {
+                // LD-Sandstorm / F4 Stage 3: a boss unit is a combat enemy even though it may carry a dialog component
+                // (the Desert boss opens airstrike/sniper/terminator mid-fight dialogs). Without this the DialogSpeaker/
+                // Speakable check below classifies it as InteractiveNpc → it is excluded from the client puppet system
+                // (no AI/weapon suppression, no animation mirror, no host-driven position), so the client boss runs its
+                // own AI (shoots the client), shows a local pose (gun instead of the host's walkie-talkie), and doesn't
+                // follow the host. Honour the game's own Boss flag so the boss enters the puppet system as intended
+                // (§9 "once TriggerFight fires the puppet resumes host-driven position/animator, AI suppressed").
+                if (IsBossUnit(entity)) return SyncCatCombatEnemy;
+
                 // Component-first: most reliable
                 bool hasShopKeeper = TryFindComponentByTypeName(entity, "ShopKeeper") != null
                                   || TryGetMemberValue(entity, "ShopKeeper") != null;
@@ -7925,6 +7934,23 @@ namespace SULFURTogether.Networking.Gameplay
             }
             catch { }
             return SyncCatUnknown;
+        }
+
+        // LD-Sandstorm / F4 Stage 3: is this runtime unit a boss, per the game's own UnitType.Boss flag (unitSO.unitType)?
+        // Used to keep bosses out of the InteractiveNpc bucket (they carry dialog components but are combat entities).
+        private static bool IsBossUnit(object entity)
+        {
+            try
+            {
+                var so = TryGetMemberValue(entity, "unitSO");
+                if (so == null) return false;
+                var ut = TryGetMemberValue(so, "unitType");
+                if (ut == null) return false;
+                int flags = Convert.ToInt32(ut);
+                int bossBit = Convert.ToInt32(Enum.Parse(ut.GetType(), "Boss")); // UnitType.Boss (=8), read by name
+                return (flags & bossBit) != 0;
+            }
+            catch { return false; }
         }
 
         private static bool IsCombatEnemyForSync(NetGameplayEntitySnapshot snapshot)
