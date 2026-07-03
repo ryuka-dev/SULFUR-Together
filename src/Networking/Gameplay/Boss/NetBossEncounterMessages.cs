@@ -153,7 +153,16 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public int    Seed         { get; set; }
         public int    Seq          { get; set; }
 
-        public string ToCompact() => $"key={EncounterKey} event={EventName} pos={(HasPos ? Position.ToString("F1") : "?")} run={ChapterName}:{LevelIndex} seq={Seq}";
+        // LD-Sandstorm / F4-P1JMP: "PikeJump" payload — the boss pike's full jump inputs so the client replays the exact
+        // native arc (JumpTowards is deterministic given start + target + these parameters). Position = jump target.
+        public bool   HasJump       { get; set; }
+        public Vector3 JumpStart     { get; set; }   // owner position at jump start (client snaps its pike here first)
+        public float  JumpAirTimer  { get; set; }
+        public float  JumpHeight    { get; set; }
+        public float  JumpDepth     { get; set; }    // underground depth (posToJumpTowards.y - finalTarget.y)
+        public float  JumpSpawnPct  { get; set; }
+
+        public string ToCompact() => $"key={EncounterKey} event={EventName} pos={(HasPos ? Position.ToString("F1") : "?")} run={ChapterName}:{LevelIndex} seq={Seq}{(HasJump ? $" jump[start={JumpStart:F1} air={JumpAirTimer:F2} h={JumpHeight:F1} d={JumpDepth:F1}]" : "")}";
     }
 
     /// <summary>Phase 5.4-F5: a Client's report that one Lucia eye was defeated locally this eye-cycle. Lucia's eye
@@ -316,7 +325,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private const byte DynamicSpawnVersion = 1;
         private const byte BossHitVersion = 1;
         private const byte BossHitVisualVersion = 1;
-        private const byte DiscreteEventVersion = 1;
+        private const byte DiscreteEventVersion = 2; // v2: + PikeJump payload (F4-P1JMP)
         private const byte LuciaEyeReportVersion = 1;
         private const byte LuciaEyeStateVersion = 1;
         private const byte LuciaDeathVersion = 1;
@@ -724,6 +733,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             w.Put(e.HasSeed);
             if (e.HasSeed) w.Put(e.Seed);
             w.Put(e.Seq);
+            w.Put(e.HasJump);
+            if (e.HasJump)
+            {
+                w.Put(e.JumpStart.x); w.Put(e.JumpStart.y); w.Put(e.JumpStart.z);
+                w.Put(e.JumpAirTimer); w.Put(e.JumpHeight); w.Put(e.JumpDepth); w.Put(e.JumpSpawnPct);
+            }
         }
 
         public static bool TryReadDiscreteEvent(NetDataReader r, out NetBossDiscreteEvent result)
@@ -745,6 +760,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 e.HasSeed = r.GetBool();
                 if (e.HasSeed) e.Seed = r.GetInt();
                 e.Seq = r.GetInt();
+                e.HasJump = r.GetBool();
+                if (e.HasJump)
+                {
+                    e.JumpStart = new Vector3(r.GetFloat(), r.GetFloat(), r.GetFloat());
+                    e.JumpAirTimer = r.GetFloat(); e.JumpHeight = r.GetFloat(); e.JumpDepth = r.GetFloat(); e.JumpSpawnPct = r.GetFloat();
+                }
                 result = e;
                 return true;
             }

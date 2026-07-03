@@ -194,6 +194,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _hostCombatEntryBroadcast.Clear();
                 _hostSandstormBroadcast.Clear();
                 _sandstormSeen.Clear();
+                _desertAimRotation = -1;
                 _clientRequested.Clear();
                 _localIntroDialogKey = null;
                 _applyingHostDialogClose = false;
@@ -259,6 +260,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _hostCombatEntryBroadcast.Clear();
                 _hostSandstormBroadcast.Clear();
                 _sandstormSeen.Clear();
+                _desertAimRotation = -1;
                 _clientRequested.Clear();
                 _localIntroDialogKey = null;
                 _applyingHostDialogClose = false;
@@ -638,6 +640,226 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     }
                 }
                 if (bfa != null && comp != null) bfa.EnsureBossPikeVisual(comp);
+            }
+            catch { }
+        }
+
+        private static int _desertAimRotation = -1;
+        private static float _desertAimLogNext;
+
+        /// <summary>HOST (LD-Sandstorm / F4, P1 target rotation): DesertPikeCarrier.ActivateShooting is about to run. It
+        /// starts the boss's machine-gun burst aimed at <c>npc.AiAgent.target</c> — natively locked onto the single local
+        /// player forever, so in co-op the boss only ever attacks the host. On each burst EDGE (trigger not yet held; the
+        /// carrier calls ActivateShooting every jump frame but only the edge call starts a burst) rotate the boss's
+        /// AiAgent.target to the next attackable player — host + client ghosts via GameManager.Players, minus downed /
+        /// out-of-arena players (same rules as the Cousin arm group throw, reusing its helpers). Ghost hits flow through
+        /// the existing enemy host-damage authority to the owning client. Fail-open: any resolution failure leaves the
+        /// native target (the host player) untouched. Regular enemy pikes (no registered boss aboard) are ignored.</summary>
+        public static void OnHostBossPikeActivateShooting(object carrier)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || carrier == null) return;
+                if (!TryGetRegisteredBossOnCarrier(carrier, out object bossNpc)) return; // regular enemy pike
+                // Rotate only on the burst edge — mid-burst calls must not re-aim (native no-ops them too).
+                var weapon = BossReflect.GetMember(bossNpc, "weapon");
+                if (weapon != null && BossReflect.GetMember(weapon, "bIsTriggerActive") is bool held && held) return;
+                var units = SULFURTogether.Patches.CousinArmPatches.GatherPlayerUnits();
+                if (units.Count == 0) return;
+                bool filter = false, gated = false; HashSet<string>? members = null;
+                try
+                {
+                    filter = Plugin.Cfg.ExcludeOutOfRoomPlayersFromBossAttacks.Value;
+                    if (filter) gated = ArenaLockdownManager.TryGetActiveArenaInRoom(out members);
+                }
+                catch { }
+                object? pick = null; int n = units.Count;
+                for (int i = 0; i < n; i++)
+                {
+                    int idx = (_desertAimRotation + 1 + i) % n;
+                    var u = units[idx];
+                    if (u == null || (u is UnityEngine.Object uo && uo == null)) continue;
+                    if (filter && !SULFURTogether.Patches.CousinArmPatches.IsTargetAttackable(u, gated, members)) continue;
+                    pick = u; _desertAimRotation = idx; break;
+                }
+                if (pick == null) return; // everyone filtered out — leave the native target
+                var aiAgent = BossReflect.GetMember(bossNpc, "AiAgent") ?? BossReflect.GetMember(bossNpc, "aiAgent");
+                var tf = aiAgent?.GetType().GetField("target", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                if (aiAgent == null || tf == null) return;
+                tf.SetValue(aiAgent, pick);
+                float now = UnityEngine.Time.realtimeSinceStartup;
+                if (now >= _desertAimLogNext)
+                {
+                    _desertAimLogNext = now + 1f;
+                    Plugin.Log.Info($"[BossTargetRotate] pike burst aimed at {((pick as UnityEngine.Component)?.name ?? pick.ToString())} (slot {_desertAimRotation + 1}/{n})");
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossTargetRotate] OnHostBossPikeActivateShooting failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Is a registered local-intro boss (Desert) riding this pike carrier? Root-compares each attached unit
+        /// against the registry; also returns the encounter key + boss type. Regular enemy pikes return false. Never throws.</summary>
+        private static bool TryGetRegisteredBossOnCarrier(object carrier, out object bossNpc)
+            => TryGetRegisteredBossOnCarrier(carrier, out bossNpc, out _, out _);
+
+        private static bool TryGetRegisteredBossOnCarrier(object carrier, out object bossNpc, out string key, out string bossType)
+        {
+            bossNpc = null!; key = ""; bossType = "";
+            try
+            {
+                var f = carrier.GetType().GetField("attachedUnits", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                if (!(f?.GetValue(carrier) is System.Collections.IList list) || list.Count == 0) return false;
+                foreach (var u in list)
+                {
+                    if (u == null) continue;
+                    var root = (u as UnityEngine.Component)?.transform.root;
+                    if (root == null) continue;
+                    lock (_lock)
+                    {
+                        foreach (var kv in _registry)
+                        {
+                            var e = kv.Value;
+                            if (e.Adapter == null || e.Component == null) continue;
+                            try { if (!e.Adapter.RunsLocalIntroPresentation(e.Component)) continue; } catch { continue; }
+                            var hu = e.Adapter.GetHealthUnit(e.Component) as UnityEngine.Component;
+                            if (hu != null && hu.transform.root == root)
+                            {
+                                bossNpc = u; key = kv.Key; bossType = e.Component.GetType().Name;
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        // ============================================================ F4-P1JMP: boss pike jump sync (host-authoritative)
+
+        private static int _pikeJumpSeq;
+
+        /// <summary>HOST (LD-Sandstorm / F4-P1JMP): the boss pike just started a native jump (DesertPikeCarrier.JumpTowards
+        /// postfix). In co-op each end natively rolls its own jump timing/points, so the boss pops out of the sand at
+        /// different times and places on every end (Log314: client pike puppet snapping 53% of frames fighting the local
+        /// sim). Broadcast the jump's full inputs; the client replays the exact native arc. Regular pikes are ignored.</summary>
+        public static void OnHostBossPikeJumpStarted(object carrier)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || carrier == null) return;
+                if (!TryGetRegisteredBossOnCarrier(carrier, out _, out string key, out string bossType)) return;
+                // JumpTowards already ran: read the assigned jump fields off the carrier.
+                Vector3 start = BossReflect.GetMember(carrier, "startPos") is Vector3 s ? s : Vector3.zero;
+                Vector3 target = BossReflect.GetMember(carrier, "posToJumpTowards") is Vector3 t ? t : Vector3.zero;
+                Vector3 final = BossReflect.GetMember(carrier, "finalTarget") is Vector3 ft ? ft : target;
+                float air = BossReflect.GetMember(carrier, "jumpAirTimer") is float a ? a : 1f;
+                float height = BossReflect.GetMember(carrier, "jumpHeight") is float h ? h : 1f;
+                float spawnPct = BossReflect.GetMember(carrier, "jumpSpawnPercentage") is float sp ? sp : 0.5f;
+                int seq; lock (_lock) { seq = ++_pikeJumpSeq; }
+                NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent
+                {
+                    EncounterKey = key, BossType = bossType, EventName = "PikeJump",
+                    HasPos = true, Position = target, Seq = seq,
+                    HasJump = true, JumpStart = start, JumpAirTimer = air, JumpHeight = height,
+                    JumpDepth = target.y - final.y, JumpSpawnPct = spawnPct,
+                });
+                if (LogOn) Plugin.Log.Info($"[PikeJumpSync] host broadcast PikeJump seq={seq} start={start:F1} target={target:F1}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[PikeJumpSync] OnHostBossPikeJumpStarted failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>CLIENT (LD-Sandstorm / F4-P1JMP): block the local sim's own boss-pike jumps — the host's replayed jumps
+        /// (via the reentry guard) are the only ones allowed. Regular pikes and everything off-client pass through.</summary>
+        public static bool ShouldBlockClientBossPikeJump(object carrier)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Client || carrier == null) return false;
+                if (InReentry) return false; // host-driven replay — allow
+                if (!TryGetRegisteredBossOnCarrier(carrier, out _)) return false;
+                if (LogOn) Plugin.Log.Info("[PikeJumpSync] client blocked local boss-pike jump (host-authoritative)");
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>CLIENT: replay the host's boss-pike jump — snap the pike to the host's start position, then invoke the
+        /// real JumpTowards with the host's parameters so the native UpdateJump runs the identical arc locally (animator,
+        /// digging effects, renderer/burrow toggles and the boss body's show/hide all fire natively at the same time and
+        /// place as on the host).</summary>
+        private static void ApplyClientBossPikeJump(NetBossDiscreteEvent msg, object component)
+        {
+            try
+            {
+                var pike = BossReflect.GetMember(component, "spawnedBossPike");
+                if (!(pike is Component pikeC) || pikeC == null) { if (LogOn) Plugin.Log.Info("[PikeJumpSync] client has no spawnedBossPike yet — jump skipped"); return; }
+                object? carrier = null;
+                foreach (var comp in pikeC.GetComponents<Component>())
+                {
+                    if (comp == null) continue;
+                    if (comp.GetType().GetField("attachedUnits", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic) != null) { carrier = comp; break; }
+                }
+                if (carrier == null) { if (LogOn) Plugin.Log.Info("[PikeJumpSync] client pike has no DesertPikeCarrier — jump skipped"); return; }
+                // Snap the pike to the host's start so the arc is identical (first jump; later jumps already land there).
+                var ownerT = ((Component)carrier).transform;
+                var rb = (BossReflect.GetMember(pike, "Rigidbody") ?? BossReflect.GetMember(pike, "rigidbody")) as Rigidbody;
+                if (rb != null) rb.position = msg.JumpStart;
+                ownerT.position = msg.JumpStart;
+                var jt = carrier.GetType().GetMethod("JumpTowards", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                if (jt == null) { Plugin.Log.Warn("[PikeJumpSync] JumpTowards not found on carrier"); return; }
+                jt.Invoke(carrier, new object?[] { msg.Position, msg.JumpAirTimer, msg.JumpHeight, msg.JumpDepth, msg.JumpSpawnPct });
+                if (LogOn) Plugin.Log.Info($"[PikeJumpSync] client replayed PikeJump seq={msg.Seq} start={msg.JumpStart:F1} target={msg.Position:F1}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[PikeJumpSync] ApplyClientBossPikeJump failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static int _puppetExemptFrame = -1;
+        private static bool _pikeExempt, _mountedExempt;
+
+        /// <summary>CLIENT (F4-P1JMP): while the Desert fight is running, the boss pike's position is owned by the replayed
+        /// native jumps — the generic transform puppet must not fight it (Log314: 53% of frames snapping). Frame-cached.</summary>
+        public static bool IsDesertPikePuppetExempt()
+        {
+            RefreshDesertPuppetExemptions();
+            return _pikeExempt;
+        }
+
+        /// <summary>CLIENT (F4-P1JMP): while the Desert boss BODY is welded to a pike mount (parent "CarrySpot*", the
+        /// carrier zeroes its localPosition every frame), the mount owns its position — the snapshot drive fighting the
+        /// weld caused the 132 m spikes. Off the mount (dismount reparents to unitRoot) the puppet resumes (Log290 model).</summary>
+        public static bool IsDesertBossBodyPuppetExempt()
+        {
+            RefreshDesertPuppetExemptions();
+            return _mountedExempt;
+        }
+
+        private static void RefreshDesertPuppetExemptions()
+        {
+            try
+            {
+                if (UnityEngine.Time.frameCount == _puppetExemptFrame) return;
+                _puppetExemptFrame = UnityEngine.Time.frameCount;
+                _pikeExempt = false; _mountedExempt = false;
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (e.Adapter == null || e.Component == null) continue;
+                        try
+                        {
+                            if (!e.Adapter.RunsLocalIntroPresentation(e.Component) || !SafeStarted(e.Adapter, e.Component)) continue;
+                            _pikeExempt = true; // fight running → replayed jumps own the pike
+                            var npc = BossReflect.GetMember(e.Component, "bossNPC");
+                            var parent = (npc as Component)?.transform.parent;
+                            if (parent != null && parent.name.StartsWith("CarrySpot", StringComparison.Ordinal)) _mountedExempt = true;
+                            return;
+                        }
+                        catch { }
+                    }
+                }
             }
             catch { }
         }
@@ -2305,6 +2527,17 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     if (LogOn) Plugin.Log.Info($"[CousinPool] client has no local encounter for {msg.ToCompact()}");
                     return;
                 }
+                // F4-P1JMP: the boss pike's host-authoritative jump — replayed via the real JumpTowards (not an adapter
+                // event; it targets the pike carrier, not the boss component). Reentry-wrapped so the client's own
+                // jump-block prefix lets it through.
+                if (string.Equals(msg.EventName, "PikeJump", StringComparison.Ordinal) && msg.HasJump)
+                {
+                    BeginApply();
+                    try { ApplyClientBossPikeJump(msg, component); }
+                    finally { EndApply(); }
+                    return;
+                }
+
                 bool terminal = false; try { terminal = adapter.IsTerminalEvent(msg.EventName); } catch { }
                 // PF-ArmDefer: client mirrors the host's fight-loop step → arms after this are mid-fight Reappear arms.
                 if (!terminal) MarkCousinFightLoopStarted(msg.EncounterKey);

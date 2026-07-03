@@ -233,7 +233,8 @@ namespace SULFURTogether.Patches
         //  - Any other Unit is THIS end's local player (host's real Unit on the host, the local player on the client) →
         //    downed via the local-player check, arena via the reliable local doorway-parity signal.
         // Fail-open (return true) on any error so a resolution failure never makes the boss un-attackable.
-        private static bool IsTargetAttackable(object playerUnit, bool gated, System.Collections.Generic.HashSet<string>? members)
+        // Internal: reused by the Desert P1 pike-shooting target rotation (same in-room/downed rules).
+        internal static bool IsTargetAttackable(object playerUnit, bool gated, System.Collections.Generic.HashSet<string>? members)
         {
             try
             {
@@ -253,7 +254,8 @@ namespace SULFURTogether.Patches
         }
 
         private static readonly List<object> _unitScratch = new List<object>(4);
-        private static List<object> GatherPlayerUnits()
+        // Internal: reused by the Desert P1 pike-shooting target rotation (host + ghost player Units).
+        internal static List<object> GatherPlayerUnits()
         {
             _unitScratch.Clear();
             try

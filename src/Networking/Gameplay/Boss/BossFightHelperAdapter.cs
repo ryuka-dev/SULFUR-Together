@@ -404,7 +404,15 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 string anim = animator == null ? "null" : $"en={animator.enabled} spd={animator.speed:F1} scale={bc.transform.lossyScale.x:F2}";
                 var bossUnit = BossReflect.GetMember(component, "bossUnit");
                 Vector3 unitPos = (bossUnit is Component buc && buc != null) ? buc.transform.position : Vector3.zero;
-                Plugin.Log.Info($"[DesertVis] {mode} pos={body.position:F1} activeHier={bc.gameObject.activeInHierarchy} parent={parent} bossUnitPos={unitPos:F1} anim[{anim}] rends[{sb.ToString().TrimEnd()}]");
+                // P1 fire diagnosis: is the machine-gun trigger held, and at whom is the AI aiming? On the host this shows
+                // the target rotation working; on the client a trigger that never goes true = the host fire mirror not
+                // reaching the boss puppet.
+                var weapon = BossReflect.GetMember(npc, "weapon");
+                bool trig = weapon != null && BossReflect.GetMember(weapon, "bIsTriggerActive") is bool tb && tb;
+                var aiAgent = BossReflect.GetMember(npc, "AiAgent") ?? BossReflect.GetMember(npc, "aiAgent");
+                var tgt = aiAgent == null ? null : BossReflect.GetMember(aiAgent, "target");
+                string tname = tgt == null || (tgt is UnityEngine.Object tuo && tuo == null) ? "null" : ((tgt as Component)?.name ?? tgt.GetType().Name);
+                Plugin.Log.Info($"[DesertVis] {mode} pos={body.position:F1} activeHier={bc.gameObject.activeInHierarchy} parent={parent} bossUnitPos={unitPos:F1} anim[{anim}] fire[trig={trig} aim={tname}] rends[{sb.ToString().TrimEnd()}]");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[DesertVis] failed: {ex.GetType().Name}: {ex.Message}"); }
         }

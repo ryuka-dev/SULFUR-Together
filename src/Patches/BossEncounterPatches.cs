@@ -276,9 +276,8 @@ namespace SULFURTogether.Patches
         private static bool Desert_Anim_OnTriggerSandstorm_Pre(object __instance)
             => NetBossEncounterManager.OnLocalBossSandstorm(__instance);
 
-        // LD-Sandstorm / F4 (pike-riding visibility): postfix DesertPikeCarrier.AttachUnit so the CLIENT takes its
-        // host-driven boss puppet off the pike's burrow cycle (stays visible + follows the host). No-op off-client and for
-        // non-boss pikes (regular enemy pikes are unaffected).
+        // LD-Sandstorm / F4: DesertPikeCarrier hooks — Update (pike-visual clone + probe) and ActivateShooting (P1
+        // machine-gun target rotation over all players). Regular enemy pikes are filtered out inside the handlers.
         private static void PatchDesertPikeAttach(Harmony harmony, Type pikeCarrier)
         {
             if (pikeCarrier == null) { Log.Info("[BossPhaseAction] DesertPikeCarrier type not found (pike-riding visibility skipped)"); return; }
@@ -288,14 +287,42 @@ namespace SULFURTogether.Patches
                 var upd = AccessTools.Method(pikeCarrier, "Update");
                 if (upd != null) harmony.Patch(upd, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_PikeUpdate_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 Log.Info($"[BossPhaseAction] patched DesertPikeCarrier.Update({upd != null}) — visibility probe");
+                // P1 target rotation: ActivateShooting starts the machine-gun burst at AiAgent.target; the host rotates
+                // that target over the in-room players on each burst edge so the boss attacks everyone in turn (EMP-7
+                // style), instead of natively locking onto the host player forever.
+                var act = AccessTools.Method(pikeCarrier, "ActivateShooting");
+                if (act != null) harmony.Patch(act, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_ActivateShooting_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[BossTargetRotate] patched DesertPikeCarrier.ActivateShooting({act != null})");
+                // F4-P1JMP: the boss pike's jump timing/points are natively rolled per end → the boss pops out of the sand
+                // at different times/places on every end. Host broadcasts each boss-pike JumpTowards (postfix); the client
+                // blocks its own local boss-pike jumps (prefix) and replays the host's exact arc via the reentry guard.
+                var jmp = AccessTools.Method(pikeCarrier, "JumpTowards");
+                if (jmp != null) harmony.Patch(jmp,
+                    prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_JumpTowards_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
+                    postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_JumpTowards_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[PikeJumpSync] patched DesertPikeCarrier.JumpTowards({jmp != null})");
             }
-            catch (Exception ex) { Log.Error($"[BossPhaseAction] DesertPikeCarrier.AttachUnit patch failed: {ex.Message}"); }
+            catch (Exception ex) { Log.Error($"[BossPhaseAction] DesertPikeCarrier patch failed: {ex.Message}"); }
         }
 
         private static void Desert_PikeUpdate_Post()
         {
             NetBossEncounterManager.UpdateBossPikeVisual();
             NetBossEncounterManager.ProbeDesertVisibility();
+        }
+
+        // Host-only (guarded inside): rotate the boss pike's machine-gun aim over the in-room players per burst.
+        private static void Desert_ActivateShooting_Pre(object __instance)
+            => NetBossEncounterManager.OnHostBossPikeActivateShooting(__instance);
+
+        // CLIENT: block the local sim's own boss-pike jumps (host-authoritative; reentry-replayed jumps pass).
+        private static bool Desert_JumpTowards_Pre(object __instance)
+            => !NetBossEncounterManager.ShouldBlockClientBossPikeJump(__instance);
+
+        // HOST: broadcast each boss-pike jump so clients replay the identical native arc.
+        private static void Desert_JumpTowards_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostBossPikeJumpStarted(__instance);
         }
 
         private static void WitchP2_InitPhase_Pre(object __instance)

@@ -2758,6 +2758,16 @@ namespace SULFURTogether.Networking.Gameplay
                 if (IsDesertBossSnapshot(snapshot) && Boss.NetBossEncounterManager.IsLocalIntroPresentationActive())
                     continue;
 
+                // LD-Sandstorm / F4-P1JMP: during the Desert fight the boss PIKE's position is owned by the host-replayed
+                // native jumps (PikeJump events) — the transform puppet fighting the local arc snapped 53% of frames
+                // (Log314). And while the boss BODY is welded to a pike mount (parent "CarrySpot*", the carrier zeroes
+                // its localPosition every frame) the mount owns its position — snapshot-snapping the welded body caused
+                // the 132 m spikes. Off the mount (dismount reparents to unitRoot) the puppet resumes (Log290 model).
+                if (IsDesertBossPikeSnapshot(snapshot) && Boss.NetBossEncounterManager.IsDesertPikePuppetExempt())
+                    continue;
+                if (IsDesertBossSnapshot(snapshot) && !IsDesertBossPikeSnapshot(snapshot) && Boss.NetBossEncounterManager.IsDesertBossBodyPuppetExempt())
+                    continue;
+
                 EnsureClientEnemyPuppetMode(key, snapshot, target.HostSnapshot, runtimeObject, now);
 
                 // Phase 4.4.0-O/O2: create/refresh per-NPC authorization window; determine control mode.
@@ -4524,6 +4534,19 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 string uid = snapshot.EntityId?.UnitIdentifier ?? "";
                 return uid.IndexOf("DesertClause", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch { return false; }
+        }
+
+        // F4-P1JMP: the boss's pike mount specifically ("HellshrewDesertClausePike" — note it also matches the broader
+        // IsDesertBossSnapshot "DesertClause" substring, so pike-specific checks must run the narrower match).
+        private static bool IsDesertBossPikeSnapshot(NetGameplayEntitySnapshot? snapshot)
+        {
+            if (snapshot == null) return false;
+            try
+            {
+                string uid = snapshot.EntityId?.UnitIdentifier ?? "";
+                return uid.IndexOf("DesertClausePike", StringComparison.OrdinalIgnoreCase) >= 0;
             }
             catch { return false; }
         }
