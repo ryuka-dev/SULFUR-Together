@@ -346,13 +346,15 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch { return false; }
         }
 
-        /// <summary>LD-Sandstorm / F4: true on a joined client — the boss position is host-authoritative, so the client
-        /// must NOT reposition the boss to its OWN camera during the intro (DesertClause.RepositionBossFromCamera places
-        /// the rig 12 m in front of each end's camera → the ~35 m divergence). The host keeps its reposition (cinematic);
-        /// the client leaves the boss at its placed position and follows the host. Not gated on fightStarted (pre-fight).</summary>
+        /// <summary>LD-Sandstorm / F4: in multiplayer, NEITHER end may reposition the boss to its OWN camera during the
+        /// intro (DesertClause.RepositionBossFromCamera places the rig 12 m in front of the camera → the ~35 m divergence).
+        /// Originally client-only, but now the host can run the intro for a CLIENT-triggered start while it is out of the
+        /// arena (FF14 flow) — repositioning to the far host camera would drag the boss (and the client puppet that follows
+        /// it) out of the arena (Log294). Suppress on both ends so the boss stays at its seed-placed arena position; the
+        /// intro camera still looks at that placed boss. Not gated on fightStarted (pre-fight).</summary>
         public static bool ShouldSuppressClientBossReposition()
         {
-            try { return Enabled && NetGameplaySyncBridge.BossMode == NetMode.Client; }
+            try { return Enabled && (NetGameplaySyncBridge.BossMode == NetMode.Client || NetGameplaySyncBridge.BossMode == NetMode.Host); }
             catch { return false; }
         }
 
@@ -381,7 +383,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // so the host can tell the client to finalize when it closes. The intro dialog opens via the existing
                 // machinery, so only its CLOSE needs syncing; mid-fight dialogs get both open + close from here.
                 lock (_lock) { _desertDialogOpenKey = key; }
-                if (!SafeStarted(adapter, component)) return; // mid-fight OPEN broadcast only after the fight has started
+                // Only the MID-FIGHT dialogs are broadcast (the passive client can't open them itself). The pre-fight intro
+                // cutscene is run by each end's own intro chain (OnStartInteractWithBoss), so it is not broadcast. Gate on
+                // the fight having started so a pre-fight intro Interact is never mistaken for a mid-fight call.
+                if (!SafeStarted(adapter, component)) return;
                 if (!adapter.TryGetActiveMidFightDialogId(component, out string id) || string.IsNullOrEmpty(id)) return;
                 NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, EventName = "Dialog:" + id });
                 Plugin.Log.Info($"[BossDialogSync] host broadcast OPEN dialog={id} key={key}");
@@ -899,6 +904,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             BossDialogCommitBroadcast++;
             Plugin.Log.Info($"[BossDialogCommit] host confirmed + broadcasting {msg.ToCompact()} speakable={BossDialogReflect.CurrentSpeakableName()}");
             NetGameplaySyncBridge.BroadcastHostBossDialogCommit(msg);
+            // Desert enters via the DIALOG-commit path (not the start-request path), so arm the sandstorm arena pull-in
+            // here too — otherwise an out-of-arena player (e.g. a host far from a client-first trigger) is never teleported
+            // in and grinds down in the storm (Log295: pull-in never fired on client-first). No-op for gated/normal bosses.
+            TryBeginSandstormArena(adapter, component, in ctx);
         }
 
         private static void RequestDialogCommitOnce(string key, IBossEncounterAdapter adapter, object component, in BossEncounterContext ctx, string source)
@@ -1014,6 +1023,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// a later entry can catch up. Caller wraps BeginApply/EndApply.</summary>
         private static bool ApplyIntroCutsceneGated(string key, IBossEncounterAdapter adapter, object component, NetBossDialogCommit msg, out string detail)
         {
+            // The in-room cutscene gating + out-of-room headless appear is ONLY for bosses that gate their fight on the
+            // intro dialog CLOSE (Cousin). A non-gated boss (Desert: the fight starts via TriggerFight, not dialog-close)
+            // must apply its real commit directly. Otherwise the out-of-room branch below force-calls Introduction — a
+            // Cousin method Desert doesn't have — so a client-first / out-of-room trigger never starts the fight at all
+            // (Log293: both ends logged "Introduction not found", fightStarted stayed false, nothing happened).
+            bool gatesFight = false; try { gatesFight = adapter.GatesFightOnDialogClose(component); } catch { }
+            if (!gatesFight) return adapter.TryApplyDialogCommit(component, msg, out detail);
+
             lock (_lock) { _dialogSessionActive.Add(key); if (msg != null) _lastIntroCommit[key] = msg; }
 
             if (CutsceneGateActive && !LocalInRoom(key))

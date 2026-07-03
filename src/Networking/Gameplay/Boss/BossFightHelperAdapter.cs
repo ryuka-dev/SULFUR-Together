@@ -96,6 +96,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (string.IsNullOrEmpty(gName)) return false;
                 for (int i = 0; i < DesertDialogFields.Length; i++)
                     if (GraphName(BossReflect.GetMember(component, DesertDialogFields[i])) == gName) { dialogId = DesertDialogIds[i]; return true; }
+                // NOTE: the pre-fight INTRO cutscene ("Dialog_DesertClauseIntro") is NOT synced here. Both ends run the
+                // real intro chain (OnStartInteractWithBoss, see TryApplyDialogCommit), so each opens the intro dialog
+                // locally — broadcasting it would double-open on the client. Only the mid-fight calls need syncing (the
+                // client is a passive puppet then, with UpdatePhases suppressed, so it never opens them itself).
                 return false;
             }
             catch { return false; }
@@ -314,7 +318,18 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             bool finalized = BossDialogReflect.TryFinalizeCurrentDialog(out string dlgDetail);
             string startDetail = "already-started";
             if (!IsStarted(component))
-                BossReflect.TryInvoke(component, "TriggerFight", out startDetail);
+            {
+                // Run the FULL start entrypoint, not a bare TriggerFight. TriggerFight alone flips fightStarted (health
+                // bar) but does NOT run the intro chain that ASSEMBLES the composite Desert body and opens the intro
+                // cutscene — so a client-first / commit-driven start showed a health bar with no boss and no dialog
+                // (Log294). OnStartInteractWithBoss runs the intro (assembles the body, opens Dialog_DesertClauseIntro →
+                // synced, fires TriggerFight from its anim event). The camera reposition is suppressed on both ends
+                // (ShouldSuppressClientBossReposition) so the boss stays at its placed arena position. Fall back to
+                // TriggerFight for BossFightHelpers without an intro entrypoint (Terrorbaum/Lucia).
+                string startMethod = BossReflect.HasMethod(component, "OnStartInteractWithBoss") ? "OnStartInteractWithBoss" : "TriggerFight";
+                BossReflect.TryInvoke(component, startMethod, out startDetail);
+                startDetail = $"{startMethod}: {startDetail}";
+            }
             detail = $"dialogFinalized={finalized} ({dlgDetail}); start={startDetail}";
             return true;
         }
