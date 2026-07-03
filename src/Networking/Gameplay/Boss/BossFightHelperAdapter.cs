@@ -74,6 +74,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static object? GetBossNpc(object component)
             => BossReflect.GetMember(component, "bossNPC") ?? BossReflect.GetMember(component, "bossUnit");
 
+        // Name of a DialogueTree graph (UnityEngine.Object), with any runtime "(Clone)" suffix stripped, for by-name
+        // matching (the bound runtime graph instance is not reference-equal to the assigned template field).
+        private static string GraphName(object? graph)
+            => (graph is UnityEngine.Object uo && uo != null) ? uo.name.Replace("(Clone)", "").Trim() : "";
+
         /// <summary>HOST: if the boss's NPC currently has one of the mid-fight dialog graphs set, return its id.</summary>
         public override bool TryGetActiveMidFightDialogId(object component, out string dialogId)
         {
@@ -84,9 +89,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 var npc = GetBossNpc(component);
                 var dialog = npc == null ? null : BossReflect.GetMember(npc, "dialog");
                 var graph = dialog == null ? null : BossReflect.GetMember(dialog, "graph");
-                if (graph == null) return false;
+                // Compare by NAME, not reference: the NodeCanvas dialog controller's `graph` getter returns a bound
+                // runtime instance, not the assigned template field, so ReferenceEquals(airstrikeDialogue, graph) always
+                // fails (Log290: graph name was "Dialog_DesertClauseAirstrike" yet the reference match reported <none>).
+                string gName = GraphName(graph);
+                if (string.IsNullOrEmpty(gName)) return false;
                 for (int i = 0; i < DesertDialogFields.Length; i++)
-                    if (ReferenceEquals(BossReflect.GetMember(component, DesertDialogFields[i]), graph)) { dialogId = DesertDialogIds[i]; return true; }
+                    if (GraphName(BossReflect.GetMember(component, DesertDialogFields[i])) == gName) { dialogId = DesertDialogIds[i]; return true; }
                 return false;
             }
             catch { return false; }
@@ -96,14 +105,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public override bool TryApplyDiscreteEvent(object component, string eventName, bool hasPos, Vector3 pos, out string detail)
         {
             detail = "";
-            // CLIENT (LD-Sandstorm / F4 Stage 3, phase-action sync): the host boss dismounted its pike. On the client the
-            // boss body is welded to the local mount — the native DesertPikeCarrier.AttachUnit parents the body to a mount
-            // point AND disables its animator, and its Update() forces every attachedUnit's localPosition to Vector3.zero
-            // each frame. So a bare SetBool does nothing, and even after reparenting the body away the pike keeps zeroing
-            // it (Log286: placed correctly for one frame, then snapped to world (0,0,0) = localPosition 0 under UnitRoot).
-            // Replay the native detach AND sever the attachedUnits link so Update() stops touching it: remove from the
-            // pike carrier's list, reparent to unitRoot, re-enable the animator, play "JumpingOffPike", and — since the
-            // client has no local jump-arc physics — bring the body down to the host's landing position with a short arc.
+            // CLIENT (LD-Sandstorm / F4 Stage 3, phase-action sync): the host boss dismounted its pike. Since the boss is
+            // now a host-driven puppet (classified CombatEnemy), its POSITION is owned by the puppet system — it follows
+            // the host boss down to the ground (real jump arc) on its own. We must NOT also drive the position manually:
+            // a hand-rolled descent fights the puppet drive and flings the boss ~130 m away (Log290 maxErr=130, boss
+            // "disappeared"). So here we only: (1) sever the boss from the local pike's attachedUnits + reparent off the
+            // mount, because the pike's Update() zeroes every attached unit's localPosition each frame and would fight the
+            // puppet drive; (2) re-enable the animator (the pike disabled it on attach); (3) toggle "JumpingOffPike" so the
+            // jump-off animation plays (the generic animation mirror carries state hashes, not this bool parameter).
             if (eventName == "BossJump" || eventName == "BossLand")
             {
                 bool jumping = eventName == "BossJump";
@@ -112,25 +121,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 var animator = BossReflect.GetMember(npc, "animator") as Animator;
                 SeverBossFromPike(component, npc);
                 DetachBossFromMount(npc, bodyC.transform, animator);
-                if (jumping)
-                {
-                    if (animator != null) animator.SetBool("JumpingOffPike", true);
-                    detail = "detached mount + JumpingOffPike=true";
-                    return true;
-                }
-                // BossLand: end the jump-off; descend to the host landing spot (short arc via coroutine, snap as fallback).
-                TrySetMember(npc, "isAttachedToUnit", false);
-                if (hasPos && component is MonoBehaviour mb && mb != null)
-                {
-                    mb.StartCoroutine(DescendThenLand(bodyC.transform, pos, animator));
-                    detail = $"land descend -> {pos:F1}";
-                }
-                else
-                {
-                    if (hasPos) bodyC.transform.position = pos;
-                    if (animator != null) animator.SetBool("JumpingOffPike", false);
-                    detail = hasPos ? $"land snap -> {pos:F1}" : "land (no pos)";
-                }
+                if (!jumping) TrySetMember(npc, "isAttachedToUnit", false);
+                if (animator != null) animator.SetBool("JumpingOffPike", jumping);
+                detail = jumping ? "detached mount + JumpingOffPike=true (puppet owns position)"
+                                 : "JumpingOffPike=false (puppet owns position)";
                 return true;
             }
             // CLIENT: the host's boss dialog closed → finalize our copy (the client's dialog won't end on its own,
@@ -227,26 +221,6 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (billboard != null) TrySetMember(billboard, "disableBillboardRotation", false);
             }
             catch { }
-        }
-
-        // Bring the detached boss down to the host's landing position over a short parabolic arc (the client has no local
-        // jump-arc physics), then clear the jump-off animation. Runs on the boss helper MonoBehaviour.
-        private static IEnumerator DescendThenLand(Transform body, Vector3 landing, Animator? animator)
-        {
-            Vector3 start = body != null ? body.position : landing;
-            const float dur = 0.5f;
-            float t = 0f;
-            while (t < dur && body != null)
-            {
-                t += Time.deltaTime;
-                float u = Mathf.Clamp01(t / dur);
-                Vector3 p = Vector3.Lerp(start, landing, u);
-                p.y += Mathf.Sin(u * Mathf.PI) * 1.5f; // small leap arc
-                body.position = p;
-                yield return null;
-            }
-            if (body != null) body.position = landing;
-            if (animator != null) animator.SetBool("JumpingOffPike", false);
         }
 
         // DesertClause: OnStartInteractWithBoss() (player interact) -> DelayIntro coroutine -> anim event ->
