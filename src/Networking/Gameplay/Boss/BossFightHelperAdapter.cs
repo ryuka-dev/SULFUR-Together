@@ -412,7 +412,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 var aiAgent = BossReflect.GetMember(npc, "AiAgent") ?? BossReflect.GetMember(npc, "aiAgent");
                 var tgt = aiAgent == null ? null : BossReflect.GetMember(aiAgent, "target");
                 string tname = tgt == null || (tgt is UnityEngine.Object tuo && tuo == null) ? "null" : ((tgt as Component)?.name ?? tgt.GetType().Name);
-                Plugin.Log.Info($"[DesertVis] {mode} pos={body.position:F1} activeHier={bc.gameObject.activeInHierarchy} parent={parent} bossUnitPos={unitPos:F1} anim[{anim}] fire[trig={trig} aim={tname}] rends[{sb.ToString().TrimEnd()}]");
+                string mirror = SULFURTogether.Networking.Gameplay.NetGameplayProbeManager.DescribeEnemyFireMirrorState(npc);
+                Plugin.Log.Info($"[DesertVis] {mode} pos={body.position:F1} activeHier={bc.gameObject.activeInHierarchy} parent={parent} bossUnitPos={unitPos:F1} anim[{anim}] fire[trig={trig} aim={tname}] mirror[{mirror}] rends[{sb.ToString().TrimEnd()}]");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[DesertVis] failed: {ex.GetType().Name}: {ex.Message}"); }
         }

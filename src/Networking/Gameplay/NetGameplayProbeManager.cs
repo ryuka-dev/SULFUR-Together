@@ -2763,10 +2763,12 @@ namespace SULFURTogether.Networking.Gameplay
                 // (Log314). And while the boss BODY is welded to a pike mount (parent "CarrySpot*", the carrier zeroes
                 // its localPosition every frame) the mount owns its position — snapshot-snapping the welded body caused
                 // the 132 m spikes. Off the mount (dismount reparents to unitRoot) the puppet resumes (Log290 model).
-                if (IsDesertBossPikeSnapshot(snapshot) && Boss.NetBossEncounterManager.IsDesertPikePuppetExempt())
-                    continue;
-                if (IsDesertBossSnapshot(snapshot) && !IsDesertBossPikeSnapshot(snapshot) && Boss.NetBossEncounterManager.IsDesertBossBodyPuppetExempt())
-                    continue;
+                // POSITION-only exemption: the puppet record, intent windows and combat root-replay below must keep
+                // running (the boss's machine-gun fire mirror rides them) — only the transform/animator apply is skipped
+                // (see the second check further down).
+                bool desertPositionExempt =
+                       (IsDesertBossPikeSnapshot(snapshot) && Boss.NetBossEncounterManager.IsDesertPikePuppetExempt())
+                    || (IsDesertBossSnapshot(snapshot) && !IsDesertBossPikeSnapshot(snapshot) && Boss.NetBossEncounterManager.IsDesertBossBodyPuppetExempt());
 
                 EnsureClientEnemyPuppetMode(key, snapshot, target.HostSnapshot, runtimeObject, now);
 
@@ -2802,6 +2804,11 @@ namespace SULFURTogether.Networking.Gameplay
                     if (ActiveEnemyPuppets.TryGetValue(key, out var cmRec))
                         cmRec.ControlMode = controlMode;
                 }
+
+                // F4-P1JMP position-only exemption (see above): the replayed jumps / the mount own this transform, and its
+                // animator is native-driven by the local replayed jump — skip the position + animator apply, keep the rest.
+                if (desertPositionExempt)
+                    continue;
 
                 Vector3 current = transform.position;
                 if (!IsFinite(current) || !IsFinite(target.Position))
@@ -3640,6 +3647,18 @@ namespace SULFURTogether.Networking.Gameplay
 
                 int kind = GetHostCombatActionKind(source);
                 int state = kind == CombatActionTriggerWeapon ? ParseStateDetail(detail, 0) : 0;
+
+                // F4-P1FIRE: Npc.TriggerWeaponManually's body immediately calls SetShooting, whose own report was
+                // OVERWRITING the just-written TriggerWeapon mark (kind 4 state 1 → kind 3 state 0, since "state=True"
+                // parses to 0) microseconds later. Clients then replayed a one-shot TriggerShoot instead of holding the
+                // machine-gun trigger (Log316: Desert boss bursts never mirrored). A live TriggerWeapon mark wins over a
+                // nested/redundant SetShooting mark; bare SetShooting users (no TriggerWeapon call) are unaffected.
+                if (kind == CombatActionSetShooting
+                    && HostEnemyCombatActionsByNpcId.TryGetValue(npcId, out var existingMark)
+                    && existingMark.Kind == CombatActionTriggerWeapon
+                    && now < existingMark.ExpiresAt)
+                    return;
+
                 bool hasAim = TryBuildHostCombatAim(npc, out var origin, out var aim);
 
                 var action = new HostEnemyCombatAction
@@ -4536,6 +4555,37 @@ namespace SULFURTogether.Networking.Gameplay
                 return uid.IndexOf("DesertClause", StringComparison.OrdinalIgnoreCase) >= 0;
             }
             catch { return false; }
+        }
+
+        // F4 fire-mirror diagnosis: one-line state of the enemy fire mirror pipeline for a given npc, both roles.
+        // HOST: is a combat-action mark alive for it (fed by the TriggerWeaponManually prefix)? CLIENT: did the last
+        // received host snapshot carry the combat action/intent, and is an authorized intent window open? Pinpoints
+        // which link of mark → snapshot → window → root-replay is broken. Diagnostic only.
+        internal static string DescribeEnemyFireMirrorState(object npc)
+        {
+            try
+            {
+                int id = ObjectIdentity(npc);
+                if (id == 0) return "id0";
+                if (NetConfig.GetMode() == NetMode.Host)
+                {
+                    if (HostEnemyCombatActionsByNpcId.TryGetValue(id, out var a))
+                        return $"mark[kind={a.Kind} state={a.State} seq={a.Sequence} expIn={a.ExpiresAt - Time.realtimeSinceStartup:F2}]";
+                    return "mark[none]";
+                }
+                string snap = "hostSnap[none]";
+                if (ActiveEnemyPuppetsByNpcId.TryGetValue(id, out var rec) && rec.LastHostSnapshot != null)
+                {
+                    var hs = rec.LastHostSnapshot;
+                    snap = $"hostSnap[combat={hs.HasHostCombatAction}:{hs.HostCombatActionKind}/{hs.HostCombatActionState} intent={hs.HasEnemyIntent}:{hs.EnemyIntentKind} seq={hs.HostCombatActionSequence}]";
+                }
+                else if (!ActiveEnemyPuppetsByNpcId.ContainsKey(id)) snap = "hostSnap[no-puppet-record]";
+                string win = _clientAuthorizedIntentByNpcId.TryGetValue(id, out var w)
+                    ? $"window[kind={w.Kind} seq={w.Sequence} expIn={w.ExpiresAt - Time.realtimeSinceStartup:F2} rootReplayed={w.RootReplayed}]"
+                    : "window[none]";
+                return snap + " " + win;
+            }
+            catch (Exception ex) { return "err:" + ex.GetType().Name + ":" + ex.Message; }
         }
 
         // F4-P1JMP: the boss's pike mount specifically ("HellshrewDesertClausePike" — note it also matches the broader
