@@ -56,6 +56,122 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             return radius > 0f;
         }
 
+        // ---- LD-Sandstorm / F4-MISSILE D2: homing-missile visual multiplayer ----
+        private static Type? _rocketType;
+        private static MethodInfo? _rocketInit, _autoPoolGetInstance, _autoPoolReleaseGO, _psPlay;
+        private static Type? _autoPoolType, _psType;
+        private static UnityEngine.Object? _autoPool;
+        private static GameObject? _ghostDummyMarker; // inert fallback if the real marker can't be fetched (Initialize NREs on null)
+        private static bool _d2Resolved;
+        private static float _ghostRocketLogNext;
+
+        /// <summary>F4-MISSILE D2: the boss just fired a real homing rocket at the LOCAL player (native SpawnRealRocket
+        /// hard-codes GameManager.PlayerUnit). Spawn a ghost VISUAL rocket homing on each remote player's visual proxy
+        /// (both ends have proxies — the host shows client capsules too), so every end sees every player hunted. The
+        /// ghost's damage pass is skipped via the manager's ghost registry (a ghost explosion must not double-damage the
+        /// player already hit by their own local real rocket — Log333 confirmed each end takes its own); the rocket still
+        /// falls/explodes natively and pools itself back (DestroyMissile → TryPool). Pitfalls hit before (Log335):
+        /// AutoPool.GetInstance returns an AutoPooledObject COMPONENT (not a GameObject — the `as GameObject` cast nulled
+        /// out silently), and GameManager.Players has no entry for remote players on the client (proxies are the correct
+        /// enumeration). Fail-open: any resolution miss just skips the visuals.</summary>
+        public void SpawnGhostVisualRockets(object missileBase)
+        {
+            try
+            {
+                if (!(missileBase is Component)) return;
+                var missilePrefab = BossReflect.GetMember(missileBase, "missilePrefab") as GameObject;
+                var markerPrefab = BossReflect.GetMember(missileBase, "missileMarkerPrefab") as GameObject;
+                var bossHelper = BossReflect.GetMember(missileBase, "bossFightHelper");
+                if (missilePrefab == null || bossHelper == null) return;
+
+                if (!_d2Resolved)
+                {
+                    _d2Resolved = true;
+                    _rocketType = HarmonyLib.AccessTools.TypeByName("PerfectRandom.Sulfur.Gameplay.DesertMissileRocket");
+                    _autoPoolType = HarmonyLib.AccessTools.TypeByName("PerfectRandom.Sulfur.Core.AutoPool");
+                    if (_rocketType != null)
+                        _rocketInit = _rocketType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                            .FirstOrDefault(m => m.Name == "Initialize" && m.GetParameters().Length == 5);
+                    if (_autoPoolType != null)
+                    {
+                        // GetInstance is overloaded (GameObject/string + generic variants) — take the non-generic
+                        // GameObject one. It returns an AutoPooledObject (a Component), whose .gameObject is the instance.
+                        _autoPoolGetInstance = _autoPoolType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                            .FirstOrDefault(m => m.Name == "GetInstance" && !m.IsGenericMethodDefinition
+                                && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(GameObject));
+                        _autoPoolReleaseGO = _autoPoolType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                            .FirstOrDefault(m => m.Name == "ReleaseInstance"
+                                && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(GameObject));
+                    }
+                    _psType = HarmonyLib.AccessTools.TypeByName("UnityEngine.ParticleSystem");
+                    if (_psType != null) _psPlay = HarmonyLib.AccessTools.Method(_psType, "Play", Type.EmptyTypes);
+                }
+                if (_rocketType == null || _rocketInit == null || _autoPoolGetInstance == null || _autoPoolType == null) return;
+                if (_autoPool == null || !_autoPool) _autoPool = UnityEngine.Object.FindAnyObjectByType(_autoPoolType);
+                if (_autoPool == null) return;
+                if (_ghostDummyMarker == null)
+                {
+                    _ghostDummyMarker = new GameObject("CoopGhostRocketMarker");
+                    UnityEngine.Object.DontDestroyOnLoad(_ghostDummyMarker);
+                }
+
+                float lifetime = BossReflect.GetMember(missileBase, "missileLifetime") is float lf ? lf : 15f;
+                float startY = BossReflect.GetMember(missileBase, "missileStartYOffset") is float sy ? sy : 30f;
+                float yHit = BossReflect.GetMember(missileBase, "yPosWorldToHit") is float yh ? yh : -5.2f;
+
+                int others = 0, spawned = 0;
+                NetGameplaySyncBridge.ForEachRemotePlayerTransform((peerId, proxyT) =>
+                {
+                    others++;
+                    try
+                    {
+                        var pooled = _autoPoolGetInstance.Invoke(_autoPool, new object[] { missilePrefab }) as Component;
+                        if (pooled == null) return;
+                        var rocketGO = pooled.gameObject;
+                        var rocket = rocketGO.GetComponent(_rocketType);
+                        if (rocket == null) return;
+                        Vector3 start = proxyT.position; start.y = startY;
+                        rocketGO.transform.SetPositionAndRotation(start, Quaternion.LookRotation(Vector3.down));
+                        try { _rocketType.GetField("yWorldPosToHit")?.SetValue(rocket, yHit); } catch { }
+                        try { _rocketType.GetField("isPatternRocket")?.SetValue(rocket, false); } catch { }
+                        // The ground target marker, exactly like the native spawn (pool-get, under the rocket, at the
+                        // impact height, play). Released back to the pool when the ghost explodes (OnRocketDestroyed →
+                        // ReleaseGhostMarker); the inert dummy is only the fallback so Initialize never sees null.
+                        GameObject marker = _ghostDummyMarker!;
+                        if (markerPrefab != null && _autoPoolGetInstance.Invoke(_autoPool, new object[] { markerPrefab }) is Component pooledMarker && pooledMarker != null)
+                        {
+                            marker = pooledMarker.gameObject;
+                            marker.transform.SetParent(rocketGO.transform, worldPositionStays: true);
+                            marker.transform.position = new Vector3(start.x, yHit + 0.1f, start.z);
+                            marker.transform.rotation = Quaternion.identity;
+                            if (_psType != null) { var ps = marker.GetComponent(_psType); if (ps != null) { try { _psPlay?.Invoke(ps, null); } catch { } } }
+                        }
+                        NetBossEncounterManager.RegisterGhostRocket((UnityEngine.Object)rocket, ReferenceEquals(marker, _ghostDummyMarker) ? null : marker);
+                        _rocketInit.Invoke(rocket, new object[] { bossHelper, proxyT, lifetime, marker, false });
+                        spawned++;
+                    }
+                    catch (Exception exIn) { Plugin.Log.Warn($"[DesertMissile] ghost rocket spawn failed for {peerId}: {exIn.GetType().Name}: {exIn.InnerException?.Message ?? exIn.Message}"); }
+                });
+
+                if (Plugin.Cfg.LogBossPreFight.Value && UnityEngine.Time.realtimeSinceStartup >= _ghostRocketLogNext)
+                { _ghostRocketLogNext = UnityEngine.Time.realtimeSinceStartup + 1f; Plugin.Log.Info($"[DesertMissile] ghost visual rockets: proxies={others} spawned={spawned}"); }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] SpawnGhostVisualRockets failed: {ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}"); }
+        }
+
+        /// <summary>F4-MISSILE D2: a ghost rocket exploded — return its ground marker to the AutoPool (mirrors the native
+        /// PoolHitMarker; the gradient reset is skipped since a ghost's marker never gets the fired-color change).</summary>
+        internal static void ReleaseGhostMarker(GameObject marker)
+        {
+            try
+            {
+                if (marker == null || _autoPoolReleaseGO == null) return;
+                if (_autoPool == null || !_autoPool) return;
+                _autoPoolReleaseGO.Invoke(_autoPool, new object[] { marker });
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] ReleaseGhostMarker failed: {ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}"); }
+        }
+
         // LD-Sandstorm / F4 (arena-movement sync): move the whole perimeter so its danger-zone sphere lands at `center`.
         // The native fight moves `desertClausePerimeter.gameObject.transform` (decomp UpdatePerimeterMovement) and the sphere
         // collider + jump points + danger-zone shader (`UpdateDangerZone` reads sphereCollider.transform.position) are its

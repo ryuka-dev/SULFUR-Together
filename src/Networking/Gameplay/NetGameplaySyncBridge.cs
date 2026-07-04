@@ -240,6 +240,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static void ForEachRemotePlayerPositionWithPeer(System.Action<string, UnityEngine.Vector3> action)
             => _service?.ForEachRemotePlayerPositionWithPeer(action);
 
+        // F4-MISSILE D2: remote player visual TRANSFORMS (live homing targets for ghost visual rockets, both ends).
+        public static void ForEachRemotePlayerTransform(System.Action<string, UnityEngine.Transform> action)
+            => _service?.ForEachRemotePlayerTransform(action);
+
         // Phase 5.4-F BossDamageAuthority.
         public static void SendClientBossHitRequest(SULFURTogether.Networking.Gameplay.Boss.NetClientBossHitRequest req)
             => _service?.SendClientBossHitRequest(req);

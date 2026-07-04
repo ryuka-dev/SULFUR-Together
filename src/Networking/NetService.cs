@@ -961,6 +961,15 @@ namespace SULFURTogether.Networking
             _visualProxies.ForEachInScenePlayer(action, Now(), Plugin.Cfg.RemotePlayerVisualTimeoutSeconds.Value);
         }
 
+        // F4-MISSILE D2: same enumeration but handing each remote player's visual TRANSFORM — a live homing target for
+        // the boss's ghost visual rockets (tracks what this end sees of that player). Works on BOTH ends (the host shows
+        // client proxies too).
+        internal void ForEachRemotePlayerTransform(System.Action<string, UnityEngine.Transform> action)
+        {
+            if (action == null) return;
+            _visualProxies.ForEachInScenePlayerTransform(action, Now(), Plugin.Cfg.RemotePlayerVisualTimeoutSeconds.Value);
+        }
+
         internal void BroadcastHostBossDynamicSpawn(Gameplay.Boss.NetBossDynamicSpawn msg)
         {
             if (_mode != NetMode.Host || _net == null) return;

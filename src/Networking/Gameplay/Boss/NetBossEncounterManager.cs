@@ -197,6 +197,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _desertAimRotation = -1;
                 _desertArenaTarget = new Vector3(float.PositiveInfinity, 0, 0);
                 _desertArenaLastSent = new Vector3(float.PositiveInfinity, 0, 0);
+                _ghostRocketIds.Clear();
+                _ghostRocketMarkers.Clear();
                 _clientRequested.Clear();
                 _localIntroDialogKey = null;
                 _localMidFightDialogKey = null;
@@ -266,6 +268,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _desertAimRotation = -1;
                 _desertArenaTarget = new Vector3(float.PositiveInfinity, 0, 0);
                 _desertArenaLastSent = new Vector3(float.PositiveInfinity, 0, 0);
+                _ghostRocketIds.Clear();
+                _ghostRocketMarkers.Clear();
                 _clientRequested.Clear();
                 _localIntroDialogKey = null;
                 _localMidFightDialogKey = null;
@@ -1081,6 +1085,87 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (LogOn) Plugin.Log.Info($"[DesertMissile] client applied {eventName}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] ApplyClientMissileWindow failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // -------------------------------------------------- F4-MISSILE D2: ghost visual rockets (homing multiplayer)
+
+        // Instance IDs of ghost VISUAL rockets (spawned by SpawnGhostVisualRockets at other players' proxies) + each
+        // ghost's pooled ground marker. The ghost's damage pass (DesertMissileRocket.CheckAndDamageUnit) is skipped — a
+        // ghost explosion must not double-damage the player who is already hit by their OWN local real rocket — and the
+        // id is dropped when the rocket explodes (DestroyMissile), releasing the marker back to the pool, so a pooled
+        // instance later reused as a REAL rocket damages normally (no pool pollution).
+        private static readonly HashSet<int> _ghostRocketIds = new HashSet<int>();
+        private static readonly Dictionary<int, UnityEngine.GameObject> _ghostRocketMarkers = new Dictionary<int, UnityEngine.GameObject>();
+
+        /// <summary>F4-MISSILE D2: mark a just-spawned rocket instance as a ghost VISUAL (no damage pass), remembering its
+        /// pooled ground marker (if any) for release when it explodes.</summary>
+        public static void RegisterGhostRocket(UnityEngine.Object rocket, UnityEngine.GameObject? marker)
+        {
+            if (rocket == null) return;
+            lock (_lock)
+            {
+                int id = rocket.GetInstanceID();
+                _ghostRocketIds.Add(id);
+                if (marker != null) _ghostRocketMarkers[id] = marker;
+            }
+        }
+
+        /// <summary>Prefix gate for DesertMissileRocket.CheckAndDamageUnit: true = skip the damage pass (ghost visual).</summary>
+        public static bool IsGhostRocket(object rocket)
+        {
+            try
+            {
+                if (!(rocket is UnityEngine.Object uo) || uo == null) return false;
+                lock (_lock) { return _ghostRocketIds.Contains(uo.GetInstanceID()); }
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Postfix for DesertMissileRocket.DestroyMissile: the rocket exploded — a ghost id is dropped here (so
+        /// the pooled instance can be reused as a real rocket) and its ground marker is returned to the pool.</summary>
+        public static void OnRocketDestroyed(object rocket)
+        {
+            try
+            {
+                if (!(rocket is UnityEngine.Object uo) || uo == null) return;
+                UnityEngine.GameObject? marker = null;
+                lock (_lock)
+                {
+                    int id = uo.GetInstanceID();
+                    _ghostRocketIds.Remove(id);
+                    if (_ghostRocketMarkers.TryGetValue(id, out var m)) { marker = m; _ghostRocketMarkers.Remove(id); }
+                }
+                if (marker != null) BossFightHelperAdapter.ReleaseGhostMarker(marker);
+            }
+            catch { }
+        }
+
+        /// <summary>BOTH ends (F4-MISSILE D2): a boss missile base fired a real homing rocket at the local player → route
+        /// to the owning Desert adapter to add ghost VISUAL rockets homing on the other players' proxies, so every end sees
+        /// every player hunted. Resolves the adapter under the lock, spawns outside it (Unity work).</summary>
+        public static void OnMissileRealRocketFired(object missileBase)
+        {
+            try
+            {
+                if (!Enabled || missileBase == null) return;
+                BossFightHelperAdapter? target = null;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (!(e.Adapter is BossFightHelperAdapter a) || e.Component == null) continue;
+                        try
+                        {
+                            if (!SafeStarted(a, e.Component)) continue;
+                            if (ReferenceEquals(BossReflect.GetMember(e.Component, "sniperBase"), missileBase) || ReferenceEquals(BossReflect.GetMember(e.Component, "terminatorBase"), missileBase)) { target = a; break; }
+                        }
+                        catch { }
+                    }
+                }
+                target?.SpawnGhostVisualRockets(missileBase);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] OnMissileRealRocketFired failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         /// <summary>Is <paramref name="carrier"/> a registered started boss's own pike (its <c>spawnedBossPike</c> carrier)?

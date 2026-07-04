@@ -164,6 +164,22 @@ namespace SULFURTogether.Networking
             }
         }
 
+        /// <summary>F4-MISSILE D2: invoke <paramref name="action"/> with (peerId, visualTransform) for each VISIBLE,
+        /// fresh in-scene remote player — the transforms the boss's ghost visual rockets home on (what this end SEES of
+        /// the other players). Same freshness/visibility rules as ForEachInScenePlayer.</summary>
+        public void ForEachInScenePlayerTransform(System.Action<string, Transform> action, float now, float maxAgeSeconds)
+        {
+            if (action == null) return;
+            foreach (var kv in _proxies)
+            {
+                var proxy = kv.Value;
+                if (!proxy.IsVisible) continue;
+                if (maxAgeSeconds > 0f && now - proxy.LastUpdatedAt > maxAgeSeconds) continue;
+                var t = proxy.VisualTransform;
+                if (t != null) action(kv.Key, t);
+            }
+        }
+
         /// <summary>Phase 5.6-WS-2: iterate (peerId, proxy) for every known proxy (visible or not) so the held-weapon
         /// sync can attach/update/clear weapon models. Snapshotted to tolerate mutation during iteration.</summary>
         internal void ForEachProxy(System.Action<string, NetRemotePlayerProxy> action)

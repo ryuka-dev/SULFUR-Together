@@ -62,6 +62,9 @@ namespace SULFURTogether.Networking
         public Vector3 TargetPosition => _targetPosition;
         /// <summary>The proxy's current on-screen position (interpolated) — what the local player visually bumps into.</summary>
         public Vector3 VisualPosition => _root != null ? _root.transform.position : _targetPosition;
+        /// <summary>The proxy's visual root transform (F4-MISSILE D2: a homing target that tracks what this end SEES of
+        /// the remote player), or null while no visual exists.</summary>
+        public Transform VisualTransform => _root != null ? _root.transform : null;
 
         public NetRemotePlayerProxy(string peerId)
         {
