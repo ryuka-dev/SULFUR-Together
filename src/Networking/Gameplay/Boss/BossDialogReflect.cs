@@ -27,6 +27,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static PropertyInfo? _currentSpeakableProp;
         private static FieldInfo? _inChoicesField;
         private static FieldInfo? _selectedButtonField;
+        private static FieldInfo? _playerDialogButtonsField;
         private static MethodInfo? _acceptMethod;
 
         private static void Resolve()
@@ -57,6 +58,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     _inChoicesField = AccessTools.Field(_dialogControllerType, "InChoices");
                     _selectedButtonField = AccessTools.Field(_dialogControllerType, "selectedButton");
                     _acceptMethod = AccessTools.Method(_dialogControllerType, "AcceptDialogOption");
+                    _playerDialogButtonsField = AccessTools.Field(_dialogControllerType, "playerDialogButtons");
                     Plugin.Log.Info($"[BossDialogCommit] dialog choice fields: InChoices={( _inChoicesField != null)} selectedButton={(_selectedButtonField != null)}");
                 }
             }
@@ -146,6 +148,53 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 }
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossDialogCommit] TryAdvanceActiveDialog failed: {ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}"); }
+            return false;
+        }
+
+        /// <summary>True if the active dialog is currently showing a multiple-choice (its options panel). A linear line
+        /// advances via <see cref="TryAdvanceActiveDialog"/>; a choice node needs an option picked (<see
+        /// cref="TrySelectActiveDialogOption"/>) — AcceptDialogOption no-ops on a choice with no selectedButton.</summary>
+        public static bool IsActiveDialogInChoices()
+        {
+            Resolve();
+            try
+            {
+                foreach (var dc in EnumerateControllers())
+                {
+                    if (_currentSpeakableProp?.GetValue(dc, null) == null) continue;
+                    return _inChoicesField != null && _inChoicesField.GetValue(dc) is bool ic && ic;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>Pick option <paramref name="index"/> on the active choice dialog (clamped), driving it past the choice
+        /// node to its natural continuation — the same as the player clicking that option. Invokes the option Button's
+        /// onClick (→ Finalize → SelectOption), which runs the tree's post-choice ExecuteFunction nodes (boss resume), so a
+        /// client dismissing a multiple-choice mid-fight dialog can close the host's copy the same way a linear one does.
+        /// Returns true if an option was invoked. (F4-DLGCHOICE — host auto-picks option 0; boss taunt choices converge.)</summary>
+        public static bool TrySelectActiveDialogOption(int index)
+        {
+            Resolve();
+            try
+            {
+                foreach (var dc in EnumerateControllers())
+                {
+                    if (_currentSpeakableProp?.GetValue(dc, null) == null) continue;
+                    if (!(_playerDialogButtonsField?.GetValue(dc) is System.Collections.IList buttons) || buttons.Count == 0) return false;
+                    int idx = index < 0 ? 0 : (index >= buttons.Count ? buttons.Count - 1 : index);
+                    var btn = buttons[idx];
+                    if (btn == null) return false;
+                    // Button.onClick (UnityEvent) — invoke via reflection to avoid a hard UnityEngine.UI reference.
+                    var onClick = btn.GetType().GetProperty("onClick")?.GetValue(btn);
+                    var invoke = onClick?.GetType().GetMethod("Invoke", Type.EmptyTypes);
+                    if (invoke == null) return false;
+                    invoke.Invoke(onClick, null);
+                    return true;
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogCommit] TrySelectActiveDialogOption failed: {ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}"); }
             return false;
         }
 

@@ -622,16 +622,27 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static System.Collections.IEnumerator FastForwardHostMidFightDialog(string key, string peerId)
         {
             const int maxFrames = 300; // ~5 s cap
-            int frames = 0, advances = 0;
+            int frames = 0, advances = 0, picks = 0;
             while (BossDialogReflect.IsDialogActive() && frames < maxFrames)
             {
-                if (BossDialogReflect.TryAdvanceActiveDialog()) advances++;
+                if (BossDialogReflect.IsActiveDialogInChoices())
+                {
+                    // A multiple-choice node — pick an option (host auto-picks 0), then wait for it to resolve so we don't
+                    // re-pick every frame while SelectOption's coroutine runs (F4-DLGCHOICE).
+                    if (BossDialogReflect.TrySelectActiveDialogOption(0)) picks++;
+                    for (int w = 0; w < 20 && frames < maxFrames && BossDialogReflect.IsDialogActive() && BossDialogReflect.IsActiveDialogInChoices(); w++)
+                    { frames++; yield return null; }
+                }
+                else
+                {
+                    if (BossDialogReflect.TryAdvanceActiveDialog()) advances++;
+                }
                 frames++;
                 yield return null;
             }
             bool natural = !BossDialogReflect.IsDialogActive();
             if (!natural) { try { BossDialogReflect.TryFinalizeCurrentDialog(out _); } catch { } } // couldn't reach the end — don't hang
-            Plugin.Log.Info($"[BossDialogSync] host fast-forwarded mid-fight dialog on client request from {peerId} key={key}: advances={advances} frames={frames} natural={natural}");
+            Plugin.Log.Info($"[BossDialogSync] host fast-forwarded mid-fight dialog on client request from {peerId} key={key}: advances={advances} picks={picks} frames={frames} natural={natural}");
         }
 
         /// <summary>LD-Sandstorm / F4 (sandstorm presentation sync): prefix entry for `DesertClauseBossFightHelper.
