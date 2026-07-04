@@ -693,7 +693,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         bfa = a; comp = e.Component; break;
                     }
                 }
-                if (bfa != null && comp != null) { bfa.EnsureBossPikeVisual(comp); ProbeDesertArena(bfa, comp); }
+                if (bfa != null && comp != null) { bfa.EnsureBossPikeVisual(comp); ProbeDesertArena(bfa, comp); ProbeDesertPike(comp); }
             }
             catch { }
         }
@@ -755,6 +755,37 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 }
             }
             catch { }
+        }
+
+        private static float _desertPikeProbeNext;
+        private static Type? _pikeCarrierType;
+
+        /// <summary>Phase B probe (F4-PIKELEFTOVER, read-only): every ~0.5 s log the boss pike's state on BOTH ends. After
+        /// phase 1 the host's OnBossJump sets the perimeter's disableJumping + hides the pike (renderers off, underground),
+        /// but the client never ran that, so its local perimeter keeps jumping the riderless pike (visible, diving in/out).
+        /// Log the boss pike (spawnedBossPike) carrier's isJumping + renderer-enabled + position + the boss phase index so we
+        /// can see the leftover-pike lifecycle vs the host AND how phase 4 re-mounts it (must not break that). Gated.</summary>
+        private static void ProbeDesertPike(object comp)
+        {
+            if (!LogOn) return;
+            try
+            {
+                float now = UnityEngine.Time.realtimeSinceStartup;
+                if (now < _desertPikeProbeNext) return;
+                _desertPikeProbeNext = now + 0.5f;
+                NetMode mode = NetGameplaySyncBridge.BossMode;
+                object phase = BossReflect.GetMember(comp, "BossPhaseIndex") ?? "?";
+                var bossPike = BossReflect.GetMember(comp, "spawnedBossPike");
+                if (!(bossPike is Component pikeComp) || pikeComp == null) { Plugin.Log.Info($"[DesertPike] mode={mode} phase={phase} bossPike=null"); return; }
+                if (_pikeCarrierType == null) _pikeCarrierType = HarmonyLib.AccessTools.TypeByName("PerfectRandom.Sulfur.Gameplay.DesertPikeCarrier");
+                var carrier = _pikeCarrierType != null ? pikeComp.GetComponent(_pikeCarrierType) : null;
+                bool isJumping = carrier != null && BossReflect.GetMember(carrier, "isJumping") is bool bj && bj;
+                bool rendOn = false; int rendCount = 0;
+                if (BossReflect.GetMember(carrier, "pikeRenderers") is UnityEngine.Renderer[] rends)
+                { rendCount = rends.Length; foreach (var r in rends) if (r != null && r.enabled) { rendOn = true; break; } }
+                Plugin.Log.Info($"[DesertPike] mode={mode} phase={phase} pikePos={pikeComp.transform.position:F1} isJumping={isJumping} anyRendEnabled={rendOn}({rendCount})");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertPike] probe failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         private static int _desertAimRotation = -1;
@@ -890,11 +921,44 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             {
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Client || carrier == null) return false;
                 if (InReentry) return false; // host-driven replay — allow
-                if (!TryGetRegisteredBossOnCarrier(carrier, out _)) return false;
+                // F4-PIKELEFTOVER: block by pike IDENTITY (is this the boss's spawnedBossPike?), not by "the boss is currently
+                // aboard" — after the phase-1 dismount the boss detaches, so the boss-aboard test failed and the client's local
+                // perimeter jumped the RIDERLESS boss pike on its own (Log329: pike kept diving/visible while the host parked
+                // it underground). Now the boss pike is fully host-authoritative in every phase: it only moves via the host's
+                // replayed PikeJump events (phase 1, the dismount, the phase-4 re-mount); with no host jumps in the middle
+                // phases it stays parked underground/invisible like the host. Enemy (saddled) pikes are not matched → unaffected.
+                if (!IsRegisteredBossPikeCarrier(carrier)) return false;
                 if (LogOn) Plugin.Log.Info("[PikeJumpSync] client blocked local boss-pike jump (host-authoritative)");
                 return true;
             }
             catch { return false; }
+        }
+
+        /// <summary>Is <paramref name="carrier"/> a registered started boss's own pike (its <c>spawnedBossPike</c> carrier)?
+        /// Identity match, so it holds whether or not the boss is currently mounted — unlike TryGetRegisteredBossOnCarrier
+        /// (which needs the boss aboard). Used to keep the boss pike host-authoritative even while riderless.</summary>
+        private static bool IsRegisteredBossPikeCarrier(object carrier)
+        {
+            if (!(carrier is UnityEngine.Object) || carrier == null) return false;
+            lock (_lock)
+            {
+                foreach (var kv in _registry)
+                {
+                    var e = kv.Value;
+                    if (!(e.Adapter is BossFightHelperAdapter) || e.Component == null) continue;
+                    try
+                    {
+                        if (!SafeStarted(e.Adapter, e.Component)) continue;
+                        if (!(BossReflect.GetMember(e.Component, "spawnedBossPike") is Component pikeComp) || pikeComp == null) continue;
+                        if (_pikeCarrierType == null) _pikeCarrierType = HarmonyLib.AccessTools.TypeByName("PerfectRandom.Sulfur.Gameplay.DesertPikeCarrier");
+                        var bossCarrier = _pikeCarrierType != null ? pikeComp.GetComponent(_pikeCarrierType) : null;
+                        if (bossCarrier != null && (ReferenceEquals(bossCarrier, carrier)
+                            || (bossCarrier is Component bc && carrier is Component cc && ReferenceEquals(bc.gameObject, cc.gameObject)))) return true;
+                    }
+                    catch { }
+                }
+            }
+            return false;
         }
 
         /// <summary>CLIENT: replay the host's boss-pike jump — snap the pike to the host's start position, then invoke the
