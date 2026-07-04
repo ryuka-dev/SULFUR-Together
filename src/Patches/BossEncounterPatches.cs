@@ -72,6 +72,13 @@ namespace SULFURTogether.Patches
             PatchDesertMissileRocket(harmony, FindType("DesertMissileRocket",
                 "PerfectRandom.Sulfur.Gameplay.DesertMissileRocket", "PerfectRandom.Sulfur.Core.DesertMissileRocket"));
 
+            // F4-ADDS: the client's own perimeter jump machinery TELEPORTS its pikes to locally-rolled jump points every
+            // eligible frame (UpdateJumping moves the pike THEN calls JumpTowards — only the latter was blocked, F4-P1JMP),
+            // dragging the client boss pike (+ mounted boss) to points where the HOST has minion pikes. On the client every
+            // pike is host-driven (boss pike = PikeJump replay; minion pikes = RT3 snapshots), so block the whole method.
+            PatchDesertPerimeter(harmony, FindType("DesertClausePerimeter",
+                "PerfectRandom.Sulfur.Gameplay.DesertClausePerimeter", "PerfectRandom.Sulfur.Core.DesertClausePerimeter"));
+
             // B. Witch standalone system.
             PatchStart(harmony, FindType("WitchBossController",
                 "PerfectRandom.Sulfur.Gameplay.WitchBossController", "PerfectRandom.Sulfur.Core.WitchBossController"),
@@ -367,6 +374,23 @@ namespace SULFURTogether.Patches
             }
             catch (Exception ex) { Log.Error($"[DesertMissile] patch failed: {ex.Message}"); }
         }
+
+        // F4-ADDS: client-side block of the perimeter's local pike jump machinery (host-driven pikes only).
+        private static void PatchDesertPerimeter(Harmony harmony, Type perimeter)
+        {
+            if (perimeter == null) { Log.Info("[DesertAdds] DesertClausePerimeter type not found (jump block skipped)"); return; }
+            try
+            {
+                var upd = AccessTools.Method(perimeter, "UpdateJumping");
+                if (upd != null) harmony.Patch(upd, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_PerimeterJumping_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[DesertAdds] patched DesertClausePerimeter.UpdateJumping({upd != null})");
+            }
+            catch (Exception ex) { Log.Error($"[DesertAdds] perimeter patch failed: {ex.Message}"); }
+        }
+
+        // CLIENT: skip the local pike jump/teleport loop entirely (host-authoritative pikes).
+        private static bool Desert_PerimeterJumping_Pre()
+            => !NetBossEncounterManager.ShouldBlockClientPerimeterJumping();
 
         // F4-MISSILE D2: the ghost-rocket damage gate on DesertMissileRocket itself.
         private static void PatchDesertMissileRocket(Harmony harmony, Type rocket)

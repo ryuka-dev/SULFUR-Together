@@ -272,6 +272,8 @@ namespace SULFURTogether.Networking.Gameplay
                 bool bound = NetGameplayProbeManager.RegisterMirroredRuntimeSpawn(unit, hostSpawnIndex);
                 if (bound) RuntimeSpawnMirrored++; else RuntimeSpawnMirrorFailed++;
                 Plugin.Log.Info($"[RuntimeSpawn] client mirrored unit hostIdx={hostSpawnIndex} bound={bound} unit={BossReflect.RootName(unit)}");
+                // F4-ADDS: boss-specific taming of special mirrors (Desert enemy pikes: physics/trigger-pounce off).
+                Boss.NetBossEncounterManager.OnRuntimeMirrorSpawned(unit);
             }
             catch (Exception ex) { RuntimeSpawnMirrorFailed++; Plugin.Log.Warn($"[RuntimeSpawn] MirrorSpawnAsync failed: {ex.GetType().Name}: {ex.Message}"); }
         }

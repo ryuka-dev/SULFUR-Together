@@ -86,7 +86,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try
             {
                 if (!Enabled || unitSO == null || owner == null) return;
-                if (!NetBossEncounterManager.TryGetEncounterKeyForBoss(owner, out _, out _)) return; // not a boss owner
+                // F4-ADDS: accept the Desert perimeter as an owner too (it spawns the saddled pikes; RecordSpawn resolves
+                // it to the owning boss) — the boss-only filter here rejected those spawns before attribution ever ran.
+                if (!NetBossEncounterManager.TryGetEncounterKeyForBoss(owner, out _, out _)
+                    && !NetBossEncounterManager.TryGetEncounterKeyForDesertPerimeter(owner, out _, out _)) return; // not a boss owner
                 lock (_lock)
                 {
                     float now = Time.realtimeSinceStartup;
@@ -120,7 +123,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         private static void RecordSpawn(object owner, object spawnedUnit, Vector3 position)
         {
-            if (!NetBossEncounterManager.TryGetEncounterKeyForBoss(owner, out string key, out string ownerType)) return;
+            // F4-ADDS: the Desert SADDLED pikes are spawned by the perimeter (GetPikeEnemyAsync's mono is the
+            // DesertClausePerimeter, not the boss helper), so the direct boss lookup never matched and they were never
+            // broadcast — the client has never seen a saddled pike. Resolve the perimeter to its owning boss.
+            if (!NetBossEncounterManager.TryGetEncounterKeyForBoss(owner, out string key, out string ownerType)
+                && !NetBossEncounterManager.TryGetEncounterKeyForDesertPerimeter(owner, out key, out ownerType)) return;
 
             string unitId = BossReflect.ReadUnitId(spawnedUnit);
             // IMPORTANT (E4 fix): the C# runtime type collapses to "Npc" for EVERY boss add (BlackGuildAssassin,
@@ -331,6 +338,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             try
             {
+                // F4-ADDS fix: resolve deferred host-only adds BEFORE the gated-adds early-return. On a boss whose client
+                // phase logic is fully suppressed (Desert) the client never spawns a local add, so _gatedAdds stays empty
+                // forever and the old ordering skipped the host-extra mirror entirely — every host minion broadcast sat
+                // "pending local" for good (Log340: 11 received, 0 mirrored).
+                TickResolveDeferredHostOnly();
                 if (_gatedAdds.Count == 0) return;
                 List<GatedAdd>? expired = null;
                 float now = Time.realtimeSinceStartup;
@@ -347,8 +359,6 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         if (g.Frozen) TryUnfreezeMovement(g.Unit);
                         if (LogOn) Plugin.Log.Info($"[BossSpawn] RT3-A stale gate released (no host manifest) inst={BossReflect.InstanceId(g.Unit)}");
                     }
-
-                TickResolveDeferredHostOnly();
             }
             catch { }
         }
@@ -368,7 +378,15 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     if (he.BoundLocal || he.HostOnlyResolved) continue;
                     if (now - he.ReceivedAt < HostOnlyGraceSeconds) continue;          // still waiting for the local
                     if (IsSpecialAdd(he.Msg.AddType)) { he.HostOnlyResolved = true; continue; } // special adds own their lifecycle
-                    if (he.Msg.UnitIdValue == 0 || he.Msg.HostSpawnIndex <= 0) { he.HostOnlyResolved = true; continue; }
+                    if (he.Msg.UnitIdValue == 0 || he.Msg.HostSpawnIndex <= 0)
+                    {
+                        he.HostOnlyResolved = true;
+                        // Diagnostic (F4-ADDS): this silent give-up is the blind spot when a host add never appears on the
+                        // client — the broadcast arrived but carried no mirrorable identity (UnitIdValue) or no puppet
+                        // binding index (HostSpawnIndex), so nothing was ever spawned.
+                        Plugin.Log.Warn($"[BossSpawn] host-only add NOT mirrorable (unitIdValue={he.Msg.UnitIdValue} hostIdx={he.Msg.HostSpawnIndex}) {he.Msg.ToCompact()}");
+                        continue;
+                    }
                     he.BoundLocal = true; he.HostOnlyResolved = true; // claim so we mirror exactly once
                     (toMirror ??= new List<HostEntry>()).Add(he);
                 }
@@ -444,6 +462,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (addType == null) return false;
             if (_specialAdds.Contains(addType)) return true;
             if (addType == "GoblinCousinArm") return true; // never puppet-ize: BT drives appear/idle/attack/disappear
+            // F4-ADDS: the Desert BOSS pike exists natively on both ends (each end's own TriggerFight chain spawns it) and
+            // the client's copy is driven by the replayed native PikeJump arcs (F4-P1JMP). RT3-binding it as a position
+            // puppet double-drives it against that replay (Log344: the client boss pike dragged around / overlapping the
+            // minion pikes) — never bind or mirror it.
+            if (addType == "HellshrewDesertClausePike") return true;
             return false;
         }
 

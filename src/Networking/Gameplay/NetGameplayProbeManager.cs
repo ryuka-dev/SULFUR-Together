@@ -2497,8 +2497,18 @@ namespace SULFURTogether.Networking.Gameplay
                 float maxApplyDistance = Math.Max(100f, Plugin.Cfg.EnemyStateSnapshotSnapDistance.Value * 10f);
                 if (applyDistance > maxApplyDistance)
                 {
-                    detail = $"unsafe apply distance={applyDistance:F2}m > max={maxApplyDistance:F2}m idx={hostSnapshot.SpawnIndex}";
-                    return false;
+                    // F4-ADDS: an RT3-mirrored boss add is host-authoritative by construction — it mirror-spawns at the
+                    // HOST's spawn-time position, which for the Desert riders/pikes is world origin while their real host
+                    // bodies fight ~130 m away in the arena. This sanity gate then refused the very snap that would bring
+                    // them in, permanently parking every mirror at origin (Log345: bind=live, recv fresh, pos frozen).
+                    // Mirrors bound via the runtime-spawn registry are allowed to snap any distance.
+                    if (!_runtimeSpawnBindingsByHostIdx.ContainsKey(hostSnapshot.SpawnIndex))
+                    {
+                        detail = $"unsafe apply distance={applyDistance:F2}m > max={maxApplyDistance:F2}m idx={hostSnapshot.SpawnIndex}";
+                        return false;
+                    }
+                    if (Plugin.Cfg.LogBossDynamicSpawn.Value)
+                        NetLogger.Info($"[DesertAdds] far-apply exemption (RT3 mirror) idx={hostSnapshot.SpawnIndex} dist={applyDistance:F1}m");
                 }
             }
 
@@ -2768,7 +2778,12 @@ namespace SULFURTogether.Networking.Gameplay
                 // (see the second check further down).
                 bool desertPositionExempt =
                        (IsDesertBossPikeSnapshot(snapshot) && Boss.NetBossEncounterManager.IsDesertPikePuppetExempt())
-                    || (IsDesertBossSnapshot(snapshot) && !IsDesertBossPikeSnapshot(snapshot) && Boss.NetBossEncounterManager.IsDesertBossBodyPuppetExempt());
+                    || (IsDesertBossSnapshot(snapshot) && !IsDesertBossPikeSnapshot(snapshot) && Boss.NetBossEncounterManager.IsDesertBossBodyPuppetExempt())
+                    // F4-ADDS: the ENEMY (saddled) pikes get the same treatment as the boss pike — their position is owned
+                    // by the host-replayed native jumps ("PikeJump:<hostIdx>" events). Snapshot-driving them teleport-stormed
+                    // the client (Log346: pike flicker + physics freeze, snaps=140 vs the riders' 2-3). Unconditional (an
+                    // enemy pike is never player-mounted).
+                    || IsDesertEnemyPikeSnapshot(snapshot);
 
                 EnsureClientEnemyPuppetMode(key, snapshot, target.HostSnapshot, runtimeObject, now);
 
@@ -4597,6 +4612,19 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 string uid = snapshot.EntityId?.UnitIdentifier ?? "";
                 return uid.IndexOf("DesertClausePike", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch { return false; }
+        }
+
+        // F4-ADDS: a Desert ENEMY (saddled) pike — "HellshrewPike2Seat"/"3Seat"/"4Seat" (the boss pike is
+        // "HellshrewDesertClausePike" and does NOT match this prefix).
+        private static bool IsDesertEnemyPikeSnapshot(NetGameplayEntitySnapshot? snapshot)
+        {
+            if (snapshot == null) return false;
+            try
+            {
+                string uid = snapshot.EntityId?.UnitIdentifier ?? "";
+                return uid.StartsWith("HellshrewPike", StringComparison.OrdinalIgnoreCase);
             }
             catch { return false; }
         }
@@ -6791,6 +6819,102 @@ namespace SULFURTogether.Networking.Gameplay
 
         /// <summary>Bind a client-mirrored runtime spawn to the host SpawnIndex so the existing EnemyPuppet / state /
         /// death pipeline (all keyed by host SpawnIndex) drives the mirrored unit.</summary>
+        private static float _rtSpawnProbeNext;
+
+        /// <summary>F4-ADDS probe (read-only, client): every ~1 s dump each RT3-mirrored runtime spawn — hostIdx, unit
+        /// name, live position, whether any renderer is actually visible, and how fresh the host snapshot feed for that
+        /// hostIdx is. Pins down why a mirrored add exists but is never seen (parked at origin / feed never arrives /
+        /// renderers off). Gated on LogBossDynamicSpawn.</summary>
+        public static void ProbeRuntimeSpawnBindings()
+        {
+            try
+            {
+                if (!Plugin.Cfg.LogBossDynamicSpawn.Value) return;
+                float now = UnityEngine.Time.realtimeSinceStartup;
+                if (now < _rtSpawnProbeNext) return;
+                // HOST branch: dump the ACTUAL transform + parent of every live Hellshrew add — i.e. the positions the
+                // snapshot stream is sending. Log343: the client feed for riding minions/pikes stayed at ~origin; this
+                // tells whether the host units truly sit at origin (ride machinery) or the feed reads the wrong source.
+                if (NetConfig.GetMode() == NetMode.Host)
+                {
+                    _rtSpawnProbeNext = now + 1f;
+                    foreach (var kv in EntitiesByLocalId)
+                    {
+                        var s = kv.Value;
+                        if (s == null || s.IsDead || s.SpawnIndex <= 0) continue;
+                        if ((s.ActorName ?? "").IndexOf("Hellshrew", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                        if ((s.ActorName ?? "").IndexOf("DesertClause", StringComparison.OrdinalIgnoreCase) >= 0
+                            && (s.ActorName ?? "").IndexOf("Pike", StringComparison.OrdinalIgnoreCase) < 0) continue; // skip the boss body
+                        if (!s.TryGetRuntimeObject(out object? o) || !(o is UnityEngine.Component hc) || hc == null) continue;
+                        string parent = hc.transform.parent != null ? hc.transform.parent.name : "<root>";
+                        NetLogger.Info($"[DesertAdds] HOST idx={s.SpawnIndex} name={s.ActorName} pos={hc.transform.position:F1} parent={parent}");
+                    }
+                    return;
+                }
+                if (NetConfig.GetMode() != NetMode.Client || _runtimeSpawnBindingsByHostIdx.Count == 0) return;
+                _rtSpawnProbeNext = now + 1f;
+                foreach (var kv in _runtimeSpawnBindingsByHostIdx)
+                {
+                    int hostIdx = kv.Key; string localKey = kv.Value;
+                    string name = "?", pos = "?", rend = "?", recv = "recv=never";
+                    if (EntitiesByLocalId.TryGetValue(localKey, out var snap) && snap != null)
+                    {
+                        name = snap.ActorName;
+                        if (snap.TryGetRuntimeObject(out object? obj) && obj is UnityEngine.Component c && c != null)
+                        {
+                            pos = c.transform.position.ToString("F1");
+                            bool anyOn = false, goActive = c.gameObject.activeInHierarchy;
+                            foreach (var r in c.GetComponentsInChildren<UnityEngine.Renderer>(true))
+                                if (r != null && r.enabled && r.gameObject.activeInHierarchy) { anyOn = true; break; }
+                            rend = $"go={goActive} rend={anyOn}";
+                        }
+                        else pos = "no-runtime-obj";
+                    }
+                    else pos = "no-entity";
+                    if (_clientLastSnapshotRecvByHostIdx.TryGetValue(hostIdx, out float lastRecv)) recv = $"lastRecv={now - lastRecv:F1}s";
+                    // Is the LIVE apply map still routing this hostIdx to our entity? (The roster reconcile can wipe it;
+                    // "bind=lost" while recv is fresh = snapshots arrive but are applied to nothing → parked mirror.)
+                    string bindState = ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(hostIdx, out var liveKey)
+                        ? (string.Equals(liveKey, localKey, StringComparison.Ordinal) ? "bind=live" : "bind=stolen")
+                        : "bind=lost";
+                    NetLogger.Info($"[DesertAdds] hostIdx={hostIdx} name={name} pos={pos} {rend} {recv} {bindState}");
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>F4-ADDS: is this entity one of OUR RT3-mirrored runtime spawns? (Local-jump blocks etc. must apply to
+        /// mirrors even though they aren't the boss's own pike.)</summary>
+        public static bool IsRuntimeMirroredEntity(object entity)
+        {
+            try
+            {
+                if (entity == null || _runtimeSpawnBindingsByHostIdx.Count == 0) return false;
+                string key = LocalKeyForObject(entity);
+                if (string.IsNullOrWhiteSpace(key)) return false;
+                foreach (var kv in _runtimeSpawnBindingsByHostIdx)
+                    if (string.Equals(kv.Value, key, StringComparison.Ordinal)) return true;
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>F4-ADDS: resolve the live runtime object of an RT3-mirrored spawn by its host SpawnIndex (used by the
+        /// enemy-pike jump replay to address the mirrored carrier). False when unbound / entity gone.</summary>
+        public static bool TryGetMirroredRuntimeObject(int hostSpawnIndex, out object? runtimeObject)
+        {
+            runtimeObject = null;
+            try
+            {
+                if (hostSpawnIndex <= 0 || !_runtimeSpawnBindingsByHostIdx.TryGetValue(hostSpawnIndex, out var localKey)) return false;
+                if (!EntitiesByLocalId.TryGetValue(localKey, out var snap) || snap == null) return false;
+                if (!snap.TryGetRuntimeObject(out runtimeObject) || runtimeObject == null) return false;
+                if (runtimeObject is UnityEngine.Object uo && uo == null) { runtimeObject = null; return false; }
+                return true;
+            }
+            catch { return false; }
+        }
+
         public static bool RegisterMirroredRuntimeSpawn(object entity, int hostSpawnIndex)
         {
             try
