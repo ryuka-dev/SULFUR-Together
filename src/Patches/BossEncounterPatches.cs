@@ -59,6 +59,13 @@ namespace SULFURTogether.Patches
             PatchDesertPikeAttach(harmony, FindType("DesertPikeCarrier",
                 "PerfectRandom.Sulfur.Core.DesertPikeCarrier", "PerfectRandom.Sulfur.Gameplay.DesertPikeCarrier"));
 
+            // LD-Sandstorm / F4-MISSILE D1: the boss's homing-missile bases (DesertMissileBase, sniper + terminator) run
+            // their own Update, so on the client they fire divergently — at the local player, in phases where the host has
+            // already stopped (Log332: client kept firing in phases 4/5). Make the firing WINDOWS host-authoritative: block
+            // the client's own StartMissiles and mirror the host's Start/Stop, so the client only fires when the host does.
+            PatchDesertMissile(harmony, FindType("DesertMissileBase",
+                "PerfectRandom.Sulfur.Gameplay.DesertMissileBase", "PerfectRandom.Sulfur.Core.DesertMissileBase"));
+
             // B. Witch standalone system.
             PatchStart(harmony, FindType("WitchBossController",
                 "PerfectRandom.Sulfur.Gameplay.WitchBossController", "PerfectRandom.Sulfur.Core.WitchBossController"),
@@ -323,6 +330,39 @@ namespace SULFURTogether.Patches
         private static void Desert_JumpTowards_Post(object __instance, bool __runOriginal)
         {
             if (__runOriginal) NetBossEncounterManager.OnHostBossPikeJumpStarted(__instance);
+        }
+
+        // LD-Sandstorm / F4-MISSILE D1: host-authoritative missile firing windows.
+        private static void PatchDesertMissile(Harmony harmony, Type missileBase)
+        {
+            if (missileBase == null) { Log.Info("[DesertMissile] DesertMissileBase type not found (missile sync skipped)"); return; }
+            try
+            {
+                var start = AccessTools.Method(missileBase, "StartMissiles");
+                if (start != null) harmony.Patch(start,
+                    prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_MissileStart_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
+                    postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_MissileStart_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                var stop = AccessTools.Method(missileBase, "StopRockets");
+                if (stop != null) harmony.Patch(stop, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_MissileStop_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[DesertMissile] patched DesertMissileBase.StartMissiles({start != null}) StopRockets({stop != null})");
+            }
+            catch (Exception ex) { Log.Error($"[DesertMissile] patch failed: {ex.Message}"); }
+        }
+
+        // CLIENT: block the base's own StartMissiles (host-authoritative windows; host-replayed starts pass via reentry).
+        private static bool Desert_MissileStart_Pre(object __instance)
+            => !NetBossEncounterManager.ShouldBlockClientMissileStart(__instance);
+
+        // HOST: broadcast the missile start so clients begin firing the same base at the same time.
+        private static void Desert_MissileStart_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostMissileStart(__instance);
+        }
+
+        // HOST: broadcast the missile stop so clients stop the same base (fixes the client firing on in later phases).
+        private static void Desert_MissileStop_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostMissileStop(__instance);
         }
 
         private static void WitchP2_InitPhase_Pre(object __instance)

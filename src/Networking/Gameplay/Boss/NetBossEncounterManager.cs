@@ -704,7 +704,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         bfa = a; comp = e.Component; break;
                     }
                 }
-                if (bfa != null && comp != null) { bfa.EnsureBossPikeVisual(comp); ProbeDesertArena(bfa, comp); ProbeDesertPike(comp); }
+                if (bfa != null && comp != null) { bfa.EnsureBossPikeVisual(comp); ProbeDesertArena(bfa, comp); ProbeDesertPike(comp); ProbeDesertMissile(comp); }
             }
             catch { }
         }
@@ -766,6 +766,41 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 }
             }
             catch { }
+        }
+
+        private static float _desertMissileProbeNext;
+
+        /// <summary>Phase D probe (F4-MISSILE, read-only): every ~0.5 s log both DesertMissileBase (sniper + terminator)
+        /// states on BOTH ends — enabled / isFiringMissiles (the high-freq homing stream) / incomingPatternMissiles (the
+        /// full-screen barrage) / AliveMissile / followUnit + the boss phase. Confirms the client fires divergently
+        /// (isFiringMissiles at the local player, still going in phase 4 where the host stopped) and shows which phases the
+        /// host fires homing vs pattern, to size D1 (barrage visual sync) + D2 (homing multiplayer). Gated.</summary>
+        private static void ProbeDesertMissile(object comp)
+        {
+            if (!LogOn) return;
+            try
+            {
+                float now = UnityEngine.Time.realtimeSinceStartup;
+                if (now < _desertMissileProbeNext) return;
+                _desertMissileProbeNext = now + 0.5f;
+                NetMode mode = NetGameplaySyncBridge.BossMode;
+                object phase = BossReflect.GetMember(comp, "BossPhaseIndex") ?? "?";
+                LogOneMissileBase(mode, phase, BossReflect.GetMember(comp, "sniperBase"), "Sniper");
+                LogOneMissileBase(mode, phase, BossReflect.GetMember(comp, "terminatorBase"), "Terminator");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] probe failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static void LogOneMissileBase(NetMode mode, object phase, object mb, string label)
+        {
+            if (!(mb is UnityEngine.Object uo) || uo == null) { Plugin.Log.Info($"[DesertMissile] mode={mode} phase={phase} base={label} = null"); return; }
+            bool firing = BossReflect.GetMember(mb, "isFiringMissiles") is bool f && f;
+            bool pattern = BossReflect.GetMember(mb, "incomingPatternMissiles") is bool p && p;
+            int alive = BossReflect.GetMember(mb, "AliveMissile") is int a ? a : -1;
+            var follow = BossReflect.GetMember(mb, "followUnit");
+            string followName = follow is UnityEngine.Object fo && fo != null ? fo.name : "null";
+            bool enabled = mb is UnityEngine.MonoBehaviour m && m.enabled;
+            Plugin.Log.Info($"[DesertMissile] mode={mode} phase={phase} base={label} enabled={enabled} firing={firing} pattern={pattern} alive={alive} follow={followName}");
         }
 
         private static float _desertPikeProbeNext;
@@ -943,6 +978,109 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 return true;
             }
             catch { return false; }
+        }
+
+        // ===================================================================== F4-MISSILE D1: firing-window sync
+
+        /// <summary>Match a DesertMissileBase to a registered started boss's sniper/terminator base. Outputs the label
+        /// ("Sniper"/"Terminator") + the owning boss component.</summary>
+        private static bool TryGetBossMissileBase(object missileBase, out string label, out object? component)
+        {
+            label = ""; component = null;
+            if (!(missileBase is UnityEngine.Object) || missileBase == null) return false;
+            lock (_lock)
+            {
+                foreach (var kv in _registry)
+                {
+                    var e = kv.Value;
+                    if (!(e.Adapter is BossFightHelperAdapter) || e.Component == null) continue;
+                    try
+                    {
+                        if (!SafeStarted(e.Adapter, e.Component)) continue;
+                        if (ReferenceEquals(BossReflect.GetMember(e.Component, "sniperBase"), missileBase)) { label = "Sniper"; component = e.Component; return true; }
+                        if (ReferenceEquals(BossReflect.GetMember(e.Component, "terminatorBase"), missileBase)) { label = "Terminator"; component = e.Component; return true; }
+                    }
+                    catch { }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>CLIENT: block the base's own StartMissiles so the boss's homing missiles only fire when the host says
+        /// to (host-authoritative windows) — the client's divergent phase logic otherwise fires in phases the host already
+        /// left (Log332). Host-replayed starts pass via the reentry guard.</summary>
+        public static bool ShouldBlockClientMissileStart(object missileBase)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Client || missileBase == null) return false;
+                if (InReentry) return false; // host-driven replay — allow
+                if (!TryGetBossMissileBase(missileBase, out _, out _)) return false;
+                if (LogOn) Plugin.Log.Info("[DesertMissile] client blocked local missile start (host-authoritative)");
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>HOST: the boss started a missile base firing → broadcast so clients start the same base together.</summary>
+        public static void OnHostMissileStart(object missileBase)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || missileBase == null) return;
+                if (!TryGetBossMissileBase(missileBase, out string label, out object? comp) || comp == null) return;
+                if (!TryGetEncounterKeyForBoss(comp, out string key, out string bossType)) return;
+                NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, BossType = bossType, EventName = "MissileStart:" + label });
+                if (LogOn) Plugin.Log.Info($"[DesertMissile] host broadcast MissileStart:{label}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] OnHostMissileStart failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>HOST: the boss stopped a missile base → broadcast so clients stop the same base (no late-phase firing).</summary>
+        public static void OnHostMissileStop(object missileBase)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || missileBase == null) return;
+                if (!TryGetBossMissileBase(missileBase, out string label, out object? comp) || comp == null) return;
+                if (!TryGetEncounterKeyForBoss(comp, out string key, out string bossType)) return;
+                NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, BossType = bossType, EventName = "MissileStop:" + label });
+                if (LogOn) Plugin.Log.Info($"[DesertMissile] host broadcast MissileStop:{label}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] OnHostMissileStop failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>CLIENT: mirror a host missile Start/Stop onto the matching local base. Start runs under the reentry guard
+        /// so the block prefix lets it through; the client base then fires its own homing missiles (at its local player) in
+        /// lockstep with the host's windows (D2 will widen the targets to all players). Never throws.</summary>
+        private static void ApplyClientMissileWindow(string eventName, object component)
+        {
+            try
+            {
+                bool start = eventName.StartsWith("MissileStart:", StringComparison.Ordinal);
+                string label = eventName.Substring(eventName.IndexOf(':') + 1);
+                string field = string.Equals(label, "Sniper", StringComparison.Ordinal) ? "sniperBase" : "terminatorBase";
+                var mb = BossReflect.GetMember(component, field);
+                if (!(mb is UnityEngine.Object mo) || mo == null) { if (LogOn) Plugin.Log.Info($"[DesertMissile] client has no {field} to apply {eventName}"); return; }
+                if (start)
+                {
+                    var m = mb.GetType().GetMethod("StartMissiles", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    if (m == null) return;
+                    BeginApply();
+                    try { m.Invoke(mb, new object[] { 3f }); }
+                    finally { EndApply(); }
+                }
+                else
+                {
+                    var m = mb.GetType().GetMethod("StopRockets", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    if (m == null) return;
+                    // StopRockets(bool clearObjects = false)
+                    var ps = m.GetParameters();
+                    m.Invoke(mb, ps.Length == 0 ? null : new object[] { false });
+                }
+                if (LogOn) Plugin.Log.Info($"[DesertMissile] client applied {eventName}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] ApplyClientMissileWindow failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         /// <summary>Is <paramref name="carrier"/> a registered started boss's own pike (its <c>spawnedBossPike</c> carrier)?
@@ -2739,6 +2877,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     BeginApply();
                     try { ApplyClientBossPikeJump(msg, component); }
                     finally { EndApply(); }
+                    return;
+                }
+
+                // F4-MISSILE D1: a host missile firing-window start/stop → mirror it onto the matching local base so the
+                // client fires only in the host's windows (no dedup/loop-marking; arrives a few times per fight).
+                if (msg.EventName != null && msg.EventName.StartsWith("Missile", StringComparison.Ordinal))
+                {
+                    ApplyClientMissileWindow(msg.EventName, component);
                     return;
                 }
 
