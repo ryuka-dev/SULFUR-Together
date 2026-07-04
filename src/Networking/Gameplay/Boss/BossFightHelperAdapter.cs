@@ -56,6 +56,25 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             return radius > 0f;
         }
 
+        // LD-Sandstorm / F4 (arena-movement sync): move the whole perimeter so its danger-zone sphere lands at `center`.
+        // The native fight moves `desertClausePerimeter.gameObject.transform` (decomp UpdatePerimeterMovement) and the sphere
+        // collider + jump points + danger-zone shader (`UpdateDangerZone` reads sphereCollider.transform.position) are its
+        // children, so delta-moving the root carries everything. Only x/z move (native keeps y); on the client the perimeter
+        // never moves on its own (its phase logic is suppressed), so there is nothing fighting this write.
+        public override bool TrySetArenaCenter(object component, Vector3 center)
+        {
+            if (!BossReflect.HasMethod(component, "OnStartInteractWithBoss")) return false; // DesertClause only
+            var perimeter = BossReflect.GetMember(component, "desertClausePerimeter");
+            if (!(perimeter is Component pc) || pc == null) return false;
+            Vector3 cur = pc.transform.position;
+            var sphere = BossReflect.GetMember(perimeter, "sphereCollider");
+            if (sphere is Component sc && sc != null) cur = sc.transform.position; // the streamed centre is the sphere's pos
+            Vector3 delta = center - cur; delta.y = 0f;
+            if (delta.sqrMagnitude < 0.0001f) return true;
+            pc.transform.position += delta;
+            return true;
+        }
+
         // LD-Sandstorm / F4: DesertClause is a composite boss whose visible body is assembled by its own local intro
         // chain (OnStartInteractWithBoss → DelayIntro → "IntroStarted" anim → animation event → TriggerFight, which hides
         // sandSantaAnimationSprite + sets "BossStarted"). It must run that intro locally to become visible, so it is kept

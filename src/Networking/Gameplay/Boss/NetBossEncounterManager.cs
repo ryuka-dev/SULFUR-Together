@@ -195,6 +195,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _hostSandstormBroadcast.Clear();
                 _sandstormSeen.Clear();
                 _desertAimRotation = -1;
+                _desertArenaTarget = new Vector3(float.PositiveInfinity, 0, 0);
+                _desertArenaLastSent = new Vector3(float.PositiveInfinity, 0, 0);
                 _clientRequested.Clear();
                 _localIntroDialogKey = null;
                 _localMidFightDialogKey = null;
@@ -262,6 +264,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _hostSandstormBroadcast.Clear();
                 _sandstormSeen.Clear();
                 _desertAimRotation = -1;
+                _desertArenaTarget = new Vector3(float.PositiveInfinity, 0, 0);
+                _desertArenaLastSent = new Vector3(float.PositiveInfinity, 0, 0);
                 _clientRequested.Clear();
                 _localIntroDialogKey = null;
                 _localMidFightDialogKey = null;
@@ -689,7 +693,66 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         bfa = a; comp = e.Component; break;
                     }
                 }
-                if (bfa != null && comp != null) bfa.EnsureBossPikeVisual(comp);
+                if (bfa != null && comp != null) { bfa.EnsureBossPikeVisual(comp); ProbeDesertArena(bfa, comp); }
+            }
+            catch { }
+        }
+
+        private static float _desertArenaProbeNext;
+        private static Vector3 _desertArenaLastPos = new Vector3(float.PositiveInfinity, 0, 0);
+        private static Vector3 _desertArenaLastSent = new Vector3(float.PositiveInfinity, 0, 0);
+        private static float _desertArenaSendNext;
+        // CLIENT interpolation target (F4-P2ARENA-SMOOTH): the latest host centre; the perimeter eases toward it each frame
+        // instead of snapping on receipt, so the ring glides at a constant speed like the native walk rather than teleporting
+        // ~10 Hz. Applied in ProbeDesertArena's client branch. Snap on a large jump (new arena location / resync).
+        private static Vector3 _desertArenaTarget = new Vector3(float.PositiveInfinity, 0, 0);
+        private const float DesertArenaFollowSpeed = 6f;   // m/s, a touch above the native ~5 m/s so the client keeps up
+        private const float DesertArenaSnapDistance = 25f; // beyond this, snap (don't slow-walk across a teleport)
+
+        /// <summary>LD-Sandstorm / F4 (arena-movement sync): both ends, once per frame. HOST — the sandstorm arena (a moving
+        /// SphereCollider danger-zone whose ring visual + jump points + damage all track it, decomp UpdatePerimeterMovement
+        /// walks it along waypoints during the ToSniper/ToTerminator transitions) is streamed to clients: when its centre
+        /// moved &gt; 0.2 m since the last send (throttled to ~10 Hz) broadcast an "ArenaPos" discrete event. The client's
+        /// phase logic is suppressed so its perimeter never moves on its own (Log327: frozen at spawn while the host reached
+        /// 250 m away), so applying the host centre can't fight a local drive. Radius is not streamed — it stayed constant
+        /// (20 m) the whole fight. Also emits the read-only `[DesertArena]` probe (~0.5 s, gated on LogBossPreFight).</summary>
+        private static void ProbeDesertArena(BossFightHelperAdapter bfa, object comp)
+        {
+            try
+            {
+                if (!bfa.TryGetSandstormArenaSphere(comp, out var center, out float radius))
+                {
+                    if (LogOn && UnityEngine.Time.realtimeSinceStartup >= _desertArenaProbeNext)
+                    { _desertArenaProbeNext = UnityEngine.Time.realtimeSinceStartup + 0.5f; Plugin.Log.Info($"[DesertArena] mode={NetGameplaySyncBridge.BossMode} sphere=UNRESOLVED"); }
+                    return;
+                }
+                float now = UnityEngine.Time.realtimeSinceStartup;
+
+                // HOST: stream the centre when it moves (throttled). Reliable-ordered so the final resting position lands.
+                if (NetGameplaySyncBridge.BossMode == NetMode.Host && now >= _desertArenaSendNext
+                    && (float.IsInfinity(_desertArenaLastSent.x) || Vector3.Distance(center, _desertArenaLastSent) > 0.2f))
+                {
+                    _desertArenaLastSent = center; _desertArenaSendNext = now + 0.1f;
+                    if (TryGetEncounterKeyForBoss(comp, out string key, out string bossType))
+                        NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, BossType = bossType, EventName = "ArenaPos", HasPos = true, Position = center });
+                }
+
+                // CLIENT: ease the perimeter toward the latest streamed centre (constant-speed glide; snap a large jump).
+                if (NetGameplaySyncBridge.BossMode == NetMode.Client && !float.IsInfinity(_desertArenaTarget.x))
+                {
+                    float dist = Vector3.Distance(center, _desertArenaTarget);
+                    if (dist > DesertArenaSnapDistance) bfa.TrySetArenaCenter(comp, _desertArenaTarget);
+                    else if (dist > 0.01f)
+                        bfa.TrySetArenaCenter(comp, Vector3.MoveTowards(center, _desertArenaTarget, DesertArenaFollowSpeed * UnityEngine.Time.deltaTime));
+                }
+
+                if (LogOn && now >= _desertArenaProbeNext)
+                {
+                    _desertArenaProbeNext = now + 0.5f;
+                    float moved = float.IsInfinity(_desertArenaLastPos.x) ? 0f : Vector3.Distance(center, _desertArenaLastPos);
+                    _desertArenaLastPos = center;
+                    Plugin.Log.Info($"[DesertArena] mode={NetGameplaySyncBridge.BossMode} center={center:F2} radius={radius:F2} movedSinceLast={moved:F3}");
+                }
             }
             catch { }
         }
@@ -2601,6 +2664,15 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     BeginApply();
                     try { ApplyClientBossPikeJump(msg, component); }
                     finally { EndApply(); }
+                    return;
+                }
+
+                // F4 arena-movement sync: a streamed sandstorm-arena centre. Just record it as the interpolation target
+                // (arrives ~10 Hz); ProbeDesertArena's client branch eases the perimeter toward it each frame so the ring
+                // glides at a constant speed instead of teleporting on every packet (F4-P2ARENA-SMOOTH).
+                if (string.Equals(msg.EventName, "ArenaPos", StringComparison.Ordinal) && msg.HasPos)
+                {
+                    _desertArenaTarget = msg.Position;
                     return;
                 }
 

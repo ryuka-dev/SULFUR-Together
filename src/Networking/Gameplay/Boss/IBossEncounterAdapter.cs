@@ -123,6 +123,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// lockdown at fight-start that pulls in stragglers a few seconds later. Default = false. Only DesertClause.</summary>
         bool TryGetSandstormArenaSphere(object component, out Vector3 center, out float radius);
 
+        /// <summary>LD-Sandstorm / F4 (arena-movement sync): move THIS end's sandstorm arena so its danger-zone sphere sits
+        /// at <paramref name="center"/> (x/z; y preserved). The native fight walks the whole perimeter along waypoints
+        /// during the ToSniper/ToTerminator transitions (dragging the ring visual + jump points + damage zone); the client's
+        /// phase logic is suppressed so its perimeter never moves — the host streams its live centre and the client applies
+        /// it here (delta-moves the perimeter root so children follow). Default = false. Only DesertClause.</summary>
+        bool TrySetArenaCenter(object component, Vector3 center);
+
         /// <summary>LD-Sandstorm / F4: true if this boss assembles its visible body through a LOCAL intro presentation
         /// (an animation chain that must run client-side to become visible) rather than appearing fully-formed. Such a
         /// boss is kept OUT of the generic enemy-puppet system while its intro plays, so the intro runs locally instead

@@ -190,6 +190,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         // ---- LD-Sandstorm: default = no gate-less keep-in arena (only DesertClause overrides) ----
         public virtual bool TryGetSandstormArenaSphere(object component, out Vector3 center, out float radius) { center = Vector3.zero; radius = 0f; return false; }
+        public virtual bool TrySetArenaCenter(object component, Vector3 center) => false;
 
         // ---- LD-Sandstorm / F4: default = boss appears fully-formed, no local intro to protect (only DesertClause) ----
         public virtual bool RunsLocalIntroPresentation(object component) => false;
