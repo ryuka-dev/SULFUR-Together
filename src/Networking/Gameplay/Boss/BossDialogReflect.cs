@@ -25,6 +25,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static Type? _dialogControllerType;
         private static FieldInfo? _instancesField;
         private static PropertyInfo? _currentSpeakableProp;
+        private static FieldInfo? _inChoicesField;
+        private static FieldInfo? _selectedButtonField;
+        private static MethodInfo? _acceptMethod;
 
         private static void Resolve()
         {
@@ -48,6 +51,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
                     _currentSpeakableProp = _dialogControllerType.GetProperty("CurrentSpeakable",
                         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    // The mid-choice flags Graph.Stop leaves dangling (see ResetDialogChoiceState). AccessTools.Field
+                    // walks the base types so a field declared private on a base class is still found (a plain
+                    // GetField on the derived type would miss it — Log321 run1: the reset silently no-op'd).
+                    _inChoicesField = AccessTools.Field(_dialogControllerType, "InChoices");
+                    _selectedButtonField = AccessTools.Field(_dialogControllerType, "selectedButton");
+                    _acceptMethod = AccessTools.Method(_dialogControllerType, "AcceptDialogOption");
+                    Plugin.Log.Info($"[BossDialogCommit] dialog choice fields: InChoices={( _inChoicesField != null)} selectedButton={(_selectedButtonField != null)}");
                 }
             }
             catch (Exception ex)
@@ -101,6 +111,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 {
                     string speaker = CurrentSpeakableName();
                     _stopMethod.Invoke(current, new object[] { true });
+                    ResetDialogChoiceState();
                     detail = $"stopped dialog (speaker={speaker})";
                     return true;
                 }
@@ -112,6 +123,83 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 detail = $"finalize failed: {ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}";
                 return false;
             }
+        }
+
+        /// <summary>Advance the active dialog one step, exactly as the game's advance input does, so a linear dialog
+        /// plays through to its NATURAL end — which runs the dialogue tree's terminal ExecuteFunction nodes (the boss
+        /// start/airstrike/AI-resume calls live there as data, not code). <c>Graph.Stop</c> aborts and skips those, which
+        /// freezes the boss (Log324). Returns true if an active dialog was advanced. Used to fast-forward the host's own
+        /// mid-fight dialog to completion when a client dismisses it, so the boss resumes for everyone.</summary>
+        public static bool TryAdvanceActiveDialog()
+        {
+            Resolve();
+            try
+            {
+                if (_acceptMethod == null) return false;
+                // The static `instances` stack does NOT reliably hold the live controller (same gap the reset hit —
+                // FindObjectsOfTypeAll is what actually reaches it), so scan every live DialogController.
+                foreach (var dc in EnumerateControllers())
+                {
+                    if (_currentSpeakableProp?.GetValue(dc, null) == null) continue; // only the controller actually showing a dialog
+                    _acceptMethod.Invoke(dc, null);
+                    return true;
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogCommit] TryAdvanceActiveDialog failed: {ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}"); }
+            return false;
+        }
+
+        // Every live DialogController: the static instance stack plus FindObjectsOfTypeAll (the stack can miss the active
+        // one). De-duplicated.
+        private static System.Collections.Generic.IEnumerable<object> EnumerateControllers()
+        {
+            var seen = new System.Collections.Generic.HashSet<object>();
+            System.Collections.Generic.List<object> all = new System.Collections.Generic.List<object>();
+            try { if (_instancesField?.GetValue(null) is System.Collections.IEnumerable insts) foreach (var dc in insts) if (dc != null) all.Add(dc); } catch { }
+            try { if (_dialogControllerType != null) foreach (var dc in Resources.FindObjectsOfTypeAll(_dialogControllerType)) if (dc != null) all.Add(dc); } catch { }
+            foreach (var dc in all) if (seen.Add(dc)) yield return dc;
+        }
+
+        /// <summary>Clear the mid-choice state (<c>InChoices</c> / <c>selectedButton</c>) on every DialogController.
+        /// Accepting a choice normally clears these, but a forced <c>Graph.Stop</c> tears the dialog down without going
+        /// through that path, so the flags dangle and the NEXT dialog opens stuck in "waiting for a choice" mode — its
+        /// opening statement can't be advanced and it never reaches its own choice node. Log320: a client-first intro
+        /// finalize left the host's <c>InChoices=True</c>, freezing the P2 airstrike dialog (no MultipleChoiceRequest,
+        /// interactable stayed False). Called right after every forced finalize so a torn-down dialog leaves clean state.</summary>
+        private static void ResetDialogChoiceState()
+        {
+            try
+            {
+                int n = 0, total = 0;
+                foreach (var dc in EnumerateControllers())
+                {
+                    total++;
+                    // Resolve the fields on the instance's ACTUAL type (walking base types) — a plain lookup on the
+                    // declared DialogController type misses a field that is private on a base class or shadowed on a
+                    // subclass, which is why Log322's reset silently no-op'd despite the FieldInfos resolving.
+                    var fIn = FindInstanceField(dc, "InChoices");
+                    var fSel = FindInstanceField(dc, "selectedButton");
+                    string before = fIn != null ? fIn.GetValue(dc)?.ToString() ?? "?" : "no-field";
+                    try { fIn?.SetValue(dc, false); } catch { }
+                    try { fSel?.SetValue(dc, null); } catch { }
+                    string after = fIn != null ? fIn.GetValue(dc)?.ToString() ?? "?" : "no-field";
+                    if (before != after) n++;
+                    Plugin.Log.Info($"[BossDialogCommit] reset choice state on {dc.GetType().Name} InChoices {before}->{after}");
+                }
+                Plugin.Log.Info($"[BossDialogCommit] ResetDialogChoiceState cleared={n}/{total}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogCommit] ResetDialogChoiceState failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // Find an instance field by name on the object's ACTUAL runtime type, walking base types (incl. private bases).
+        private static FieldInfo? FindInstanceField(object obj, string name)
+        {
+            for (Type? t = obj.GetType(); t != null; t = t.BaseType)
+            {
+                var f = t.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                if (f != null) return f;
+            }
+            return null;
         }
     }
 }

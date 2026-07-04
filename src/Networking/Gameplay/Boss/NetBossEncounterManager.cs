@@ -197,6 +197,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _desertAimRotation = -1;
                 _clientRequested.Clear();
                 _localIntroDialogKey = null;
+                _localMidFightDialogKey = null;
                 _applyingHostDialogClose = false;
                 _introFinishRequested.Clear();
                 _appliedStart.Clear();
@@ -263,6 +264,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _desertAimRotation = -1;
                 _clientRequested.Clear();
                 _localIntroDialogKey = null;
+                _localMidFightDialogKey = null;
                 _applyingHostDialogClose = false;
                 _introFinishRequested.Clear();
                 _appliedStart.Clear();
@@ -418,6 +420,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // (the local player read it to the end), that end commits the fight authoritatively. _applyingHostDialogClose
         // guards the client's finalize of a host-driven DialogClose so it doesn't echo back as a local "finish".
         private static string? _localIntroDialogKey;
+        // LD-Sandstorm / F4 Stage 2 (mid-fight close sync): this END's currently-open STARTED-boss dialog (airstrike etc.).
+        // A client that reads it to the end locally asks the host to close its own copy too (the mirror of the host→client
+        // DialogClose broadcast), so either end dismissing the mid-fight dialog dismisses it for both.
+        private static string? _localMidFightDialogKey;
         private static bool _applyingHostDialogClose;
         private static readonly HashSet<string> _introFinishRequested = new HashSet<string>(); // client: intro-finish sent once/key
 
@@ -454,29 +460,38 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
                 if (speakable != null)
                 {
-                    if (TryMatchSpeakableToIntroBoss(speakable, out string openKey))
+                    // A boss dialog opened on this end. Not-yet-started boss → INTRO (finish commits the fight); an
+                    // already-started boss → MID-FIGHT (airstrike etc., finish dismisses it for both ends).
+                    if (TryMatchSpeakableToBoss(speakable, out string openKey, out bool started))
                     {
-                        bool isNew; lock (_lock) { isNew = _localIntroDialogKey != openKey; _localIntroDialogKey = openKey; }
-                        if (isNew && LogOn) Plugin.Log.Info($"[BossDialogSync] local intro dialog open key={openKey} mode={mode}");
+                        bool isNew;
+                        lock (_lock)
+                        {
+                            if (started) { isNew = _localMidFightDialogKey != openKey; _localMidFightDialogKey = openKey; }
+                            else { isNew = _localIntroDialogKey != openKey; _localIntroDialogKey = openKey; }
+                        }
+                        if (isNew && LogOn) Plugin.Log.Info($"[BossDialogSync] local {(started ? "mid-fight" : "intro")} dialog open key={openKey} mode={mode}");
                     }
                     return;
                 }
 
                 // Dialog closed on this end.
-                string? key; bool applyingHostClose;
-                lock (_lock) { key = _localIntroDialogKey; _localIntroDialogKey = null; applyingHostClose = _applyingHostDialogClose; }
-                if (key == null || applyingHostClose) return; // no intro tracked, or WE closed it on the host's behalf
-                OnLocalBossIntroDialogFinished(key);
+                string? introKey; string? midKey; bool applyingHostClose;
+                lock (_lock) { introKey = _localIntroDialogKey; midKey = _localMidFightDialogKey; _localIntroDialogKey = null; _localMidFightDialogKey = null; applyingHostClose = _applyingHostDialogClose; }
+                if (applyingHostClose) return; // WE closed it on the host's behalf — not a local "finish", don't echo back
+                if (introKey != null) OnLocalBossIntroDialogFinished(introKey);
+                else if (midKey != null) OnLocalBossMidFightDialogClosed(midKey);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossDialogSync] OnLocalDialogSpeakableChanged failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        /// <summary>Match a DialogSpeaker to a registered, not-yet-started boss that runs a LOCAL intro presentation
-        /// (Desert). Root-compares the speaker's unit against the boss's dialog Npc (bossNPC/bossUnit share a root). No
-        /// match (or unresolvable speaker) → false, so a non-boss dialog is never mistaken for the intro.</summary>
-        private static bool TryMatchSpeakableToIntroBoss(object speakable, out string key)
+        /// <summary>Match a DialogSpeaker to a registered boss that runs a LOCAL intro presentation (Desert) and report
+        /// whether that boss's fight has already started (<paramref name="started"/> = mid-fight dialog like the airstrike;
+        /// false = the pre-fight intro). Root-compares the speaker's unit against the boss's dialog Npc (bossNPC/bossUnit
+        /// share a root). No match (or unresolvable speaker) → false, so a non-boss dialog is never mistaken for either.</summary>
+        private static bool TryMatchSpeakableToBoss(object speakable, out string key, out bool started)
         {
-            key = "";
+            key = ""; started = false;
             var spkUnit = BossReflect.GetMember(speakable, "unit") ?? BossReflect.GetMember(speakable, "npc");
             var spkRoot = (spkUnit as Component)?.transform.root;
             if (spkRoot == null) return false;
@@ -489,15 +504,31 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     try
                     {
                         if (!e.Adapter.RunsLocalIntroPresentation(e.Component)) continue;
-                        if (SafeStarted(e.Adapter, e.Component)) continue;
-                        // The Desert intro speaker is the boss's health Unit (bossUnit); bossNPC/bossUnit share a root.
+                        // The Desert speaker is the boss's health Unit (bossUnit); bossNPC/bossUnit share a root.
                         var dnpc = e.Adapter.GetHealthUnit(e.Component) as Component;
-                        if (dnpc != null && dnpc.transform.root == spkRoot) { key = kv.Key; return true; }
+                        if (dnpc != null && dnpc.transform.root == spkRoot) { key = kv.Key; started = SafeStarted(e.Adapter, e.Component); return true; }
                     }
                     catch { }
                 }
             }
             return false;
+        }
+
+        /// <summary>CLIENT: the local player read a MID-FIGHT boss dialog (airstrike etc.) to the end. The host drives
+        /// these host-authoritatively (it broadcasts DialogClose when it closes its own), but there was no reverse path,
+        /// so a client dismissing its copy left the host's open (Log323). Ask the host to close its copy too — the host
+        /// finalizes and re-broadcasts DialogClose (idempotent). HOST reading its own is a no-op here: its native close
+        /// already runs OnHostBossDialogClosed → DialogClose. Once per open (the key is cleared on close).</summary>
+        private static void OnLocalBossMidFightDialogClosed(string key)
+        {
+            if (NetGameplaySyncBridge.BossMode != NetMode.Client) return;
+            bool joined = false; try { joined = NetClientJoinFlow.SessionJoinedHost; } catch { }
+            if (!joined) return; // not networked — nothing to sync
+            if (!TryFindLocalEncounter(key, out _, out var component)) return;
+            if (!TryBuildContext(out var ctx, out _)) return;
+            var msg = BuildDialogCommit(key, component, in ctx, "midfight-close");
+            Plugin.Log.Info($"[BossDialogSync] client dismissed mid-fight dialog → request host close {msg.ToCompact()}");
+            NetGameplaySyncBridge.SendClientBossDialogCommitRequest(msg);
         }
 
         /// <summary>The local player finished reading a boss intro dialog. HOST reading its OWN intro: no-op — its native
@@ -578,6 +609,25 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 Plugin.Log.Info($"[BossEncounter] host delayed combat-entry (post-sandstorm) key={key}: {fd}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossEncounter] DelayedCombatEntry failed key={key}: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>HOST: a client dismissed a mid-fight boss dialog → advance the host's OWN dialog to its natural end,
+        /// one step per frame, so the dialogue tree's terminal ExecuteFunction nodes (airstrike + boss-AI resume) fire.
+        /// Bounded; if it can't reach the end (a latent/choice node), hard-close so it never hangs. The natural end runs
+        /// OnHostBossDialogClosed → DialogClose broadcast on its own.</summary>
+        private static System.Collections.IEnumerator FastForwardHostMidFightDialog(string key, string peerId)
+        {
+            const int maxFrames = 300; // ~5 s cap
+            int frames = 0, advances = 0;
+            while (BossDialogReflect.IsDialogActive() && frames < maxFrames)
+            {
+                if (BossDialogReflect.TryAdvanceActiveDialog()) advances++;
+                frames++;
+                yield return null;
+            }
+            bool natural = !BossDialogReflect.IsDialogActive();
+            if (!natural) { try { BossDialogReflect.TryFinalizeCurrentDialog(out _); } catch { } } // couldn't reach the end — don't hang
+            Plugin.Log.Info($"[BossDialogSync] host fast-forwarded mid-fight dialog on client request from {peerId} key={key}: advances={advances} frames={frames} natural={natural}");
         }
 
         /// <summary>LD-Sandstorm / F4 (sandstorm presentation sync): prefix entry for `DesertClauseBossFightHelper.
@@ -1468,6 +1518,22 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     }
                     Plugin.Log.Info($"[BossDialogSync] host received client intro-finish from {peerId}: {msg.ToCompact()}");
                     CommitHostIntroDialog(msg.EncounterKey, ifAdapter, ifComp, "client-intro-finish:" + peerId);
+                    return;
+                }
+
+                // LD-Sandstorm / F4 Stage 2 (mid-fight close sync): a client dismissed a mid-fight boss dialog (airstrike).
+                // Drive the host's OWN copy to its NATURAL end so the boss proceeds for everyone. A hard Graph.Stop would
+                // skip the dialog tree's terminal ExecuteFunction nodes (the airstrike + boss-AI resume) and leave the host
+                // boss frozen (Log324) — so instead fast-forward the host's dialog to completion (those nodes fire, then
+                // OnHostBossDialogClosed broadcasts DialogClose; the client already closed, so its apply is a no-op).
+                if (string.Equals(msg.CommitSource, "midfight-close", StringComparison.Ordinal))
+                {
+                    bool hostHasThisDialogOpen; lock (_lock) { hostHasThisDialogOpen = _desertDialogOpenKey == msg.EncounterKey; }
+                    if (hostHasThisDialogOpen && BossDialogReflect.IsDialogActive()
+                        && TryFindLocalEncounter(msg.EncounterKey, out _, out var mfComp) && mfComp is UnityEngine.MonoBehaviour mfMb && mfMb != null)
+                        mfMb.StartCoroutine(FastForwardHostMidFightDialog(msg.EncounterKey, peerId));
+                    else if (LogOn)
+                        Plugin.Log.Info($"[BossDialogSync] host mid-fight-close no-op key={msg.EncounterKey} (open={hostHasThisDialogOpen} active={BossDialogReflect.IsDialogActive()})");
                     return;
                 }
 

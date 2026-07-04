@@ -681,6 +681,18 @@ namespace SULFURTogether.Patches
                     var scs = AccessTools.Method(dc, "SetCurrentSpeakable");
                     if (scs != null) harmony.Patch(scs, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(SetCurrentSpeakable_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                     Log.Info($"[DialogFlow] patched DialogController.SetCurrentSpeakable({scs != null})");
+                    // F4-P2DLG dialog input probe (read-only): why the host can't advance the mid-fight dialog by clicking.
+                    var accept = AccessTools.Method(dc, "AcceptDialogOption");
+                    if (accept != null) harmony.Patch(accept, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(AcceptDialogOption_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    var mcr = AccessTools.Method(dc, "OnMultipleChoiceRequest");
+                    if (mcr != null) harmony.Patch(mcr, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(MultipleChoiceRequest_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    var dcUpd = AccessTools.Method(dc, "Update");
+                    if (dcUpd != null) harmony.Patch(dcUpd, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(DialogControllerUpdate_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    var dStart = AccessTools.Method(dc, "OnDialogueStarted");
+                    if (dStart != null) harmony.Patch(dStart, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(OnDialogueStarted_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    var dFin = AccessTools.Method(dc, "OnDialogueFinished");
+                    if (dFin != null) harmony.Patch(dFin, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(OnDialogueFinished_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Log.Info($"[DialogInput] patched DialogController.AcceptDialogOption({accept != null}) OnMultipleChoiceRequest({mcr != null}) Update({dcUpd != null}) started({dStart != null}) finished({dFin != null})");
                 }
                 var pt = FindType("PlayerTrigger", "PerfectRandom.Sulfur.Core.World.PlayerTrigger");
                 if (pt != null)
@@ -802,6 +814,17 @@ namespace SULFURTogether.Patches
         {
             try { NetBossEncounterManager.OnBossDoneAppearing(__instance); } catch { }
         }
+
+        private static void AcceptDialogOption_Post(object __instance)
+            => SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnAcceptDialogOption(__instance);
+        private static void MultipleChoiceRequest_Post(object __instance)
+            => SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnMultipleChoiceRequest(__instance);
+        private static void DialogControllerUpdate_Post(object __instance)
+            => SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnDialogUpdate(__instance);
+        private static void OnDialogueStarted_Post(object __instance)
+            => SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnDialogueStarted(__instance);
+        private static void OnDialogueFinished_Post(object __instance)
+            => SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnDialogueFinished(__instance);
 
         private static void SetCurrentSpeakable_Post(object speakable)
         {

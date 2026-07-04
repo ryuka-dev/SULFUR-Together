@@ -100,6 +100,129 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (Exception ex) { Plugin.Log.Warn($"[DialogFlow] PlayerTrigger log failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
+        // ============================================================ F4-P2DLG: dialog input probe (re-added, read-only)
+        // Investigates the "can't advance the mid-fight dialog by clicking" bug (shelved as the multiple-choice panel not
+        // intercepting clicks — SetOptionsInteractable sets CanvasGroup.interactable but NOT blocksRaycasts). This time we
+        // also compare HOST vs CLIENT (the client can finish, the host can't). Gated by LogBossPreFight. Read-only.
+        private static float _dlgInputLogNext;
+
+        /// <summary>Postfix on DialogController.AcceptDialogOption(): the click/enter/space advance actually reached the
+        /// dialog. Log the decisive state — is it a choice panel (InChoices), is a selectedButton set, does the panel block
+        /// raycasts, where does a raycast at the cursor land (rayTop), and the cursor lock/visibility.</summary>
+        public static void OnAcceptDialogOption(object dc)
+        {
+            if (!LogOn || dc == null) return;
+            try
+            {
+                bool inChoices = GetField(dc, "InChoices") is bool ic && ic;
+                var sel = GetField(dc, "selectedButton");
+                bool selNull = sel == null || (sel is UnityEngine.Object so && so == null);
+                var cg = GetField(dc, "playerDialogCanvasGroup") as CanvasGroup;
+                string cgState = cg == null ? "cg=null" : $"interactable={cg.interactable} blocksRaycasts={cg.blocksRaycasts} alpha={cg.alpha:F1}";
+                string cursor = $"lock={Cursor.lockState} vis={Cursor.visible}";
+                string rayTop = DescribeCursorRaycast();
+                Plugin.Log.Info($"[DialogInput] AcceptDialogOption mode={Mode} InChoices={inChoices} selectedButton={(selNull ? "NULL" : "set")} {cgState} {cursor} rayTop=[{rayTop}]");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DialogInput] AcceptDialogOption log failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Postfix on DialogController.OnMultipleChoiceRequest(...): a choice panel was just shown. Log the panel's
+        /// raycast state right after it appears (the shelved conclusion: interactable set, blocksRaycasts NOT).</summary>
+        public static void OnMultipleChoiceRequest(object dc)
+        {
+            if (!LogOn || dc == null) return;
+            try
+            {
+                var cg = GetField(dc, "playerDialogCanvasGroup") as CanvasGroup;
+                // The canvas group is lazily fetched in SetOptionsInteractable; grab it off playerDialog if still null.
+                if (cg == null && GetField(dc, "playerDialog") is Component pd && pd != null) cg = pd.GetComponent<CanvasGroup>();
+                string cgState = cg == null ? "cg=null" : $"interactable={cg.interactable} blocksRaycasts={cg.blocksRaycasts} alpha={cg.alpha:F1}";
+                Plugin.Log.Info($"[DialogInput] MultipleChoiceRequest mode={Mode} {cgState}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DialogInput] MultipleChoiceRequest log failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Postfix on DialogController.OnDialogueStarted(dlg): the controller set up the dialog (cursor unlock +
+        /// controller lock that arms the UI input map). Confirms the airstrike dialog actually goes through here + the
+        /// resulting cursor/pause state — if this fires but AcceptDialogOption never does, the advance input is being
+        /// eaten (e.g. the gameplay Fire map still owns LMB during combat).</summary>
+        public static void OnDialogueStarted(object dc)
+        {
+            if (!LogOn || dc == null) return;
+            try
+            {
+                Plugin.Log.Info($"[DialogInput] OnDialogueStarted mode={Mode} cursor(lock={Cursor.lockState} vis={Cursor.visible}) timeScale={Time.timeScale:F2}");
+            }
+            catch { }
+        }
+
+        public static void OnDialogueFinished(object dc)
+        {
+            if (!LogOn || dc == null) return;
+            try { Plugin.Log.Info($"[DialogInput] OnDialogueFinished mode={Mode}"); }
+            catch { }
+        }
+
+        /// <summary>Postfix on DialogController.Update() (throttled ~0.5s): while ANY dialog is active (currentDialogueTree
+        /// != null), log the stuck steady state — InChoices, cursor lock/visibility, game timeScale (our no-pause keeps it
+        /// 1), the choice panel's blocksRaycasts, and what a cursor raycast hits. Captures the host's "can't advance" state
+        /// even though no advance input ever reaches AcceptDialogOption.</summary>
+        public static void OnDialogUpdate(object dc)
+        {
+            if (!LogOn || dc == null) return;
+            try
+            {
+                var tree = GetField(dc, "currentDialogueTree");
+                bool active = tree != null && !(tree is UnityEngine.Object to && to == null);
+                if (!active) return; // only while a dialog is on-screen
+                float now = Time.realtimeSinceStartup;
+                if (now < _dlgInputLogNext) return;
+                _dlgInputLogNext = now + 0.5f;
+                bool inChoices = GetField(dc, "InChoices") is bool ic && ic;
+                var cg = GetField(dc, "playerDialogCanvasGroup") as CanvasGroup;
+                string cgState = cg == null ? "cg=null" : $"blocksRaycasts={cg.blocksRaycasts} interactable={cg.interactable}";
+                Plugin.Log.Info($"[DialogInput] dialogActive mode={Mode} InChoices={inChoices} cursor(lock={Cursor.lockState} vis={Cursor.visible}) timeScale={Time.timeScale:F2} {cgState} rayTop=[{DescribeCursorRaycast()}]");
+            }
+            catch { }
+        }
+
+        // EventSystem raycast at the current cursor position → the topmost UI element name(s) the click would hit. "NONE"
+        // = the click falls through everything (the shelved rayTop=NONE symptom). Uses the InputSystem mouse position with
+        // a legacy fallback.
+        private static string DescribeCursorRaycast()
+        {
+            try
+            {
+                var es = UnityEngine.EventSystems.EventSystem.current;
+                if (es == null) return "no-EventSystem";
+                Vector2 mp;
+                try { mp = UnityEngine.InputSystem.Mouse.current != null ? UnityEngine.InputSystem.Mouse.current.position.ReadValue() : (Vector2)Input.mousePosition; }
+                catch { mp = Input.mousePosition; }
+                var ped = new UnityEngine.EventSystems.PointerEventData(es) { position = mp };
+                var results = new System.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>();
+                es.RaycastAll(ped, results);
+                if (results.Count == 0) return "NONE";
+                var parts = new System.Collections.Generic.List<string>();
+                for (int i = 0; i < results.Count && i < 4; i++) parts.Add(results[i].gameObject != null ? results[i].gameObject.name : "?");
+                return string.Join(" > ", parts);
+            }
+            catch (Exception ex) { return "err:" + ex.GetType().Name; }
+        }
+
+        private static object? GetField(object obj, string name)
+        {
+            try
+            {
+                for (Type? t = obj.GetType(); t != null; t = t.BaseType)
+                {
+                    var f = t.GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.DeclaredOnly);
+                    if (f != null) return f.GetValue(obj);
+                }
+            }
+            catch { }
+            return null;
+        }
+
         // EMP-5: read the trigger's onTriggerEvents persistent calls (target type + method) — this reveals whether a
         // trigger closes a MetalGate, opens dialog (Npc.Interact), sets doors active, etc. (same data the arena lockdown
         // uses to detect seal triggers).
