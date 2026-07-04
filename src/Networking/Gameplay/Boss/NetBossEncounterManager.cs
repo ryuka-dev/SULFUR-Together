@@ -1040,6 +1040,74 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] OnHostMissileStart failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
+        /// <summary>HOST (F4-MISSILE D3): the boss initiated a full-screen barrage on a missile base. Broadcast it one
+        /// frame later — the boss assigns <c>patternDirection</c> only AFTER InitiateFirePattern returns, so an immediate
+        /// read would be stale. The client replays the identical native pattern (sets the direction + invokes the real
+        /// InitiateFirePattern), which also natively pauses its homing stream for the barrage window (useFireLinePattern)
+        /// and resumes it when the pattern completes — matching the host's beat.</summary>
+        public static void OnHostMissilePatternInitiated(object missileBase)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || missileBase == null) return;
+                if (!TryGetBossMissileBase(missileBase, out string label, out object? comp) || comp == null) return;
+                if (!(missileBase is UnityEngine.MonoBehaviour mb) || mb == null) return;
+                if (!TryGetEncounterKeyForBoss(comp, out string key, out string bossType)) return;
+                mb.StartCoroutine(BroadcastMissilePatternNextFrame(missileBase, label, key, bossType));
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] OnHostMissilePatternInitiated failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static System.Collections.IEnumerator BroadcastMissilePatternNextFrame(object missileBase, string label, string key, string bossType)
+        {
+            yield return null; // let the boss finish assigning patternDirection
+            Vector3 dir = BossReflect.GetMember(missileBase, "patternDirection") is Vector3 d ? d : Vector3.zero;
+            NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, BossType = bossType, EventName = "MissilePattern:" + label, HasPos = true, Position = dir });
+            Plugin.Log.Info($"[DesertMissile] host broadcast MissilePattern:{label} dir={dir:F2}");
+        }
+
+        // F4-MISSILE D3b: saved global RNG state across a reseeded FireLinePattern call (restored right after, so the
+        // deterministic volley doesn't disturb unrelated randomness).
+        private static UnityEngine.Random.State _savedRngState;
+        private static bool _rngStateSaved;
+
+        /// <summary>BOTH ends (F4-MISSILE D3b): a barrage volley is about to place its real rockets. Its safe lanes (the
+        /// row/column gaps + the cross/row-or-column choice) are rolled with the GLOBAL RNG inside FireLinePattern, so each
+        /// end diverged (Log338: same beat, different safe spots). Reseed the RNG with a seed both ends derive identically
+        /// — the synced patternDirection (quantized) + the volley counter (lockstep native bookkeeping) — for the duration
+        /// of this one call, then restore the previous RNG state. Only for a registered boss's base; fail-open.</summary>
+        public static void OnMissileLinePatternPre(object missileBase)
+        {
+            try
+            {
+                if (!Enabled || missileBase == null || !TryGetBossMissileBase(missileBase, out string label, out _)) return;
+                Vector3 dir = BossReflect.GetMember(missileBase, "patternDirection") is Vector3 d ? d : Vector3.zero;
+                int counter = BossReflect.GetMember(missileBase, "patternFireCounter") is int c ? c : 0;
+                int seed;
+                unchecked
+                {
+                    seed = 17;
+                    seed = seed * 31 + Mathf.RoundToInt(dir.x * 1000f);
+                    seed = seed * 31 + Mathf.RoundToInt(dir.z * 1000f);
+                    seed = seed * 31 + counter;
+                    seed = seed * 31 + (label.Length > 0 ? label[0] : 0);
+                }
+                _savedRngState = UnityEngine.Random.state;
+                _rngStateSaved = true;
+                UnityEngine.Random.InitState(seed);
+                if (LogOn) Plugin.Log.Info($"[DesertMissile] barrage volley reseeded base={label} seed={seed} (dir={dir:F2} counter={counter})");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] OnMissileLinePatternPre failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Restore the RNG state saved by <see cref="OnMissileLinePatternPre"/> (no-op if it didn't reseed).</summary>
+        public static void OnMissileLinePatternPost()
+        {
+            if (!_rngStateSaved) return;
+            _rngStateSaved = false;
+            try { UnityEngine.Random.state = _savedRngState; } catch { }
+        }
+
         /// <summary>HOST: the boss stopped a missile base → broadcast so clients stop the same base (no late-phase firing).</summary>
         public static void OnHostMissileStop(object missileBase)
         {
@@ -1054,24 +1122,35 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] OnHostMissileStop failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        /// <summary>CLIENT: mirror a host missile Start/Stop onto the matching local base. Start runs under the reentry guard
-        /// so the block prefix lets it through; the client base then fires its own homing missiles (at its local player) in
-        /// lockstep with the host's windows (D2 will widen the targets to all players). Never throws.</summary>
-        private static void ApplyClientMissileWindow(string eventName, object component)
+        /// <summary>CLIENT: mirror a host missile event onto the matching local base — Start/Stop of the homing window
+        /// (D1; Start runs under the reentry guard so the block prefix lets it through) and the full-screen barrage (D3:
+        /// set the host's patternDirection + invoke the real InitiateFirePattern, so the native pattern machinery replays
+        /// locally — sprites, line rockets, and the built-in homing pause for the barrage window). Never throws.</summary>
+        private static void ApplyClientMissileWindow(NetBossDiscreteEvent msg, object component)
         {
             try
             {
-                bool start = eventName.StartsWith("MissileStart:", StringComparison.Ordinal);
+                string eventName = msg.EventName ?? "";
                 string label = eventName.Substring(eventName.IndexOf(':') + 1);
                 string field = string.Equals(label, "Sniper", StringComparison.Ordinal) ? "sniperBase" : "terminatorBase";
                 var mb = BossReflect.GetMember(component, field);
                 if (!(mb is UnityEngine.Object mo) || mo == null) { if (LogOn) Plugin.Log.Info($"[DesertMissile] client has no {field} to apply {eventName}"); return; }
-                if (start)
+                if (eventName.StartsWith("MissileStart:", StringComparison.Ordinal))
                 {
                     var m = mb.GetType().GetMethod("StartMissiles", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
                     if (m == null) return;
                     BeginApply();
                     try { m.Invoke(mb, new object[] { 3f }); }
+                    finally { EndApply(); }
+                }
+                else if (eventName.StartsWith("MissilePattern:", StringComparison.Ordinal) && msg.HasPos)
+                {
+                    var dirField = mb.GetType().GetField("patternDirection", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    dirField?.SetValue(mb, msg.Position);
+                    var m = mb.GetType().GetMethod("InitiateFirePattern", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    if (m == null) return;
+                    BeginApply();
+                    try { m.Invoke(mb, null); }
                     finally { EndApply(); }
                 }
                 else
@@ -2965,11 +3044,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     return;
                 }
 
-                // F4-MISSILE D1: a host missile firing-window start/stop → mirror it onto the matching local base so the
-                // client fires only in the host's windows (no dedup/loop-marking; arrives a few times per fight).
+                // F4-MISSILE D1/D3: a host missile event (homing window start/stop, full-screen barrage) → mirror it onto
+                // the matching local base (no dedup/loop-marking; arrives a few times per fight).
                 if (msg.EventName != null && msg.EventName.StartsWith("Missile", StringComparison.Ordinal))
                 {
-                    ApplyClientMissileWindow(msg.EventName, component);
+                    ApplyClientMissileWindow(msg, component);
                     return;
                 }
 

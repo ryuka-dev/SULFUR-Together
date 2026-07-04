@@ -353,7 +353,17 @@ namespace SULFURTogether.Patches
                 // D2: each real rocket fired at the local player → also spawn ghost visual rockets on the other players.
                 var spawn = AccessTools.Method(missileBase, "SpawnRealRocket");
                 if (spawn != null) harmony.Patch(spawn, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_MissileRocket_Post), BindingFlags.Static | BindingFlags.NonPublic)));
-                Log.Info($"[DesertMissile] patched DesertMissileBase.StartMissiles({start != null}) StopRockets({stop != null}) SpawnRealRocket({spawn != null})");
+                // D3: the host's full-screen barrage start → broadcast so the client replays the identical native pattern.
+                var pattern = AccessTools.Method(missileBase, "InitiateFirePattern");
+                if (pattern != null) harmony.Patch(pattern, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_MissilePattern_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                // D3b: the barrage's SAFE LANES (row/column gaps + cross choice) are rolled with the local RNG inside
+                // FireLinePattern → each end got different safe spots. Reseed the RNG identically on both ends for the
+                // duration of that one call (seed derived from the synced patternDirection + volley counter).
+                var line = AccessTools.Method(missileBase, "FireLinePattern");
+                if (line != null) harmony.Patch(line,
+                    prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_FireLine_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
+                    postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_FireLine_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[DesertMissile] patched DesertMissileBase.StartMissiles({start != null}) StopRockets({stop != null}) SpawnRealRocket({spawn != null}) InitiateFirePattern({pattern != null}) FireLinePattern({line != null})");
             }
             catch (Exception ex) { Log.Error($"[DesertMissile] patch failed: {ex.Message}"); }
         }
@@ -392,6 +402,20 @@ namespace SULFURTogether.Patches
         // BOTH ends: a real rocket fired at the local player → add ghost visual rockets on the other players (D2).
         private static void Desert_MissileRocket_Post(object __instance)
             => NetBossEncounterManager.OnMissileRealRocketFired(__instance);
+
+        // HOST: a full-screen barrage was initiated → broadcast it (deferred a frame: the boss assigns patternDirection
+        // AFTER InitiateFirePattern returns, so an immediate read would be stale) (D3).
+        private static void Desert_MissilePattern_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostMissilePatternInitiated(__instance);
+        }
+
+        // BOTH ends: reseed the RNG for the barrage volley so its safe lanes match on every end (D3b).
+        private static void Desert_FireLine_Pre(object __instance)
+            => NetBossEncounterManager.OnMissileLinePatternPre(__instance);
+
+        private static void Desert_FireLine_Post(object __instance)
+            => NetBossEncounterManager.OnMissileLinePatternPost();
 
         // D2: skip the damage pass for a ghost VISUAL rocket (explosion VFX still plays; the id gate is per-instance).
         private static bool Desert_RocketDamage_Pre(object __instance)
