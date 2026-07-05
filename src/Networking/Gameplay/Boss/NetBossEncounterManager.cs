@@ -1960,6 +1960,29 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             return false;
         }
 
+        /// <summary>LD-Sandstorm (downed rescue): like <see cref="TryGetSandstormArenaSphere"/> but only while the fight
+        /// is actually RUNNING (started, boss not terminally dead) — a rescue teleport must not fire before combat or
+        /// after the boss dies.</summary>
+        public static bool TryGetActiveSandstormArenaSphere(out Vector3 center, out float radius)
+        {
+            center = Vector3.zero; radius = 0f;
+            lock (_lock)
+            {
+                foreach (var kv in _registry)
+                {
+                    var e = kv.Value;
+                    if (e.Adapter == null || e.Component == null) continue;
+                    try
+                    {
+                        if (!SafeStarted(e.Adapter, e.Component) || _terminalDead.Contains(kv.Key)) continue;
+                        if (e.Adapter.TryGetSandstormArenaSphere(e.Component, out center, out radius)) return true;
+                    }
+                    catch { }
+                }
+            }
+            return false;
+        }
+
         private static void RequestStartOnce(string key, IBossEncounterAdapter adapter, object component, in BossEncounterContext ctx, string source)
         {
             lock (_lock) { if (!_clientRequested.Add(key)) return; }

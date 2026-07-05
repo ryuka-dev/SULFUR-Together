@@ -257,6 +257,38 @@ namespace SULFURTogether.Networking.Gameplay
             if (!Enabled || !NetGameplaySyncBridge.IsSessionActive) return;
             if (NetGameplaySyncBridge.IsHost) HostTick();
             LocalTick();
+            TickSandstormDownedRescue();
+        }
+
+        // LD-Sandstorm downed rescue: a DOWNED local player left outside the moving sandstorm sphere for this long is
+        // teleported in beside the group. Alive out-of-arena players are deliberately NOT dragged along (the native fight
+        // teleports everyone with the moving arena; in co-op an alive straggler is left to walk).
+        private const float DownedRescueSeconds = 5f;
+        private static float _downedOutsideSince;
+
+        /// <summary>EVERY end, per frame: while the Desert sandstorm fight is running, a local player who is DOWNED and
+        /// outside the (moving) danger sphere for <see cref="DownedRescueSeconds"/> is pulled in beside the group — a
+        /// downed body abandoned outside the ring can never be revived. Reuses the PullIn apply (self in/out check,
+        /// teleport, toast, dialog catch-up). The timer resets whenever the player is inside, revived, or the fight ends.</summary>
+        private static void TickSandstormDownedRescue()
+        {
+            try
+            {
+                if (!Boss.NetBossEncounterManager.TryGetActiveSandstormArenaSphere(out var center, out float radius) || radius <= 0f)
+                { _downedOutsideSince = 0f; return; }
+                if (!NetPlayerLifeManager.ShouldSuppressLocalPlayerControls()) { _downedOutsideSince = 0f; return; } // not downed
+                object pu = ResolveLocalPlayerUnit();
+                if (!(pu is Component pc) || pc == null) { _downedOutsideSince = 0f; return; }
+                float dist = Vector3.Distance(pc.transform.position, center);
+                if (dist <= radius) { _downedOutsideSince = 0f; return; } // downed but inside — teammates can reach them
+                float now = Time.unscaledTime;
+                if (_downedOutsideSince <= 0f) { _downedOutsideSince = now; return; }
+                if (now - _downedOutsideSince < DownedRescueSeconds) return;
+                _downedOutsideSince = 0f;
+                NetLogger.Info($"[ArenaLockdown] downed rescue: local player downed OUTSIDE the sandstorm for {DownedRescueSeconds:0}s (dist={dist:0.0}m r={radius:0.0}) — pulling in");
+                ApplyLocalCommand(ArenaCommandKind.PullIn, ResolveNearFirstPlayerTarget(center));
+            }
+            catch { _downedOutsideSince = 0f; }
         }
 
         // ----------------------------------------------------------------- LD-Sandstorm (Desert): gate-less keep-in
