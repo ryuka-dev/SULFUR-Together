@@ -149,6 +149,9 @@ namespace SULFURTogether
             UI.CoopConnectPage.Tick(); // UI-3c: drive the connect page's live status/buttons/list handles
 #endif
             Networking.Gameplay.Boss.EmperorWormDiagnostics.ReportUpdateProfile(_updateProf.ElapsedMilliseconds, tGameplay, tBoss);
+            // TB: attribute the client combat hitch — is a slow frame our Update body (mod code) or outside it (native
+            // physics/render), and does it scale with live craw count?
+            NetGameplayProbeManager.ClientFrameHitchTick(_updateProf.ElapsedMilliseconds, tGameplay);
         }
 
         private void FixedUpdate()

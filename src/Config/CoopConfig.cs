@@ -333,6 +333,7 @@ namespace SULFURTogether.Config
         public Fixed<bool>         SuppressClientEnemyAiWhenStateMirrorEnabled { get; }
         public Fixed<bool>         EnableClientEnemyPuppetMode { get; }
         public ConfigEntry<bool>   LogClientEnemyPuppetMode { get; }
+        public ConfigEntry<bool>   LogClientFrameHitch { get; }   // TB: attribute the client combat-frame hitch (craw count vs frame ms)
         public Fixed<float>        ClientEnemyPuppetStaleReleaseSeconds { get; }
         public Fixed<bool>         EnableHostEnemyAnimationMirror { get; }
         public Fixed<bool>         ApplyReceivedEnemyAnimationMirror { get; }
@@ -959,6 +960,8 @@ namespace SULFURTogether.Config
             EnableClientEnemyPuppetMode = new Fixed<bool>(true);
             LogClientEnemyPuppetMode = cfg.Bind("NetworkEnemyStateExperimental", "LogClientEnemyPuppetMode", true,
                 "Log one-line begin/end events when a Client NPC enters or leaves Host-mirrored puppet mode.");
+            LogClientFrameHitch = cfg.Bind("NetworkEnemyStateExperimental", "LogClientFrameHitch", true,
+                "Diagnostic: on a slow client frame during combat, log the frame time + active enemy-puppet / craw count, to attribute the Terrorbaum craw hitch. Only logs frames under ~20 fps (silent during smooth play).");
             ClientEnemyPuppetStaleReleaseSeconds = new Fixed<float>(3f);
             EnableHostEnemyAnimationMirror = new Fixed<bool>(true);
             ApplyReceivedEnemyAnimationMirror = new Fixed<bool>(true);

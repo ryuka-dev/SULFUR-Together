@@ -283,6 +283,20 @@ namespace SULFURTogether.Networking.Gameplay
         // (Sandboxie) where each synchronous BepInEx write is far slower than on the host.
         private static readonly HashSet<int> BarrenTargetAuthorityAiIds = new HashSet<int>();
         private static readonly HashSet<int> ClientPuppetMovementDriverIds = new HashSet<int>();
+        // Terrorbaum craws (and other flyers) drive their own transform from a standalone MonoBehaviour flight
+        // controller (own FixedUpdate, non-kinematic rb, useGravity=false) that is NOT the NavMeshAgent/CustomRichAI/
+        // behaviourTree the puppet mode disables. On the client that local flight AI keeps flying the mirror ~13 m away
+        // every frame while host snapshots drag it back → position flicker + physics thrash → heavy lag. Disabling the
+        // controller (Behaviour.enabled=false → its FixedUpdate stops) makes the mirror a pure host-position-driven
+        // puppet. Same "replicate the state the native flow holds" lesson as the Desert enemy-pike taming. Extensible:
+        // add CrawSentinel/CrawAbomination here only if a later test shows the same flicker.
+        private static readonly string[] ClientPuppetExtraLocomotionControllers = { "CrawWatcher" };
+        // A flyer add (CrawWatcher) is a watch-only host-driven puppet on the client — the client never damages it
+        // (Log351: clientHitSent=0), so its colliders serve no gameplay purpose there but still churn PhysX contacts
+        // against the arena's dynamic props every frame while the kinematic body is transform-driven → per-craw stutter
+        // that clears when the craws die. Disable them once per object (same lever as the Emperor worm's
+        // EnsureWormVisualOnly). Instance ids collected here so the disable runs once, not every 0.5 s re-apply.
+        private static readonly HashSet<int> _visualOnlyFlyerCollidersDisabled = new HashSet<int>();
         private static readonly HashSet<string> PendingStableSpawnLogs = new HashSet<string>();
         // Phase 4.4.0-O: per-NPC Host-authorized intent windows (Client side only).
         private static readonly Dictionary<int, ClientEnemyAuthorizedIntentWindow> _clientAuthorizedIntentByNpcId = new Dictionary<int, ClientEnemyAuthorizedIntentWindow>();
@@ -3447,7 +3461,10 @@ namespace SULFURTogether.Networking.Gameplay
 
             window.RootReplayed = true;
             _clientCombatRootReplays++;
-            Plugin.Log.Info($"[EnemyIntent] Client root-replay npcId={record.NpcId} seq={window.Sequence} kind={kind} method={method} actor={record.Snapshot?.ActorName ?? "?"}");
+            // Gated like the neighbouring intent logs: this fires on every replayed enemy attack (craws attack often), so
+            // an ungated Info here was a per-attack synchronous disk write — costly on the sandboxed client.
+            if (Plugin.Cfg.LogHostAuthorizedIntentExecution.Value)
+                Plugin.Log.Info($"[EnemyIntent] Client root-replay npcId={record.NpcId} seq={window.Sequence} kind={kind} method={method} actor={record.Snapshot?.ActorName ?? "?"}");
             // Phase RT3-Cousin-arms: the Cousin arm's mud-ball visual is produced by its own animation-event throw
             // (CousinArmPatches.ThrowProjectile_Pre fixes up the target + zeroes damage on the client). The
             // SetRangedAttacking replay above plays that animation, so the throw stays aligned with the animation.
@@ -4746,6 +4763,23 @@ namespace SULFURTogether.Networking.Gameplay
                 TryDisableRvoController(TryGetMemberValue(aiAgent, "rvoController"));
                 TryZeroRigidbodyVelocity(TryGetMemberValue(npc, "Rigidbody") ?? TryGetMemberValue(npc, "rigidbody"));
             }
+
+            // Flyers (Terrorbaum craws) locomote from a standalone MonoBehaviour flight controller that the NavMesh/RVO/BT
+            // shutdown above never touches — disable it so the mirror is fully host-position-driven (no local-vs-snapshot
+            // flicker). Runs in both branches: a flyer should never move locally (it has no navmesh walk to keep alive).
+            // Such a flyer's transform-driven kinematic PHYSICS collider also churns PhysX contacts against the arena
+            // props (the residual per-craw stutter) — strip only that collider, keeping the damage hitboxes so the client
+            // can still shoot the craw (a hard requirement).
+            bool isFlyerPuppet = false;
+            foreach (var controllerName in ClientPuppetExtraLocomotionControllers)
+            {
+                object? controller = TryFindComponentByTypeName(npc, controllerName);
+                if (controller == null) continue;
+                TryDisableBehaviourComponent(controller);
+                isFlyerPuppet = true;
+            }
+            if (isFlyerPuppet) DisableFlyerPuppetPhysicsCollider(npc, record);
+
             ApplyClientEnemyTargetAuthority(record, now, intentDriven ? "intent puppet apply" : "puppet apply");
 
             bool firstApply = !record.Applied;
@@ -6116,6 +6150,39 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
+        // TB frame-hitch attribution (driven from Plugin.Update end). Ultra-cheap: one unscaledDeltaTime read + compare.
+        // On a slow client frame it reports frame ms vs the mod's Update-body ms (so a hitch bigger than updateBody is
+        // OUTSIDE our code = native physics/render/GC), plus the active puppet + live-craw count so we can confirm whether
+        // the Terrorbaum stutter scales with the craws. Gated behind LogClientFrameHitch (debug-only).
+        private static float _lastHitchLogTime = -999f;
+        private static int _lastHitchGc0 = -1;
+        public static void ClientFrameHitchTick(long updateBodyMs, long gameplayMs)
+        {
+            try
+            {
+                if (!Plugin.Cfg.LogClientFrameHitch.Value) return;
+                if (NetGameplaySyncBridge.BossMode != NetMode.Client) return;
+                float dt = Time.unscaledDeltaTime;
+                if (dt < 0.05f) return; // only ~<20 fps frames
+                float now = Time.realtimeSinceStartup;
+                if (now - _lastHitchLogTime < 0.10f) return; // don't double-log the same stall
+                _lastHitchLogTime = now;
+
+                int puppets = ActiveEnemyPuppets.Count;
+                int craws = 0;
+                foreach (var kv in ActiveEnemyPuppets)
+                {
+                    string an = kv.Value?.Snapshot?.ActorName;
+                    if (an != null && an.IndexOf("Craw", StringComparison.OrdinalIgnoreCase) >= 0) craws++;
+                }
+                int gc0 = GC.CollectionCount(0);
+                int gc0Delta = _lastHitchGc0 < 0 ? 0 : gc0 - _lastHitchGc0;
+                _lastHitchGc0 = gc0;
+                NetLogger.Info($"[FrameHitch] dt={dt * 1000f:F0}ms (~{(dt > 0 ? 1f / dt : 0f):F0}fps) updateBody={updateBodyMs}ms (gameplay={gameplayMs}ms) puppets={puppets} craws={craws} gc0Δ={gc0Delta} — hitch>>updateBody ⇒ cost is native (physics/render), not mod code");
+            }
+            catch { }
+        }
+
         private static void ReleaseAllEnemyPuppets(string reason)
         {
             if (ActiveEnemyPuppets.Count == 0)
@@ -6135,6 +6202,7 @@ namespace SULFURTogether.Networking.Gameplay
             ClientPuppetAiAgentIds.Clear();
             BarrenTargetAuthorityAiIds.Clear();
             ClientPuppetMovementDriverIds.Clear();
+            _visualOnlyFlyerCollidersDisabled.Clear();
             ActiveEnemyPuppetsByNpcId.Clear();
         }
 
@@ -6485,6 +6553,34 @@ namespace SULFURTogether.Networking.Gameplay
                 TrySetVector3Member(rigidbody, "velocity", zero);
                 TrySetVector3Member(rigidbody, "linearVelocity", zero);
                 TrySetVector3Member(rigidbody, "angularVelocity", zero);
+            }
+            catch { }
+        }
+
+        // Client-only: a flyer puppet's transform-driven kinematic PHYSICS collider (the non-trigger body collider the
+        // CrawWatcher used for its own collisions) keeps generating PhysX contacts against the arena's dynamic props each
+        // frame → the residual per-craw stutter that clears on the craws' death (kinematic alone did not remove it — same
+        // finding as the Emperor worm). Disable ONLY that collider; KEEP the damage hitboxes so the client can still
+        // shoot the craw. A damage hitbox is identified by a `Hitmesh` on the collider's own GameObject — that is exactly
+        // how a projectile registers a hit (`other.TryGetComponent<Hitmesh>`), so anything with a Hitmesh must stay; and
+        // trigger colliders (detection volumes) are cheap + never generate contacts, so leave them alone too. Runs once
+        // per object (ids in _visualOnlyFlyerCollidersDisabled); the object is destroyed on death/level change.
+        private static void DisableFlyerPuppetPhysicsCollider(object npc, EnemyPuppetRecord record)
+        {
+            try
+            {
+                if (!(npc is Component c) || c == null) return;
+                if (!_visualOnlyFlyerCollidersDisabled.Add(c.GetInstanceID())) return;
+                var cols = c.GetComponentsInChildren<Collider>(true);
+                int n = 0;
+                foreach (var col in cols)
+                {
+                    if (col == null || !col.enabled || col.isTrigger) continue;   // triggers never churn contacts → keep
+                    if (col.GetComponent("Hitmesh") != null) continue;            // damage hitbox → keep (client must hit)
+                    col.enabled = false; n++;
+                }
+                if (Plugin.Cfg.LogClientEnemyPuppetMode.Value)
+                    NetLogger.Info($"[EnemyPuppet] flyer disabled {n} physics collider(s) (hitboxes kept) idx={record?.Snapshot?.SpawnIndex} actor={record?.Snapshot?.ActorName}");
             }
             catch { }
         }

@@ -90,6 +90,9 @@ namespace SULFURTogether.Networking.Gameplay
         // How far BESIDE the first in-arena player pulled-in stragglers land (outward from the sphere centre, so they
         // don't drop onto the boss which sits at the centre).
         private const float SandstormPullBesideOffset = 3f;
+        // Gate-lockdown (no sphere): how close a teammate must be to the seal trigger to count as "in the arena" and
+        // serve as the valid-floor teleport anchor. Generous — the trigger and the arena floor are co-located.
+        private const float GateEntryAnchorRadius = 25f;
         // How close a gate-open (boss death / AllDeadTrigger) must be to an arena to count as "this fight ended".
         private const float GateReleaseRadius    = 10f;
         // Trigger→gate proximity: the seal trigger and the gate it controls are co-located but distinct objects.
@@ -359,21 +362,50 @@ namespace SULFURTogether.Networking.Gameplay
         {
             Vector3 center = fallbackCenter; float radius = SandstormArenaRadius;
             if (Boss.NetBossEncounterManager.TryGetSandstormArenaSphere(out var c, out var r) && r > 0f) { center = c; radius = r; }
+            // includeLocal: the sandstorm pull is computed HOST-side and the host may itself be the in-arena player;
+            // an out-of-arena player is naturally excluded (dist > radius). Fallback = centre (sandstorm has no floor issue).
+            return ResolveArenaEntryTarget(center, radius, includeLocal: true, out _);
+        }
 
+        /// <summary>Pick a teleport target BESIDE the nearest player already inside <paramref name="radius"/> of
+        /// <paramref name="center"/> — their feet are on valid standing floor, and the outward offset keeps stragglers
+        /// off the boss (which sits at the centre) and off each other. <paramref name="foundAnchor"/> is false when no
+        /// eligible player is inside yet → the caller decides the fallback. <paramref name="includeLocal"/> excludes THIS
+        /// end's player when it is the one being pulled in (its own position is outside / possibly below floor).</summary>
+        private static Vector3 ResolveArenaEntryTarget(Vector3 center, float radius, bool includeLocal, out bool foundAnchor)
+        {
             Vector3 anchor = Vector3.zero; bool found = false; float bestSqr = float.MaxValue; float r2 = radius * radius;
             void Consider(Vector3 p)
             {
                 float d2 = (p - center).sqrMagnitude;
                 if (d2 <= r2 && d2 < bestSqr) { bestSqr = d2; anchor = p; found = true; }
             }
-            try { if (ResolveLocalPlayerUnit() is Component hc && hc != null) Consider(hc.transform.position); } catch { }
+            if (includeLocal)
+                try { if (ResolveLocalPlayerUnit() is Component hc && hc != null) Consider(hc.transform.position); } catch { }
             try { NetGameplaySyncBridge.ForEachRemotePlayerPositionWithPeer((peer, pos) => Consider(pos)); } catch { }
 
+            foundAnchor = found;
             if (!found) return center; // nobody inside yet → centre
 
             Vector3 outward = anchor - center; outward.y = 0f;
             if (outward.sqrMagnitude < 0.01f) outward = Vector3.forward; // anchor at centre → arbitrary horizontal dir
             return anchor + outward.normalized * SandstormPullBesideOffset;
+        }
+
+        /// <summary>Gate-lockdown teleport destination. The seal trigger's own pivot Y is often BELOW the standing floor,
+        /// so teleporting straight to it (the old <c>arenaPos + up*0.5</c>) drops the player through the map. Prefer to
+        /// land beside a teammate already in the arena (valid floor — the host is in-room by the time a client confirms),
+        /// else raycast down onto the floor, else fall back to the trigger pos.</summary>
+        private static Vector3 ResolveGateTeleportDest(Vector3 arenaPos)
+        {
+            // Exclude the local player: it is the one being pulled in (outside, maybe below floor). Only teammates anchor.
+            Vector3 beside = ResolveArenaEntryTarget(arenaPos, GateEntryAnchorRadius, includeLocal: false, out bool found);
+            if (found) return beside + Vector3.up * 0.5f;
+            // Solo / everyone entering at once: raycast straight down onto the floor (ignore trigger colliders).
+            if (Physics.Raycast(arenaPos + Vector3.up * 30f, Vector3.down, out RaycastHit hit, 60f,
+                                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                return hit.point + Vector3.up * 0.1f;
+            return arenaPos + Vector3.up * 0.5f; // last resort (may be slightly low, but better than nothing)
         }
 
         private static void HostTick()
@@ -631,12 +663,14 @@ namespace SULFURTogether.Networking.Gameplay
                 object unit = ResolveLocalPlayerUnit();
                 if (unit != null)
                 {
-                    Vector3 dest = arenaPos + Vector3.up * 0.5f;
+                    // Land on valid floor (beside a teammate / raycast to ground), NOT the seal trigger pivot whose Y is
+                    // often below the floor → the player would fall through the map.
+                    Vector3 dest = ResolveGateTeleportDest(arenaPos);
                     var tp = AccessTools.Method(unit.GetType(), "TeleportTo", new[] { typeof(Vector3) })
                           ?? AccessTools.Method(unit.GetType(), "TeleportTo");
                     if (tp != null) tp.Invoke(unit, new object[] { dest });
                     else if (unit is Component c && c != null) c.transform.position = dest;
-                    NetLogger.Info($"[ArenaLockdown] teleported local player into arena ({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0})");
+                    NetLogger.Info($"[ArenaLockdown] teleported local player into arena arena=({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0}) dest={dest:F1}");
                     // Player-facing → localize (Docs/Localization.md).
                     Toast("Arena", "Entering the arena.");
                 }
