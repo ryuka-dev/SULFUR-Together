@@ -2211,7 +2211,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     else
                     {
                         BroadcastHostBossOwnDialogOpen(msg.EncounterKey, oAdapter, oComp, hostHasItOpen: false); // broadcast only
-                        Plugin.Log.Info($"[BossDialogSync] host received client open from {peerId}: broadcast-only (host out of arena) key={msg.EncounterKey}");
+                        // TB-DLG2: stash the open for the HOST's own catch-up too — the discrete broadcast doesn't loop
+                        // back to the host, so without this a host pulled in pre-fight would never get the dialog
+                        // (its local anim-event auto-open is now room-blocked). Same Tick catch-up as the client path.
+                        lock (_lock) { _pendingMirrorKey = msg.EncounterKey; _pendingMirrorEvent = "Dialog:boss-open"; }
+                        Plugin.Log.Info($"[BossDialogSync] host received client open from {peerId}: broadcast-only (host out of arena; catch-up stashed) key={msg.EncounterKey}");
                     }
                     return;
                 }
@@ -2564,6 +2568,29 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             }
             catch { }
             return false;
+        }
+
+        /// <summary>TB-DLG2 (Log362): the opening dialogue is AUTO-OPENED by the entrance animation's event calling
+        /// <c>Npc.Interact</c> (not by a manual player interact) — so mirroring the entrance to every end (TB-INTRO)
+        /// also auto-opened the dialog on ends whose player is ACROSS THE MAP. Room-scope it at the source: block a
+        /// pre-fight own-dialog interact while this end's local player is out of the active arena. The host's OPEN
+        /// broadcast they receive is stashed by the existing pending-mirror path, so being pulled in pre-fight still
+        /// catches the dialog up (the user flow: 中途进房=补出场+对话). The mirror/catch-up apply itself
+        /// (<c>_applyingHostDialogOpen</c>) is never blocked. Fail-open when no arena is known. Solo untouched.</summary>
+        public static bool ShouldBlockOutOfRoomBossOwnDialog(object npc)
+        {
+            try
+            {
+                if (!Enabled || npc == null) return false;
+                if (!NetGameplaySyncBridge.IsSessionActive) return false;
+                lock (_lock) { if (_applyingHostDialogOpen) return false; } // room-gated at the apply site already
+                if (ArenaLockdownManager.IsLocalPlayerInActiveArena()) return false; // in-room / unknown → allow
+                if (!TryResolveAndRegisterBossOwnDialog(npc, out string key, out var adapter, out var component)) return false;
+                if (SafeStarted(adapter, component)) return false; // started re-interact is TB-DLG's block
+                Plugin.Log.Info($"[BossDialogSync] blocked out-of-arena opening dialog (local player not in-room) key={key}");
+                return true;
+            }
+            catch { return false; }
         }
 
         /// <summary>TB-DLG: block re-opening an own-dialog boss's OPENING dialogue once its fight has started — on any

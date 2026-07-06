@@ -908,6 +908,10 @@ namespace SULFURTogether.Patches
             // stays physically interactable; Log358: the host walked in mid-fight and got the dialog again → mirrored
             // to every end). Blocked on every end; the fight-start chokepoints already close a lingering copy.
             try { if (NetBossEncounterManager.ShouldBlockStartedBossOwnDialog(__instance)) return false; } catch { }
+            // TB-DLG2: the opening dialogue is auto-opened by the entrance animation's event (Log362) — on an end whose
+            // local player is out of the arena that auto-open must not fire (Cousin-style room scoping). The pull-in
+            // catch-up re-opens it via the pending mirror.
+            try { if (NetBossEncounterManager.ShouldBlockOutOfRoomBossOwnDialog(__instance)) return false; } catch { }
             return true;
         }
 
