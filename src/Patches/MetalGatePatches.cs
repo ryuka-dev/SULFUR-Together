@@ -179,6 +179,11 @@ namespace SULFURTogether.Patches
         private static void PlayerTrigger_Trigger_Post(object __instance, bool __runOriginal)
         {
             if (!__runOriginal) return;
+            // TB-INTRO: a MIRRORED room-event trigger (another player's crossing, replayed here so the boss entrance
+            // plays for everyone) is NOT a local crossing. Feeding it below would mark this end's far-away player
+            // in-room (Log361: the host was registered in-room by the mirror → no pull-in popup + the opening dialog
+            // wrongly shown to the out-of-room host) and would echo door captures. Real local crossings only.
+            if (GateSyncManager.IsApplyingTriggerMirror) return;
             TriggerDoorSyncManager.CaptureLocalTrigger(__instance);
             ArenaLockdownManager.OnLocalTriggerFired(__instance); // LD-2a: arena lockdown membership feed
         }

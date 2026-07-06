@@ -45,12 +45,18 @@ RT3 add-binding chokepoint.
 - *Target resolution* — each boss exposes different hittable units.
 - *Which native methods to hook* — `StartFight` vs `TriggerFight` vs `StartMovement`; `ChangePhase`; `DestroySection`.
 - *Movement / position model* — this is the big axis: **event-mirrored** (Cousin fixed pools), **head-streamed**
-  (Emperor physics worm), **static/roster-puppet** (most enemies), or **phase-controller** (Witch).
+  (Emperor physics worm), **static/roster-puppet** (most enemies), **phase-controller** (Witch), or **pure-puppet
+  with discrete state mirror** (Terrorbaum, §6 — client copy fully inert, host broadcasts the visibility-state
+  mutators as discrete events).
 
 ---
 
 ## 3. Default recipe for a NEW boss
 
+0. **Audit the "remote start" surface first** (§6 lesson): walk the decompile from the start entrypoint to
+   "remote player can see / be attacked by / damage the boss" and list every local-player-presence assumption
+   (entrance PlayerTriggers, animation events, LOS target acquisition, damage windows, driver state machines).
+   Plan the slice against that list — do not discover these one live-test at a time.
 1. **Register it as an encounter** + write an `IBossEncounterAdapter` (identity, `IsStarted`, start-chain method,
    `Describe`). This unlocks the whole framework (dialog-commit, RM, state sync) keyed by `EncounterKey`.
 2. **Pre-fight:** adopt RM + the **FF14 arena lockdown** (seal / popup / teleport / release) + **dialog-commit
@@ -200,3 +206,60 @@ RM `_roomMembers`; unify where practical).
 
 Keep the boundaries clean and the knobs central: door/lockdown timing lives as consts in `ArenaLockdownManager`
 (`SealDelaySeconds`/`TeleportDelaySeconds`/…) — one place to change 5s/10s.
+
+---
+
+## 6. Terrorbaum — the pure-puppet recipe + the "remote start" audit lesson
+
+Terrorbaum (TB, BossAuthority.md §10) is the reference implementation of the **pure-puppet** model: the client
+copy runs NO mechanics at all (`ClientBossIsPurePuppet` + `SuppressClientMechanics`, re-asserted per Tick); the
+host owns everything; the client mirrors position (roster puppet), health/death (BossState), discrete visibility
+states (`TerrorDig`/`TerrorErupt:*`/`TerrorEruptAoe`/`TerrorRoot` via msg 36), the opening dialogue (TB-D) and the
+entrance animation (TB-INTRO via the GateSync channel, `NetGateState.Kind=1`). Damage rides the standard
+authority with a per-boss window (`role="eye"` → host lifts the standing invulnerability around `ReceiveDamage`,
+exactly like the native `OnEyeHit`).
+
+### The lesson (why TB took five test rounds — read this before syncing the next boss)
+
+TB's fixes were all small; what cost the time was discovering, one live log at a time, that the vanilla fight has
+**implicit "the interacting player is standing right here" assumptions** baked into independent subsystems. A
+remotely-started fight (client picks the fight option, host player elsewhere) breaks every one of them:
+
+1. **Entrance animation** — played by the room-entry `PlayerTrigger`'s persistent `Animator.SetTrigger`,
+   local-player-only → the far end's boss never visually appears (and replays the entrance when that player
+   finally walks in, because its own `onlyOnce` was never consumed). → TB-INTRO trigger mirror.
+2. **Target acquisition** — the erupt behaviour-tree node requires `aiAgent.lastTarget != null`, acquirable only
+   by LOS from a boss that digs underground at fight start → without a nearby player it never surfaces.
+   → TB-TGT host target upkeep (nearest attackable player unit, ghosts included).
+3. **Damage window** — the body is permanently invulnerable; only the local `OnEyeHit` (eye hitbox + fightStarted
+   + !IsTransitioning) lifts it around `ReceiveDamage` → a plain host-side reflect is always rejected, and the
+   window gate itself broke a second way when the puppet freeze left `bossPhases.isTransitioning=true` forever.
+   → TB-DMG eye-window routing + host window replication + flag cleanup on suppression.
+4. **Dialog interactable** — vanilla never guards a post-start `Npc.Interact` (in single-player the tree has
+   moved off into combat) → the opening dialogue re-opens mid-fight for a late arriver. → TB-DLG started-block.
+
+**Rule going forward (add to the new-boss checklist, §3):** before writing any sync code, walk the decompiled
+chain **from the start entrypoint to "a remote player can see it, be attacked by it, and damage it"** and list
+every step that implicitly requires the local player to be present or local code to be running: PlayerTriggers
+(entrance/animator), animation events, LOS/target acquisition, per-end dialog state, damage gates
+(invulnerability windows, hitbox parts), and driver state machines. Fix them as ONE slice against that list —
+five of TB's six defects were all visible in the decompile up front; they were found by five live-test rounds
+instead because the audit stopped at the start-chain (the 5.4-E5 lesson applied only to damage, not to the whole
+"remote start" surface).
+
+Two implementation lessons that generalise:
+
+- **Freezing a native driver must also settle the state it holds mid-flight.** Disabling `BossPhases` left
+  `isTransitioning=true` permanently, silently closing the native damage gate. When suppressing any
+  driver/behaviour, enumerate its state-machine fields and normalise them at the freeze point (same family as the
+  F4-ADDS "a mirrored unit must replicate native state, not just disable AI").
+- **Replaying a native method on another end replays OUR hooks on it too.** The TB-INTRO mirror invokes the real
+  `PlayerTrigger.Trigger`, which fed our own membership postfix and marked the far-away player "in-room" (no
+  pull-in popup + dialog wrongly mirrored, Log361). Before replaying any native method, grep the mod's own
+  patches on it and guard the ones whose semantics are "a real local action happened here"
+  (`IsApplyingTriggerMirror`-style reentry flags).
+
+**Diagnosis lesson:** "invisible on one end" was chased through two wrong theories (underground position, render
+culling) before a 5-second render/animator state probe (`[BossVis]`) settled it in one round — the boss was
+rendering fine, stuck in its pre-entrance animator pose. For presentation-layer reports, ship a state probe FIRST
+(renderers / animator / GO-active / rooms), then reason.
