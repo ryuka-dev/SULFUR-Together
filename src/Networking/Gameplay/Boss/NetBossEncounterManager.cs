@@ -3482,6 +3482,19 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         TerrorbaumMechanicSync.ApplyLash(component, lashIdx);
                     return;
                 }
+                if (msg.EventName == "TerrorAbsorb") { TerrorbaumMechanicSync.ApplyAbsorb(component); return; }
+                if (msg.EventName != null && msg.EventName.StartsWith("TerrorVolley:", StringComparison.Ordinal))
+                {
+                    var vp = msg.EventName.Split(':');
+                    if (vp.Length >= 9
+                        && int.TryParse(vp[1], out int vc)
+                        && float.TryParse(vp[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float vd)
+                        && float.TryParse(vp[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float vs)
+                        && int.TryParse(vp[4], out int vty) && int.TryParse(vp[5], out int vcal)
+                        && int.TryParse(vp[6], out int veff) && int.TryParse(vp[7], out int vvfx) && int.TryParse(vp[8], out int vdmg))
+                        TerrorbaumMechanicSync.ApplyVolley(component, vc, vd, vs, vty, vcal, veff, vvfx, vdmg);
+                    return;
+                }
                 if (msg.EventName != null && msg.EventName.StartsWith("TerrorSky:", StringComparison.Ordinal) && msg.HasPos)
                 {
                     var p = msg.EventName.Split(':');

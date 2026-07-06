@@ -325,6 +325,10 @@ namespace SULFURTogether.Patches
                 var lash = AccessTools.Method(terrorbaum, "UpdateAttackRoot");
                 if (lash != null) harmony.Patch(lash, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Terror_AttackRoot_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
                 Log.Info($"[BossMech] patched Terrorbaum.UpdateAttackRoot({lash != null}) — host lash roll");
+                // TB-ABSORB: the tree swallowing a player bullet (TreeShake VFX) + the upward volley presentation are
+                // host-local (absorb queue + anim-event chain) — mirror both so the client sees the full mechanic.
+                Post("AbsorbPlayerBullet", nameof(Terror_Absorb_Post));
+                Post("Anim_OnSpawnProjectiles", nameof(Terror_Volley_Post));
                 // TB-MECH: sky-spike capture — prefix peeks the shot identity, postfix broadcasts the landing marker.
                 var sky = AccessTools.Method(terrorbaum, "OnShootBulletFromSky");
                 if (sky != null) harmony.Patch(sky,
@@ -379,6 +383,16 @@ namespace SULFURTogether.Patches
         // HOST: replace the native lash roll with our broadcasting one (returns false = skip original when handled).
         private static bool Terror_AttackRoot_Pre(object __instance)
             => !SULFURTogether.Networking.Gameplay.Boss.TerrorbaumMechanicSync.TryHostLash(__instance);
+
+        private static void Terror_Absorb_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) SULFURTogether.Networking.Gameplay.Boss.TerrorbaumMechanicSync.HostAbsorbed(__instance);
+        }
+
+        private static void Terror_Volley_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) SULFURTogether.Networking.Gameplay.Boss.TerrorbaumMechanicSync.HostVolleyStarted(__instance);
+        }
 
         private static void Terror_SkyShot_Pre(object __instance, ref object __state)
             => __state = SULFURTogether.Networking.Gameplay.Boss.TerrorbaumMechanicSync.CaptureSkyShotPre(__instance);
