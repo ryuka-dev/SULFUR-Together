@@ -34,6 +34,12 @@ namespace SULFURTogether.Networking.Gameplay
         // The new state: true = Close() fired, false = Open() fired.
         public bool Closed { get; set; }
 
+        // TB-INTRO: what fired at Position. 0 = a MetalGate Close/Open (the original LD-1 payload). 1 = a room-event
+        // PlayerTrigger with a boss-appear animation (persistent Animator.SetTrigger) fired on the sending end — the
+        // receiver invokes ITS local PlayerTrigger at the same position so the boss's entrance plays for everyone (and
+        // the trigger's own hasBeenTriggered is consumed, so a late-walking-in player doesn't replay it mid-fight).
+        public byte Kind { get; set; }
+
         public bool MatchesScene(NetRunState localState)
         {
             if (!localState.HasLevel) return false;

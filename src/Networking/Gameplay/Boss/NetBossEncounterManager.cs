@@ -2531,6 +2531,41 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         /// <summary>RM-2b: block the boss dialog (Npc.Interact) on THIS end when cutscene-gated and the local player is out
         /// of the room for the gated boss whose health unit is <paramref name="npc"/>.</summary>
+        /// <summary>TB-INTRO: block a boss-appear room trigger (persistent Animator.SetTrigger — the Terrorbaum
+        /// soil-burst entrance) from firing once a registered boss encounter within 60 m of it has STARTED. A player
+        /// arriving mid-fight must join the running fight, not replay the entrance (Log360: the host walked in after a
+        /// remote start and the entrance played again). Pre-fight fires pass through (and are peer-mirrored, so by the
+        /// time a fight starts every end has both played AND consumed the trigger). Never blocks the mirror apply
+        /// (mirrors only happen pre-fight; belt-and-braces guard anyway). Solo play is untouched.</summary>
+        public static bool ShouldBlockBossAppearTrigger(object trigger)
+        {
+            try
+            {
+                if (!Enabled || trigger == null || !(trigger is Component tc) || tc == null) return false;
+                if (!NetGameplaySyncBridge.IsSessionActive) return false;
+                if (GateSyncManager.IsApplyingTriggerMirror) return false;
+                if (!GateSyncManager.HasAppearAnimatorPersistent(trigger)) return false;
+                Vector3 pos = tc.transform.position;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (e.Adapter == null || !(e.Component is UnityEngine.Object uo) || uo == null) continue;
+                        if (!SafeStarted(e.Adapter, e.Component)) continue;
+                        if (!(e.Adapter.GetHealthUnit(e.Component) is Component hu) || hu == null) continue;
+                        if ((hu.transform.position - pos).sqrMagnitude <= 60f * 60f)
+                        {
+                            Plugin.Log.Info($"[BossIntroSync] blocked mid-fight appear trigger name={tc.name} pos={pos:F1} key={kv.Key}");
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
         /// <summary>TB-DLG: block re-opening an own-dialog boss's OPENING dialogue once its fight has started — on any
         /// end. Vanilla leaves the boss NPC interactable after TriggerFight (in single-player the tree immediately moves
         /// off into combat so nobody can re-interact), but in co-op a late-arriving player walks up to the (underground /

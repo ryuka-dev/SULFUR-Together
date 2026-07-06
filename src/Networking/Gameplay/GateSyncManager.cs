@@ -98,6 +98,7 @@ namespace SULFURTogether.Networking.Gameplay
             try
             {
                 if (!Enabled || m == null) return;
+                if (m.Kind == 1) { ApplyRemoteRoomTrigger(m); return; } // TB-INTRO: a room-event trigger fire, not a gate
                 if (!ResolveMethods()) { if (LogOn) NetLogger.Info("[GateSync] MetalGate methods unresolved"); return; }
 
                 Component target = FindMatch(m.Position);
@@ -139,6 +140,156 @@ namespace SULFURTogether.Networking.Gameplay
                 return true;
             }
             catch (Exception ex) { NetLogger.Warn($"[GateSync] CloseGate failed: {ex.Message}"); return false; }
+        }
+
+        // ================================================================= TB-INTRO: room-event trigger mirror
+        // The boss's ENTRANCE (Terrorbaum bursting out of the soil) is played by the room-entry PlayerTrigger's
+        // persistent Animator.SetTrigger — fired only by the LOCAL player crossing it, so a far-away player's boss
+        // never "appears" even though its mechanics run (Log360: renderers fine, animator stuck pre-appear). Mirror the
+        // FIRST fire to every end (everyone sees the entrance together, Cousin-style), invoking the receiver's own
+        // local PlayerTrigger — which also consumes its hasBeenTriggered, so a player walking in later doesn't replay
+        // the entrance mid-fight. A trigger qualifies when its persistent calls include an Animator."SetTrigger".
+
+        private static bool _applyingTriggerMirror;
+        public static bool IsApplyingTriggerMirror => _applyingTriggerMirror;
+
+        private static Type _playerTriggerType;
+        private static MethodInfo _triggerMethod;
+        private static FieldInfo _hasBeenTriggeredField;
+        private static FieldInfo _onTriggerEventsField;
+
+        /// <summary>Local postfix feed (any end): a PlayerTrigger's Trigger() just ran. Broadcast it iff it REALLY fired
+        /// now (pre-state false → true; refires early-return inside the native method) and it is an appear-class trigger.
+        /// The mirror's own invoke is guarded out.</summary>
+        public static void OnLocalPlayerTriggerFired(object playerTrigger, bool wasTriggeredBefore)
+        {
+            try
+            {
+                if (_applyingTriggerMirror) return; // this IS a mirror apply — never echo it back
+                if (!Enabled || !NetGameplaySyncBridge.IsSessionActive) return;
+                if (!(playerTrigger is Component c) || c == null) return;
+                if (!EnsureTriggerReflect(c)) return;
+                bool firedNow = _hasBeenTriggeredField != null && _hasBeenTriggeredField.GetValue(playerTrigger) is bool b && b;
+                if (wasTriggeredBefore || !firedNow) return;       // not a fresh fire
+                if (!HasAppearAnimatorPersistent(playerTrigger)) return; // only the appear-class room triggers
+
+                Vector3 key = c.transform.position;
+                NetGameplaySyncBridge.ReportLocalGateState(new NetGateState
+                {
+                    Sequence = ++_captureSeq,
+                    Position = key,
+                    Kind     = 1,
+                });
+                NetLogger.Info($"[BossIntroSync] capture room-event trigger name={c.name} pos={key:F1}");
+            }
+            catch (Exception ex) { NetLogger.Warn($"[BossIntroSync] capture failed: {ex.Message}"); }
+        }
+
+        /// <summary>Receiver: invoke OUR local PlayerTrigger at the same position (full native effect: gate closes are
+        /// idempotent, the Animator.SetTrigger plays the boss entrance, hasBeenTriggered is consumed so a later local
+        /// crossing is a no-op). The native (hasBeenTriggered &amp;&amp; onlyOnce) guard makes a double-apply harmless.</summary>
+        private static void ApplyRemoteRoomTrigger(NetGateState m)
+        {
+            try
+            {
+                var target = FindLocalPlayerTrigger(m.Position, out string detail);
+                if (target == null)
+                {
+                    NetLogger.Warn($"[BossIntroSync] mirror peer={m.PeerId} no PlayerTrigger near {m.Position:F1} ({detail})");
+                    return;
+                }
+                if (!EnsureTriggerReflect(target) || _triggerMethod == null) return;
+                if (_hasBeenTriggeredField?.GetValue(target) is bool already && already)
+                {
+                    if (LogOn) NetLogger.Info($"[BossIntroSync] mirror peer={m.PeerId} already fired locally name={target.name}");
+                    return;
+                }
+                GameObject invoker = ResolveLocalPlayerGo() ?? target.gameObject; // Trigger() reads a Unit off it; player GO is the faithful arg
+                _applyingTriggerMirror = true;
+                try { _triggerMethod.Invoke(target, new object[] { invoker }); }
+                finally { _applyingTriggerMirror = false; }
+                NetLogger.Info($"[BossIntroSync] mirror peer={m.PeerId} fired local room-event trigger name={target.name} pos={m.Position:F1}");
+            }
+            catch (Exception ex) { NetLogger.Warn($"[BossIntroSync] mirror failed: {ex.Message}"); }
+        }
+
+        /// <summary>Does this PlayerTrigger's persistent UnityEvent include an Animator."SetTrigger" call — the marker of
+        /// a room-entry BOSS-APPEAR trigger (Terrorbaum: [MetalGate.Close, MetalGate.Close, Animator.SetTrigger])?</summary>
+        internal static bool HasAppearAnimatorPersistent(object playerTrigger)
+        {
+            try
+            {
+                if (playerTrigger == null || !EnsureTriggerReflect(playerTrigger as Component)) return false;
+                if (!(_onTriggerEventsField?.GetValue(playerTrigger) is UnityEngine.Events.UnityEventBase evt)) return false;
+                int n = evt.GetPersistentEventCount();
+                for (int i = 0; i < n; i++)
+                {
+                    if (evt.GetPersistentTarget(i) is Animator && evt.GetPersistentMethodName(i) == "SetTrigger")
+                        return true;
+                }
+                return false;
+            }
+            catch { return false; }
+        }
+
+        internal static bool TryReadHasBeenTriggered(object playerTrigger, out bool fired)
+        {
+            fired = false;
+            try
+            {
+                if (!EnsureTriggerReflect(playerTrigger as Component) || _hasBeenTriggeredField == null) return false;
+                fired = _hasBeenTriggeredField.GetValue(playerTrigger) is bool b && b;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private static bool EnsureTriggerReflect(Component sample)
+        {
+            try
+            {
+                if (_playerTriggerType == null)
+                {
+                    _playerTriggerType = sample != null && sample.GetType().Name == "PlayerTrigger"
+                        ? sample.GetType()
+                        : HarmonyLib.AccessTools.TypeByName("PerfectRandom.Sulfur.Core.World.PlayerTrigger")
+                          ?? HarmonyLib.AccessTools.TypeByName("PlayerTrigger");
+                    if (_playerTriggerType != null)
+                    {
+                        const BindingFlags BF = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                        _triggerMethod = _playerTriggerType.GetMethod("Trigger", BF, null, new[] { typeof(GameObject) }, null);
+                        _hasBeenTriggeredField = _playerTriggerType.GetField("hasBeenTriggered", BF);
+                        _onTriggerEventsField = _playerTriggerType.GetField("onTriggerEvents", BF);
+                    }
+                }
+                return _playerTriggerType != null;
+            }
+            catch { return false; }
+        }
+
+        private static Component FindLocalPlayerTrigger(Vector3 key, out string detail)
+        {
+            detail = "";
+            try
+            {
+                if (!EnsureTriggerReflect(null)) { detail = "PlayerTrigger type unresolved"; return null; }
+                Component best = null; float bestSqr = MatchEpsilon * MatchEpsilon;
+                foreach (var obj in UnityEngine.Object.FindObjectsOfType(_playerTriggerType))
+                {
+                    if (!(obj is Component c) || c == null) continue;
+                    float sqr = (c.transform.position - key).sqrMagnitude;
+                    if (sqr <= bestSqr) { bestSqr = sqr; best = c; }
+                }
+                if (best == null) detail = "no match within epsilon";
+                return best;
+            }
+            catch (Exception ex) { detail = ex.GetType().Name; return null; }
+        }
+
+        private static GameObject ResolveLocalPlayerGo()
+        {
+            try { return (Boss.BossDamageReflect.ResolveHostPlayerUnit() as Component)?.gameObject; }
+            catch { return null; }
         }
 
         // ----------------------------------------------------------------- helpers

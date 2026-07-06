@@ -4,7 +4,7 @@ namespace SULFURTogether.Networking.Gameplay
 {
     internal static class NetGateStateCodec
     {
-        private const byte Version = 1;
+        private const byte Version = 2; // v2: +Kind (TB-INTRO room-event trigger mirror)
 
         public static void Write(NetDataWriter w, NetGateState m)
         {
@@ -19,6 +19,7 @@ namespace SULFURTogether.Networking.Gameplay
 
             w.Put(m.Position.x); w.Put(m.Position.y); w.Put(m.Position.z);
             w.Put(m.Closed);
+            w.Put(m.Kind);
         }
 
         public static bool TryRead(NetDataReader r, out NetGateState m)
@@ -39,6 +40,7 @@ namespace SULFURTogether.Networking.Gameplay
 
                 m.Position = new UnityEngine.Vector3(r.GetFloat(), r.GetFloat(), r.GetFloat());
                 m.Closed   = r.GetBool();
+                m.Kind     = r.GetByte();
                 return true;
             }
             catch

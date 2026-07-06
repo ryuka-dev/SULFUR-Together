@@ -885,8 +885,13 @@ namespace SULFURTogether.Patches
                 if (pt != null)
                 {
                     var trig = AccessTools.Method(pt, "Trigger", new[] { typeof(UnityEngine.GameObject) });
-                    if (trig != null) harmony.Patch(trig, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(PlayerTrigger_Post), BindingFlags.Static | BindingFlags.NonPublic)));
-                    Log.Info($"[DialogFlow] patched PlayerTrigger.Trigger({trig != null})");
+                    // TB-INTRO: prefix captures the pre-fire state (fresh-fire detection for the mirror broadcast) and
+                    // blocks a boss-appear trigger refire once that boss's fight has started (a late-arriving player
+                    // must join the running fight, not replay the entrance); postfix feeds the peer mirror.
+                    if (trig != null) harmony.Patch(trig,
+                        prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(PlayerTrigger_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
+                        postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(PlayerTrigger_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Log.Info($"[DialogFlow] patched PlayerTrigger.Trigger({trig != null}) (+TB-INTRO mirror)");
                 }
             }
             catch (Exception ex) { Log.Error($"[DialogFlow] probe patch failed: {ex.Message}"); }
@@ -1032,8 +1037,22 @@ namespace SULFURTogether.Patches
             NetBossEncounterManager.OnLocalDialogSpeakableChanged(speakable);
         }
 
-        private static void PlayerTrigger_Post(object __instance)
-            => SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnPlayerTrigger(__instance);
+        // TB-INTRO: __state = hasBeenTriggered BEFORE the call (so the postfix can tell a fresh fire from a refire that
+        // early-returned inside the native method). Returning false blocks a boss-appear trigger once the fight started.
+        private static bool PlayerTrigger_Pre(object __instance, ref bool __state)
+        {
+            __state = SULFURTogether.Networking.Gameplay.GateSyncManager.TryReadHasBeenTriggered(__instance, out bool fired) && fired;
+            try { if (NetBossEncounterManager.ShouldBlockBossAppearTrigger(__instance)) return false; } catch { }
+            return true;
+        }
+
+        private static void PlayerTrigger_Post(object __instance, bool __state, bool __runOriginal)
+        {
+            SULFURTogether.Networking.Gameplay.Boss.BossDialogFlowProbe.OnPlayerTrigger(__instance);
+            // TB-INTRO: a fresh local fire of a boss-appear room trigger → mirror it to every end (everyone plays the
+            // entrance together; their trigger is consumed so a later walk-in doesn't replay it).
+            if (__runOriginal) SULFURTogether.Networking.Gameplay.GateSyncManager.OnLocalPlayerTriggerFired(__instance, wasTriggeredBefore: __state);
+        }
 
         private static void DoorClose_Post(object __instance, bool __runOriginal)
         {
