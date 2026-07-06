@@ -207,6 +207,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _introFinishRequested.Clear();
                 _bossOwnDialogLocallyOpen.Clear();
                 _pendingMirrorKey = null; _pendingMirrorEvent = null;
+                TerrorbaumMechanicSync.OnLevelChanged();
                 _appliedStart.Clear();
                 _continuation.Clear();
                 _pendingVerify.Clear();
@@ -251,6 +252,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _witchP2DefeatedDomes.Clear();
                 _p2ClientAppliedCycle = -1;
                 WitchBossControllerAdapter.ClearPhase2State();
+                TerrorbaumMechanicSync.OnLevelChanged();
                 if (fullSession) _runScope = "";
                 _reentryDepth = 0;
             }
@@ -281,6 +283,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _introFinishRequested.Clear();
                 _bossOwnDialogLocallyOpen.Clear();
                 _pendingMirrorKey = null; _pendingMirrorEvent = null;
+                TerrorbaumMechanicSync.OnLevelChanged();
                 _appliedStart.Clear();
                 _continuation.Clear();
                 _pendingVerify.Clear();
@@ -3469,6 +3472,27 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     return;
                 }
 
+                // TB-MECH: Terrorbaum mechanic streams — stateful visuals handled outside the adapter (root-spin easing
+                // target, host-rolled lash index, sky-spike preview+visual). See TerrorbaumMechanicSync.
+                if (msg.EventName == "TerrorRootAngle" && msg.HasPos) { TerrorbaumMechanicSync.ApplyRootAngle(component, msg.Position.x); return; }
+                if (msg.EventName == "TerrorRootStop") { TerrorbaumMechanicSync.ApplyRootStop(component); return; }
+                if (msg.EventName != null && msg.EventName.StartsWith("TerrorRootLash:", StringComparison.Ordinal))
+                {
+                    if (int.TryParse(msg.EventName.Substring("TerrorRootLash:".Length), out int lashIdx))
+                        TerrorbaumMechanicSync.ApplyLash(component, lashIdx);
+                    return;
+                }
+                if (msg.EventName != null && msg.EventName.StartsWith("TerrorSky:", StringComparison.Ordinal) && msg.HasPos)
+                {
+                    var p = msg.EventName.Split(':');
+                    if (p.Length >= 7
+                        && float.TryParse(p[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float spd)
+                        && int.TryParse(p[2], out int ty) && int.TryParse(p[3], out int cal)
+                        && int.TryParse(p[4], out int eff) && int.TryParse(p[5], out int vfx) && int.TryParse(p[6], out int dmg))
+                        TerrorbaumMechanicSync.ApplySkySpike(component, msg.Position, spd, ty, cal, eff, vfx, dmg);
+                    return;
+                }
+
                 // F4 arena-movement sync: a streamed sandstorm-arena centre. Just record it as the interpolation target
                 // (arrives ~10 Hz); ProbeDesertArena's client branch eases the perimeter toward it each frame so the ring
                 // glides at a constant speed instead of teleporting on every packet (F4-P2ARENA-SMOOTH).
@@ -4607,6 +4631,34 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (Exception ex) { Plugin.Log.Warn($"[BossTarget] TickHostPurePuppetBossTarget failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
+        private static float _nextTerrorMechTick;
+
+        /// <summary>TB-MECH host cadence (~8 Hz): stream the root-spin angle for every started pure-puppet boss.</summary>
+        private static void TickHostTerrorMechanics()
+        {
+            try
+            {
+                float now = Time.realtimeSinceStartup;
+                if (now < _nextTerrorMechTick) return;
+                _nextTerrorMechTick = now + 0.12f;
+                List<object> bosses = null;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (e.Adapter == null || !(e.Component is UnityEngine.Object uo) || uo == null) continue;
+                        bool pure = false; try { pure = e.Adapter.ClientBossIsPurePuppet(e.Component); } catch { }
+                        if (!pure || _terminalDead.Contains(kv.Key)) continue;
+                        if (!SafeStarted(e.Adapter, e.Component)) continue;
+                        (bosses ??= new List<object>()).Add(e.Component);
+                    }
+                }
+                if (bosses != null) foreach (var b in bosses) TerrorbaumMechanicSync.HostStreamRoot(b);
+            }
+            catch { }
+        }
+
         private static float _nextBossVisProbe;
 
         /// <summary>TB probe (Log359 "主机看不见boss/craw"): every 5 s during a started pure-puppet fight, dump the boss
@@ -4749,6 +4801,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // the current target is missing or unattackable (downed / out-of-room), aim the AiAgent at the nearest
                 // attackable player unit (host player or a client ghost — same rules as the Cousin arm group throw).
                 if (NetGameplaySyncBridge.BossMode == NetMode.Host) TickHostPurePuppetBossTarget();
+
+                // TB-MECH: host streams the root-spin angle (~8 Hz while active); client eases vines + releases due
+                // sky-spike preview markers.
+                if (NetGameplaySyncBridge.BossMode == NetMode.Host) TickHostTerrorMechanics();
+                else TerrorbaumMechanicSync.TickClient();
 
                 // TB probe (Log359): both ends dump the boss's render/animator state during a started fight so the
                 // "boss invisible on one end" report can be pinned to a concrete mechanism by diffing the two logs.

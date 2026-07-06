@@ -189,6 +189,46 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
+        /// <summary>TB-AOE (Terrorbaum sky spikes): fire ONE zero-damage visual projectile on this end through the real
+        /// ProjectileSystem — a straight shot with an explicit velocity, minimal identity (type/caliber/effect/vfx for
+        /// the visuals, damageType for impact fx). Same safety as the WS replay: empty damageComps + explicitDamage 0.</summary>
+        internal static bool FireVisualStraight(Vector3 origin, Vector3 velocity, int projectileType, int caliber, int effect, int vfxAsset, int damageType)
+        {
+            try
+            {
+                ProjectileSystem projSys = ProjectileSystem.Instance;
+                if (projSys == null) return false;
+
+                float3 o = new float3(origin.x, origin.y, origin.z);
+                ProjectileRay ray = new ProjectileRay(o, (ProjectileTypes)projectileType);
+                ray.velocity  = new float3(velocity.x, velocity.y, velocity.z);
+                ray.radius    = 0.05f;
+                ray.timeScale = 1f;
+                ray.lifeTime  = 20f;
+                ray.effect    = (ProjectileEffect)effect;
+                ray.vfxAsset  = (VFX_Persistent)vfxAsset;
+                ray.drawDefaultBullet = true;
+                ray.playImpactSounds  = true;
+                ray.createBulletHoles = true;
+                ray.shotOrLastBounceFrom = o;
+                ray.barrelPosition       = o;
+                ray.startTime   = Time.time;
+                ray.ownerInstID = VisualOwnerInstId;
+                // damageComps intentionally EMPTY → zero damage (host-authoritative damage arrives via the ghost forward).
+
+                ProjectileData data = new ProjectileData
+                {
+                    damageType     = (DamageTypes)damageType,
+                    caliber        = (CaliberTypes)caliber,
+                    isPlayer       = false,
+                    explicitDamage = 0f,
+                };
+                projSys.StartProjectile(ray, data, null);
+                return true;
+            }
+            catch (Exception ex) { NetLogger.Warn($"[PlayerWeaponFire] FireVisualStraight failed: {ex.Message}"); return false; }
+        }
+
         private static ProjectileRay BuildRay(NetPlayerWeaponFire m, Vector3 origin, Vector3 dir, float speed)
         {
             float3 o = new float3(origin.x, origin.y, origin.z);

@@ -319,6 +319,18 @@ namespace SULFURTogether.Patches
                 Post("OnStartEruptAttack", nameof(Terror_Erupt_Post));
                 Post("OnEruptStartAoe", nameof(Terror_EruptAoe_Post));
                 Post("OnRootStart", nameof(Terror_Root_Post));
+                Post("StopRoot", nameof(Terror_RootStop_Post)); // TB-MECH: vines retract together
+                // TB-MECH: host-rolled small-root lash (the native roll is method-local — functional replacement on the
+                // host broadcasts the index; other ends/solo run the untouched native).
+                var lash = AccessTools.Method(terrorbaum, "UpdateAttackRoot");
+                if (lash != null) harmony.Patch(lash, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Terror_AttackRoot_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[BossMech] patched Terrorbaum.UpdateAttackRoot({lash != null}) — host lash roll");
+                // TB-MECH: sky-spike capture — prefix peeks the shot identity, postfix broadcasts the landing marker.
+                var sky = AccessTools.Method(terrorbaum, "OnShootBulletFromSky");
+                if (sky != null) harmony.Patch(sky,
+                    prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Terror_SkyShot_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
+                    postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Terror_SkyShot_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[BossMech] patched Terrorbaum.OnShootBulletFromSky({sky != null}) — sky-spike mirror");
                 // Client-side: the replayed dig/erupt/attack animations fire the native anim-damage events locally —
                 // block them on the pure-puppet client (the host's hit on the ghost proxy is forwarded to the owning
                 // client already; running the local one too would double-hit).
@@ -358,6 +370,25 @@ namespace SULFURTogether.Patches
         // CLIENT: swallow the pure-puppet boss's local damage-dealing animation events (host-authoritative damage).
         private static bool Terror_AnimDamage_Pre(object __instance)
             => !NetBossEncounterManager.ShouldBlockClientPurePuppetBossAnimDamage(__instance);
+
+        private static void Terror_RootStop_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostTerrorStateEvent(__instance, "TerrorRootStop", false, default);
+        }
+
+        // HOST: replace the native lash roll with our broadcasting one (returns false = skip original when handled).
+        private static bool Terror_AttackRoot_Pre(object __instance)
+            => !SULFURTogether.Networking.Gameplay.Boss.TerrorbaumMechanicSync.TryHostLash(__instance);
+
+        private static void Terror_SkyShot_Pre(object __instance, ref object __state)
+            => __state = SULFURTogether.Networking.Gameplay.Boss.TerrorbaumMechanicSync.CaptureSkyShotPre(__instance);
+
+        private static void Terror_SkyShot_Post(object __instance, object __state, bool __runOriginal)
+        {
+            if (__runOriginal)
+                SULFURTogether.Networking.Gameplay.Boss.TerrorbaumMechanicSync.BroadcastSkyShotPost(
+                    __instance, __state as SULFURTogether.Networking.Gameplay.Boss.TerrorbaumMechanicSync.SkyShotState);
+        }
 
         // LD-Sandstorm / F4: DesertPikeCarrier hooks — Update (pike-visual clone + probe) and ActivateShooting (P1
         // machine-gun target rotation over all players). Regular enemy pikes are filtered out inside the handlers.
