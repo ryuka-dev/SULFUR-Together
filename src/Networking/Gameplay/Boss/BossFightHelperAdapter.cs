@@ -326,7 +326,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (component is Behaviour helper && helper != null && helper.enabled) { helper.enabled = false; n++; }
                 var phases = BossReflect.GetMember(component, "bossPhases");
                 if (phases is Behaviour bp && bp != null && bp.enabled) { bp.enabled = false; n++; }
-                detail = $"disabled {n} mechanic driver(s) (helper+bossPhases)";
+                // TB-DMG (Log359): StartBossPhases sets bossPhases.isTransitioning=true and only BossPhases.Update
+                // (which we just disabled) ever clears it — so the client's IsTransitioning stuck TRUE forever, which
+                // permanently closed the native OnEyeHit gate (!IsTransitioning) → the eye window never opened → zero
+                // hits were ever routed (host hitRecv=0). Clear it whenever the driver is suppressed: on this end the
+                // flag is only read by OnEyeHit, and the HOST re-checks its own live IsTransitioning on apply anyway.
+                if (phases != null && BossReflect.TryGetBool(phases, "isTransitioning", out bool trans) && trans)
+                { if (TrySetMember(phases, "isTransitioning", false)) n++; }
+                detail = $"disabled {n} mechanic driver(s)/flag(s) (helper+bossPhases+isTransitioning)";
                 return n;
             }
             catch (Exception ex) { detail = $"ex {ex.GetType().Name}: {ex.Message}"; return 0; }

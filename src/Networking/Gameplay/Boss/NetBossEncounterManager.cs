@@ -3172,7 +3172,17 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // TB-DMG: sentinel "body" = a hit outside the boss's native damage window (Terrorbaum body shot / the
                 // first, pre-eye-window ReceiveDamage of an eye pellet). Vanilla rejects it locally (invulnerable), so
                 // swallow it with no host request — anything else would per-pellet spam the host with doomed requests.
-                if (role == "body") return true;
+                if (role == "body")
+                {
+                    _bodySwallowCount++;
+                    float bnow = Time.realtimeSinceStartup;
+                    if (bnow - _lastBodySwallowLogAt >= 5f)
+                    {
+                        _lastBodySwallowLogAt = bnow;
+                        Plugin.Log.Info($"[BossDamage] client swallowed {_bodySwallowCount} outside-window body hit(s) key={key} (eye window never open? check isTransitioning/fightStarted)");
+                    }
+                    return true;
+                }
                 lock (_lock) { if (_terminalDead.Contains(key)) return true; } // boss is dead — suppress local damage, don't request
 
                 if (!TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed)) return false;
@@ -4448,6 +4458,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         private static float _nextPurePuppetTargetCheck;
         private static float _lastBossTargetLogAt = -999f;
+        private static int _bodySwallowCount;
+        private static float _lastBodySwallowLogAt = -999f;
 
         /// <summary>TB-TGT: HOST — for every started pure-puppet boss, if the AiAgent's target/lastTarget is missing or
         /// unattackable (downed / out-of-arena), point both at the nearest attackable player unit (host player or a
@@ -4523,6 +4535,69 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 }
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossTarget] TickHostPurePuppetBossTarget failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static float _nextBossVisProbe;
+
+        /// <summary>TB probe (Log359 "主机看不见boss/craw"): every 5 s during a started pure-puppet fight, dump the boss
+        /// body's render/animator state on THIS end — same line on host and client, so diffing the two logs pins down
+        /// exactly which mechanism hides the boss on one end (renderer disabled vs forceRenderingOff (room LOD) vs
+        /// animator culled vs GO inactive vs actually-elsewhere). Read-only. Never throws.</summary>
+        private static void TickBossVisibilityProbe()
+        {
+            try
+            {
+                float now = Time.realtimeSinceStartup;
+                if (now < _nextBossVisProbe) return;
+                _nextBossVisProbe = now + 5f;
+
+                List<KeyValuePair<string, Entry>> bosses = null;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (e.Adapter == null || !(e.Component is UnityEngine.Object uo) || uo == null) continue;
+                        bool pure = false; try { pure = e.Adapter.ClientBossIsPurePuppet(e.Component); } catch { }
+                        if (!pure || _terminalDead.Contains(kv.Key)) continue;
+                        (bosses ??= new List<KeyValuePair<string, Entry>>()).Add(kv);
+                    }
+                }
+                if (bosses == null) return;
+
+                foreach (var kv in bosses)
+                {
+                    if (!SafeStarted(kv.Value.Adapter, kv.Value.Component)) continue;
+                    if (!(kv.Value.Adapter.GetHealthUnit(kv.Value.Component) is Component body) || body == null) continue;
+                    var go = body.gameObject;
+                    var rends = go.GetComponentsInChildren<Renderer>(true);
+                    int rTotal = rends.Length, rEnabled = 0, rForceOff = 0, rVisible = 0;
+                    foreach (var r in rends)
+                    {
+                        if (r == null) continue;
+                        if (r.enabled) rEnabled++;
+                        if (r.forceRenderingOff) rForceOff++;
+                        if (r.isVisible) rVisible++;
+                    }
+                    var anim = go.GetComponentInChildren<Animator>(true);
+                    string animState = anim == null ? "none"
+                        : $"enabled={anim.enabled} culling={anim.cullingMode} speed={anim.speed:0.0}";
+                    string bossRoom = (BossReflect.GetMember(body, "currentRoom") as Component)?.name ?? "?";
+                    string playerInfo = "?";
+                    try
+                    {
+                        var pu = BossDamageReflect.ResolveHostPlayerUnit() as Component;
+                        if (pu != null)
+                        {
+                            string pRoom = (BossReflect.GetMember(pu, "currentRoom") as Component)?.name ?? "?";
+                            playerInfo = $"playerPos={pu.transform.position:F1} playerRoom={pRoom} dist={(pu.transform.position - body.transform.position).magnitude:0.0}";
+                        }
+                    }
+                    catch { }
+                    Plugin.Log.Info($"[BossVis] mode={NetGameplaySyncBridge.BossMode} boss={go.name} active={go.activeInHierarchy} pos={body.transform.position:F1} renderers={rTotal} enabled={rEnabled} forceOff={rForceOff} visible={rVisible} animator[{animState}] bossRoom={bossRoom} {playerInfo} key={kv.Key}");
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossVis] probe failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         /// <summary>TB-ANIM: HOST — a Terrorbaum visibility-state mutator just ran natively (StartDigging /
@@ -4604,6 +4679,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // the current target is missing or unattackable (downed / out-of-room), aim the AiAgent at the nearest
                 // attackable player unit (host player or a client ghost — same rules as the Cousin arm group throw).
                 if (NetGameplaySyncBridge.BossMode == NetMode.Host) TickHostPurePuppetBossTarget();
+
+                // TB probe (Log359): both ends dump the boss's render/animator state during a started fight so the
+                // "boss invisible on one end" report can be pinned to a concrete mechanism by diffing the two logs.
+                TickBossVisibilityProbe();
 
                 // TB-D: catch-up a deferred boss-own-dialog mirror once the local player is in the arena (membership caught up).
                 string? mirrorKey, mirrorEvent; lock (_lock) { mirrorKey = _pendingMirrorKey; mirrorEvent = _pendingMirrorEvent; }
