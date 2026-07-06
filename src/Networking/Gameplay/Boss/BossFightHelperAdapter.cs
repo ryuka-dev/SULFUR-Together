@@ -247,13 +247,23 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static string GraphName(object? graph)
             => (graph is UnityEngine.Object uo && uo != null) ? uo.name.Replace("(Clone)", "").Trim() : "";
 
-        /// <summary>HOST: if the boss's NPC currently has one of the mid-fight dialog graphs set, return its id.</summary>
+        // TB-D: sentinel id for a generic boss's own opening dialog (Terrorbaum). There is a single dialog on bossNPC,
+        // so no field-array is needed — the client mirrors by opening the boss's default dialog (Interact(null)).
+        private const string BossOwnDialogId = "boss-open";
+
+        /// <summary>HOST: if the boss's NPC currently has an active dialog graph that should be broadcast + mirrored,
+        /// return its id — a Desert mid-fight id (airstrike/sniper/terminator) or the generic <see cref="BossOwnDialogId"/>
+        /// for a <see cref="BroadcastsBossOwnDialog"/> boss (Terrorbaum's opening dialogue).</summary>
         public override bool TryGetActiveMidFightDialogId(object component, out string dialogId)
         {
             dialogId = "";
             try
             {
-                if (!BossReflect.HasMethod(component, "OnStartInteractWithBoss")) return false; // DesertClause only
+                // TB-D: a generic bossNPC.dialog boss (Terrorbaum) — its single opening dialog is host-broadcast + mirrored.
+                // Return the sentinel up-front: it must NOT depend on the live dialog graph (the host may broadcast the open
+                // WITHOUT opening its own copy — e.g. when it's still out of arena — so the graph isn't loaded yet). Desert is
+                // excluded (BroadcastsBossOwnDialog is false for it), so this can't shadow the Desert mid-fight resolution.
+                if (BroadcastsBossOwnDialog(component)) { dialogId = BossOwnDialogId; return true; }
                 var npc = GetBossNpc(component);
                 var dialog = npc == null ? null : BossReflect.GetMember(npc, "dialog");
                 var graph = dialog == null ? null : BossReflect.GetMember(dialog, "graph");
@@ -262,15 +272,133 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // fails (Log290: graph name was "Dialog_DesertClauseAirstrike" yet the reference match reported <none>).
                 string gName = GraphName(graph);
                 if (string.IsNullOrEmpty(gName)) return false;
-                for (int i = 0; i < DesertDialogFields.Length; i++)
-                    if (GraphName(BossReflect.GetMember(component, DesertDialogFields[i])) == gName) { dialogId = DesertDialogIds[i]; return true; }
-                // NOTE: the pre-fight INTRO cutscene ("Dialog_DesertClauseIntro") is NOT synced here. Both ends run the
-                // real intro chain (OnStartInteractWithBoss, see TryApplyDialogCommit), so each opens the intro dialog
-                // locally — broadcasting it would double-open on the client. Only the mid-fight calls need syncing (the
-                // client is a passive puppet then, with UpdatePhases suppressed, so it never opens them itself).
+                if (BossReflect.HasMethod(component, "OnStartInteractWithBoss")) // DesertClause mid-fight dialogs
+                {
+                    for (int i = 0; i < DesertDialogFields.Length; i++)
+                        if (GraphName(BossReflect.GetMember(component, DesertDialogFields[i])) == gName) { dialogId = DesertDialogIds[i]; return true; }
+                    // NOTE: the pre-fight INTRO cutscene ("Dialog_DesertClauseIntro") is NOT synced here. Both ends run the
+                    // real intro chain (OnStartInteractWithBoss), so each opens it locally — broadcasting would double-open.
+                    return false;
+                }
                 return false;
             }
             catch { return false; }
+        }
+
+        /// <summary>TB-D: Terrorbaum's opening dialogue is the boss's own <c>bossNPC.dialog</c> (opened via
+        /// <c>Npc.Interact</c>), driven host-authoritatively and mirrored (not each-end-local like Desert's intro).
+        /// Scoped to verified bosses; Desert is excluded (it runs its intro cutscene locally on every end).</summary>
+        public override bool BroadcastsBossOwnDialog(object component)
+        {
+            try
+            {
+                if (component == null || BossReflect.HasMethod(component, "OnStartInteractWithBoss")) return false;
+                return component.GetType().Name == "TerrorbaumBossFightHelper";
+            }
+            catch { return false; }
+        }
+
+        /// <summary>TB: Terrorbaum is a straightforward CombatEnemy-puppet boss with no bespoke client-side sync (unlike
+        /// Desert's composite intro or the Witch/Emperor phase machinery), so its client copy is a PURE PUPPET — the host
+        /// runs all mechanics and the client only mirrors. Scoped to Terrorbaum; Desert (OnStartInteractWithBoss) and any
+        /// other specially-synced boss are excluded so their existing client-side logic is not regressed.</summary>
+        public override bool ClientBossIsPurePuppet(object component)
+        {
+            try
+            {
+                if (component == null || BossReflect.HasMethod(component, "OnStartInteractWithBoss")) return false;
+                return component.GetType().Name == "TerrorbaumBossFightHelper";
+            }
+            catch { return false; }
+        }
+
+        /// <summary>TB: CLIENT — disable the boss's two local mechanic drivers so it never runs its own attacks/phases:
+        /// the fight helper itself (its <c>Update</c>/<c>FixedUpdate</c> tick <c>UpdatePhases</c>, enabled by TriggerFight's
+        /// <c>base.enabled=true</c>) and its <c>bossPhases</c> (own <c>Update</c> drives phase transitions, enabled by
+        /// <c>StartBossPhases</c>). Returns the number newly disabled (0 = already inert), so the caller logs only on the
+        /// transition.</summary>
+        public override int SuppressClientMechanics(object component, out string detail)
+        {
+            detail = "";
+            try
+            {
+                int n = 0;
+                if (component is Behaviour helper && helper != null && helper.enabled) { helper.enabled = false; n++; }
+                var phases = BossReflect.GetMember(component, "bossPhases");
+                if (phases is Behaviour bp && bp != null && bp.enabled) { bp.enabled = false; n++; }
+                detail = $"disabled {n} mechanic driver(s) (helper+bossPhases)";
+                return n;
+            }
+            catch (Exception ex) { detail = $"ex {ex.GetType().Name}: {ex.Message}"; return 0; }
+        }
+
+        private static bool IsTerrorbaum(object component)
+        {
+            try { return component != null && component.GetType().Name == "TerrorbaumBossFightHelper"; }
+            catch { return false; }
+        }
+
+        // ---- TB-DMG: Terrorbaum eye-hit damage authority --------------------------------------------------------
+        // The Terrorbaum body is PERMANENTLY invulnerable (SetBossVars → SetInvulnerable(true)); its only damage path
+        // is the native OnEyeHit — fired by the projectile dispatch's onHitboxHit AFTER the first (rejected)
+        // ReceiveDamage — which requires (fightStarted && !IsTransitioning && part==Eye) and lifts the invulnerability
+        // just around a second ReceiveDamage. So on the client, per eye pellet, OUR ReceiveDamage prefix sees TWO
+        // calls: pass 1 with isInvulnerable=true (must fall through → vanilla rejects it, zero damage, like a body
+        // shot) and pass 2 inside the eye window with isInvulnerable=false (the real damage → route to the host as
+        // role "eye"). The host apply then replicates the same window around its own ReceiveDamage (Log358: every
+        /// client hit was routed as "main" and rejected by the host's standing invulnerability — hp frozen).
+        public override string? ResolveHitTargetRole(object component, object hitUnit)
+        {
+            if (!IsTerrorbaum(component)) return base.ResolveHitTargetRole(component, hitUnit);
+            if (hitUnit == null) return null;
+            var hu = GetHealthUnit(component);
+            if (hu == null || !ReferenceEquals(hu, hitUnit)) return null;
+            // Eye window → route to the host. Outside it ("body", pass 1 of every pellet incl. eye pellets) → the
+            // sentinel role: the manager swallows it locally with NO request (vanilla would reject it against the
+            // standing invulnerability anyway; letting it fall through would hand it to the ordinary roster hit path,
+            // which would spam the host with per-pellet requests the host must reject).
+            return BossReflect.TryGetBool(hitUnit, "isInvulnerable", out bool inv) && !inv ? "eye" : "body";
+        }
+
+        public override object? ResolveHostTargetForRole(object component, string role)
+            => role == "eye" && IsTerrorbaum(component) ? GetHealthUnit(component) : base.ResolveHostTargetForRole(component, role);
+
+        /// <summary>TB-DMG: HOST — apply a routed eye hit exactly like the native OnEyeHit: gate on
+        /// (fightStarted &amp;&amp; !IsTransitioning), lift the standing invulnerability around ReceiveDamage, restore it.</summary>
+        public override bool TryApplyHostBossHit(object component, string role, object target, float damage, int damageTypeInt, object? source, out bool vanillaResult, out string detail)
+        {
+            if (role != "eye" || !IsTerrorbaum(component))
+                return base.TryApplyHostBossHit(component, role, target, damage, damageTypeInt, source, out vanillaResult, out detail);
+            vanillaResult = false;
+            if (!IsStarted(component)) { detail = "eye-gate: fight not started"; return false; }
+            if (BossReflect.TryGetBool(component, "IsTransitioning", out bool trans) && trans) { detail = "eye-gate: transitioning"; return false; }
+            BossReflect.TryInvokeBool(target, "SetInvulnerable", false, out _);
+            try
+            {
+                bool ok = base.TryApplyHostBossHit(component, role, target, damage, damageTypeInt, source, out vanillaResult, out detail);
+                detail = "eye-window: " + detail;
+                return ok;
+            }
+            finally { BossReflect.TryInvokeBool(target, "SetInvulnerable", true, out _); }
+        }
+
+        /// <summary>TB-D: HOST — open the boss's own opening dialog (bossNPC.Interact(null)). The native Interact postfix
+        /// then runs OnHostBossDialogInteract → broadcasts "Dialog:&lt;id&gt;" so every client mirrors it.</summary>
+        public override bool TryOpenBossOwnDialog(object component, out string detail)
+        {
+            detail = "";
+            try
+            {
+                if (!BroadcastsBossOwnDialog(component)) { detail = "not-a-bossOwnDialog-boss"; return false; }
+                var bnpc = GetBossNpc(component);
+                if (bnpc == null) { detail = "no bossNPC"; return false; }
+                var interact = FindInteract(bnpc.GetType());
+                if (interact == null) { detail = "Interact(1-arg) not found"; return false; }
+                interact.Invoke(bnpc, new object?[] { null });
+                detail = "opened boss-own dialog";
+                return true;
+            }
+            catch (Exception ex) { detail = $"ex {ex.GetType().Name}: {ex.Message}"; return false; }
         }
 
         /// <summary>CLIENT: apply a host "Dialog:&lt;id&gt;" event — set the same dialog graph + open it locally.</summary>
@@ -299,6 +427,33 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                                  : "JumpingOffPike=false (puppet owns position)";
                 return true;
             }
+            // CLIENT (TB-ANIM): Terrorbaum visibility-state mirror. The client boss is a pure puppet (mechanics
+            // suppressed), so WITHOUT these its tree never digs/erupts — one end shows a standing tree while the other
+            // shows nothing (Log358: host underground+invisible, client standing). The host broadcasts its native
+            // dig/erupt/aoe/root state changes; the client replays the same native mutators (animator bools/triggers +
+            // flags + the erupt reposition). Damage stays host-authoritative: the anim-damage events these animations
+            // fire are blocked client-side (BossEncounterPatches), and host slam/erupt damage reaches remote players
+            // through the ghost-proxy damage forward.
+            if (IsTerrorbaum(component))
+            {
+                if (eventName == "TerrorDig") { bool ok = BossReflect.TryInvoke(component, "StartDigging", out string dd); detail = $"dig {dd}"; return ok; }
+                if (eventName == "TerrorEruptAoe") { bool ok = BossReflect.TryInvoke(component, "OnEruptStartAoe", out string ad); detail = $"erupt-aoe {ad}"; return ok; }
+                if (eventName == "TerrorRoot") { bool ok = BossReflect.TryInvoke(component, "OnRootStart", out string rd); detail = $"root {rd}"; return ok; }
+                if (eventName != null && eventName.StartsWith("TerrorErupt:", StringComparison.Ordinal))
+                {
+                    string trigger = eventName.Substring("TerrorErupt:".Length);
+                    if (!hasPos) { detail = "erupt without position"; return false; }
+                    try
+                    {
+                        var m = component.GetType().GetMethod("OnStartEruptAttack", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                        if (m == null) { detail = "OnStartEruptAttack not found"; return false; }
+                        m.Invoke(component, new object[] { pos, trigger });
+                        detail = $"erupt at {pos:F1} trigger={trigger}";
+                        return true;
+                    }
+                    catch (Exception ex) { detail = $"erupt ex {ex.GetType().Name}: {ex.Message}"; return false; }
+                }
+            }
             // CLIENT: the host's boss dialog closed → finalize our copy (the client's dialog won't end on its own,
             // because the boss actions it waits on are suppressed here). Real Graph.Stop(true) via BossDialogReflect.
             if (eventName == "DialogClose")
@@ -319,6 +474,17 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             }
             if (eventName == null || !eventName.StartsWith("Dialog:", StringComparison.Ordinal)) { detail = "not-a-dialog-event"; return false; }
             string id = eventName.Substring(7);
+            // TB-D: Terrorbaum's opening dialogue — the boss's own dialog graph is already the opening one, so just open it.
+            if (id == BossOwnDialogId)
+            {
+                var bnpc = GetBossNpc(component);
+                if (bnpc == null) { detail = "no bossNPC"; return false; }
+                var bInteract = FindInteract(bnpc.GetType());
+                if (bInteract == null) { detail = "Interact(1-arg) not found"; return false; }
+                bInteract.Invoke(bnpc, new object?[] { null });
+                detail = "opened boss-own dialog";
+                return true;
+            }
             int idx = Array.IndexOf(DesertDialogIds, id);
             if (idx < 0) { detail = "unknown-dialog:" + id; return false; }
             try

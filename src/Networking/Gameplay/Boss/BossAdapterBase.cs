@@ -201,6 +201,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         // ---- LD-Sandstorm / F4 Stage 2: default = no mid-fight dialog to sync (only DesertClause) ----
         public virtual bool TryGetActiveMidFightDialogId(object component, out string dialogId) { dialogId = ""; return false; }
+        public virtual bool BroadcastsBossOwnDialog(object component) => false;
+
+        public virtual bool TryOpenBossOwnDialog(object component, out string detail) { detail = "not-supported"; return false; }
+
+        public virtual bool ClientBossIsPurePuppet(object component) => false;
+
+        public virtual int SuppressClientMechanics(object component, out string detail) { detail = "not-a-pure-puppet-boss"; return 0; }
 
         public virtual bool ProvidesPhaseState => false;
 
@@ -209,6 +216,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public virtual void FillBossState(object component, NetBossState state)
         {
             FillHealth(component, state);
+            try { state.FightStarted = IsStarted(component); } catch { } // diagnostic truth in [BossState] logs (was always False)
         }
 
         /// <summary>Default: apply host health to the local boss unit (Stats(92)) and make sure the boss bar is
@@ -262,6 +270,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         public virtual object? ResolveHostTargetForRole(object component, string role)
             => role == "main" ? GetHealthUnit(component) : null;
+
+        /// <summary>HOST: default apply = the plain vanilla ReceiveDamage reflect (Phase 5.4-F). A boss whose native
+        /// damage path is conditional (TB-DMG: Terrorbaum's eye window) overrides to replicate that gate.</summary>
+        public virtual bool TryApplyHostBossHit(object component, string role, object target, float damage, int damageTypeInt, object? source, out bool vanillaResult, out string detail)
+            => BossDamageReflect.TryApplyRealDamage(target, damage, damageTypeInt, source, out vanillaResult, out detail);
 
         public virtual void OnClientPresentationStart(object component) { }
 

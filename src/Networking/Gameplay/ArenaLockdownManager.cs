@@ -537,6 +537,19 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
 
+        /// <summary>TB-D: is THIS end's local player in the active boss arena? Reads the host-authoritative in-room set
+        /// (client: last host broadcast) and tests the local peer id. Fail-OPEN (true) when no arena membership is known,
+        /// so a caller gating a player-facing thing (a boss dialog) never wrongly hides it when the arena is unknown.</summary>
+        public static bool IsLocalPlayerInActiveArena()
+        {
+            try
+            {
+                if (!TryGetActiveArenaInRoom(out var members) || members == null) return true; // unknown → don't filter
+                return members.Contains(NetGameplaySyncBridge.LocalPeerId);
+            }
+            catch { return true; }
+        }
+
         /// <summary>Run a command against THIS end's local door / player.</summary>
         private static void ApplyLocalCommand(ArenaCommandKind kind, Vector3 arenaPos)
         {

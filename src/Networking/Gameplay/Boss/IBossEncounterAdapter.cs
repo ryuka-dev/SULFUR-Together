@@ -153,6 +153,29 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// open the same dialog locally (via <see cref="TryApplyDiscreteEvent"/> with "Dialog:&lt;id&gt;"). Default false.</summary>
         bool TryGetActiveMidFightDialogId(object component, out string dialogId);
 
+        /// <summary>TB-D: true if this boss's own NPC dialog (<c>bossNPC.dialog</c>, opened via <c>Npc.Interact</c>) is a
+        /// host-authoritative MIRRORED dialog — the host drives it and broadcasts open/close, the client mirrors and does
+        /// not open its own copy (Terrorbaum's opening dialogue). Distinct from Desert, which runs its intro cutscene
+        /// each-end-locally (<see cref="RunsLocalIntroPresentation"/>). Default false.</summary>
+        bool BroadcastsBossOwnDialog(object component);
+
+        /// <summary>TB: true if this boss must be a PURE PUPPET on the client — it never runs its own fight mechanics
+        /// (attacks / phase transitions); the host is the sole authority and the client only mirrors position + animation +
+        /// host-authoritative health/death. For such a boss the client keeps the local mechanic drivers disabled
+        /// (<see cref="SuppressClientMechanics"/>). Default false (a boss with its own established client-side sync). </summary>
+        bool ClientBossIsPurePuppet(object component);
+
+        /// <summary>TB: CLIENT — disable this boss's local fight-mechanic drivers (the fight helper's Update that ticks
+        /// UpdatePhases, and its BossPhases transition driver) so the client never runs the boss's attacks/phases on its
+        /// own. Idempotent (a no-op once disabled). Only meaningful for a <see cref="ClientBossIsPurePuppet"/> boss.</summary>
+        int SuppressClientMechanics(object component, out string detail);
+
+        /// <summary>TB-D: HOST — open this boss's own opening dialog (<c>bossNPC.Interact(null)</c>). Called when a client
+        /// requested it (the client's local open is blocked so the host is the single authority); the native Interact
+        /// postfix then broadcasts "Dialog:&lt;id&gt;" for every client to mirror. Only meaningful for a
+        /// <see cref="BroadcastsBossOwnDialog"/> boss. Default false.</summary>
+        bool TryOpenBossOwnDialog(object component, out string detail);
+
         /// <summary>Attach the boss health bar to this boss's health unit. Called ONCE per encounter by the manager
         /// (the native Attach re-subscribes each call). Returns false if there is no health unit.</summary>
         bool TryAttachBossBar(object component);
@@ -166,6 +189,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// <summary>On the HOST: resolve a target role to the real Unit to damage via ReceiveDamage (role "main" →
         /// the boss's health unit). Null if the role is unknown / not yet supported.</summary>
         object? ResolveHostTargetForRole(object component, string role);
+
+        /// <summary>On the HOST: apply a client's routed hit to the resolved target. Default = the plain vanilla
+        /// <c>Unit.ReceiveDamage</c> reflect. A boss whose damage path is conditional overrides this to replicate the
+        /// native gate (TB-DMG: Terrorbaum is permanently invulnerable and only its <c>OnEyeHit</c> lifts the
+        /// invulnerability around ReceiveDamage — role "eye" wraps the apply the same way).</summary>
+        bool TryApplyHostBossHit(object component, string role, object target, float damage, int damageTypeInt, object? source, out bool vanillaResult, out string detail);
 
         // ---- Phase 5.4-F2 BossStartPresentation: make the local boss ENTER combat presentation on the Client ----
 

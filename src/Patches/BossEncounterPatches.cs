@@ -79,6 +79,12 @@ namespace SULFURTogether.Patches
             PatchDesertPerimeter(harmony, FindType("DesertClausePerimeter",
                 "PerfectRandom.Sulfur.Gameplay.DesertClausePerimeter", "PerfectRandom.Sulfur.Core.DesertClausePerimeter"));
 
+            // TB-ANIM + TB-DMG guards: Terrorbaum visibility-state mirror (host broadcasts dig/erupt/aoe/root so the
+            // pure-puppet client tree shows the same thing) + client-side block of the replayed animations' local
+            // damage events (damage stays host-authoritative via the ghost-proxy forward).
+            PatchTerrorbaum(harmony, FindType("TerrorbaumBossFightHelper",
+                "PerfectRandom.Sulfur.Gameplay.TerrorbaumBossFightHelper", "PerfectRandom.Sulfur.Core.TerrorbaumBossFightHelper"));
+
             // B. Witch standalone system.
             PatchStart(harmony, FindType("WitchBossController",
                 "PerfectRandom.Sulfur.Gameplay.WitchBossController", "PerfectRandom.Sulfur.Core.WitchBossController"),
@@ -295,6 +301,63 @@ namespace SULFURTogether.Patches
         // StartSandstorm can't run twice. Returns true to run the original, false to skip. See OnLocalBossSandstorm.
         private static bool Desert_Anim_OnTriggerSandstorm_Pre(object __instance)
             => NetBossEncounterManager.OnLocalBossSandstorm(__instance);
+
+        // TB-ANIM: Terrorbaum visibility-state mirror + client anim-damage guards.
+        private static void PatchTerrorbaum(Harmony harmony, Type terrorbaum)
+        {
+            if (terrorbaum == null) { Log.Info("[BossAnimSync] TerrorbaumBossFightHelper type not found (state mirror skipped)"); return; }
+            try
+            {
+                // Host → client visibility-state mutators (the pure-puppet client tree never runs these itself).
+                void Post(string method, string handler)
+                {
+                    var m = AccessTools.Method(terrorbaum, method);
+                    if (m != null) harmony.Patch(m, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(handler, BindingFlags.Static | BindingFlags.NonPublic)));
+                    Log.Info($"[BossAnimSync] patched Terrorbaum.{method}({m != null})");
+                }
+                Post("StartDigging", nameof(Terror_Dig_Post));
+                Post("OnStartEruptAttack", nameof(Terror_Erupt_Post));
+                Post("OnEruptStartAoe", nameof(Terror_EruptAoe_Post));
+                Post("OnRootStart", nameof(Terror_Root_Post));
+                // Client-side: the replayed dig/erupt/attack animations fire the native anim-damage events locally —
+                // block them on the pure-puppet client (the host's hit on the ghost proxy is forwarded to the owning
+                // client already; running the local one too would double-hit).
+                void DmgPre(string method)
+                {
+                    var m = AccessTools.Method(terrorbaum, method);
+                    if (m != null) harmony.Patch(m, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Terror_AnimDamage_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Log.Info($"[BossAnimSync] patched Terrorbaum.{method}({m != null}) — client damage guard");
+                }
+                DmgPre("Anim_OnDoSlamDamage");
+                DmgPre("Anim_OnDoEruptDamage");
+                DmgPre("Anim_OnDoEruptSlamDamage");
+            }
+            catch (Exception ex) { Log.Error($"[BossAnimSync] Terrorbaum patch failed: {ex.Message}"); }
+        }
+
+        private static void Terror_Dig_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostTerrorStateEvent(__instance, "TerrorDig", false, default);
+        }
+
+        private static void Terror_Erupt_Post(object __instance, UnityEngine.Vector3 eruptPosition, string eruptTrigger, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostTerrorStateEvent(__instance, "TerrorErupt:" + eruptTrigger, true, eruptPosition);
+        }
+
+        private static void Terror_EruptAoe_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostTerrorStateEvent(__instance, "TerrorEruptAoe", false, default);
+        }
+
+        private static void Terror_Root_Post(object __instance, bool __runOriginal)
+        {
+            if (__runOriginal) NetBossEncounterManager.OnHostTerrorStateEvent(__instance, "TerrorRoot", false, default);
+        }
+
+        // CLIENT: swallow the pure-puppet boss's local damage-dealing animation events (host-authoritative damage).
+        private static bool Terror_AnimDamage_Pre(object __instance)
+            => !NetBossEncounterManager.ShouldBlockClientPurePuppetBossAnimDamage(__instance);
 
         // LD-Sandstorm / F4: DesertPikeCarrier hooks — Update (pike-visual clone + probe) and ActivateShooting (P1
         // machine-gun target rotation over all players). Regular enemy pikes are filtered out inside the handlers.
@@ -836,6 +899,10 @@ namespace SULFURTogether.Patches
             // fight-starter instead of a dead interaction. Handled + swallowed here when it applies.
             try { if (SULFURTogether.Networking.Gameplay.Boss.NetEmperorSpiderSync.TryTeleportLateP2Player(__instance)) return false; } catch { }
             try { if (NetBossEncounterManager.ShouldBlockBossDialogNpc(__instance)) return false; } catch { }
+            // TB-DLG: once an own-dialog boss's fight has started, its opening dialogue must not re-open (the boss NPC
+            // stays physically interactable; Log358: the host walked in mid-fight and got the dialog again → mirrored
+            // to every end). Blocked on every end; the fight-start chokepoints already close a lingering copy.
+            try { if (NetBossEncounterManager.ShouldBlockStartedBossOwnDialog(__instance)) return false; } catch { }
             return true;
         }
 
@@ -846,6 +913,9 @@ namespace SULFURTogether.Patches
             if (__runOriginal) NetBossEncounterManager.NotifyBossDialogOpened(__instance);
             // LD-Sandstorm / F4 Stage 2: host broadcasts a mid-fight boss dialog (Desert) so the passive client plays it.
             if (__runOriginal) NetBossEncounterManager.OnHostBossDialogInteract(__instance);
+            // TB-D: a CLIENT opened a boss's own opening dialog (Terrorbaum) → tell the host to mirror it to the other ends
+            // (the client keeps its own navigable dialog; the host + other clients open a mirror). No blocking.
+            if (__runOriginal) NetBossEncounterManager.OnLocalBossOwnDialogInteract(__instance);
         }
 
         // ================================================================== RM-2b: out-of-room intro effect suppression

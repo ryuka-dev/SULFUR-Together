@@ -203,7 +203,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _localIntroDialogKey = null;
                 _localMidFightDialogKey = null;
                 _applyingHostDialogClose = false;
+                _applyingHostDialogOpen = false;
                 _introFinishRequested.Clear();
+                _bossOwnDialogLocallyOpen.Clear();
+                _pendingMirrorKey = null; _pendingMirrorEvent = null;
                 _appliedStart.Clear();
                 _continuation.Clear();
                 _pendingVerify.Clear();
@@ -274,7 +277,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _localIntroDialogKey = null;
                 _localMidFightDialogKey = null;
                 _applyingHostDialogClose = false;
+                _applyingHostDialogOpen = false;
                 _introFinishRequested.Clear();
+                _bossOwnDialogLocallyOpen.Clear();
+                _pendingMirrorKey = null; _pendingMirrorEvent = null;
                 _appliedStart.Clear();
                 _continuation.Clear();
                 _pendingVerify.Clear();
@@ -405,20 +411,38 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         if (hu != null && ReferenceEquals(hu, npc)) { key = kv.Key; adapter = e.Adapter; component = e.Component; break; }
                     }
                 }
+                // TB-D (root fix): a BroadcastsBossOwnDialog boss (Terrorbaum) isn't registered until TriggerFight, so the
+                // registry scan above misses its PRE-fight opening dialog. Resolve + register it now from the interacted NPC.
+                if (adapter == null && TryResolveAndRegisterBossOwnDialog(npc, out string ownKey, out var ownAdapter, out var ownComp))
+                { key = ownKey; adapter = ownAdapter; component = ownComp; }
                 if (adapter == null || component == null || key == null) return;
-                // Track that a boss dialog is open (for the close sync below) — for ANY boss dialog (intro or mid-fight),
-                // so the host can tell the client to finalize when it closes. The intro dialog opens via the existing
-                // machinery, so only its CLOSE needs syncing; mid-fight dialogs get both open + close from here.
-                lock (_lock) { _desertDialogOpenKey = key; }
-                // Only the MID-FIGHT dialogs are broadcast (the passive client can't open them itself). The pre-fight intro
-                // cutscene is run by each end's own intro chain (OnStartInteractWithBoss), so it is not broadcast. Gate on
-                // the fight having started so a pre-fight intro Interact is never mistaken for a mid-fight call.
-                if (!SafeStarted(adapter, component)) return;
-                if (!adapter.TryGetActiveMidFightDialogId(component, out string id) || string.IsNullOrEmpty(id)) return;
-                NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, EventName = "Dialog:" + id });
-                Plugin.Log.Info($"[BossDialogSync] host broadcast OPEN dialog={id} key={key}");
+                // Broadcast a boss dialog open for: a STARTED boss's mid-fight dialog (Desert airstrike/etc. — the passive
+                // client can't open them itself), OR a BroadcastsBossOwnDialog boss's PRE-fight opening dialogue (Terrorbaum,
+                // TB-D — host-authoritative mirror). A Desert pre-fight INTRO is NOT broadcast (each end runs its own intro).
+                bool started = SafeStarted(adapter, component);
+                bool ownDialog = false; try { ownDialog = adapter.BroadcastsBossOwnDialog(component); } catch { }
+                if (!started && !ownDialog) return;
+                // TB-DLG: an own-dialog boss's opening dialogue is PRE-fight only. Once the fight started, a re-interact
+                // (the boss NPC stays physically interactable — vanilla never guards it because in single-player the tree
+                // has moved off into combat) must not re-broadcast the opening dialog mid-fight (Log358: the host walked
+                // in late, re-interacted, and BOTH ends got the opening dialog again). The interact itself is also blocked
+                // at the Npc.Interact prefix; this is the belt-and-braces for any other open path.
+                if (started && ownDialog) return;
+                BroadcastHostBossOwnDialogOpen(key, adapter, component, hostHasItOpen: true); // the host just opened its own copy
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossDialogSync] OnHostBossDialogInteract failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>TB-D: HOST — broadcast a boss dialog OPEN so the in-arena clients mirror it. <paramref name="hostHasItOpen"/>
+        /// is true when the host opened its own copy (interact / in-arena force-open) → track it for the close sync; false when
+        /// the host broadcasts WITHOUT opening (it is out of arena, so it doesn't get the dialog — but in-arena clients still
+        /// do). Records <c>_desertDialogOpenKey</c> either way so the matching close syncs. No-op if the id can't be resolved.</summary>
+        private static void BroadcastHostBossOwnDialogOpen(string key, IBossEncounterAdapter adapter, object component, bool hostHasItOpen)
+        {
+            lock (_lock) { _desertDialogOpenKey = key; if (hostHasItOpen) _bossOwnDialogLocallyOpen.Add(key); }
+            if (!adapter.TryGetActiveMidFightDialogId(component, out string id) || string.IsNullOrEmpty(id)) return;
+            NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, EventName = "Dialog:" + id });
+            Plugin.Log.Info($"[BossDialogSync] host broadcast OPEN dialog={id} key={key} hostHasItOpen={hostHasItOpen}");
         }
 
         // LD-Sandstorm / F4 Stage 2: the boss encounter whose dialog is currently open (host-tracked, for the close sync).
@@ -433,7 +457,18 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // DialogClose broadcast), so either end dismissing the mid-fight dialog dismisses it for both.
         private static string? _localMidFightDialogKey;
         private static bool _applyingHostDialogClose;
+        // TB-D: set while an end mirrors a host "Dialog:<id>" OPEN (adapter calls Npc.Interact). The interact postfix's
+        // own-dialog notify must ignore that mirror open — only a real local-player interact broadcasts.
+        private static bool _applyingHostDialogOpen;
         private static readonly HashSet<string> _introFinishRequested = new HashSet<string>(); // client: intro-finish sent once/key
+        // TB-D: encounters whose own opening dialog is open on THIS end (native or mirror). Used to dedup the mirror (an end
+        // that already has the dialog open must not open a second one when it receives the host broadcast). Cleared on close.
+        private static readonly HashSet<string> _bossOwnDialogLocallyOpen = new HashSet<string>();
+        // TB-D: a mirror OPEN this end skipped because the local player wasn't in the arena yet (host-authoritative membership
+        // lags ~1 RTT behind the local gate crossing). Retried in Tick so an in-arena player still gets the dialog (catch-up),
+        // while a genuinely out-of-arena player never does. Cleared on entry-open / fight-start / close.
+        private static string? _pendingMirrorKey;
+        private static string? _pendingMirrorEvent;
 
         /// <summary>HOST: a dialog just closed (DialogController.SetCurrentSpeakable(null)). If a boss dialog was open,
         /// broadcast a "DialogClose" so the client finalizes ITS copy of the dialog at the same time (the client's dialog
@@ -443,7 +478,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try
             {
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
-                string? key; lock (_lock) { key = _desertDialogOpenKey; _desertDialogOpenKey = null; }
+                string? key; lock (_lock) { key = _desertDialogOpenKey; _desertDialogOpenKey = null; if (key != null) _bossOwnDialogLocallyOpen.Remove(key); }
                 if (key == null) return;
                 NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent { EncounterKey = key, EventName = "DialogClose" });
                 Plugin.Log.Info($"[BossDialogSync] host broadcast CLOSE key={key}");
@@ -1610,6 +1645,64 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch { return false; }
         }
 
+        /// <summary>TB-D (root fix): a <see cref="IBossEncounterAdapter.BroadcastsBossOwnDialog"/> boss (Terrorbaum) opens
+        /// its opening dialog via <c>Npc.Interact</c> BEFORE its fight starts, but the encounter is only registered at
+        /// <c>TriggerFight</c> (too late for the pre-fight dialog sync). Resolve + register it early: from the boss dialog
+        /// NPC walk its transform hierarchy for the owning helper (cheap); with no NPC handle (host reacting to a client
+        /// "open" request) scene-scan for the single active such boss. Registers via <see cref="TryGetEncounterKeyForBoss"/>.
+        /// Fail-open (false) — nothing worse than the un-synced status quo.</summary>
+        private static bool TryResolveAndRegisterBossOwnDialog(object? npc, out string key, out IBossEncounterAdapter adapter, out object component)
+        {
+            key = ""; adapter = null!; component = null!;
+            try
+            {
+                object? found = null; IBossEncounterAdapter? foundA = null;
+                System.Collections.Generic.IEnumerable<MonoBehaviour> candidates;
+                if (npc is Component npcComp && npcComp != null)
+                    candidates = npcComp.transform.root.GetComponentsInChildren<MonoBehaviour>(true); // bounded to the boss subtree
+                else
+                    candidates = Resources.FindObjectsOfTypeAll<MonoBehaviour>(); // rare: host has no local NPC handle
+                foreach (var mb in candidates)
+                {
+                    if (mb == null) continue;
+                    if (npc == null) { var go = mb.gameObject; if (!go.scene.IsValid() || !go.activeInHierarchy) continue; }
+                    var a = ResolveAdapter(mb);
+                    if (a == null) continue;
+                    bool own = false; try { own = a.BroadcastsBossOwnDialog(mb); } catch { }
+                    if (!own) continue;
+                    if (npc != null)
+                    {
+                        object? hu = null; try { hu = a.GetHealthUnit(mb); } catch { }
+                        if (hu == null || !ReferenceEquals(hu, npc)) continue;
+                    }
+                    found = mb; foundA = a; break;
+                }
+                if (found == null || foundA == null) return false;
+                component = found; adapter = foundA;
+                return TryGetEncounterKeyForBoss(component, out key, out _);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>TB-D: close a <see cref="IBossEncounterAdapter.BroadcastsBossOwnDialog"/> boss's opening dialog the moment
+        /// its fight starts, on whichever end calls this. Terrorbaum's fight begins when someone picks the "fight" option;
+        /// that closes the picker's dialog, but the OTHER end (or a host that started via a client request) is left with the
+        /// opening dialog open — a soft-lock. Called at the fight-start chokepoints (host broadcast / client-request start /
+        /// client apply). Reuses the real finalize; a no-op when no dialog is open or the boss isn't an own-dialog boss.</summary>
+        private static void CloseBossOwnDialogOnFightStart(IBossEncounterAdapter adapter, object component, string key)
+        {
+            try
+            {
+                bool own = false; try { own = adapter.BroadcastsBossOwnDialog(component); } catch { }
+                if (!own) return;
+                lock (_lock) { _bossOwnDialogLocallyOpen.Remove(key); if (_pendingMirrorKey == key) { _pendingMirrorKey = null; _pendingMirrorEvent = null; } }
+                if (!BossDialogReflect.IsDialogActive()) return;
+                bool closed = BossDialogReflect.TryFinalizeCurrentDialog(out string detail);
+                Plugin.Log.Info($"[BossDialogSync] closed opening dialog on fight start key={key} closed={closed} ({detail})");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogSync] CloseBossOwnDialogOnFightStart failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
         /// <summary>F4-ADDS: resolve a spawn OWNER that is the Desert boss's <c>DesertClausePerimeter</c> (the saddled
         /// pikes spawn with the perimeter as their mono, not the boss helper) to the owning registered Desert encounter.
         /// Identity match against each registered BossFightHelper's own perimeter member; false for anything else.</summary>
@@ -1909,6 +2002,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (LogOn) Plugin.Log.Info($"[BossEncounter] host broadcasting BossEncounterStart {state.ToCompact()}");
             NetGameplaySyncBridge.BroadcastHostBossEncounterStart(state);
             TryBeginSandstormArena(adapter, component, in ctx);
+            CloseBossOwnDialogOnFightStart(adapter, component, key); // TB-D: dismiss the opening dialog for the host on commit
         }
 
         /// <summary>HOST (LD-Sandstorm / F4): broadcast the boss's real combat-entry (Desert TriggerFight) exactly once,
@@ -2085,6 +2179,40 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 {
                     BossStartRejectedSession++;
                     Plugin.Log.Warn($"[BossDialogCommit] reject request from {peerId}: run mismatch req={msg.ChapterName}:{msg.LevelIndex} host={ctx.ChapterName}:{ctx.LevelIndex}");
+                    return;
+                }
+
+                // TB-D: an in-arena client opened a BroadcastsBossOwnDialog boss's opening dialog (Terrorbaum) and asked the
+                // host to mirror it to the other ends. The host broadcasts "Dialog:<id>" so every OTHER in-arena end mirrors,
+                // and opens its OWN copy only if the host player is in the arena (an out-of-arena host — still being pulled in
+                // on a client-first trigger — must not get the dialog; it still broadcasts so the in-arena clients do).
+                if (string.Equals(msg.CommitSource, "open", StringComparison.Ordinal))
+                {
+                    // The host's own encounter is likewise unregistered pre-fight — resolve + register it from the scene
+                    // (there is a single active own-dialog boss) if the registry doesn't have it yet.
+                    if (!TryFindLocalEncounter(msg.EncounterKey, out var oAdapter, out var oComp)
+                        && !TryResolveAndRegisterBossOwnDialog(null, out _, out oAdapter, out oComp))
+                    {
+                        BossEncounterNotFound++;
+                        Plugin.Log.Warn($"[BossDialogSync] host has no encounter for client open-request key={msg.EncounterKey}; candidates: {DescribeCandidates()}");
+                        return;
+                    }
+                    bool alreadyOpen; lock (_lock) { alreadyOpen = _desertDialogOpenKey == msg.EncounterKey; }
+                    if (alreadyOpen && BossDialogReflect.IsDialogActive())
+                    {
+                        if (LogOn) Plugin.Log.Info($"[BossDialogSync] host open-request no-op key={msg.EncounterKey} (already open)");
+                        return;
+                    }
+                    if (ArenaLockdownManager.IsLocalPlayerInActiveArena())
+                    {
+                        bool opened = oAdapter.TryOpenBossOwnDialog(oComp, out string od); // host opens → OnHostBossDialogInteract broadcasts
+                        Plugin.Log.Info($"[BossDialogSync] host received client open from {peerId}: opened={opened} ({od}) key={msg.EncounterKey}");
+                    }
+                    else
+                    {
+                        BroadcastHostBossOwnDialogOpen(msg.EncounterKey, oAdapter, oComp, hostHasItOpen: false); // broadcast only
+                        Plugin.Log.Info($"[BossDialogSync] host received client open from {peerId}: broadcast-only (host out of arena) key={msg.EncounterKey}");
+                    }
                     return;
                 }
 
@@ -2403,6 +2531,34 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         /// <summary>RM-2b: block the boss dialog (Npc.Interact) on THIS end when cutscene-gated and the local player is out
         /// of the room for the gated boss whose health unit is <paramref name="npc"/>.</summary>
+        /// <summary>TB-DLG: block re-opening an own-dialog boss's OPENING dialogue once its fight has started — on any
+        /// end. Vanilla leaves the boss NPC interactable after TriggerFight (in single-player the tree immediately moves
+        /// off into combat so nobody can re-interact), but in co-op a late-arriving player walks up to the (underground /
+        /// relocated) boss collider and gets the opening dialog again mid-fight (Log358). The fight-start chokepoints
+        /// already close a lingering copy; this stops a fresh one from opening at the source (Npc.Interact prefix).</summary>
+        public static bool ShouldBlockStartedBossOwnDialog(object npc)
+        {
+            try
+            {
+                if (!Enabled || npc == null) return false;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (!(e.Component is UnityEngine.Object uo) || uo == null) continue;
+                        bool own = false; try { own = e.Adapter.BroadcastsBossOwnDialog(e.Component); } catch { }
+                        if (!own) continue;
+                        object? hu = null; try { hu = e.Adapter.GetHealthUnit(e.Component); } catch { }
+                        if (hu == null || !ReferenceEquals(hu, npc)) continue;
+                        return SafeStarted(e.Adapter, e.Component);
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
         public static bool ShouldBlockBossDialogNpc(object npc)
         {
             try
@@ -2423,6 +2579,36 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             }
             catch { }
             return false;
+        }
+
+        /// <summary>TB-D: CLIENT — the local player just opened a boss's own opening dialog (Terrorbaum) natively. Keep this
+        /// (navigable) dialog; ask the host to mirror it to the OTHER ends so everyone sees the same dialogue. The host opens
+        /// its own copy + broadcasts "Dialog:&lt;id&gt;"; this originating client dedups the echo via _bossOwnDialogLocallyOpen.
+        /// No blocking (so the interactor can always pick the fight option). No-op off-client / for the mirror open.</summary>
+        public static void OnLocalBossOwnDialogInteract(object npc)
+        {
+            try
+            {
+                if (!Enabled || npc == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
+                bool applyingMirror; lock (_lock) { applyingMirror = _applyingHostDialogOpen; }
+                if (applyingMirror) return; // this IS the host-driven mirror open — don't echo it back as a request
+                bool joined = false; try { joined = NetClientJoinFlow.SessionJoinedHost; } catch { }
+                if (!joined) return;
+
+                // TB-D (root fix): resolve + register the boss from the interacted NPC (its encounter isn't registered until
+                // TriggerFight, too late for the pre-fight dialog). The hierarchy scan is bounded to the NPC's boss subtree.
+                if (!TryResolveAndRegisterBossOwnDialog(npc, out string key, out var adapter, out var component)) return;
+                if (SafeStarted(adapter, component)) return; // already fighting — no opening dialog to sync
+
+                bool firstOpen; lock (_lock) { firstOpen = _bossOwnDialogLocallyOpen.Add(key); }
+                if (firstOpen && TryBuildContext(out var ctx, out _))
+                {
+                    var msg = BuildDialogCommit(key, component, in ctx, "open");
+                    Plugin.Log.Info($"[BossDialogSync] client opened boss dialog → request host mirror {msg.ToCompact()}");
+                    NetGameplaySyncBridge.SendClientBossDialogCommitRequest(msg);
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDialogSync] OnLocalBossOwnDialogInteract failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         // ================================================================== PF (Plan B): dialog-close-gated fight start
@@ -2983,6 +3169,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     }
                 }
                 if (adapter == null || component == null || role == null) return false;
+                // TB-DMG: sentinel "body" = a hit outside the boss's native damage window (Terrorbaum body shot / the
+                // first, pre-eye-window ReceiveDamage of an eye pellet). Vanilla rejects it locally (invulnerable), so
+                // swallow it with no host request — anything else would per-pellet spam the host with doomed requests.
+                if (role == "body") return true;
                 lock (_lock) { if (_terminalDead.Contains(key)) return true; } // boss is dead — suppress local damage, don't request
 
                 if (!TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed)) return false;
@@ -3054,7 +3244,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 float mainBefore = 0f, mainMax = 0f;
                 if (sepHealth) NetGameplayProbeManager.TryReadBossUnitHealth(healthUnit, out mainBefore, out mainMax);
 
-                bool ok = BossDamageReflect.TryApplyRealDamage(target, req.Damage, req.DamageTypeInt, source, out bool vanilla, out string detail);
+                // TB-DMG: apply through the adapter — default is the plain vanilla ReceiveDamage reflect; a boss with
+                // a conditional native damage gate (Terrorbaum "eye": lift the standing invulnerability around the
+                // call, like the native OnEyeHit) replicates that gate so the client's hit lands like a local one.
+                bool ok = adapter.TryApplyHostBossHit(component, req.TargetRole, target, req.Damage, req.DamageTypeInt, source, out bool vanilla, out string detail);
                 NetGameplayProbeManager.TryReadBossUnitHealth(target, out float after, out _);
                 string mainHp = "";
                 if (sepHealth)
@@ -3218,11 +3411,35 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // F4 intro-finish guard: applying a host-driven DialogClose calls SetCurrentSpeakable(null) locally, which
                 // must NOT be mistaken for "the local player finished the intro" (it would echo an intro-finish back).
                 bool isDialogClose = string.Equals(msg.EventName, "DialogClose", StringComparison.Ordinal);
-                if (isDialogClose) lock (_lock) { _applyingHostDialogClose = true; }
+                // TB-D: the host closed the boss's own dialog → allow a fresh "open" request if the player re-interacts
+                // (the opening dialogue can be re-opened until the fight actually starts).
+                if (isDialogClose) lock (_lock) { _applyingHostDialogClose = true; _bossOwnDialogLocallyOpen.Remove(msg.EncounterKey); if (_pendingMirrorKey == msg.EncounterKey) { _pendingMirrorKey = null; _pendingMirrorEvent = null; } }
+                // TB-D: a host "Dialog:<id>" OPEN for a BroadcastsBossOwnDialog boss (Terrorbaum) is a MIRROR — this end opens
+                // its own copy. Skip if it already has the dialog open (the originating end, or a re-broadcast). The mirror
+                // calls Npc.Interact locally, so flag _applyingHostDialogOpen to stop the interact postfix re-requesting.
+                bool isDialogOpen = msg.EventName != null && msg.EventName.StartsWith("Dialog:", StringComparison.Ordinal);
+                bool mirrorOwnDialog = false; try { mirrorOwnDialog = isDialogOpen && adapter.BroadcastsBossOwnDialog(component); } catch { }
+                if (mirrorOwnDialog)
+                {
+                    bool already; lock (_lock) { already = _bossOwnDialogLocallyOpen.Contains(msg.EncounterKey); }
+                    if (already) { if (LogOn) Plugin.Log.Info($"[BossDialogSync] dialog open mirror skipped (already open locally) key={msg.EncounterKey}"); return; }
+                    // TB-D: room-scope the dialog — an OUT-OF-ARENA player (across the map, being pulled in later) doesn't
+                    // get the boss's opening dialogue. Reuses the LD arena membership (host-authoritative). Fail-open. If the
+                    // local player isn't in the arena YET, stash the open and retry in Tick — an in-arena player whose
+                    // membership just lags gets it via catch-up; a genuinely far player never does.
+                    if (!ArenaLockdownManager.IsLocalPlayerInActiveArena())
+                    {
+                        lock (_lock) { _pendingMirrorKey = msg.EncounterKey; _pendingMirrorEvent = msg.EventName; }
+                        if (LogOn) Plugin.Log.Info($"[BossDialogSync] dialog open mirror deferred (local player not in arena yet) key={msg.EncounterKey}");
+                        return;
+                    }
+                    lock (_lock) { _applyingHostDialogOpen = true; _pendingMirrorKey = null; }
+                }
                 BeginApply();
                 bool ok; string detail;
                 try { ok = adapter.TryApplyDiscreteEvent(component, msg.EventName, msg.HasPos, msg.Position, out detail); }
-                finally { EndApply(); if (isDialogClose) lock (_lock) { _applyingHostDialogClose = false; } }
+                finally { EndApply(); if (isDialogClose) lock (_lock) { _applyingHostDialogClose = false; } if (mirrorOwnDialog) lock (_lock) { _applyingHostDialogOpen = false; } }
+                if (ok && mirrorOwnDialog) lock (_lock) { _bossOwnDialogLocallyOpen.Add(msg.EncounterKey); } // now open on this end
                 if (ok) BossDiscreteApplied++;
                 if (terminal)
                 {
@@ -4041,6 +4258,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (LogOn) Plugin.Log.Info($"[BossEncounter] host broadcasting BossEncounterStart (from request) {state.ToCompact()}");
                 NetGameplaySyncBridge.BroadcastHostBossEncounterStart(state);
                 TryBeginSandstormArena(adapter, component, in ctx);
+                // TB-D: a client picked "fight" → the host started the boss but its OWN opening dialog (if a host player had
+                // it open) never closed (no local pick). Dismiss it now so the host isn't soft-locked in the dialog.
+                CloseBossOwnDialogOnFightStart(adapter, component, req.EncounterKey);
             }
             catch (Exception ex)
             {
@@ -4079,6 +4299,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     Plugin.Log.Warn($"[BossEncounter] client has no local encounter for key={state.EncounterKey}; candidates: {DescribeCandidates()}");
                     return;
                 }
+
+                // TB-D: the fight just started → dismiss this client's lingering opening dialog (Terrorbaum) so a client who
+                // hadn't picked "fight" yet isn't left stuck in the dialog after combat begins. No-op for non-own-dialog bosses.
+                CloseBossOwnDialogOnFightStart(adapter, component, state.EncounterKey);
 
                 if (adapter.IsStarted(component))
                 {
@@ -4220,6 +4444,121 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             }
         }
 
+        // ================================================================== TB: Terrorbaum host-target + state mirror
+
+        private static float _nextPurePuppetTargetCheck;
+        private static float _lastBossTargetLogAt = -999f;
+
+        /// <summary>TB-TGT: HOST — for every started pure-puppet boss, if the AiAgent's target/lastTarget is missing or
+        /// unattackable (downed / out-of-arena), point both at the nearest attackable player unit (host player or a
+        /// client ghost via GameManager.Players). The tree's erupt behaviour-tree node requires lastTarget != null, so
+        /// without this a remotely-started fight never surfaces. Native perception keeps working: we only step in when
+        /// the current target is invalid, so a host player fighting in-room is never overridden. ~4 Hz. Never throws.</summary>
+        private static void TickHostPurePuppetBossTarget()
+        {
+            try
+            {
+                float now = Time.realtimeSinceStartup;
+                if (now < _nextPurePuppetTargetCheck) return;
+                _nextPurePuppetTargetCheck = now + 0.25f;
+
+                List<KeyValuePair<string, Entry>> bosses = null;
+                lock (_lock)
+                {
+                    foreach (var kv in _registry)
+                    {
+                        var e = kv.Value;
+                        if (e.Adapter == null || !(e.Component is UnityEngine.Object uo) || uo == null) continue;
+                        bool pure = false; try { pure = e.Adapter.ClientBossIsPurePuppet(e.Component); } catch { }
+                        if (!pure || _terminalDead.Contains(kv.Key)) continue;
+                        (bosses ??= new List<KeyValuePair<string, Entry>>()).Add(kv);
+                    }
+                }
+                if (bosses == null) return;
+
+                foreach (var kv in bosses)
+                {
+                    var adapter = kv.Value.Adapter; var component = kv.Value.Component;
+                    if (!SafeStarted(adapter, component)) continue;
+                    if (!(adapter.GetHealthUnit(component) is Component bossNpc) || bossNpc == null) continue;
+                    var aiAgent = BossReflect.GetMember(bossNpc, "AiAgent") ?? BossReflect.GetMember(bossNpc, "aiAgent");
+                    if (aiAgent == null) continue;
+                    var tf = aiAgent.GetType().GetField("target", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    var ltf = aiAgent.GetType().GetField("lastTarget", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    if (tf == null || ltf == null) continue;
+
+                    bool filter = false, gated = false; HashSet<string>? members = null;
+                    try
+                    {
+                        filter = Plugin.Cfg.ExcludeOutOfRoomPlayersFromBossAttacks.Value;
+                        if (filter) gated = ArenaLockdownManager.TryGetActiveArenaInRoom(out members);
+                    }
+                    catch { }
+
+                    bool IsValid(object? u) => u != null && !(u is UnityEngine.Object o && o == null)
+                        && (!filter || SULFURTogether.Patches.CousinArmPatches.IsTargetAttackable(u, gated, members));
+                    object? cur = tf.GetValue(aiAgent);
+                    object? last = ltf.GetValue(aiAgent);
+                    if (IsValid(cur) && IsValid(last)) continue; // native perception is doing fine — hands off
+
+                    // Nearest attackable player unit to the boss.
+                    var units = SULFURTogether.Patches.CousinArmPatches.GatherPlayerUnits();
+                    object? pick = null; float best = float.MaxValue;
+                    Vector3 bp = bossNpc.transform.position;
+                    foreach (var u in units)
+                    {
+                        if (!IsValid(u) || !(u is Component uc) || uc == null) continue;
+                        float d = (uc.transform.position - bp).sqrMagnitude;
+                        if (d < best) { best = d; pick = u; }
+                    }
+                    if (pick == null) continue; // nobody attackable — leave the native state
+
+                    if (!IsValid(cur)) tf.SetValue(aiAgent, pick);
+                    if (!IsValid(last)) ltf.SetValue(aiAgent, pick);
+                    if (now - _lastBossTargetLogAt >= 5f)
+                    {
+                        _lastBossTargetLogAt = now;
+                        Plugin.Log.Info($"[BossTarget] host aimed pure-puppet boss at {((pick as Component)?.name ?? pick.ToString())} key={kv.Key} (target was {(cur == null ? "null" : "unattackable")})");
+                    }
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossTarget] TickHostPurePuppetBossTarget failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>TB-ANIM: HOST — a Terrorbaum visibility-state mutator just ran natively (StartDigging /
+        /// OnStartEruptAttack / OnEruptStartAoe / OnRootStart, Harmony postfixes). Broadcast it so the pure-puppet
+        /// client replays the same native mutator — without this one end shows a standing tree while the other end's
+        /// tree is underground (Log358). No-op off-host / for an unregistered boss. Never throws.</summary>
+        public static void OnHostTerrorStateEvent(object helper, string eventName, bool hasPos, Vector3 pos)
+        {
+            try
+            {
+                if (!Enabled || helper == null || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                if (!TryGetEncounterKeyForBoss(helper, out string key, out string bossType)) return;
+                NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent
+                {
+                    EncounterKey = key, BossType = bossType, EventName = eventName, HasPos = hasPos, Position = pos,
+                });
+                if (LogOn) Plugin.Log.Info($"[BossAnimSync] host broadcast {eventName}{(hasPos ? $" pos={pos:F1}" : "")} key={key}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossAnimSync] OnHostTerrorStateEvent failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>TB-ANIM: CLIENT — should this pure-puppet boss's local damage-dealing animation event (slam/erupt
+        /// damage) be swallowed? The client replays the host's attack ANIMATIONS, but their damage stays
+        /// host-authoritative (the host's slam hits the ghost proxy and is forwarded to the owning client) — running
+        /// the local anim-damage too would double-hit the client player. Host is never blocked.</summary>
+        public static bool ShouldBlockClientPurePuppetBossAnimDamage(object helper)
+        {
+            try
+            {
+                if (!Enabled || helper == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return false;
+                var adapter = ResolveAdapter(helper);
+                return adapter != null && adapter.ClientBossIsPurePuppet(helper);
+            }
+            catch { return false; }
+        }
+
         // ================================================================== per-frame tick (from Plugin.Update)
 
         /// <summary>Phase 5.4-E2: drains deferred post-apply verifications and prunes stale continuation windows.
@@ -4231,6 +4570,59 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (!Enabled) return;
 
                 TickHostBossStateBroadcast(); // Phase 5.4-E4.2: periodic boss health/state push (host)
+
+                // TB: a pure-puppet boss (Terrorbaum) must NEVER run its own fight mechanics on the client — it is a puppet
+                // driven entirely by the host (position/animation mirror + host-authoritative health/death). TriggerFight
+                // (run when the client applies the host start, or if the client raced ahead into the encounter) enables the
+                // boss's local mechanic drivers; re-assert them OFF every frame so the client stays inert. Host is untouched.
+                if (NetGameplaySyncBridge.BossMode == NetMode.Client)
+                {
+                    List<KeyValuePair<string, Entry>> puppetBosses = null;
+                    lock (_lock)
+                    {
+                        foreach (var kv in _registry)
+                        {
+                            var e = kv.Value;
+                            if (e.Adapter == null || !(e.Component is UnityEngine.Object uo) || uo == null) continue;
+                            bool pure = false; try { pure = e.Adapter.ClientBossIsPurePuppet(e.Component); } catch { }
+                            if (!pure) continue;
+                            (puppetBosses ??= new List<KeyValuePair<string, Entry>>()).Add(kv);
+                        }
+                    }
+                    if (puppetBosses != null)
+                        foreach (var kv in puppetBosses)
+                        {
+                            int n = kv.Value.Adapter.SuppressClientMechanics(kv.Value.Component, out string sd);
+                            if (n > 0) Plugin.Log.Info($"[BossPuppet] suppressed client boss mechanics key={kv.Key}: {sd}");
+                        }
+                }
+
+                // TB-TGT: HOST — keep a started pure-puppet boss (Terrorbaum) pointed at an ATTACKABLE player. The
+                // vanilla tree only ever acquires a target through its own LOS perception, and its erupt node requires
+                // aiAgent.lastTarget != null — so a fight started remotely (client picked "fight" while the host was
+                // across the map) leaves the host tree underground with no target FOREVER (Log358: "boss不在"). When
+                // the current target is missing or unattackable (downed / out-of-room), aim the AiAgent at the nearest
+                // attackable player unit (host player or a client ghost — same rules as the Cousin arm group throw).
+                if (NetGameplaySyncBridge.BossMode == NetMode.Host) TickHostPurePuppetBossTarget();
+
+                // TB-D: catch-up a deferred boss-own-dialog mirror once the local player is in the arena (membership caught up).
+                string? mirrorKey, mirrorEvent; lock (_lock) { mirrorKey = _pendingMirrorKey; mirrorEvent = _pendingMirrorEvent; }
+                if (mirrorKey != null)
+                {
+                    bool drop = false;
+                    if (!TryFindLocalEncounter(mirrorKey, out var mAdapter, out var mComp)) drop = true;
+                    else if (SafeStarted(mAdapter, mComp)) drop = true; // fight started → no pre-fight dialog to show
+                    else { lock (_lock) { if (_bossOwnDialogLocallyOpen.Contains(mirrorKey)) drop = true; } }
+                    if (drop) { lock (_lock) { if (_pendingMirrorKey == mirrorKey) { _pendingMirrorKey = null; _pendingMirrorEvent = null; } } }
+                    else if (ArenaLockdownManager.IsLocalPlayerInActiveArena())
+                    {
+                        lock (_lock) { _applyingHostDialogOpen = true; _pendingMirrorKey = null; _pendingMirrorEvent = null; }
+                        try { bool mok = mAdapter.TryApplyDiscreteEvent(mComp, mirrorEvent, false, Vector3.zero, out string md);
+                              if (mok) lock (_lock) { _bossOwnDialogLocallyOpen.Add(mirrorKey); }
+                              Plugin.Log.Info($"[BossDialogSync] dialog open mirror catch-up (entered arena) key={mirrorKey} ok={mok}: {md}"); }
+                        finally { lock (_lock) { _applyingHostDialogOpen = false; } }
+                    }
+                }
 
                 // Phase 5.4-E4: deferred dialog finalize — Stop the local boss dialog as soon as it becomes active
                 // within the window (it often opens just after the commit). Prune under lock; finalize outside it.
