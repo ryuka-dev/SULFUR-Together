@@ -3439,8 +3439,16 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
                 if (!TryFindLocalEncounter(msg.EncounterKey, out var adapter, out var component))
                 {
-                    if (LogOn) Plugin.Log.Info($"[CousinPool] client has no local encounter for {msg.ToCompact()}");
-                    return;
+                    // TB-DLG2b: a PRE-fight own-dialog OPEN can arrive before anything registered this end's encounter
+                    // (registration otherwise happens at the local anim-event interact or at TriggerFight). Dropping it
+                    // would also drop the deferred catch-up for an out-of-room player. Resolve + register from the scene
+                    // (single active own-dialog boss) and proceed; anything else keeps the old drop.
+                    if (!(msg.EventName != null && msg.EventName.StartsWith("Dialog:", StringComparison.Ordinal)
+                          && TryResolveAndRegisterBossOwnDialog(null, out _, out adapter, out component)))
+                    {
+                        if (LogOn) Plugin.Log.Info($"[CousinPool] client has no local encounter for {msg.ToCompact()}");
+                        return;
+                    }
                 }
                 // F4-P1JMP: the boss pike's host-authoritative jump — replayed via the real JumpTowards (not an adapter
                 // event; it targets the pike carrier, not the boss component). Reentry-wrapped so the client's own

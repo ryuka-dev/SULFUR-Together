@@ -767,6 +767,16 @@ namespace SULFURTogether.Networking.Gameplay
             c += 1;
             _doorwayCrossings[arenaKey] = c;
             if (LogOn) NetLogger.Info($"[ArenaLockdown] doorway traversal arena={arenaKey} count={c} inside={(c % 2 == 1)}");
+            // TB-DLG2b (Log363): the seal PlayerTrigger is CONSUMED on every end by the TB-INTRO entrance mirror
+            // (hasBeenTriggered && onlyOnce), so a player later WALKING in never re-fires Trigger() — the membership
+            // feed on it stays silent, this player never enters the in-room set, and the pre-fight dialog catch-up
+            // (which waits on membership) never fires. The doorway sensor is the reliable local-entry event: on
+            // flipping to INSIDE, report in-room directly (idempotent on the host; same call the teleport path uses).
+            if (c % 2 == 1)
+            {
+                _localCrossed.Add(arenaKey);
+                ReportLocalInRoom(arenaPos);
+            }
         }
 
         /// <summary>Local player's root transform (for the doorway sensor to match its own player and ignore remote ghosts).</summary>
