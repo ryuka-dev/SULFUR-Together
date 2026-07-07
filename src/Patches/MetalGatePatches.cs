@@ -58,6 +58,20 @@ namespace SULFURTogether.Patches
                         typeof(MetalGatePatches).GetMethod(nameof(AllDeadTrigger_CheckAllDead_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
                     Plugin.Log.Info("[GateSync] Patched AllDeadTrigger.CheckAllDead (legit gate-reopen window).");
                 }
+
+                // LD-2g: the OTHER legit reopen — boss arenas that wire the gate open to the boss Unit's serialized
+                // onDeathEvents (Terrorbaum's TreeGates) instead of an AllDeadTrigger. Unit.Die invokes onDeath
+                // (→ BossFightHelper.OnBossDead) one line before onDeathEvents, so a window opened in the OnBossDead
+                // postfix lets the native death-open pass the LD-2f hold on every end that runs Die.
+                var bfh = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.BossFightHelper");
+                var bossDead = bfh == null ? null : AccessTools.DeclaredMethod(bfh, "OnBossDead");
+                if (bossDead != null)
+                {
+                    harmony.Patch(bossDead, postfix: new HarmonyMethod(
+                        typeof(MetalGatePatches).GetMethod(nameof(BossFightHelper_OnBossDead_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Plugin.Log.Info("[GateSync] Patched BossFightHelper.OnBossDead (boss-death gate-reopen window).");
+                }
+                else Plugin.Log.Warn("[GateSync] BossFightHelper.OnBossDead not found — boss-death gate reopen not hooked.");
             }
             catch (Exception ex) { Plugin.Log.Error($"[GateSync] Apply failed: {ex.Message}"); }
 
@@ -160,6 +174,14 @@ namespace SULFURTogether.Patches
                     ArenaLockdownManager.NotifyAllEnemiesDead();
             }
             catch { }
+        }
+
+        // LD-2g: a BossFightHelper boss just died on THIS end — its Unit's onDeathEvents (which may open the arena
+        // gates) fires one line later. Open the legit window so that native open passes the door-hold.
+        private static void BossFightHelper_OnBossDead_Post(bool __runOriginal)
+        {
+            if (!__runOriginal) return;
+            ArenaLockdownManager.NotifyBossDead();
         }
 
         // LD-2d: start the local grace window BEFORE the trigger fires its events, so the same-frame MetalGate.Close()

@@ -186,6 +186,17 @@ namespace SULFURTogether.Networking.Gameplay
             if (LogOn) NetLogger.Info($"[ArenaLockdown] all-enemies-dead → legit gate-open window ({LegitGateOpenWindowSeconds:0}s)");
         }
 
+        /// <summary>A BossFightHelper boss died. Some boss arenas (Terrorbaum's TreeGates) wire the gate reopen to the
+        /// boss Unit's serialized <c>onDeathEvents</c> instead of an AllDeadTrigger — and <c>Unit.Die</c> invokes
+        /// <c>onDeath</c> (→ OnBossDead → here) one line BEFORE <c>onDeathEvents</c>, so the window opened here lets
+        /// that native death-open pass the LD-2f door-hold on whichever end runs Die (host real death, client
+        /// mirrored death).</summary>
+        public static void NotifyBossDead()
+        {
+            _legitGateOpenUntil = Time.unscaledTime + LegitGateOpenWindowSeconds;
+            if (LogOn) NetLogger.Info($"[ArenaLockdown] boss dead → legit gate-open window ({LegitGateOpenWindowSeconds:0}s)");
+        }
+
         // ----------------------------------------------------------------- local entry (PlayerTrigger.Trigger postfix)
 
         /// <summary>Any end: the local player crossed a PlayerTrigger. If it is an arena seal trigger, report in-room.</summary>

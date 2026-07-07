@@ -153,6 +153,15 @@ dialog unreachable. Design intent captured from discussion:
     window). Release / scene-change `Clear()` drop the hold.
   - **Safe for Cousin** (trigger≈gate; all-dead release passes the window). Emperor has no AllDeadTrigger → gate
     stays closed until scene-change = desired. SetActive-door arenas (Lucia) NOT covered (MetalGate only).
+  - **LD-2g — the SECOND legit reopen: boss-death scene events.** Some boss arenas have no AllDeadTrigger at all:
+    the gate reopen is wired to the boss **Unit's serialized `onDeathEvents`** (Terrorbaum: both TreeGates'
+    `MetalGate.Open` hang on the tree's death). With only the all-dead window, LD-2f blocked that native open on
+    BOTH ends (the fight ended, doors stayed shut forever). `Unit.Die` invokes `onDeath` (→
+    `BossFightHelper.OnBossDead`) one line BEFORE `onDeathEvents`, so a postfix on the base `OnBossDead` opens the
+    same `_legitGateOpenUntil` window just in time — on whichever end runs `Die` (host real death, client mirrored
+    death). The host's now-passing open then drives the normal `OnGateOpened` → Release chain (held gates cleared
+    everywhere, out-of-room players teleported in). A client that never subscribed `OnBossDead` (joined mid-fight,
+    no TriggerFight) still opens via the host-vetted GateSync mirror (`IsApplyingMirror` bypasses the hold).
 - Timing note: `SealDelaySeconds`/`TeleportDelaySeconds` are already centralised as consts in
   `ArenaLockdownManager` — the "change 5s/10s in one place" requirement is satisfied; keep any new door timing
   there too.
