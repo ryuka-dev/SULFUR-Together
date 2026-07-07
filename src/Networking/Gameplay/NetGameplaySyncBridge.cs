@@ -41,6 +41,16 @@ namespace SULFURTogether.Networking.Gameplay
             return _service?.GetKnownPlayerLifePeerIds() ?? new List<string>().AsReadOnly();
         }
 
+        public static IReadOnlyCollection<NetPeerSession> GetSessionsSnapshot()
+        {
+            return _service?.GetSessionsSnapshot() ?? new List<NetPeerSession>().AsReadOnly();
+        }
+
+        public static void BroadcastRunStatsFinalized(NetRunStatsList list)
+        {
+            _service?.BroadcastRunStatsFinalized(list);
+        }
+
         // Phase 5.0 Host-Driven Proxy — attack phase reliable event channel.
         public static void ReportHostAttackPhaseEvent(NetHostAttackPhaseEvent evt)
         {

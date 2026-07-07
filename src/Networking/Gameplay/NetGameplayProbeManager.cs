@@ -409,6 +409,9 @@ namespace SULFURTogether.Networking.Gameplay
         // Phase 5.5-RT3-A4: damage from hits that arrive inside the per-target window is COALESCED here (not dropped) and
         // applied on the next accepted hit / on Tick flush — so burst & multi-pellet weapons don't lose 50%+ of damage.
         private static readonly Dictionary<int, float> _hostHitPendingDamageByHostIdx = new Dictionary<int, float>();
+        // RS-1: last peer whose hit contributed to a hostIdx's coalesced pending damage — lets FlushPendingClientHitDamage
+        // (which has no request/peerId of its own) still attribute the flushed tail damage to somebody.
+        private static readonly Dictionary<int, string> _hostHitPendingDamagePeerByHostIdx = new Dictionary<int, string>();
         private static int _hostHitRequestsCoalesced;
         // Phase 5.3-B: host hit result + client predicted/confirmed tracking.
         private static int _hostHitResultHealthStateSent;
@@ -1025,6 +1028,7 @@ namespace SULFURTogether.Networking.Gameplay
             _hostHitRequestsRejectedRateLimit = 0;
             _hostHitRequestsCoalesced = 0;
             _hostHitPendingDamageByHostIdx.Clear();
+            _hostHitPendingDamagePeerByHostIdx.Clear();
             _hostHitRequestsAccepted = 0;
             _hostHitRequestsDamageApplied = 0;
             _hostHitRequestsDamageFailed = 0;
@@ -8881,6 +8885,14 @@ namespace SULFURTogether.Networking.Gameplay
             return false; // can't read the source → don't suppress (never block a real player hit)
         }
 
+        /// <summary>RS-1: the positive counterpart of <see cref="DamageSourceConfidentlyNonPlayer"/> — true only when
+        /// the DamageSourceData's isPlayer field is POSITIVELY readable and true. Used to attribute "damage dealt" to
+        /// the local player rather than to guess from an unreadable/absent source.</summary>
+        public static bool IsConfidentPlayerDamageSource(object? source)
+        {
+            return source != null && TryGetBoolMember(source, "isPlayer", out bool isPlayer) && isPlayer;
+        }
+
         // Real DamageSourceData fields (verified by DLL reverse: states, sourcePosition, alertPosition, damageType,
         // projectile, sourceUnit, sourceWeapon, instanceId, melee, isPlayer, sourceEffect, name).
         private static string DescribeDamageSource(object? source)
@@ -9037,6 +9049,8 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 float pending = _hostHitPendingDamageByHostIdx[hostIdx];
                 _hostHitPendingDamageByHostIdx.Remove(hostIdx);
+                _hostHitPendingDamagePeerByHostIdx.TryGetValue(hostIdx, out string? pendingPeerId);
+                _hostHitPendingDamagePeerByHostIdx.Remove(hostIdx);
                 if (pending <= 0f) continue;
 
                 NetGameplayEntitySnapshot? target = null;
@@ -9045,9 +9059,13 @@ namespace SULFURTogether.Networking.Gameplay
                 if (target == null || target.IsDead) continue; // target gone/dead — drop the stranded damage
 
                 _hostHitRequestLastAtByHostIdx[hostIdx] = now;
-                if (TryApplyHostHitDamage(target, pending, out _, out bool fatal))
+                if (TryApplyHostHitDamage(target, pending, out _, out bool fatal, out float actualApplied))
                 {
                     _hostHitRequestsDamageApplied++;
+                    // RS-1: attribute the flushed tail damage to whoever last contributed to this hostIdx's coalesced
+                    // pending pool (typically the same peer whose burst caused the coalescing in the first place).
+                    if (!string.IsNullOrWhiteSpace(pendingPeerId))
+                        NetRunStatsManager.RecordDamageDealtDelta(pendingPeerId, RunStatsEntityKey(target), actualApplied);
                     BroadcastHostHitVisual(target, hostState, fatal);
                     if (Plugin.Cfg.LogClientHitRequests.Value)
                         NetLogger.Info($"[ClientHit] FLUSH coalesced hostIdx={hostIdx} dmg={pending:F1} fatal={fatal}");
@@ -9130,6 +9148,7 @@ namespace SULFURTogether.Networking.Gameplay
                     {
                         _hostHitPendingDamageByHostIdx.TryGetValue(request.TargetHostSpawnIndex, out float pend);
                         _hostHitPendingDamageByHostIdx[request.TargetHostSpawnIndex] = pend + request.DamageCandidate;
+                        _hostHitPendingDamagePeerByHostIdx[request.TargetHostSpawnIndex] = peerId;
                         _hostHitRequestsCoalesced++;
                         return;
                     }
@@ -9158,15 +9177,18 @@ namespace SULFURTogether.Networking.Gameplay
                 {
                     applyDamage += pendingExtra;
                     _hostHitPendingDamageByHostIdx.Remove(request.TargetHostSpawnIndex);
+                    _hostHitPendingDamagePeerByHostIdx.Remove(request.TargetHostSpawnIndex);
                 }
 
                 if (Plugin.Cfg.LogClientHitRequests.Value)
                     NetLogger.Info($"[ClientHit] ACCEPT peer={peerId} seq={request.RequestSeq} hostIdx={request.TargetHostSpawnIndex} unit={hostUnitId} dmg={applyDamage:F1}{(pendingExtra > 0f ? $" (+{pendingExtra:F1} coalesced)" : "")}");
 
                 // Apply damage to the real host-side NPC.
-                if (TryApplyHostHitDamage(targetSnapshot, applyDamage, out string applyResult, out bool fatal))
+                if (TryApplyHostHitDamage(targetSnapshot, applyDamage, out string applyResult, out bool fatal, out float actualApplied))
                 {
                     _hostHitRequestsDamageApplied++;
+                    // RS-1: attribute the real, post-mitigation damage (and folded-in coalesced tail) to this peer.
+                    NetRunStatsManager.RecordDamageDealtDelta(peerId, RunStatsEntityKey(targetSnapshot), actualApplied);
                     // Phase 5.3-F: broadcast a hit-visual event so the client mirrors the white flash.
                     // (HealthState handles HP; this is visual-only.)
                     BroadcastHostHitVisual(targetSnapshot, hostState, fatal);
@@ -9185,8 +9207,24 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static bool TryApplyHostHitDamage(NetGameplayEntitySnapshot snapshot, float damage, out string result, out bool fatal)
         {
+            return TryApplyHostHitDamage(snapshot, damage, out result, out fatal, out _);
+        }
+
+        /// <summary>RS-1: the same stable per-instance identity Npc_Die_Pre/Unit_Die_Pre key kill attribution on
+        /// (NetRunStatsManager.EntityKey(__instance)) — NOT snapshot.SpawnIndex, which is a different numbering
+        /// space private to this file's snapshot registry and would never match at death time.</summary>
+        private static int RunStatsEntityKey(NetGameplayEntitySnapshot snapshot)
+        {
+            if (snapshot.TryGetRuntimeObject(out var runtimeObject) && runtimeObject != null)
+                return NetRunStatsManager.EntityKey(runtimeObject);
+            return snapshot.SpawnIndex; // weak ref already collected; entity is gone, kill attribution moot
+        }
+
+        private static bool TryApplyHostHitDamage(NetGameplayEntitySnapshot snapshot, float damage, out string result, out bool fatal, out float actualApplied)
+        {
             result = "";
             fatal = false;
+            actualApplied = 0f;
             if (!snapshot.TryGetRuntimeObject(out var runtimeObj) || runtimeObj == null)
             { result = "noRuntimeObj"; return false; }
 
@@ -9201,6 +9239,7 @@ namespace SULFURTogether.Networking.Gameplay
 
             float newHp = Mathf.Max(0f, currentHp - damage);
             fatal = newHp <= 0f;
+            actualApplied = currentHp - newHp;
 
             if (!TryWriteUnitHealthNative(runtimeObj, newHp))
             { result = $"writeHpFailed hp={currentHp:F1}→{newHp:F1}"; return false; }

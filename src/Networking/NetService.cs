@@ -1295,6 +1295,9 @@ namespace SULFURTogether.Networking
             msg.LevelSeed = local.LevelSeed;
             msg.SentAt = Now();
 
+            // RS-1: this fires on the FIRING peer — when that peer is the Host itself, this is the Host's own shot.
+            Gameplay.NetRunStatsManager.RecordShotFired(msg.PeerId);
+
             if (_mode == NetMode.Host)
             {
                 foreach (var peer in _clients.ToArray())
@@ -1339,6 +1342,7 @@ namespace SULFURTogether.Networking
                     return;
                 }
                 msg.PeerId = peerId;
+                Gameplay.NetRunStatsManager.RecordShotFired(peerId);
 
                 if (msg.MatchesScene(_runStates.LocalState))
                     Gameplay.PlayerWeaponFireManager.Replay(msg);
@@ -1381,6 +1385,9 @@ namespace SULFURTogether.Networking
             msg.HasLevelSeed = local.HasLevelSeed;
             msg.LevelSeed = local.LevelSeed;
             msg.SentAt = Now();
+
+            // RS-1: this fires on the peer that broke it — when that's the Host itself, this is the Host's own break.
+            Gameplay.NetRunStatsManager.RecordDestructibleDestroyed(msg.PeerId);
 
             if (_mode == NetMode.Host)
             {
@@ -1426,6 +1433,7 @@ namespace SULFURTogether.Networking
                     return;
                 }
                 msg.PeerId = peerId;
+                Gameplay.NetRunStatsManager.RecordDestructibleDestroyed(peerId);
 
                 if (msg.MatchesScene(_runStates.LocalState))
                     Gameplay.BreakableBreakManager.ApplyRemoteBreak(msg);
@@ -2029,6 +2037,40 @@ namespace SULFURTogether.Networking
             if (state == null) return;
             if (string.IsNullOrWhiteSpace(state.SourcePeerId)) state.SourcePeerId = "host";
             SendPlayerLifeStateToClients(state, except: null);
+        }
+
+        // RS-1: run-stats card ordering/display needs the full session roster (slot, name), not just peer ids.
+        internal IReadOnlyCollection<NetPeerSession> GetSessionsSnapshot() => _sessions.Sessions;
+
+        // RS-2: Host→AllClients, one-shot per Run — broadcast the finalized end-of-Run statistics.
+        internal void BroadcastRunStatsFinalized(Gameplay.NetRunStatsList list)
+        {
+            if (_net == null || _mode != NetMode.Host || list == null) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.RunStatsFinalized);
+                    Gameplay.NetRunStatsListCodec.Write(w, list);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex)
+                {
+                    if (Plugin.Cfg.EnableDebugLog.Value)
+                        NetLogger.Debug($"[RunStats] failed to send finalized list: {ex.Message}");
+                }
+            }
+        }
+
+        private void HandleRunStatsFinalized(NetPeer peer, NetPacketReader reader)
+        {
+            if (_mode != NetMode.Client) return; // Host is the sender; this only ever arrives on a Client
+            if (!Gameplay.NetRunStatsListCodec.TryRead(reader, out var list))
+            {
+                NetLogger.Warn("[RunStats] malformed RunStatsFinalized packet");
+                return;
+            }
+            NetRunStatsClientCache.ApplyReceivedBroadcast(list);
         }
 
         internal IReadOnlyCollection<string> GetKnownPlayerLifePeerIds()
@@ -2857,6 +2899,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.HostRoomMembership:
                         HandleHostRoomMembership(peer, reader);
+                        break;
+
+                    case NetMessageType.RunStatsFinalized:
+                        HandleRunStatsFinalized(peer, reader);
                         break;
 
                     case NetMessageType.Disconnect:

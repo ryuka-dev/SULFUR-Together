@@ -160,6 +160,14 @@ namespace SULFURTogether.Patches
             return "Unit";
         }
 
+        // RS-1: the Host's own peer id, for attributing unclaimed kills/hits to "the host's own player" rather than
+        // leaving them unattributed.
+        private static string RunStatsHostPeerId()
+        {
+            return NetRunStateBridge.TryGetLocalRunState(out var state) && !string.IsNullOrWhiteSpace(state.PeerId)
+                ? state.PeerId : "host";
+        }
+
 
         // ==================================================================
         // 1. GameManager
@@ -322,6 +330,24 @@ namespace SULFURTogether.Patches
                 if (NetClientLoadGate.CurrentMode == NetMode.Host
                     && (loadingMode ?? "").IndexOf("menu", StringComparison.OrdinalIgnoreCase) < 0)
                     NetHostTransitionGuard.Begin("host-SwitchLevelRoutine");
+
+                // RS-2: this is the authoritative "where is the Host actually taking everyone" decision point.
+                // A hub-bound target while a Run is active ends the Run — finalize + broadcast immediately, before
+                // anything else in this transition runs. A non-hub target while no Run is active starts a new one.
+                if (NetClientLoadGate.CurrentMode == NetMode.Host)
+                {
+                    bool isHub = NetSceneClassify.IsHubOrSafeZoneChapter(chapterName);
+                    if (isHub && NetRunStatsManager.RunActive)
+                    {
+                        var finalized = NetRunStatsManager.FinalizeAndSnapshot();
+                        NetRunStatsClientCache.ApplyLocalFinalize(finalized.RunSeq, finalized.Players);
+                        NetGameplaySyncBridge.BroadcastRunStatsFinalized(finalized);
+                    }
+                    else if (!isHub && !NetRunStatsManager.RunActive)
+                    {
+                        NetRunStatsManager.BeginRun();
+                    }
+                }
             }
             catch (Exception ex) { Log.Error($"[GM.SwitchLevelRoutine] {ex.Message}"); }
         }
@@ -560,6 +586,10 @@ namespace SULFURTogether.Patches
                 ReverseProbeSummary.IncrementDeath(category);
                 ReverseProbeKnownObjects.RegisterDeath(ID(__instance));
                 NetGameplayProbeManager.ReportDeath(__instance, "Unit.Die", category);
+                // RS-1: kill attribution — Breakables are tracked separately (destructibles destroyed), and a
+                // player's own death never reaches here (blocked above).
+                if (category != "Breakable" && category != "Player")
+                    NetRunStatsManager.RecordKill(NetRunStatsManager.EntityKey(__instance), RunStatsHostPeerId());
                 Log.Info($"[Unit] Die << {F(__instance)}");
             }
             catch (Exception ex) { Log.Error($"[Unit.Die] {ex.Message}"); }
@@ -1022,6 +1052,20 @@ namespace SULFURTogether.Patches
                 ReverseProbeSummary.IncrementDamage(category);
                 ReverseProbeKnownObjects.RegisterDamage(ID(__instance));
                 NetGameplayProbeManager.ReportDamage(__instance, "Unit.ReceiveDamage", category, damage, damageType);
+
+                // RS-1: the Host's own local player taking damage natively (no target proxy involved — that path
+                // above already handles remote players). Cache "before" HP here (prefix runs before the real
+                // deduction); the postfix reads "after" and reports the real post-mitigation delta.
+                // Deliberately keyed on IsLocalPlayerUnit (the canonical, broader player-identity check this file
+                // already relies on for downed/revive) rather than GetUnitCategory's narrower exact-type-name
+                // match, which can disagree with it for the same instance.
+                if (damage > 0f && NetConfig.GetMode() == NetMode.Host
+                    && NetPlayerLifeManager.IsLocalPlayerUnit(__instance)
+                    && NetGameplayProbeManager.TryReadBossUnitHealth(__instance, out float hostPlayerBeforeHp, out _))
+                {
+                    NetRunStatsManager.NoteHostOwnPlayerBeforeHp(hostPlayerBeforeHp);
+                }
+
                 if (Cfg.LogUnitReceiveDamage.Value)   // high-frequency per-hit line — separately gated so the functional patch can stay always-on
                     Log.Info($"[Unit] ReceiveDamage << {F(__instance)} dmg={damage} type={damageType}");
             }
@@ -1035,8 +1079,24 @@ namespace SULFURTogether.Patches
         {
             try
             {
-                if (GetUnitCategory(__instance) != "Npc") return;
-                NetGameplayProbeManager.ReportHostNpcHealthAfterDamage(__instance, damage);
+                string category = GetUnitCategory(__instance);
+                if (category == "Npc")
+                {
+                    NetGameplayProbeManager.ReportHostNpcHealthAfterDamage(__instance, damage);
+
+                    // RS-1: pairs with the "before" HP cached in Unit_ReceiveDamage_Pre for the Host's own local hits.
+                    if (NetConfig.GetMode() == NetMode.Host
+                        && NetGameplayProbeManager.TryReadBossUnitHealth(__instance, out float npcAfterHp, out _))
+                    {
+                        NetRunStatsManager.ResolvePendingLocalHit(NetRunStatsManager.EntityKey(__instance), npcAfterHp);
+                    }
+                }
+                else if (NetConfig.GetMode() == NetMode.Host
+                    && NetPlayerLifeManager.IsLocalPlayerUnit(__instance)
+                    && NetGameplayProbeManager.TryReadBossUnitHealth(__instance, out float playerAfterHp, out _))
+                {
+                    NetRunStatsManager.ResolveHostOwnPlayerDamageTaken(playerAfterHp);
+                }
             }
             catch (Exception ex) { Log.Error($"[Unit.ReceiveDamage.Post] {ex.Message}"); }
         }
@@ -1100,6 +1160,7 @@ namespace SULFURTogether.Patches
                 ReverseProbeSummary.IncrementDeath("Npc");
                 ReverseProbeKnownObjects.RegisterDeath(ID(__instance));
                 NetGameplayProbeManager.ReportDeath(__instance, "Npc.Die", "Npc");
+                NetRunStatsManager.RecordKill(NetRunStatsManager.EntityKey(__instance), RunStatsHostPeerId());
                 Log.Info($"[Npc] Die << {F(__instance)}");
             }
             catch (Exception ex) { Log.Error($"[Npc.Die] {ex.Message}"); }
@@ -1415,6 +1476,18 @@ namespace SULFURTogether.Patches
                 // Phase 5.2: damage event (amount only) sent here; health is read in
                 // Unit_ReceiveDamage_Post after the actual Stats deduction in Unit.ReceiveDamage.
                 NetGameplayProbeManager.ReportHostNpcDamageForSync(__instance, damage);
+
+                // RS-1: reaching this fallthrough (past all client-redirect / boss-claim checks above) on the HOST
+                // means this is the Host's own local hit on a regular enemy. Cache "before" HP (prefix runs before
+                // the real deduction) so Unit_ReceiveDamage_Post can report the actual delta once the hit is
+                // confirmed to have come from the Host's own player, not physics/environment.
+                if (damage > 0f && NetConfig.GetMode() == NetMode.Host
+                    && NetGameplayProbeManager.IsConfidentPlayerDamageSource(source)
+                    && NetGameplayProbeManager.TryReadBossUnitHealth(__instance, out float npcBeforeHp, out _))
+                {
+                    NetRunStatsManager.NotePendingLocalHit(NetRunStatsManager.EntityKey(__instance), RunStatsHostPeerId(), npcBeforeHp);
+                }
+
                 if (Cfg.LogUnitReceiveDamage.Value)   // high-frequency per-hit line — separately gated so the functional patch stays always-on
                     Log.Info($"[Npc] ReceiveDamage << {F(__instance)} dmg={damage} type={damageType}");
             }

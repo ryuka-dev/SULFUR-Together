@@ -221,6 +221,13 @@ namespace SULFURTogether.Networking.Gameplay
                 return;
             }
 
+            if (state.Kind == NetPlayerLifeStateKind.DamageTakenReport)
+            {
+                if (receivedOnHost)
+                    NetRunStatsManager.RecordDamageTaken(state.SourcePeerId, state.DamageAmount);
+                return;
+            }
+
             string peerId = string.IsNullOrWhiteSpace(state.SourcePeerId) ? state.TargetPeerId : state.SourcePeerId;
             if (!string.IsNullOrWhiteSpace(peerId))
                 MarkPeerState(peerId, state, state.Kind);
@@ -483,6 +490,14 @@ namespace SULFURTogether.Networking.Gameplay
             _activeReviveHoldStartedAt = 0f;
             _activeReviveRequestSent = false;
 
+            // RS-1: this may be the Host's own native lethal hit being intercepted here (Unit.Die called from
+            // inside the still-executing Unit.ReceiveDamage). StabilizeDownedLocalPlayer below heals the unit
+            // back up before ReceiveDamage's postfix ever reads "after HP", so resolve the pending damage-taken
+            // now, using the pre-hit HP, before that healed value can mask it. No-op on a Client (that path
+            // reports its own damage-taken explicitly via ReportActualDamageTakenToHost).
+            if (NetConfig.GetMode() == NetMode.Host)
+                NetRunStatsManager.ResolveHostOwnPlayerDowned();
+
             StabilizeDownedLocalPlayer("enter downed");
             PublishLocalLifeState(NetPlayerLifeStateKind.Downed, "", source);
             MarkLocalState(NetPlayerLifeStateKind.Downed, source);
@@ -601,6 +616,7 @@ namespace SULFURTogether.Networking.Gameplay
             var accepted = BuildHostState(NetPlayerLifeStateKind.ReviveAccepted, targetPeerId, $"revived by {sourcePeerId}");
             MarkPeerAlive(targetPeerId, accepted);
             NetGameplaySyncBridge.ReportHostPlayerLifeStateToAll(accepted);
+            NetRunStatsManager.RecordRescue(sourcePeerId);
 
             if (targetPeerId == GetLocalPeerId())
                 ReviveLocalPlayer($"revived by {sourcePeerId}");
@@ -830,6 +846,10 @@ namespace SULFURTogether.Networking.Gameplay
                 return;
             }
 
+            // RS-1: only the Client can read its own real pre/post-mitigation HP — cache "before" so each success
+            // path below can report the actual delta back to the Host's run-stats tracker.
+            float beforeHp = GetUnitCurrentHealth(unit);
+
             // Preferred: apply through the real Unit.ReceiveDamage so the player gets native hit feedback (flash/shake/
             // sound/blood) + armor + the existing Unit.Die->downed interception. HostDamageApplyDepth bypasses the
             // client native-enemy-damage suppression. Needs a hostile IDamager source so it isn't friendly-fire-blocked.
@@ -856,7 +876,11 @@ namespace SULFURTogether.Networking.Gameplay
                 }
                 catch (Exception ex) { NetLogger.Warn($"[EnemyDamageAuthority] ReceiveDamage path failed: {ex.GetType().Name}: {ex.Message}"); }
                 finally { if (HostDamageApplyDepth > 0) HostDamageApplyDepth--; }
-                if (ok) return; // native path handled health + feedback + death/downed
+                if (ok)
+                {
+                    ReportActualDamageTakenToHost(beforeHp - GetUnitCurrentHealth(unit));
+                    return; // native path handled health + feedback + death/downed
+                }
                 // else fall through to the raw health-write path below.
             }
 
@@ -871,11 +895,13 @@ namespace SULFURTogether.Networking.Gameplay
             if (next <= 0f)
             {
                 try { HostDamageApplyDepth++; SetUnitCurrentHealth(unit, 0f); } finally { if (HostDamageApplyDepth > 0) HostDamageApplyDepth--; }
+                ReportActualDamageTakenToHost(beforeHp);
                 EnterLocalDownedState(unit, "host enemy damage/" + state.Reason);
                 return;
             }
 
             try { HostDamageApplyDepth++; SetUnitCurrentHealth(unit, next); } finally { if (HostDamageApplyDepth > 0) HostDamageApplyDepth--; }
+            ReportActualDamageTakenToHost(beforeHp - next);
             // Diag: does the write stick immediately? (client HP keeps re-reading 100 → write not persisting / reset).
             if (Plugin.Cfg.LogEnemyHostDamageAuthority.Value)
             {
@@ -901,6 +927,18 @@ namespace SULFURTogether.Networking.Gameplay
                 }
             }
             TryInvokeHostDamageFeedback(unit, damage);
+        }
+
+        // RS-1: report the real, post-mitigation damage this Client's own player just took, so the Host's run-stats
+        // tracker (the only place that decides final displayed content) gets an accurate number — the Host cannot
+        // compute this itself, since the actual HP deduction only ever happens on this Client's own machine.
+        private static void ReportActualDamageTakenToHost(float actualAmount)
+        {
+            if (actualAmount <= 0f) return;
+            if (NetConfig.GetMode() != NetMode.Client) return;
+            var state = BuildLocalState(NetPlayerLifeStateKind.DamageTakenReport, "", "actual damage taken");
+            state.DamageAmount = actualAmount;
+            NetGameplaySyncBridge.ReportPlayerLifeState(state);
         }
 
         private static void TryInvokeHostDamageFeedback(object unit, float damage)
@@ -1090,8 +1128,13 @@ namespace SULFURTogether.Networking.Gameplay
         {
             if (string.IsNullOrWhiteSpace(peerId)) return;
             var peer = GetOrCreatePeer(peerId);
+            var previousKind = peer.Kind;
             peer.Kind = kind;
             peer.PlayerName = state.PlayerName;
+            // RS-1: count a downed transition once, on the edge into Downed — not on every periodic Alive/position
+            // refresh that also flows through this shared apply point.
+            if (kind == NetPlayerLifeStateKind.Downed && previousKind != NetPlayerLifeStateKind.Downed)
+                NetRunStatsManager.RecordDowned(peerId);
             peer.Sequence = Math.Max(peer.Sequence, state.Sequence);
             peer.LastUpdatedAt = Time.realtimeSinceStartup;
             if (state.HasPosition)

@@ -309,5 +309,13 @@ namespace SULFURTogether.Networking
         // EMP-6b discrete mechanic + death (host→clients, Reliable): eventCode + seq. Codes: 1=Defend (invuln window),
         // 2=RapidFire (rocket launcher), 3=Death (OnNpcDeath walk-to-death begins). Client replays the native method.
         HostEmperorSpiderEvent = 67,
+
+        // RS-1/RS-2: end-of-Run player statistics cards (Host→Clients, ReliableOrdered, one-shot per Run). The Host
+        // tracks all 7 per-player stats live throughout the Run (see NetRunStatsManager) and finalizes/broadcasts
+        // this the instant its authoritative transition target is the safe hub (NetSceneClassify.IsHubOrSafeZone*).
+        // Payload: ordered player list (by session Slot) + a monotonic RunSeq so a client can ignore a stale/duplicate
+        // resend. Clients never send their own numbers back for this — see NetPlayerLifeStateKind.DamageTakenReport
+        // for the one input the Host cannot compute itself.
+        RunStatsFinalized = 68,
     }
 }

@@ -10,6 +10,11 @@ namespace SULFURTogether.Networking.Gameplay
         ReviveAccepted = 3,
         NativeDeathCommit = 4,
         HostDamageRequest = 5,
+        // RS-1: Client→Host, "I actually took N post-mitigation damage." Only the Client can compute this number for
+        // itself (it applies the Host-forwarded HostDamageRequest via the real ReceiveDamage locally); the Host cannot
+        // observe it any other way. DamageAmount carries the real before/after HP delta. Reuses this existing
+        // channel/DTO rather than adding a new NetMessageType — same identity fields, one more Kind.
+        DamageTakenReport = 6,
     }
 
     internal sealed class NetPlayerLifeState

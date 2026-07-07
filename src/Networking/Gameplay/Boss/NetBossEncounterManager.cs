@@ -3366,9 +3366,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 bool ok = adapter.TryApplyHostBossHit(component, req.TargetRole, target, req.Damage, req.DamageTypeInt, source, out bool vanilla, out string detail);
                 NetGameplayProbeManager.TryReadBossUnitHealth(target, out float after, out _);
                 string mainHp = "";
+                float mainAfter = 0f;
                 if (sepHealth)
                 {
-                    NetGameplayProbeManager.TryReadBossUnitHealth(healthUnit, out float mainAfter, out _);
+                    NetGameplayProbeManager.TryReadBossUnitHealth(healthUnit, out mainAfter, out _);
                     mainHp = $" mainHp={mainBefore:0}->{mainAfter:0}/{mainMax:0}";
                 }
 
@@ -3377,6 +3378,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 {
                     BossHitHostApplied++;
                     Plugin.Log.Info($"[BossDamage] host APPLY hit from {peerId} key={req.EncounterKey} role={req.TargetRole} dmg={req.Damage:0.0} hp={before:0}->{after:0}/{maxHp:0} result=true {diag}");
+
+                    // RS-1: attribute the boss's real HP loss (main health when the hit target forwards to a
+                    // separate health unit, e.g. Witch phase→main) to this peer for damage-dealt + kill attribution.
+                    float dealtDelta = sepHealth ? (mainBefore - mainAfter) : (before - after);
+                    object dealtTarget = sepHealth ? healthUnit! : target;
+                    NetRunStatsManager.RecordDamageDealtDelta(peerId, NetRunStatsManager.EntityKey(dealtTarget), dealtDelta);
+
                     // F2 feedback: tell clients to play the local hit visual (throttled; visual only).
                     bool sendVisual;
                     lock (_lock)
