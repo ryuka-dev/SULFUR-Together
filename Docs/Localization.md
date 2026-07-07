@@ -65,6 +65,8 @@ cover our strings.
 | 18 | `Your LAN address: {ip}:{port}  (others on your network join with this)` | `CoopConnectPage.ApplyHostLanIp` (UI-3d) | Shown only while hosting; `{ip}` from `NetLocalAddress`, `{port}` from config. The Steam-name auto-seed (UI-3d) inserts the player's own persona name into the existing "Player name" field — player data, not a translatable literal, so no row of its own. |
 | 19 | title `Sandstorm Arena` / msg `Pulled into the arena — the sandstorm outside would grind you down.` | `ArenaLockdownManager.cs` (LD-Sandstorm `PullIn` toast) | Desert boss: fired when an out-of-arena player is teleported to the arena centre ~3 s after the dialog trigger (gate-less arena; the sandstorm ring is the wall). |
 
+| 20 | Run Stats card (RS-2): 7 stat row labels `Shots Fired` / `Damage Dealt` / `Kills` / `Times Downed` / `Rescues` / `Damage Taken` / `Destructibles Destroyed`; name-row suffix `{name} (You)` for the local player's own card; placeholder `…` shown before the finalized broadcast has arrived | `RunStatsCardView.cs` | End-of-Run card overlay shown over the Hub-return loading screen. Player names themselves are user data, not translatable literals. |
+
 ### Planned, not yet written (register here when added)
 
 - _(none at present)_
