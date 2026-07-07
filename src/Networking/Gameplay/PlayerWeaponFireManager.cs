@@ -214,6 +214,7 @@ namespace SULFURTogether.Networking.Gameplay
                 ray.barrelPosition       = o;
                 ray.startTime   = Time.time;
                 ray.ownerInstID = VisualOwnerInstId;
+                ApplyNativeCaliberPresentation(ref ray, caliber);
                 // damageComps intentionally EMPTY → zero damage (host-authoritative damage arrives via the ghost forward).
 
                 ProjectileData data = new ProjectileData
@@ -227,6 +228,21 @@ namespace SULFURTogether.Networking.Gameplay
                 return true;
             }
             catch (Exception ex) { NetLogger.Warn($"[PlayerWeaponFire] FireVisualStraight failed: {ex.Message}"); return false; }
+        }
+
+        /// <summary>Laser-caliber projectiles are drawn as a laser BEAM, not the default bullet quad — a
+        /// `drawDefaultBullet` ray with zero beam widths renders as nothing. Replicate the native `Weapon.Shoot`
+        /// laser branch (flags + widths + default colors; per-weapon custom colors are not carried and fall back to
+        /// the native default red).</summary>
+        internal static void ApplyNativeCaliberPresentation(ref ProjectileRay ray, int caliber)
+        {
+            if ((CaliberTypes)caliber != CaliberTypes.Laser) return;
+            ray.drawDefaultBullet = false;
+            ray.drawLaserBeam     = true;
+            if (ray.innerWidth <= 0f) ray.innerWidth = 0.375f;
+            if (ray.outerWidth <= 0f) ray.outerWidth = 0.75f;
+            ray.color     = new float3(0.686f, 0.298f, 0.29f);
+            ray.coreColor = new float3(0.812f, 0.58f, 0.573f);
         }
 
         private static ProjectileRay BuildRay(NetPlayerWeaponFire m, Vector3 origin, Vector3 dir, float speed)

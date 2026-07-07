@@ -239,8 +239,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     }
                     break;
                 }
+                // The queue can far exceed projectileMaxCollect (each absorb enqueues 3; the absorb feed batches) —
+                // cap generously so the client's replay runs about as long as the real volley (Log367: 471 entries).
                 string ev = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "TerrorVolley:{0}:{1:F2}:{2:F1}:{3}:{4}:{5}:{6}:{7}", Mathf.Min(queue.Count, 150), delay, speed, ty, cal, eff, vfx, dmg);
+                    "TerrorVolley:{0}:{1:F2}:{2:F1}:{3}:{4}:{5}:{6}:{7}", Mathf.Min(queue.Count, 600), delay, speed, ty, cal, eff, vfx, dmg);
                 NetBossEncounterManager.OnHostTerrorStateEvent(helper, ev, false, default);
             }
             catch { }
@@ -346,6 +348,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 ray.createBulletHoles = true;
                 ray.shotOrLastBounceFrom = o;
                 ray.barrelPosition       = o;
+                // Laser calibers render as a BEAM, not the default bullet quad — without this the re-fired laser
+                // pellets are invisible on every end (Log367).
+                PlayerWeaponFireManager.ApplyNativeCaliberPresentation(ref ray, caliber);
                 // Unlike the WS visual replicas this desc keeps its damage: the tree RE-FIRES it at players, and those
                 // shots are host-authoritative real projectiles (ghost proxies forward the damage) like any host bullet.
                 ray.damageComps.Add(new ProjectileDamage(damage, (DamageTypes)dtype));
