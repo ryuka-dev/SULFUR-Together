@@ -24,6 +24,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
         private static readonly List<RunStatsCardView> _cards = new List<RunStatsCardView>();
         private static readonly List<RunStatsCardHoverAnimator> _hoverAnimators = new List<RunStatsCardHoverAnimator>();
         private static IReadOnlyList<NetRunStats>? _boundList;
+        private static int _boundSimVersion = -1;
         private static bool _shownLastTick;
 
         public static void Tick()
@@ -41,6 +42,19 @@ namespace SULFURTogether.UI.RunStatsOverlay
             {
                 WarnOnce($"lifecycle failed: {ex.GetType().Name}: {ex.Message}");
                 return;
+            }
+
+            // RS-5 dev-only injector: polled during the whole Run (not just while the cards are shown), so a
+            // developer can press End mid-run and see the simulated players at the next hub return — or press
+            // it over the live cards and watch one appear immediately. Its own failure domain, same as
+            // interaction: a broken dev tool must never touch the lifecycle.
+            try
+            {
+                if (IsInGameScene()) RunStatsDevInjector.Poll();
+            }
+            catch (System.Exception ex)
+            {
+                WarnOnce($"dev injector failed: {ex.GetType().Name}: {ex.Message}");
             }
 
             if (!shouldShow) return;
@@ -180,9 +194,23 @@ namespace SULFURTogether.UI.RunStatsOverlay
         private static void RefreshIfChanged()
         {
             var list = NetRunStatsClientCache.LastFinalized;
-            if (ReferenceEquals(list, _boundList)) return;
+            int simVersion = RunStatsDevInjector.Version;
+            if (ReferenceEquals(list, _boundList) && simVersion == _boundSimVersion) return;
             _boundList = list;
-            RebuildCards(list);
+            _boundSimVersion = simVersion;
+            RebuildCards(ComposeDisplayList(list));
+        }
+
+        /// <summary>The list the cards are actually built from: the real finalized broadcast, with any RS-5
+        /// simulated players appended after it (display-only — the network/authority side never sees them).</summary>
+        private static IReadOnlyList<NetRunStats>? ComposeDisplayList(IReadOnlyList<NetRunStats>? real)
+        {
+            var simulated = RunStatsDevInjector.Simulated;
+            if (simulated.Count == 0) return real;
+            var combined = new List<NetRunStats>();
+            if (real != null) combined.AddRange(real);
+            combined.AddRange(simulated);
+            return combined;
         }
 
         private static void RebuildCards(IReadOnlyList<NetRunStats>? list)
@@ -248,7 +276,9 @@ namespace SULFURTogether.UI.RunStatsOverlay
             if (_root != null) _root.SetActive(false);
             RunStatsCursorControl.Release();
             NetRunStatsClientCache.ConsumeAndClear();
+            RunStatsDevInjector.Clear();
             _boundList = null;
+            _boundSimVersion = -1;
         }
 
         /// <summary>Samples the font off any currently active native TextMeshProUGUI — the same trick the SULFUR
