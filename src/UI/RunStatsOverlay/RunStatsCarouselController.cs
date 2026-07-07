@@ -51,11 +51,12 @@ namespace SULFURTogether.UI.RunStatsOverlay
 
         private float TargetX()
         {
+            float spacing = RunStatsCanvasBuilder.ActiveCardSpacing;
             float rowWidth = _cardCount * RunStatsCanvasBuilder.CardWidth
-                             + Mathf.Max(0, _cardCount - 1) * RunStatsCanvasBuilder.CardSpacing;
+                             + Mathf.Max(0, _cardCount - 1) * spacing;
             // Fits → center the row; overflows → small left pad so the first card sits flush with a peek margin.
             float basePad = Mathf.Max(OverflowLeftPad, (RunStatsCanvasBuilder.ViewportWidth - rowWidth) * 0.5f);
-            return basePad - _focusIndex * RunStatsCanvasBuilder.CardPitch;
+            return basePad - _focusIndex * (RunStatsCanvasBuilder.CardWidth + spacing);
         }
 
         private void Apply()

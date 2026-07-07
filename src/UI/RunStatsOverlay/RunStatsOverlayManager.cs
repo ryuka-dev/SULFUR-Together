@@ -194,6 +194,8 @@ namespace SULFURTogether.UI.RunStatsOverlay
             _hoverAnimators.Clear();
             if (_track == null) return;
 
+            ApplyResponsiveSpacing();
+
             // Re-resolved per Run (not cached for the process lifetime) so a language change since the last
             // Run is picked up, and every card in this batch shares one consistent font.
             var font = ResolveNativeFont();
@@ -226,6 +228,19 @@ namespace SULFURTogether.UI.RunStatsOverlay
             UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(_track);
             foreach (var card in _cards)
                 _hoverAnimators.Add(new RunStatsCardHoverAnimator(card));
+        }
+
+        /// <summary>Card gap, responsive to the window's aspect ratio: roomy (44px reference units) on normal
+        /// 16:9-and-wider screens, tightening down to 26px as the window approaches square — a hard-coded wide
+        /// gap would squeeze a narrow window's row. Recomputed per rebuild (window may have been resized between
+        /// Runs) and BEFORE the layout pass, so the hover animators' captured baselines already include it.</summary>
+        private static void ApplyResponsiveSpacing()
+        {
+            float aspect = Screen.height > 0 ? (float)Screen.width / Screen.height : 16f / 9f;
+            float spacing = Mathf.Lerp(26f, 44f, Mathf.InverseLerp(1.25f, 1.7f, aspect));
+            RunStatsCanvasBuilder.ActiveCardSpacing = spacing;
+            var layout = _track != null ? _track.GetComponent<UnityEngine.UI.HorizontalLayoutGroup>() : null;
+            if (layout != null) layout.spacing = spacing;
         }
 
         private static void HideAndClear()

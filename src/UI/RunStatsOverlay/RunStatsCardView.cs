@@ -14,8 +14,8 @@ namespace SULFURTogether.UI.RunStatsOverlay
     ///
     /// Layer stack (bottom to top): drop shadow (vertex effect, counter-moves on hover) → charcoal body +
     /// border Outline (+ gold glow Outline on the own card) → inner warm panel (static, breaks the flatness) →
-    /// ember highlight strip (drifts toward the cursor on hover) → name/stat text. The highlight and inner
-    /// panel are <c>ignoreLayout</c> children so the VerticalLayoutGroup never repositions them.
+    /// title band behind the name row (warms up on hover) → name/stat text. The band and inner panel are
+    /// <c>ignoreLayout</c> children so the VerticalLayoutGroup never repositions them.
     ///
     /// The whole card is one VerticalLayoutGroup + ContentSizeFitter (height only) so its height is always
     /// exactly the content's real height — the 7 rows can never spill outside the background.
@@ -42,14 +42,18 @@ namespace SULFURTogether.UI.RunStatsOverlay
         private static readonly Color LocalBorder   = new Color(0.99f, 0.72f, 0.18f, 1f);    // sulfur gold
         private static readonly Color LocalGlow     = new Color(1f, 0.55f, 0.15f, 0.30f);    // restrained ember halo
         private static readonly Color DropShadow    = new Color(0f, 0f, 0f, 0.55f);
-        private static readonly Color EmberHighlight = new Color(1f, 0.50f, 0.20f, 1f);      // alpha driven by animator
+        private static readonly Color TitleBandColor = new Color(1f, 0.50f, 0.20f, 1f);      // alpha driven by animator
         private static readonly Color LabelColor    = new Color(0.84f, 0.81f, 0.76f, 1f);    // warm light grey
         private static readonly Color ValueColor    = new Color(0.99f, 0.97f, 0.94f, 1f);
         private static readonly Color NameColor     = Color.white;
         private static readonly Color LocalNameColor = new Color(1f, 0.80f, 0.28f, 1f);
 
-        public const float RestHighlightAlpha = 0.05f;
-        public const float HotHighlightAlpha = 0.11f;
+        public const float RestHighlightAlpha = 0.10f;
+        public const float HotHighlightAlpha = 0.16f;
+
+        // Title band: header strip behind the player-name row (top padding + name row height), a deliberate
+        // part of the card body design — not a free-floating "highlight slab" cut off mid-card.
+        private const float TitleBandHeight = 62f;
 
         private readonly GameObject _root;
         private readonly RectTransform _rect;
@@ -59,7 +63,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
         private readonly Outline _glow;
 
         private RunStatsCardView(GameObject root, TextMeshProUGUI nameText, TextMeshProUGUI[] valueTexts,
-            Outline border, Outline glow, Shadow shadow, RectTransform highlightRect, Image highlightImage)
+            Outline border, Outline glow, Shadow shadow, RectTransform titleBandRect, Image titleBandImage)
         {
             _root = root;
             _rect = (RectTransform)root.transform;
@@ -68,15 +72,15 @@ namespace SULFURTogether.UI.RunStatsOverlay
             _border = border;
             _glow = glow;
             ShadowFx = shadow;
-            HighlightRect = highlightRect;
-            HighlightImage = highlightImage;
+            TitleBandRect = titleBandRect;
+            TitleBandImage = titleBandImage;
         }
 
         public GameObject Root => _root;
         public RectTransform Rect => _rect;
         public Shadow ShadowFx { get; }
-        public RectTransform HighlightRect { get; }
-        public Image HighlightImage { get; }
+        public RectTransform TitleBandRect { get; }
+        public Image TitleBandImage { get; }
 
         public static RunStatsCardView Create(Transform parent, TMP_FontAsset? font)
         {
@@ -136,12 +140,15 @@ namespace SULFURTogether.UI.RunStatsOverlay
             inner.rect.offsetMin = new Vector2(5f, 5f);
             inner.rect.offsetMax = new Vector2(-5f, -5f);
 
-            var highlight = CreateDecoration(root.transform, "EmberHighlight",
-                new Color(EmberHighlight.r, EmberHighlight.g, EmberHighlight.b, RestHighlightAlpha));
-            highlight.rect.anchorMin = new Vector2(0f, 0.55f);
-            highlight.rect.anchorMax = new Vector2(1f, 1f);
-            highlight.rect.offsetMin = new Vector2(7f, 0f);
-            highlight.rect.offsetMax = new Vector2(-7f, -7f);
+            // Header band behind the name row — anchored to the card's top with a fixed height matching the
+            // name area, so it reads as the card's title plate (it warms up slightly under the cursor).
+            var titleBand = CreateDecoration(root.transform, "TitleBand",
+                new Color(TitleBandColor.r, TitleBandColor.g, TitleBandColor.b, RestHighlightAlpha));
+            titleBand.rect.anchorMin = new Vector2(0f, 1f);
+            titleBand.rect.anchorMax = new Vector2(1f, 1f);
+            titleBand.rect.pivot = new Vector2(0.5f, 1f);
+            titleBand.rect.offsetMin = new Vector2(5f, -TitleBandHeight);
+            titleBand.rect.offsetMax = new Vector2(-5f, -5f);
 
             // -- text content (layout children) --
 
@@ -175,7 +182,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
                 valueTexts[i] = valueText;
             }
 
-            return new RunStatsCardView(root, nameText, valueTexts, border, glow, shadow, highlight.rect, highlight.image);
+            return new RunStatsCardView(root, nameText, valueTexts, border, glow, shadow, titleBand.rect, titleBand.image);
         }
 
         private static (RectTransform rect, Image image) CreateDecoration(Transform parent, string name, Color color)

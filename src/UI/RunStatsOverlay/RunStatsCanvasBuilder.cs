@@ -19,13 +19,21 @@ namespace SULFURTogether.UI.RunStatsOverlay
     internal static class RunStatsCanvasBuilder
     {
         public const float CardWidth = 340f;
-        public const float CardSpacing = 28f;
-        public const float CardPitch = CardWidth + CardSpacing;
         public const float ViewportWidth = 1600f; // ~4 full cards + slivers of the neighbors either side
 
-        // Reference-resolution units (1920x1080). Comfortably clears the native bottom-of-screen loading prompt.
-        private const float BottomSafeMarginPx = 190f;
-        private const float ViewportHeightPx = 560f; // generous headroom — only horizontal clipping is wanted
+        /// <summary>Card gap actually in effect — responsive: roomier on normal/wide screens, tightened on
+        /// narrow windows so the row never gets squeezed off. Written by RunStatsOverlayManager right before
+        /// each rebuild; the carousel controller's pitch math reads it back.</summary>
+        public static float ActiveCardSpacing = 44f;
+
+        // Reference-resolution units (1920x1080).
+        // The viewport (card group) is vertically CENTERED with a slight upward bias: the native loading
+        // screen's "press ... to continue" prompt lives at the bottom of the screen, so the bias keeps the
+        // row's bottom edge well clear of it at every aspect ratio (the scaler is height-matched, so these
+        // reference offsets track the window height).
+        private const float VerticalCenterBiasPx = 60f;
+        private const float ViewportHeightPx = 560f; // ~200px taller than a card: hover lift/scale/lean must
+                                                     // never reach the RectMask2D's top/bottom edges
 
         public static GameObject BuildRoot(out RectTransform viewport, out RectTransform track)
         {
@@ -47,23 +55,26 @@ namespace SULFURTogether.UI.RunStatsOverlay
             var viewportGo = new GameObject("Viewport", typeof(RectTransform), typeof(RectMask2D));
             viewportGo.transform.SetParent(root.transform, false);
             var viewportRect = (RectTransform)viewportGo.transform;
-            viewportRect.anchorMin = new Vector2(0.5f, 0f);
-            viewportRect.anchorMax = new Vector2(0.5f, 0f);
-            viewportRect.pivot = new Vector2(0.5f, 0f);
-            viewportRect.anchoredPosition = new Vector2(0f, BottomSafeMarginPx);
+            viewportRect.anchorMin = new Vector2(0.5f, 0.5f);
+            viewportRect.anchorMax = new Vector2(0.5f, 0.5f);
+            viewportRect.pivot = new Vector2(0.5f, 0.5f);
+            viewportRect.anchoredPosition = new Vector2(0f, VerticalCenterBiasPx);
             viewportRect.sizeDelta = new Vector2(ViewportWidth, ViewportHeightPx);
 
+            // Track is vertically CENTERED inside the viewport (not bottom-flush): the ~100px of mask slack
+            // above AND below the cards is what lets a hovered card tilt/scale/lift without ever crossing the
+            // RectMask2D edge and getting its corners shaved off.
             var trackGo = new GameObject("Track", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(ContentSizeFitter));
             trackGo.transform.SetParent(viewportGo.transform, false);
             var trackRect = (RectTransform)trackGo.transform;
-            trackRect.anchorMin = new Vector2(0f, 0f);
-            trackRect.anchorMax = new Vector2(0f, 0f);
-            trackRect.pivot = new Vector2(0f, 0f);
+            trackRect.anchorMin = new Vector2(0f, 0.5f);
+            trackRect.anchorMax = new Vector2(0f, 0.5f);
+            trackRect.pivot = new Vector2(0f, 0.5f);
             trackRect.anchoredPosition = Vector2.zero; // X owned by RunStatsCarouselController
 
             var layout = trackGo.GetComponent<HorizontalLayoutGroup>();
-            layout.childAlignment = TextAnchor.LowerLeft; // bottom-align every card to one common baseline
-            layout.spacing = CardSpacing;
+            layout.childAlignment = TextAnchor.MiddleLeft;
+            layout.spacing = ActiveCardSpacing;
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = false;
             layout.childControlWidth = false;

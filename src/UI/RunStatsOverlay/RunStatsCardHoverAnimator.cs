@@ -15,7 +15,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
     ///              as it nears top/bottom (what a perspective tilt WOULD have looked like)
     ///   lift     — a few px toward the cursor + upward, plus ~5% scale (picked up off the table)
     ///   shadow   — the drop shadow slides OPPOSITE the cursor (depth cue: light source at the cursor)
-    ///   ember    — the warm highlight strip drifts WITH the cursor and brightens (firelight passing over)
+    ///   ember    — the title band behind the name warms up (firelight catching the plate; position static)
     ///
     /// Everything moves on the shared under-damped spring, so the card trails the cursor slightly, and on
     /// release settles back with one soft overshoot — never a snap. All motion is deltas around the layout's
@@ -30,12 +30,10 @@ namespace SULFURTogether.UI.RunStatsOverlay
         private const float SlideTowardCursor = 5f;  // px
         private const float LiftUp = 8f;             // px
         private const float ShadowCounterSlide = 4f; // px
-        private const float HighlightSlide = 7f;     // px
 
         private readonly RectTransform _rect;
         private readonly Shadow _shadow;
-        private readonly RectTransform _highlightRect;
-        private readonly Image _highlightImage;
+        private readonly Image _titleBandImage;
 
         private readonly Vector2 _baselinePos;       // layout-assigned; animation is deltas around this
         private readonly Vector2 _shadowBaseDistance;
@@ -49,8 +47,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
         {
             _rect = card.Rect;
             _shadow = card.ShadowFx;
-            _highlightRect = card.HighlightRect;
-            _highlightImage = card.HighlightImage;
+            _titleBandImage = card.TitleBandImage;
             _baselinePos = _rect.anchoredPosition;
             _shadowBaseDistance = _shadow.effectDistance;
             _restScale = _rect.localScale;
@@ -94,13 +91,12 @@ namespace SULFURTogether.UI.RunStatsOverlay
             _rect.anchoredPosition = _baselinePos
                 + new Vector2(aimX * SlideTowardCursor, aimY * SlideTowardCursor + LiftUp * hot);
 
-            // Depth cues: shadow slips away from the cursor, the ember highlight drifts with it and brightens.
+            // Depth cues: shadow slips away from the cursor; the title band warms up while held.
             _shadow.effectDistance = _shadowBaseDistance
                 + new Vector2(-aimX * ShadowCounterSlide, -aimY * ShadowCounterSlide);
-            _highlightRect.anchoredPosition = new Vector2(aimX * HighlightSlide, aimY * HighlightSlide);
-            var hl = _highlightImage.color;
-            hl.a = Mathf.Lerp(RunStatsCardView.RestHighlightAlpha, RunStatsCardView.HotHighlightAlpha, hot);
-            _highlightImage.color = hl;
+            var band = _titleBandImage.color;
+            band.a = Mathf.Lerp(RunStatsCardView.RestHighlightAlpha, RunStatsCardView.HotHighlightAlpha, hot);
+            _titleBandImage.color = band;
         }
     }
 }
