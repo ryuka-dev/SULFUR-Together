@@ -52,6 +52,9 @@ namespace SULFURTogether.UI
         private static TMP_InputField     _steamIdInputField;
         private static string             _autoFilledSteamId; // guards the pending-invite auto-fill to once per invite
 
+        // FF-1: read-only session friendly-fire line (visible only while connected as a client).
+        private static SulfurTextHandle   _ffSessionHandle;
+
         // Draft field values, reloaded from config on every page build and pushed to config on Save/Create/Join.
         private static string _draftName;
         private static string _draftAddress;
@@ -109,6 +112,7 @@ namespace SULFURTogether.UI
                 ApplyJoinFeedback();
                 ApplyHostLanIp();
                 ApplySteamState();
+                ApplySessionFriendlyFireLine();
                 RefreshPlayerList();
                 PollJoinClose();
             }
@@ -198,11 +202,20 @@ namespace SULFURTogether.UI
             ctx.AddReadonlyText("Rescue key", KeyText(() => Plugin.Cfg.PlayerReviveHoldKey.Value.ToString()));
             ctx.AddReadonlyText("Confirm-enter-boss-room key", KeyText(() => Plugin.Cfg.ArenaEnterConfirmKey.Value.ToString()));
 
-            // --- Session settings (host-authoritative; all deferred §7) ---------------------------------
+            // --- Session settings (host-authoritative; rest deferred §7) --------------------------------
             ctx.AddSection("Session settings (host)");
             ctx.AddReadonlyText("Loot mode", "Independent (Shared coming soon)");
             ctx.AddReadonlyText("Client may start next level", "Coming soon");
-            ctx.AddReadonlyText("Friendly fire", "Coming soon");
+            // FF-1: the toggle edits this machine's own setting (= the session setting when it hosts). On a client
+            // it is only a preference for its own future rooms — the live session value is the host's, shown on the
+            // read-only line below (updated in Tick, visible only while connected as a client).
+            ctx.AddToggle(
+                "Friendly fire",
+                "Players can damage each other. The host's setting applies to the whole session.",
+                ReadBool(() => Plugin.Cfg.FriendlyFire.Value, false),
+                OnFriendlyFireToggled);
+            _ffSessionHandle = ctx.AddTextRow("");
+            _ffSessionHandle.SetVisible(false);
 
             // --- About ----------------------------------------------------------------------------------
             ctx.AddSection("About");
@@ -220,6 +233,7 @@ namespace SULFURTogether.UI
             ApplyJoinFeedback();
             ApplyHostLanIp();
             ApplySteamState();
+            ApplySessionFriendlyFireLine();
             RefreshPlayerList();
         }
 
@@ -557,6 +571,36 @@ namespace SULFURTogether.UI
             _steamJoinHandle          = null;
             _steamPendingInviteHandle = null;
             _steamIdInputField        = null;
+            _ffSessionHandle          = null;
+        }
+
+        // FF-1: persist the toggle (coop.json, via Setting<T>) and, when currently hosting, broadcast the new
+        // session value immediately so connected clients' gates and hit proxies react without a rejoin.
+        private static void OnFriendlyFireToggled(bool value)
+        {
+            try { Plugin.Cfg.FriendlyFire.Value = value; } catch { }
+            try
+            {
+                if (CoopConnection.CurrentMode == NetMode.Host)
+                    CoopConnection.Service?.BroadcastSessionSettings("ui-toggle");
+            }
+            catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] friendly-fire broadcast failed: {e.Message}"); }
+        }
+
+        // FF-1: the read-only "session friendly fire" line — meaningful only while connected as a client.
+        private static void ApplySessionFriendlyFireLine()
+        {
+            if (_ffSessionHandle == null) return;
+            if (CoopConnection.CurrentMode == NetMode.Client)
+            {
+                _ffSessionHandle.SetText($"Session friendly fire: {(NetSessionSettings.FriendlyFireEnabled ? "ON" : "OFF")} (set by host)");
+                _ffSessionHandle.SetColor(NeutralColor);
+                _ffSessionHandle.SetVisible(true);
+            }
+            else
+            {
+                _ffSessionHandle.SetVisible(false);
+            }
         }
 
         private static SulfurButtonHandle Handle(IReadOnlyList<SulfurButtonHandle> handles, int index)

@@ -213,8 +213,13 @@ under the same LiteNetLib socket, not a rewrite).
   Needs a refreshable list (§8).
 - **Loot mode** `[ Independent ▼ ]` — Independent works today; **Shared is deferred** (§7).
 - **Client may initiate the next level** — toggle (deferred gating, §7).
-- **Friendly fire** — toggle (deferred, §7).
-- Showing these on a client read-only requires a **host→client session-settings broadcast** (new, §7).
+- **Friendly fire** — **implemented (FF-1)**: a live toggle (default OFF) backed by a real player-vs-player damage
+  path in both directions. The host's value is the session truth, broadcast via the new `SessionSettings` message
+  (on toggle + per handshake); a client sees the live session value on a read-only line under the toggle (its own
+  toggle only sets the default for rooms it hosts later). Implementing it also removed the unintended
+  always-on host→client player damage (a side effect of the enemy-damage-authority forwarding).
+- Showing the remaining rows on a client read-only requires extending the session-settings broadcast (§7) —
+  the message exists now (FF-1), carrying just the friendly-fire flag.
 
 ### Room control
 - **[ Close co-op world ]** — soft: the host stops sharing the world / leading, **socket stays up, players
@@ -252,13 +257,13 @@ Tracked here so the design isn't lost; **do not implement until scheduled**.
 
 - **Shared loot mode** — only Independent loot exists (Phase 6 is partial). The loot-mode dropdown ships with
   Independent live and Shared as a disabled "coming soon" option until shared-loot sync lands.
-- **Friendly fire toggle** — there is currently no player-vs-player damage path; this is a from-scratch
-  feature, not just a toggle.
+- ~~**Friendly fire toggle**~~ — **done (FF-1)**, see §5: full player-vs-player damage path + host-authoritative
+  toggle + the first session-settings broadcast.
 - **Kick player** — host disconnects a chosen peer (+ a "kicked" reason to that client). New, small.
 - **Client may initiate the next level** — a host-authoritative gate on client-initiated transitions
   (the relay exists; the permission switch does not).
-- **Host→client session-settings sync** — a new broadcast so a client can see the host's session settings
-  read-only (loot mode / friendly fire / client-transition permission). New protocol message, moderate.
+- **Host→client session-settings sync** — the `SessionSettings` broadcast shipped with FF-1 carrying the
+  friendly-fire flag; extending it to loot mode / client-transition permission remains.
 - **HUD network-status indicator** + **show other players' names** — the UI-2 family, not yet built.
 
 ---

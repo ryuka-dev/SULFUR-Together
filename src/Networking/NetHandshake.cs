@@ -5,7 +5,8 @@ namespace SULFURTogether.Networking
     internal static class NetHandshake
     {
         public const string ProtocolMagic    = "SULFUR_TOGETHER";
-        public const int    ProtocolVersion  = 1;
+        // 2: FF-1 added PlayerFriendlyFireHit (69) + SessionSettings (70) — older builds don't know either message.
+        public const int    ProtocolVersion  = 2;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

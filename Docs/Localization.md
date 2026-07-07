@@ -66,6 +66,7 @@ cover our strings.
 | 19 | title `Sandstorm Arena` / msg `Pulled into the arena — the sandstorm outside would grind you down.` | `ArenaLockdownManager.cs` (LD-Sandstorm `PullIn` toast) | Desert boss: fired when an out-of-arena player is teleported to the arena centre ~3 s after the dialog trigger (gate-less arena; the sandstorm ring is the wall). |
 
 | 20 | Run Stats card (RS-2): 7 stat row labels `Shots Fired` / `Damage Dealt` / `Kills` / `Times Downed` / `Rescues` / `Damage Taken` / `Destructibles Destroyed`; name-row suffix `{name} (You)` for the local player's own card; placeholder `…` shown before the finalized broadcast has arrived | `RunStatsCardView.cs` | End-of-Run card overlay shown over the Hub-return loading screen. Player names themselves are user data, not translatable literals. |
+| 21 | `Friendly fire` toggle (desc `Players can damage each other. The host's setting applies to the whole session.`) / `Session friendly fire: ON (set by host)` / `Session friendly fire: OFF (set by host)` | `CoopConnectPage.cs` (FF-1) | Replaces the row-16 `Friendly fire` + `Coming soon` placeholder with a live toggle; the session line is read-only and shown only while connected as a client. |
 
 ### Planned, not yet written (register here when added)
 

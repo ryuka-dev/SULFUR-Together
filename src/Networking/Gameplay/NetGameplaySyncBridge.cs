@@ -291,5 +291,9 @@ namespace SULFURTogether.Networking.Gameplay
         // Phase 5.5-RT1 runtime spawn sync.
         public static void BroadcastHostRuntimeSpawn(SULFURTogether.Networking.Gameplay.NetRuntimeSpawn msg)
             => _service?.BroadcastHostRuntimeSpawn(msg);
+
+        // FF-1: Client → Host friendly-fire hit report.
+        public static void SendFriendlyFireHit(NetFriendlyFireHit msg)
+            => _service?.SendFriendlyFireHit(msg);
     }
 }

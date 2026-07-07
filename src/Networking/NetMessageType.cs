@@ -317,5 +317,17 @@ namespace SULFURTogether.Networking
         // resend. Clients never send their own numbers back for this — see NetPlayerLifeStateKind.DamageTakenReport
         // for the one input the Host cannot compute itself.
         RunStatsFinalized = 68,
+
+        // FF-1 (Client→Host, ReliableOrdered): "my player's shot hit player X for D". Sent only when the session
+        // friendly-fire setting is ON and the local classifier positively identified the damage source as the local
+        // player (fail-closed). The host stamps the source peer from the authenticated connection (never trusts the
+        // wire value), re-validates the FF setting + victim downed state, then applies (victim==host) or relays via
+        // the existing PlayerLifeState HostDamageRequest channel (victim==another client).
+        PlayerFriendlyFireHit = 69,
+
+        // FF-1 (Host→Clients, ReliableOrdered): host-authoritative session settings snapshot (currently just the
+        // friendly-fire flag) + a monotonic revision so a client ignores stale re-sends. Broadcast on toggle change
+        // and pushed once to each newly accepted peer right after the handshake.
+        SessionSettings = 70,
     }
 }

@@ -32,6 +32,7 @@ namespace SULFURTogether.Config
             public bool   requireSameModVersion = true;
             public bool   enableCoopToasts      = true;
             public string lastSteamIdToJoin     = ""; // STEAM-2: last SteamID64 pasted into "Steam ID to join"
+            public bool   friendlyFire          = false; // FF-1: host-authoritative session setting; OFF by default
         }
 
         // BepInEx keys that no longer exist as bound entries: the connection/UI settings that moved into this store,

@@ -240,6 +240,10 @@ namespace SULFURTogether.Config
         // ----- In-game co-op UI (toasts / status) via SULFUR Native UI Lib (soft dependency) -----
         public Setting<bool>   EnableCoopToasts { get; }
 
+        // ----- FF-1 friendly fire (host-authoritative session setting; connect-page toggle, coop.json) -----
+        public Setting<bool>       FriendlyFire { get; }
+        public ConfigEntry<bool>   LogFriendlyFire { get; }
+
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
         public Fixed<bool>         EnableWorldItemDropSync { get; }
         public ConfigEntry<bool>   LogWorldItemDropSync { get; }
@@ -500,6 +504,7 @@ namespace SULFURTogether.Config
             RequireSameModVersion = new Setting<bool>  (() => store.Values.requireSameModVersion, v => { store.Values.requireSameModVersion = v; store.Save(); });
             EnableCoopToasts      = new Setting<bool>  (() => store.Values.enableCoopToasts,      v => { store.Values.enableCoopToasts = v; store.Save(); });
             LastSteamIdToJoin     = new Setting<string>(() => store.Values.lastSteamIdToJoin,      v => { store.Values.lastSteamIdToJoin = v ?? ""; store.Save(); });
+            FriendlyFire          = new Setting<bool>  (() => store.Values.friendlyFire,           v => { store.Values.friendlyFire = v; store.Save(); });
 
             // master
             EnableDebugLog     = cfg.Bind("Debug", "EnableDebugLog",     false, "Verbose debug output.");
@@ -512,6 +517,8 @@ namespace SULFURTogether.Config
             LogUnitReceiveDamage = cfg.Bind("Probe", "LogUnitReceiveDamage", false,
                 "Log a line per Unit/Npc ReceiveDamage call (high-frequency in combat — default OFF). NOTE: this is a PURE LOG. The damage patches themselves (downed/client damage suppression, client→host hit forwarding, host Npc health-sync) are functional and always on, independent of this switch — see ApplyDamageForwardPatches. The old EnableDamageProbe/EnableNpcProbe gates conflated the two and could break combat when toggled off as a 'log'.");
             LogTeleportDiag   = cfg.Bind("Probe", "LogTeleportDiag",   false, "Diag (default OFF — high volume; also drives the per-enemy [PosDiag] line): TeleportPlayer.DoTeleport trigger + stack, local-player TeleportTo from/to, full DamageSourceData on suppressed puppet hits. Enable to debug teleport/position.");
+            LogFriendlyFire   = cfg.Bind("Probe", "LogFriendlyFire",   false,
+                "Diag (default OFF): FF-1 friendly-fire lines — per-proxy-hit source classification (sampled), FF hit request send/receive, session-settings broadcast/apply. PURE LOG; the friendly-fire feature itself is controlled by the connect-page toggle, not this switch.");
             EnableLootProbe   = cfg.Bind("Probe", "EnableLootProbe",   true, "Log LootManager and InventoryItem events.");
             EnablePickupProbe = cfg.Bind("Probe", "EnablePickupProbe", true, "Log InteractionManager pickup events.");
             EnableLevelProbe  = cfg.Bind("Probe", "EnableLevelProbe",  true, "Log level generation and transition events.");

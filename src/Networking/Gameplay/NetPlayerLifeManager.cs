@@ -823,6 +823,20 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
+        /// <summary>FF-1: apply a validated client friendly-fire hit to the HOST's own player. Thin wrapper over the
+        /// same apply path a client uses for a HostDamageRequest — native ReceiveDamage feedback, armor, elemental
+        /// status and the downed/death interception all come along. The state is built locally so
+        /// <c>MatchesScene</c> passes (the host is by definition in its own scene).</summary>
+        internal static void ApplyFriendlyFireDamageToLocalHost(float damage, int damageTypeInt, Vector3 hitPos, string reason)
+        {
+            if (NetConfig.GetMode() != NetMode.Host || damage <= 0f) return;
+            var state = BuildLocalState(NetPlayerLifeStateKind.HostDamageRequest, GetLocalPeerId(), reason);
+            state.DamageAmount = damage;
+            state.DamageType = damageTypeInt;
+            if (hitPos != Vector3.zero) { state.HasPosition = true; state.Position = hitPos; }
+            ApplyHostDamageToLocalPlayer(state);
+        }
+
         private static void ApplyHostDamageToLocalPlayerInner(NetPlayerLifeState state)
         {
             if (state == null) return;

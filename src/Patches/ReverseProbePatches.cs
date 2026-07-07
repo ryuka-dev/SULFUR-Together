@@ -1010,23 +1010,64 @@ namespace SULFURTogether.Patches
             }
             catch { }
         }
-        private static bool Unit_ReceiveDamage_Pre(object __instance, float damage, object damageType)
+        // __args: full argument list of whichever ReceiveDamage overload fired. Both native overloads carry the
+        // damage source at index 2 (IDamager `source` / DamageSourceData `sourceData` — different name AND type, so
+        // a named parameter binding would fail to patch one of them, and an index binding (`__2`) would break the
+        // whole functional prefix on any shorter overload). `__args` binds on every signature.
+        private static bool Unit_ReceiveDamage_Pre(object __instance, float damage, object damageType, object[] __args)
         {
             try
             {
                 // Phase 5.5-P3-A3: damage dealt to a remote-player target proxy (Host) is routed to the owning client
                 // (its real player takes the hit via the existing HostDamageRequest channel). Suppress the proxy's own
                 // health loss so it stays alive = persistent aggro; the proxy's life is tied to the client (A3.2 next).
+                // FF-1: damage the HOST PLAYER dealt to the ghost is friendly fire — gated by the session setting
+                // (classifier fail-open: an unclassifiable source counts as enemy damage so real enemy hits are
+                // never blocked).
                 if (damage > 0f && NetConfig.GetMode() == NetMode.Host
                     && SULFURTogether.Networking.RemotePlayerTargetProxyManager.TryGetProxyPeer(__instance, out var proxyPeer))
                 {
+                    object? ffSource = (__args != null && __args.Length > 2) ? __args[2] : null;
+                    bool fromLocalPlayer = FriendlyFireClassifier.IsFromLocalPlayer(ffSource);
+                    FriendlyFireClassifier.LogClassification("host proxy hit", ffSource, damage, fromLocalPlayer);
+                    if (fromLocalPlayer)
+                    {
+                        if (!SULFURTogether.Networking.NetSessionSettings.FriendlyFireEnabled)
+                            return false; // FF OFF: suppress without forwarding (removes the old unconditional host→client damage)
+                        if (NetPlayerLifeManager.IsPeerDownOrDead(proxyPeer))
+                            return false; // never let an FF shot hit (or "stabilize") a downed player
+                    }
                     Vector3 hitPos = (__instance is Component pcx && pcx != null) ? pcx.transform.position : UnityEngine.Vector3.zero;
                     // Forward the real DamageTypes value (enum) so the client applies the correct type instead of None(0),
                     // which Unit.ReceiveDamage rejects. The synthetic ranged-hit path has no real type and passes 0.
                     int damageTypeInt = 0;
                     try { if (damageType != null) damageTypeInt = Convert.ToInt32(damageType); } catch { }
-                    NetPlayerLifeManager.ReportHostAuthoritativeEnemyDamage(proxyPeer, damage, "enemy via target proxy", hitPos, damageTypeInt);
+                    NetPlayerLifeManager.ReportHostAuthoritativeEnemyDamage(proxyPeer, damage,
+                        fromLocalPlayer ? "player friendly fire" : "enemy via target proxy", hitPos, damageTypeInt);
                     return false; // suppress local proxy damage
+                }
+
+                // FF-1 client branch: on a Client the only proxy-registry entries are the friendly-fire hit proxies
+                // (ClientPlayerHitProxyManager, built only while the session FF setting is ON). They never take local
+                // damage; a positively-identified local-player hit is reported to the host, which re-validates and
+                // routes it to the victim (fail-closed: puppet-enemy swings and unclassifiable sources send nothing).
+                if (NetConfig.GetMode() == NetMode.Client
+                    && SULFURTogether.Networking.RemotePlayerTargetProxyManager.TryGetProxyPeer(__instance, out var ffVictimPeer))
+                {
+                    if (damage > 0f && SULFURTogether.Networking.NetSessionSettings.FriendlyFireEnabled)
+                    {
+                        object? ffSource = (__args != null && __args.Length > 2) ? __args[2] : null;
+                        bool fromLocalPlayer = FriendlyFireClassifier.IsFromLocalPlayer(ffSource);
+                        FriendlyFireClassifier.LogClassification("client proxy hit", ffSource, damage, fromLocalPlayer);
+                        if (fromLocalPlayer)
+                        {
+                            Vector3 ffHitPos = (__instance is Component fcx && fcx != null) ? fcx.transform.position : UnityEngine.Vector3.zero;
+                            int ffDamageTypeInt = 0;
+                            try { if (damageType != null) ffDamageTypeInt = Convert.ToInt32(damageType); } catch { }
+                            NetFriendlyFireManager.SendLocalPlayerHit(ffVictimPeer, damage, ffDamageTypeInt, ffHitPos);
+                        }
+                    }
+                    return false; // the hit proxy never takes local damage
                 }
 
                 if (NetPlayerLifeManager.ShouldBlockLocalPlayerDamage(__instance))

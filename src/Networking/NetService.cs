@@ -35,6 +35,7 @@ namespace SULFURTogether.Networking
         private readonly NetLocalPlayerTracker _localPlayer = new NetLocalPlayerTracker();
         private readonly NetRemotePlayerProxyManager _visualProxies = new NetRemotePlayerProxyManager();
         private readonly RemotePlayerTargetProxyManager _targetProxies = new RemotePlayerTargetProxyManager(); // P3-A2: host-only enemy-targetable proxies
+        private readonly Gameplay.ClientPlayerHitProxyManager _ffHitProxies = new Gameplay.ClientPlayerHitProxyManager(); // FF-1: client-only friendly-fire hit proxies
         internal static readonly Gameplay.RemotePlayerRegistryManager PlayerRegistry = new Gameplay.RemotePlayerRegistryManager(); // Plan B: host-only headless Player registry + activation
         private readonly System.Collections.Generic.List<UnityEngine.Vector3> _remoteInterestScratch = new System.Collections.Generic.List<UnityEngine.Vector3>(); // P1: reused per snapshot tick
         private readonly HashSet<string> _receivedEnemyDeathEvents = new HashSet<string>();
@@ -220,6 +221,9 @@ namespace SULFURTogether.Networking
             PlayerRegistry.Clear();
             _receivedEnemyDeathEvents.Clear();
             _receivedClientEnemyDeathClaims.Clear();
+            NetSessionSettings.ResetSession();
+            _ffHitProxies.Clear();
+            _sessionSettingsRevision = 0;
         }
 
         /// <summary>Must be called every frame from Plugin.Update().</summary>
@@ -256,6 +260,10 @@ namespace SULFURTogether.Networking
             // so enemies near them wake on the client too (no ghost registry — its enemies are host-driven puppets).
             else if (_mode == NetMode.Client)
                 Gameplay.RemotePlayerRegistryManager.RefreshActivationBuffer(_visualProxies, Now(), Plugin.Cfg.RemotePlayerVisualTimeoutSeconds.Value);
+
+            // FF-1: client-only friendly-fire hit proxies. Called unconditionally — it self-gates on mode + the
+            // session FF setting, so it also tears down when the host flips the toggle off or the mode changes.
+            _ffHitProxies.Tick(_visualProxies, Now(), Plugin.Cfg.RemotePlayerVisualTimeoutSeconds.Value);
 
             // WS-2: broadcast local held weapon on change + rebuild/attach remote weapon models.
             if (_mode != NetMode.Off)
@@ -2087,6 +2095,128 @@ namespace SULFURTogether.Networking
             NetRunStatsClientCache.ApplyReceivedBroadcast(list);
         }
 
+        // ------------------------------------------------------------------------ FF-1 session settings (msg 70)
+        // Host→Clients: the host-authoritative session settings snapshot (friendly fire). Broadcast on toggle change
+        // (connect page) and pushed once per newly accepted peer right after the handshake. Monotonic revision.
+
+        private int _sessionSettingsRevision;
+
+        private NetSessionSettingsState BuildSessionSettingsState()
+        {
+            return new NetSessionSettingsState
+            {
+                Revision = ++_sessionSettingsRevision,
+                FriendlyFire = Plugin.Cfg.FriendlyFire.Value,
+            };
+        }
+
+        internal void BroadcastSessionSettings(string reason)
+        {
+            if (_net == null || _mode != NetMode.Host) return;
+            var state = BuildSessionSettingsState();
+            foreach (var peer in _clients.ToArray())
+                SendSessionSettings(peer, state);
+            if (Plugin.Cfg.LogFriendlyFire.Value)
+                NetLogger.Info($"[FF] session settings broadcast: friendlyFire={state.FriendlyFire} rev={state.Revision} reason={reason}");
+        }
+
+        private void SendSessionSettingsToPeer(NetPeer peer)
+        {
+            if (_mode != NetMode.Host) return;
+            SendSessionSettings(peer, BuildSessionSettingsState());
+        }
+
+        private void SendSessionSettings(NetPeer peer, NetSessionSettingsState state)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.SessionSettings);
+                NetSessionSettingsCodec.Write(w, state);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[FF] failed to send session settings: {ex.Message}");
+            }
+        }
+
+        private void HandleSessionSettings(NetPeer peer, NetPacketReader reader)
+        {
+            if (_mode != NetMode.Client) return; // host-authoritative; only ever applied on a Client
+            if (!NetSessionSettingsCodec.TryRead(reader, out var state))
+            {
+                NetLogger.Warn("[FF] malformed SessionSettings packet");
+                return;
+            }
+            NetSessionSettings.ApplyReceived(state);
+        }
+
+        // ------------------------------------------------------------------- FF-1 friendly-fire hit (msg 69)
+        // Client→Host: "my player's shot hit player X for D". The host re-validates (FF setting, sender identity,
+        // damage sanity, victim state, scene) and owns the result — apply to itself or relay via HostDamageRequest.
+
+        internal void SendFriendlyFireHit(Gameplay.NetFriendlyFireHit msg)
+        {
+            if (_mode != NetMode.Client || _hostPeer == null || msg == null) return;
+            try
+            {
+                msg.SentAt = Now();
+                var w = NetMessage.For(NetMessageType.PlayerFriendlyFireHit);
+                Gameplay.NetFriendlyFireHitCodec.Write(w, msg);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[FF] failed to send hit request: {ex.Message}");
+            }
+        }
+
+        private void HandleFriendlyFireHit(NetPeer peer, NetPacketReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Gameplay.NetFriendlyFireHitCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[FF] malformed PlayerFriendlyFireHit packet");
+                return;
+            }
+
+            // Stamp the source from the authenticated connection — never trust the wire value.
+            if (!_peerIds.TryGetValue(peer, out var sourcePeerId))
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[FF] ignoring hit request from unregistered peer {peer.Address}");
+                return;
+            }
+            msg.SourcePeerId = sourcePeerId;
+
+            // Authoritative gate: the host's own config is the session truth.
+            if (!Plugin.Cfg.FriendlyFire.Value) return;
+            float damage = Mathf.Clamp(msg.Damage, 0f, 1000f);
+            if (damage <= 0f) return;
+            if (string.IsNullOrWhiteSpace(msg.VictimPeerId)) return;
+            if (msg.VictimPeerId == sourcePeerId) return; // no self-hits through this channel
+            if (Gameplay.NetPlayerLifeManager.IsPeerDownOrDead(msg.VictimPeerId)) return;
+            if (!msg.MatchesScene(_runStates.LocalState)) return;
+
+            if (Plugin.Cfg.LogFriendlyFire.Value)
+                NetLogger.Info($"[FF] hit request: source={sourcePeerId} victim={msg.VictimPeerId} dmg={damage:F1} type={msg.DamageTypeInt} seq={msg.Seq}");
+
+            if (msg.VictimPeerId == _runStates.LocalState.PeerId)
+            {
+                Gameplay.NetPlayerLifeManager.ApplyFriendlyFireDamageToLocalHost(
+                    damage, msg.DamageTypeInt, msg.HasPosition ? msg.Position : Vector3.zero,
+                    $"player friendly fire ({sourcePeerId})");
+            }
+            else
+            {
+                Gameplay.NetPlayerLifeManager.ReportHostAuthoritativeEnemyDamage(
+                    msg.VictimPeerId, damage, "player friendly fire",
+                    msg.HasPosition ? msg.Position : Vector3.zero, msg.DamageTypeInt);
+            }
+        }
+
         internal IReadOnlyCollection<string> GetKnownPlayerLifePeerIds()
         {
             var ids = _sessions.Sessions
@@ -2919,6 +3049,14 @@ namespace SULFURTogether.Networking
                         HandleRunStatsFinalized(peer, reader);
                         break;
 
+                    case NetMessageType.PlayerFriendlyFireHit:
+                        HandleFriendlyFireHit(peer, reader);
+                        break;
+
+                    case NetMessageType.SessionSettings:
+                        HandleSessionSettings(peer, reader);
+                        break;
+
                     case NetMessageType.Disconnect:
                         string disconnMsg = reader.GetString();
                         NetLogger.Info($"[Net] Disconnect: {disconnMsg}");
@@ -2994,6 +3132,9 @@ namespace SULFURTogether.Networking
                 Plugin.Cfg.MaxPlayers.Value);
             peer.Send(w, DeliveryMethod.ReliableOrdered);
             SendRunState(peer, _runStates.LocalState);
+            // FF-1: push the host-authoritative session settings so a (re)joining client knows the friendly-fire
+            // state immediately — it defaults to OFF until told otherwise.
+            SendSessionSettingsToPeer(peer);
 
             // Phase 5.3-K P0-3: proactively push the latest host generation input so a Client whose load
             // gate is waiting does not depend on a keypress or drift detection.
