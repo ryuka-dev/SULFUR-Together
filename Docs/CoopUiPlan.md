@@ -209,14 +209,23 @@ under the same LiteNetLib socket, not a rewrite).
 - **Confirm-enter-boss-room key** `[Enter]` → `ArenaEnterConfirmKey`.
 
 ### Session settings (host-authoritative; client sees them read-only, synced)
+
+**Non-host rule (FF-1b):** while connected as a **client**, every control in this section must be **visually
+non-operable** — the native row lock (`OptionsScreenOption.SetLocked`: greyed label + blocked keyboard/controller
+`Use()`) **plus** the underlying Unity control made non-interactable (a mouse click lands directly on the `Toggle`
+graphic and bypasses `SetLocked` — verified in the game IL). A locked control **mirrors the host's synced session
+value live** (updates via `SetIsOnWithoutNotify`, never firing the change callback, so the client's own saved
+preference is untouched). Any future live session-settings row (loot mode, client-may-start-next-level, …) must
+follow this same pattern. Off/host = editable: outside a session the toggle prepares your own future room.
 - **Player table** — who is in the room, **ping per player**, and a **kick button** per row (host only).
   Needs a refreshable list (§8).
 - **Loot mode** `[ Independent ▼ ]` — Independent works today; **Shared is deferred** (§7).
 - **Client may initiate the next level** — toggle (deferred gating, §7).
 - **Friendly fire** — **implemented (FF-1)**: a live toggle (default OFF) backed by a real player-vs-player damage
   path in both directions. The host's value is the session truth, broadcast via the new `SessionSettings` message
-  (on toggle + per handshake); a client sees the live session value on a read-only line under the toggle (its own
-  toggle only sets the default for rooms it hosts later). Implementing it also removed the unintended
+  (on toggle + per handshake); on a client the toggle itself is locked and mirrors the host's live value (FF-1b,
+  per the non-host rule above), with a read-only line under it spelling out the ownership (its own saved
+  preference — the default for rooms it hosts later — is never touched by the mirroring). Implementing it also removed the unintended
   always-on host→client player damage (a side effect of the enemy-damage-authority forwarding).
 - Showing the remaining rows on a client read-only requires extending the session-settings broadcast (§7) —
   the message exists now (FF-1), carrying just the friendly-fire flag.

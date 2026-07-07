@@ -55,6 +55,19 @@ namespace SULFURTogether.UI
         // FF-1: read-only session friendly-fire line (visible only while connected as a client).
         private static SulfurTextHandle   _ffSessionHandle;
 
+        // FF-1b/1c: the FF toggle's native row. On a client the whole "Session settings (host)" section must be
+        // visibly non-operable: the row is dimmed + input-blocked (see ApplyFfRowLock for why a CanvasGroup, not the
+        // native SetLocked) and the checkbox FOLLOWS the host's synced session value via SetIsOnWithoutNotify (the
+        // client's own coop.json preference is never touched by that mirroring).
+        private static PerfectRandom.Sulfur.Core.OptionsScreenOption _ffToggleOption;
+        private static bool _ffLockApplied;
+        private static readonly System.Reflection.FieldInfo FfCheckboxField =
+            typeof(PerfectRandom.Sulfur.Core.OptionsScreenOption).GetField("checkboxToggle",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        private static readonly System.Reflection.FieldInfo FfIsLockedField =
+            typeof(PerfectRandom.Sulfur.Core.OptionsScreenOption).GetField("IsLocked",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
         // Draft field values, reloaded from config on every page build and pushed to config on Save/Create/Join.
         private static string _draftName;
         private static string _draftAddress;
@@ -112,7 +125,7 @@ namespace SULFURTogether.UI
                 ApplyJoinFeedback();
                 ApplyHostLanIp();
                 ApplySteamState();
-                ApplySessionFriendlyFireLine();
+                ApplySessionFriendlyFireControl();
                 RefreshPlayerList();
                 PollJoinClose();
             }
@@ -206,10 +219,10 @@ namespace SULFURTogether.UI
             ctx.AddSection("Session settings (host)");
             ctx.AddReadonlyText("Loot mode", "Independent (Shared coming soon)");
             ctx.AddReadonlyText("Client may start next level", "Coming soon");
-            // FF-1: the toggle edits this machine's own setting (= the session setting when it hosts). On a client
-            // it is only a preference for its own future rooms — the live session value is the host's, shown on the
-            // read-only line below (updated in Tick, visible only while connected as a client).
-            ctx.AddToggle(
+            // FF-1: the toggle edits this machine's own setting (= the session setting when it hosts). While
+            // connected as a CLIENT the row is locked and mirrors the host's synced session value instead (FF-1b,
+            // driven from Tick); the read-only line below spells out who owns it.
+            _ffToggleOption = ctx.AddToggle(
                 "Friendly fire",
                 "Players can damage each other. The host's setting applies to the whole session.",
                 ReadBool(() => Plugin.Cfg.FriendlyFire.Value, false),
@@ -233,7 +246,7 @@ namespace SULFURTogether.UI
             ApplyJoinFeedback();
             ApplyHostLanIp();
             ApplySteamState();
-            ApplySessionFriendlyFireLine();
+            ApplySessionFriendlyFireControl();
             RefreshPlayerList();
         }
 
@@ -572,12 +585,22 @@ namespace SULFURTogether.UI
             _steamPendingInviteHandle = null;
             _steamIdInputField        = null;
             _ffSessionHandle          = null;
+            _ffToggleOption           = null;
+            _ffLockApplied            = false;
         }
 
         // FF-1: persist the toggle (coop.json, via Setting<T>) and, when currently hosting, broadcast the new
         // session value immediately so connected clients' gates and hit proxies react without a rejoin.
+        // FF-1b: a client can never commit through here — the row is locked, but if a click slips through anyway
+        // (e.g. between the role change and the next Tick) the value is discarded and the mirror re-asserted, so
+        // the host's session value can never silently overwrite the client's own saved preference.
         private static void OnFriendlyFireToggled(bool value)
         {
+            if (CoopConnection.CurrentMode == NetMode.Client)
+            {
+                ApplySessionFriendlyFireControl();
+                return;
+            }
             try { Plugin.Cfg.FriendlyFire.Value = value; } catch { }
             try
             {
@@ -587,11 +610,31 @@ namespace SULFURTogether.UI
             catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] friendly-fire broadcast failed: {e.Message}"); }
         }
 
-        // FF-1: the read-only "session friendly fire" line — meaningful only while connected as a client.
-        private static void ApplySessionFriendlyFireLine()
+        // FF-1b: keep the FF row role-correct each tick. Client: locked (label + checkbox greyed, mouse/keyboard
+        // blocked) and the checkbox mirrors the host's synced session value via SetIsOnWithoutNotify (no callback,
+        // no save). Host/off: unlocked and the checkbox shows this machine's own saved setting (also restores it
+        // after leaving a room where the mirror had moved it).
+        private static void ApplySessionFriendlyFireControl()
         {
+            bool isClient = CoopConnection.CurrentMode == NetMode.Client;
+
+            if (_ffToggleOption != null)
+            {
+                var checkbox = FfCheckboxField?.GetValue(_ffToggleOption) as UnityEngine.UI.Toggle;
+                if (isClient != _ffLockApplied)
+                {
+                    ApplyFfRowLock(isClient);
+                    _ffLockApplied = isClient;
+                }
+                bool desired = isClient ? NetSessionSettings.FriendlyFireEnabled
+                                        : ReadBool(() => Plugin.Cfg.FriendlyFire.Value, false);
+                if (checkbox != null && checkbox.isOn != desired)
+                    checkbox.SetIsOnWithoutNotify(desired);
+            }
+
+            // The read-only "session friendly fire" line — shown only while connected as a client.
             if (_ffSessionHandle == null) return;
-            if (CoopConnection.CurrentMode == NetMode.Client)
+            if (isClient)
             {
                 _ffSessionHandle.SetText($"Session friendly fire: {(NetSessionSettings.FriendlyFireEnabled ? "ON" : "OFF")} (set by host)");
                 _ffSessionHandle.SetColor(NeutralColor);
@@ -601,6 +644,25 @@ namespace SULFURTogether.UI
             {
                 _ffSessionHandle.SetVisible(false);
             }
+        }
+
+        // FF-1c: lock/unlock the FF row's visuals + input. The native SetLocked is unusable on a lib-built row:
+        // its IL recolors the label with the serialized lockedTextColor/normalTextColor fields, which are never
+        // initialized outside the game's own prefab — both default to (0,0,0,0), so locking made the label VANISH
+        // (and a later unlock would have wiped it permanently). Instead a CanvasGroup on the row root dims the whole
+        // row uniformly (label + checkbox) and blocks all pointer input (`interactable` gates every child Selectable
+        // incl. the Toggle; `blocksRaycasts=false` makes the row fully inert); the private IsLocked field is still
+        // set so the keyboard/controller `Use()` path early-returns. No text color is ever touched.
+        private static void ApplyFfRowLock(bool locked)
+        {
+            if (_ffToggleOption == null) return;
+            try { FfIsLockedField?.SetValue(_ffToggleOption, locked); } catch { }
+            var go = _ffToggleOption.gameObject;
+            var cg = go.GetComponent<CanvasGroup>();
+            if (cg == null) cg = go.AddComponent<CanvasGroup>();
+            cg.alpha = locked ? 0.45f : 1f;
+            cg.interactable = !locked;
+            cg.blocksRaycasts = !locked;
         }
 
         private static SulfurButtonHandle Handle(IReadOnlyList<SulfurButtonHandle> handles, int index)
