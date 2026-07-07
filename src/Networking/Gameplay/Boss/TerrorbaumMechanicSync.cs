@@ -2,6 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
+using Unity.Mathematics;
+using PerfectRandom.Sulfur.Core;
+using PerfectRandom.Sulfur.Core.Items;
+using PerfectRandom.Sulfur.Core.Stats;
+using PerfectRandom.Sulfur.Core.Units;
+using PerfectRandom.Sulfur.Core.Weapons;
 
 namespace SULFURTogether.Networking.Gameplay.Boss
 {
@@ -29,7 +35,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static bool _resolved;
         private static FieldInfo _fIsDoingRoot, _fRootPoints, _fAttackRootTimer, _fAttackRootHitTimer,
             _fRootAtkMin, _fRootAtkMax, _fSmallRoots, _fSkyQueue, _fMarkerRefs, _fMarkerPrefab, _fStartHeight,
-            _fAbsorbQueue, _fTreeShake, _fCasing, _fCasingRate, _fAoeLoopSound, _fBulletSpawn, _fSpawnDelay;
+            _fAbsorbQueue, _fTreeShake, _fCasing, _fCasingRate, _fAoeLoopSound, _fBulletSpawn, _fSpawnDelay,
+            _fMaxCollect;
+        private static MethodInfo _mAbsorbBullet;
 
         private static bool EnsureResolved(object helper)
         {
@@ -56,6 +64,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _fAoeLoopSound       = t.GetField("aoeBulletLoopSoundEvent", BF);
                 _fBulletSpawn        = t.GetField("bulletSpawnpoint", BF);
                 _fSpawnDelay         = t.GetField("projectileDelayEachSpawn", BF);
+                _fMaxCollect         = t.GetField("projectileMaxCollect", BF);
+                _mAbsorbBullet       = t.GetMethod("AbsorbPlayerBullet", BF);
             }
             catch { }
             return _fRootPoints != null;
@@ -234,6 +244,127 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 NetBossEncounterManager.OnHostTerrorStateEvent(helper, ev, false, default);
             }
             catch { }
+        }
+
+        // ================================================================ TB-ABSORB2: client bullets feed the host absorb
+
+        // The tree's absorb feed is HOST-LOCAL: OnHitReceivedFrom counts the local player's ReceiveDamage calls and
+        // TryAbsorbBullets converts the non-damaging surplus into AbsorbPlayerBullet(lastFiredProjectile). A client's
+        // body shots never reach it — they are swallowed client-side (TB-DMG "body" sentinel) and their WS replicas on
+        // the host are zero-damage visuals that never call ReceiveDamage. So: the client batches its swallowed body
+        // hits (count + its own lastFiredProjectile identity) into one report per window; the host replays the native
+        // AbsorbPlayerBullet with the same halving TryAbsorbBullets applies to a non-damaging batch. Everything
+        // downstream (TreeShake broadcast, volley, sky spikes) already mirrors off the native calls.
+        private const float AbsorbBatchWindow = 0.3f;
+        private static readonly object _absorbLock = new object();
+        private static string _abKey; private static object _abComponent;
+        private static int _abCount; private static float _abDamage; private static int _abDtype;
+        private static float _abSpeed; private static int _abType, _abCaliber, _abEffect, _abVfx;
+        private static float _abStartedAt;
+
+        /// <summary>CLIENT: one swallowed outside-window body hit. Collect it iff the native OnHitReceivedFrom would
+        /// have (a held gun in Weapon0/1, not a raygun, a real projectile) — the identity comes from the LOCAL
+        /// player's <c>lastFiredProjectile</c>, exactly the value the native feed snapshots on the host for its own
+        /// player.</summary>
+        public static void ClientNoteBodyHit(string key, object component, float damage, int dtype)
+        {
+            try
+            {
+                GameManager gm = GameManager.Instance;
+                EquipmentManager em = gm != null ? gm.EquipmentManager : null;
+                if (em == null) return;
+                if (em.weaponCurrentSlot != InventorySlot.Weapon0 && em.weaponCurrentSlot != InventorySlot.Weapon1) return;
+                FullProjectileDescription last = em.lastFiredProjectile;
+                if (last.isRaygun || last.ray.type == ProjectileTypes.None) return;
+                lock (_absorbLock)
+                {
+                    if (_abCount > 0 && !string.Equals(_abKey, key, StringComparison.Ordinal)) _abCount = 0; // key switched mid-batch — restart
+                    if (_abCount == 0) { _abKey = key; _abComponent = component; _abStartedAt = Time.realtimeSinceStartup; }
+                    _abCount++;
+                    _abDamage = damage; _abDtype = dtype;
+                    _abSpeed  = math.length(last.ray.velocity);
+                    _abType   = (int)last.ray.type; _abCaliber = (int)last.data.caliber;
+                    _abEffect = (int)last.ray.effect; _abVfx = (int)last.ray.vfxAsset;
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>CLIENT (manager Tick): when the batch window closed, hand out ONE absorb summary — the role string
+        /// carries count + projectile identity; damage/dtype ride the request's normal fields.</summary>
+        public static bool TryFlushClientAbsorb(out string key, out object component, out string role, out float damage, out int dtype)
+        {
+            key = null; component = null; role = null; damage = 0f; dtype = 0;
+            lock (_absorbLock)
+            {
+                if (_abCount <= 0 || Time.realtimeSinceStartup - _abStartedAt < AbsorbBatchWindow) return false;
+                key = _abKey; component = _abComponent; damage = _abDamage; dtype = _abDtype;
+                role = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "absorb:{0}:{1:F1}:{2}:{3}:{4}:{5}", Mathf.Min(_abCount, 200), _abSpeed, _abType, _abCaliber, _abEffect, _abVfx);
+                _abCount = 0; _abKey = null; _abComponent = null;
+                return true;
+            }
+        }
+
+        /// <summary>HOST: replay the absorb feed for a client's batched body hits. Rebuilds a
+        /// <c>FullProjectileDescription</c> from the reported identity (velocity = magnitude-only up-vector: the
+        /// native volley/sky re-aim it and only clamp its length) and invokes the native private
+        /// <c>AbsorbPlayerBullet</c> — TreeShake + queue growth + the existing TerrorAbsorb/TerrorVolley/TerrorSky
+        /// mirrors all follow natively.</summary>
+        public static bool HostAbsorbFeed(object helper, string role, float damage, int dtype, out string detail)
+        {
+            detail = "";
+            try
+            {
+                if (!(helper is Component hc) || hc == null || !EnsureResolved(helper)) { detail = "unresolved"; return false; }
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                string[] p = role.Split(':');
+                if (p.Length < 7) { detail = "malformed role"; return false; }
+                int count = int.Parse(p[1], inv);
+                float speed = float.Parse(p[2], inv);
+                int type = int.Parse(p[3], inv), caliber = int.Parse(p[4], inv), effect = int.Parse(p[5], inv), vfx = int.Parse(p[6], inv);
+                if (count <= 0) { detail = "count<=0"; return false; }
+
+                // Native collection gates (OnHitReceivedFrom): fight running, not mid-volley, queue below the cap.
+                if (!(BossReflect.GetMember(helper, "fightStarted") is bool fs && fs)) { detail = "fight not started"; return false; }
+                if (BossReflect.GetMember(helper, "isDoingAoe") is bool aoe && aoe) { detail = "mid-volley (isDoingAoe)"; return false; }
+                int cap = _fMaxCollect?.GetValue(helper) is int mc && mc > 0 ? mc : 150;
+                int have = _fAbsorbQueue?.GetValue(helper) is System.Collections.ICollection q ? q.Count : 0;
+                if (have >= cap) { detail = $"queue full {have}/{cap}"; return false; }
+                if (_mAbsorbBullet == null) { detail = "AbsorbPlayerBullet not found"; return false; }
+
+                float3 o = new float3(hc.transform.position.x, hc.transform.position.y, hc.transform.position.z);
+                ProjectileRay ray = new ProjectileRay(o, (ProjectileTypes)type);
+                ray.velocity  = new float3(0f, Mathf.Max(1f, speed), 0f);
+                ray.radius    = 0.05f;
+                ray.timeScale = 1f;
+                ray.lifeTime  = 20f;
+                ray.effect    = (ProjectileEffect)effect;
+                ray.vfxAsset  = (VFX_Persistent)vfx;
+                ray.drawDefaultBullet = true;
+                ray.playImpactSounds  = true;
+                ray.createBulletHoles = true;
+                ray.shotOrLastBounceFrom = o;
+                ray.barrelPosition       = o;
+                // Unlike the WS visual replicas this desc keeps its damage: the tree RE-FIRES it at players, and those
+                // shots are host-authoritative real projectiles (ghost proxies forward the damage) like any host bullet.
+                ray.damageComps.Add(new ProjectileDamage(damage, (DamageTypes)dtype));
+                var desc = new FullProjectileDescription
+                {
+                    ray = ray,
+                    data = new ProjectileData { damageType = (DamageTypes)dtype, caliber = (CaliberTypes)caliber, isPlayer = true },
+                    visuals = null, isRaygun = false,
+                };
+
+                // TryAbsorbBullets halves a non-damaging hit surplus: max(1, count*0.5). Body hits never damage (the
+                // standing invulnerability rejects them), so the whole batch is surplus — same arithmetic here.
+                int absorbs = Mathf.Max(1, (int)(count * 0.5f));
+                object[] arg = { desc };
+                for (int i = 0; i < absorbs; i++) _mAbsorbBullet.Invoke(helper, arg);
+                detail = $"hits={count} absorbs={absorbs} dmg={damage:0.0} dtype={dtype} speed={speed:0.0} queue={have}->{have + absorbs * 3}";
+                return true;
+            }
+            catch (Exception ex) { detail = $"{ex.GetType().Name}: {ex.Message}"; return false; }
         }
 
         // ================================================================ CLIENT: applies + per-frame visuals
@@ -429,6 +560,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _rootHelper = null; _lastSentAngle = float.MinValue; _wasDoingRoot = false;
             _markers.Clear(); // pooled objects die with the scene; no release needed
             _volley = null; _lastAbsorbSentAt = 0f;
+            lock (_absorbLock) { _abCount = 0; _abKey = null; _abComponent = null; }
         }
 
         // ---------------------------------------------------------------- AutoPool (reflection, same pattern as D2)

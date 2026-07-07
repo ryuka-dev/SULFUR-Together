@@ -3246,6 +3246,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         _lastBodySwallowLogAt = bnow;
                         Plugin.Log.Info($"[BossDamage] client swallowed {_bodySwallowCount} outside-window body hit(s) key={key} (eye window never open? check isTransitioning/fightStarted)");
                     }
+                    // TB-ABSORB2: these swallowed body hits are exactly what feeds the tree's bullet-absorb on the
+                    // host for its own player. Batch them (with the local projectile identity) and report — the flush
+                    // in the client Tick sends one summary per window; the host replays AbsorbPlayerBullet.
+                    TerrorbaumMechanicSync.ClientNoteBodyHit(key, component, damage, damageTypeInt);
                     return true;
                 }
                 lock (_lock) { if (_terminalDead.Contains(key)) return true; } // boss is dead — suppress local damage, don't request
@@ -3270,6 +3274,34 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             }
         }
 
+        /// <summary>CLIENT (Tick): report the batched swallowed body hits (TB-ABSORB2) as ONE absorb-feed request on
+        /// the normal boss-hit channel — the role string carries count + projectile identity, Damage/DamageTypeInt the
+        /// per-pellet hit. Never throws.</summary>
+        private static void FlushClientAbsorbBatch()
+        {
+            try
+            {
+                if (!TerrorbaumMechanicSync.TryFlushClientAbsorb(out string key, out object component, out string role, out float dmg, out int dtype)) return;
+                if (!Enabled || component == null) return;
+                try { if (!Plugin.Cfg.EnableBossDamageAuthority.Value) return; } catch { return; }
+                bool joined = false; try { joined = NetClientJoinFlow.SessionJoinedHost; } catch { }
+                if (!joined) return;
+                lock (_lock) { if (_terminalDead.Contains(key)) return; }
+                if (!TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed)) return;
+                var req = new NetClientBossHitRequest
+                {
+                    EncounterKey = key, BossType = component.GetType().Name, RootName = BossReflect.RootName(component),
+                    ChapterName = chap, LevelIndex = lvl, HasSeed = hasSeed, Seed = seed,
+                    TargetRole = role, Damage = dmg, DamageTypeInt = dtype,
+                    RequestSeq = ++_bossHitSeq, SentAt = Time.realtimeSinceStartup,
+                };
+                BossHitClientSent++;
+                if (LogOn) Plugin.Log.Info($"[BossDamage] client absorb batch -> host {req.ToCompact()}");
+                NetGameplaySyncBridge.SendClientBossHitRequest(req);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[BossDamage] FlushClientAbsorbBatch failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
         /// <summary>HOST: resolve the boss target role to the real Unit and apply the client's damage through the
         /// vanilla Unit.ReceiveDamage so the boss's native mechanic (onDamageRecieved) advances.</summary>
         public static void HandleClientBossHitRequest(NetClientBossHitRequest req, string peerId)
@@ -3291,6 +3323,15 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 {
                     BossHitHostRejected++;
                     Plugin.Log.Warn($"[BossDamage] host REJECT hit from {peerId}: no encounter key={req.EncounterKey} (missingEncounter)");
+                    return;
+                }
+                // TB-ABSORB2: not a damage hit — a batched absorb-feed report for body hits the client swallowed.
+                // Replay the native AbsorbPlayerBullet so the tree's volley/sky queue counts every player's bullets.
+                if (req.TargetRole != null && req.TargetRole.StartsWith("absorb:", StringComparison.Ordinal))
+                {
+                    bool fed = TerrorbaumMechanicSync.HostAbsorbFeed(component, req.TargetRole, req.Damage, req.DamageTypeInt, out string ad);
+                    if (fed) { BossHitHostApplied++; Plugin.Log.Info($"[BossDamage] host ABSORB feed from {peerId} key={req.EncounterKey} {ad}"); }
+                    else { BossHitHostRejected++; Plugin.Log.Info($"[BossDamage] host absorb feed skipped from {peerId} key={req.EncounterKey} reason={ad}"); }
                     return;
                 }
                 object? target = null;
@@ -4818,7 +4859,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // TB-MECH: host streams the root-spin angle (~8 Hz while active); client eases vines + releases due
                 // sky-spike preview markers.
                 if (NetGameplaySyncBridge.BossMode == NetMode.Host) TickHostTerrorMechanics();
-                else TerrorbaumMechanicSync.TickClient();
+                else { TerrorbaumMechanicSync.TickClient(); FlushClientAbsorbBatch(); }
 
                 // TB probe (Log359): both ends dump the boss's render/animator state during a started fight so the
                 // "boss invisible on one end" report can be pinned to a concrete mechanism by diffing the two logs.
