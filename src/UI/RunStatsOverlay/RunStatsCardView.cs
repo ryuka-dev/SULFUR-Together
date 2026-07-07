@@ -45,6 +45,10 @@ namespace SULFURTogether.UI.RunStatsOverlay
         private static readonly Color TitleBandColor = new Color(1f, 0.50f, 0.20f, 1f);      // alpha driven by animator
         private static readonly Color LabelColor    = new Color(0.84f, 0.81f, 0.76f, 1f);    // warm light grey
         private static readonly Color ValueColor    = new Color(0.99f, 0.97f, 0.94f, 1f);
+        // RS-6 best-stat highlight: bright ember orange. Deliberately a third accent, apart from BOTH the plain
+        // near-white values (clearly warm) and the sulfur-gold "this is you" accents (orange vs yellow-gold) —
+        // gold marks whose card it is, ember marks the best number in the whole Run.
+        private static readonly Color BestValueColor = new Color(1f, 0.60f, 0.25f, 1f);
         private static readonly Color NameColor     = Color.white;
         private static readonly Color LocalNameColor = new Color(1f, 0.80f, 0.28f, 1f);
 
@@ -217,7 +221,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
             return tmp;
         }
 
-        public void Bind(NetRunStats stats, bool isLocalPlayer)
+        public void Bind(NetRunStats stats, bool isLocalPlayer, RunStatsBestMarks best)
         {
             string displayName = string.IsNullOrWhiteSpace(stats.PlayerName) ? stats.PeerId : stats.PlayerName;
             _nameText.text = isLocalPlayer ? displayName + " (You)" : displayName; // Docs/Localization.md row 20
@@ -225,13 +229,13 @@ namespace SULFURTogether.UI.RunStatsOverlay
             _border.effectColor = isLocalPlayer ? LocalBorder : NormalBorder;
             _glow.enabled = isLocalPlayer;
 
-            SetValue(0, stats.ShotsFired);
-            SetValue(1, stats.DamageDealt);
-            SetValue(2, stats.Kills);
-            SetValue(3, stats.TimesDowned);
-            SetValue(4, stats.Rescues);
-            SetValue(5, stats.DamageTaken);
-            SetValue(6, stats.DestructiblesDestroyed);
+            SetValue(0, stats.ShotsFired, best);
+            SetValue(1, stats.DamageDealt, best);
+            SetValue(2, stats.Kills, best);
+            SetValue(3, stats.TimesDowned, best);
+            SetValue(4, stats.Rescues, best);
+            SetValue(5, stats.DamageTaken, best);
+            SetValue(6, stats.DestructiblesDestroyed, best);
         }
 
         /// <summary>Placeholder frame shown the moment the loading screen starts, before the finalized broadcast
@@ -243,12 +247,19 @@ namespace SULFURTogether.UI.RunStatsOverlay
             _border.effectColor = NormalBorder;
             _glow.enabled = false;
             for (int i = 0; i < _valueTexts.Length; i++)
+            {
                 _valueTexts[i].text = "…";
+                _valueTexts[i].color = ValueColor;
+            }
         }
 
-        private void SetValue(int index, int value)
+        /// <summary>The RS-6 highlight lives only in the value text's color, set here at bind time and never
+        /// touched by the hover animator (which animates transform/shadow/title-band alpha only) — so hovering,
+        /// tilting or scrolling can neither obscure it nor change who reads as best.</summary>
+        private void SetValue(int index, int value, RunStatsBestMarks best)
         {
             _valueTexts[index].text = value.ToString();
+            _valueTexts[index].color = best.IsBest(index, value) ? BestValueColor : ValueColor;
         }
     }
 }

@@ -236,11 +236,16 @@ namespace SULFURTogether.UI.RunStatsOverlay
             }
             else
             {
+                // RS-6: best-per-stat marks over exactly the list being displayed, recomputed on every rebuild
+                // (each new Run, and — dev-only — each injected simulated player), so a previous Run's result
+                // can never linger. In a real session this list IS the identical finalized broadcast, so every
+                // end derives the same highlights.
+                var best = RunStatsBestMarks.Compute(list);
                 string localPeerId = NetRunStateBridge.TryGetLocalRunState(out var local) ? local.PeerId : "";
                 foreach (var stats in list)
                 {
                     var card = RunStatsCardView.Create(_track, font);
-                    card.Bind(stats, stats.PeerId == localPeerId);
+                    card.Bind(stats, stats.PeerId == localPeerId, best);
                     _cards.Add(card);
                 }
             }
