@@ -77,6 +77,7 @@ namespace SULFURTogether.Config
         public Setting<int>    MaxPlayers             { get; }
         public Setting<string> ConnectionKey          { get; }
         public Setting<bool>   RequireSameModVersion  { get; }
+        public Setting<string> LastSteamIdToJoin      { get; } // STEAM-2: last SteamID64 pasted into "Steam ID to join"
         public ConfigEntry<float>  SendPingIntervalSeconds { get; }
 
         /// <summary>Backing JSON store for the co-op settings exposed above and <see cref="EnableCoopToasts"/>.</summary>
@@ -498,6 +499,7 @@ namespace SULFURTogether.Config
             MaxPlayers            = new Setting<int>   (() => store.Values.maxPlayers,            v => { store.Values.maxPlayers = Mathf.Clamp(v, 2, 4); store.Save(); });
             RequireSameModVersion = new Setting<bool>  (() => store.Values.requireSameModVersion, v => { store.Values.requireSameModVersion = v; store.Save(); });
             EnableCoopToasts      = new Setting<bool>  (() => store.Values.enableCoopToasts,      v => { store.Values.enableCoopToasts = v; store.Save(); });
+            LastSteamIdToJoin     = new Setting<string>(() => store.Values.lastSteamIdToJoin,      v => { store.Values.lastSteamIdToJoin = v ?? ""; store.Save(); });
 
             // master
             EnableDebugLog     = cfg.Bind("Debug", "EnableDebugLog",     false, "Verbose debug output.");

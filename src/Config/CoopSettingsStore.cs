@@ -31,6 +31,7 @@ namespace SULFURTogether.Config
             public int    maxPlayers            = 4;
             public bool   requireSameModVersion = true;
             public bool   enableCoopToasts      = true;
+            public string lastSteamIdToJoin     = ""; // STEAM-2: last SteamID64 pasted into "Steam ID to join"
         }
 
         // BepInEx keys that no longer exist as bound entries: the connection/UI settings that moved into this store,

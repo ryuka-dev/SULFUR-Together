@@ -1,4 +1,5 @@
 using System;
+using Steamworks;
 using SULFURTogether.Networking.Gameplay;
 
 namespace SULFURTogether.Networking
@@ -21,6 +22,15 @@ namespace SULFURTogether.Networking
         // Signature of the connection-relevant settings the running service was last started with. Lets a repeat
         // Apply with no actual change be a no-op instead of a socket restart that would kick connected peers.
         private static string _lastSignature;
+
+        // STEAM-2: a one-shot connect-target override consumed by the next Apply(Client, ...) — set by
+        // ApplySteamClient right before starting the service, so NetService.ConnectToHost targets the local
+        // SteamRelayBridge loopback port instead of the configured Direct-IP HostAddress/HostPort.
+        private static (string Address, int Port, string Label)? _pendingSteamJoinTarget;
+
+        /// <summary>True once a running Host has also opened itself to Steam P2P joins (via the connect page's
+        /// "Invite Friends" — a deliberate, separate action from Create; Direct-IP hosting works without it).</summary>
+        public static bool SteamHostingEnabled { get; private set; }
 
         /// <summary>The live service, or null when networking is off. Plugin's Unity loop drives it via
         /// <see cref="Tick"/>/<see cref="FixedTick"/>; gameplay code uses the bridges, not this.</summary>
@@ -64,6 +74,16 @@ namespace SULFURTogether.Networking
                 _service = null;
                 Plugin.Log.Info($"[CoopConn] stopped previous networking (was {CurrentMode}).");
             }
+            // STEAM-2: a torn-down service has nothing left to bridge into — drop both Steam relay roles here,
+            // EXCEPT a client-join bridge that ApplySteamClient just opened moments ago for THIS very call (its
+            // target is sitting in _pendingSteamJoinTarget, about to be consumed below as the new service starts).
+            // Unconditionally stopping it here would close the loopback relay socket before NetService.Start()
+            // ever gets a chance to connect through it — the join would fail before Steam was even involved.
+            if (SteamRelayBridge.IsHostingActive) SteamRelayBridge.StopHosting();
+            bool joiningNow = mode == NetMode.Client && _pendingSteamJoinTarget.HasValue;
+            if (SteamRelayBridge.IsClientActive && !joiningNow) SteamRelayBridge.StopJoining();
+            if (SteamHostingEnabled) SteamRichPresenceJoin.StopAdvertisingHosting();
+            SteamHostingEnabled = false;
             CurrentMode = NetMode.Off;
             _lastSignature = null;
 
@@ -84,6 +104,16 @@ namespace SULFURTogether.Networking
                 var service = new NetService();
                 NetRunStateBridge.Attach(service);
                 NetGameplaySyncBridge.Attach(service);
+
+                // STEAM-2: consume (one-shot) the pending Steam join target set by ApplySteamClient, if any —
+                // NetService.Start(Client) connects synchronously at the end, so this must be set first.
+                if (mode == NetMode.Client && _pendingSteamJoinTarget.HasValue)
+                {
+                    var t = _pendingSteamJoinTarget.Value;
+                    service.SetConnectTarget(t.Address, t.Port, t.Label);
+                }
+                _pendingSteamJoinTarget = null;
+
                 service.Start(mode);
                 // HOST ONLY: networking now starts AFTER the save is loaded (explicit Create), so the GoToLevel
                 // that loaded the host's current level fired before this service existed. Seed the run-state from
@@ -122,6 +152,72 @@ namespace SULFURTogether.Networking
             }
         }
 
+        /// <summary>
+        /// STEAM-2: join a host over Steam P2P instead of Direct IP. Opens the client-side
+        /// <see cref="SteamRelayBridge"/> (a loopback UDP relay to <paramref name="hostId"/> over Steam), then
+        /// applies exactly like a normal Client join except <see cref="NetService.ConnectToHost"/> targets that
+        /// local relay port instead of the configured HostAddress/HostPort. The Connection key still gates the
+        /// handshake — same validation as Direct IP, untouched.
+        /// </summary>
+        public static void ApplySteamClient(CSteamID hostId, string reason)
+        {
+            NetConnectFeedback.BeginAttempt();
+            if (!SteamRelayBridge.StartJoining(hostId, out int localPort, out string error))
+            {
+                NetConnectFeedback.ReportError(error ?? "Could not start the Steam connection.");
+                return;
+            }
+            _pendingSteamJoinTarget = ("127.0.0.1", localPort, $"Steam ({hostId.m_SteamID})");
+            Apply(NetMode.Client, reason);
+            if (CurrentMode != NetMode.Client)
+            {
+                // Apply rolled back to Off (start failure) — don't leave an orphaned relay with no service
+                // feeding it.
+                SteamRelayBridge.StopJoining();
+            }
+        }
+
+        /// <summary>
+        /// STEAM-2/3: open the currently-running Host to Steam P2P joins, in addition to (never instead of)
+        /// Direct IP — a deliberate opt-in (the connect page's "Invite Friends"), not automatic on Create, so a
+        /// host who only wants LAN friends never exposes Steam-facing surface. No-op (false) when not hosting or
+        /// Steam isn't available. Safe to call repeatedly: the bridge itself only starts once, but the Steam
+        /// overlay invite dialog is re-opened on every call so a host can invite a second/third friend (or
+        /// re-invite one who missed the popup) without closing and recreating the whole room just to see it again.
+        /// </summary>
+        public static bool EnableSteamHosting(string reason)
+        {
+            if (CurrentMode != NetMode.Host || _service == null) return false;
+            if (!SteamHostingEnabled)
+            {
+                if (!SteamRelayBridge.StartHosting(BuildHostGamePort()))
+                {
+                    NetConnectFeedback.ReportError("Steam is not available.");
+                    return false;
+                }
+                SteamHostingEnabled = true;
+                Plugin.Log.Info($"[CoopConn] Steam hosting enabled (reason={reason}).");
+            }
+            if (SteamNetworkingSupport.TryGetLocalSteamId(out var localId))
+                SteamRichPresenceJoin.AdvertiseHosting(localId);
+            return true;
+        }
+
+        public static void DisableSteamHosting(string reason)
+        {
+            if (!SteamHostingEnabled) return;
+            SteamRelayBridge.StopHosting();
+            SteamRichPresenceJoin.StopAdvertisingHosting();
+            SteamHostingEnabled = false;
+            Plugin.Log.Info($"[CoopConn] Steam hosting disabled (reason={reason}).");
+        }
+
+        private static int BuildHostGamePort()
+        {
+            try { return Plugin.Cfg.HostPort.Value; }
+            catch { return 9050; }
+        }
+
         // Connection-relevant settings; a change here means a Connect must actually restart the socket.
         private static string BuildSignature(NetMode mode)
         {
@@ -144,7 +240,11 @@ namespace SULFURTogether.Networking
         /// <summary>Stop networking and return to Off.</summary>
         public static void Stop(string reason) => Apply(NetMode.Off, reason);
 
-        public static void Tick() => _service?.Tick();
+        public static void Tick()
+        {
+            _service?.Tick();
+            SteamRelayBridge.Tick(); // STEAM-2: pump the Steam<->loopback byte relay (no-op when neither role is active)
+        }
 
         public static void FixedTick() => _service?.FixedTick();
     }

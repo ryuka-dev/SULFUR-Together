@@ -155,11 +155,15 @@ namespace SULFURTogether.Networking
         public string GetConnectionSummary()
         {
             if (_mode == NetMode.Host)
-                return $"Hosting on port {Plugin.Cfg.HostPort.Value} — {_sessions.RemoteConnectedCount} player(s) connected";
+            {
+                string steamSuffix = CoopConnection.SteamHostingEnabled ? " (Steam invites open)" : "";
+                return $"Hosting on port {Plugin.Cfg.HostPort.Value}{steamSuffix} — {_sessions.RemoteConnectedCount} player(s) connected";
+            }
             if (_mode == NetMode.Client)
-                return _hostPeer != null
-                    ? $"Connected to host {Plugin.Cfg.HostAddress.Value}:{Plugin.Cfg.HostPort.Value}"
-                    : $"Connecting to {Plugin.Cfg.HostAddress.Value}:{Plugin.Cfg.HostPort.Value}…";
+            {
+                string label = _connectTargetOverride?.Label ?? $"{Plugin.Cfg.HostAddress.Value}:{Plugin.Cfg.HostPort.Value}";
+                return _hostPeer != null ? $"Connected to host {label}" : $"Connecting to {label}…";
+            }
             return "Off";
         }
 
@@ -292,6 +296,16 @@ namespace SULFURTogether.Networking
 
         // ---- client reconnect timer ----
 
+        // STEAM-2: when set, ConnectToHost/GetConnectionSummary target this instead of the configured Direct-IP
+        // HostAddress/HostPort — used for a Steam join, where the real destination is a local SteamRelayBridge
+        // loopback port. Null (the default) preserves today's Direct-IP behavior exactly.
+        private (string Address, int Port, string Label)? _connectTargetOverride;
+
+        /// <summary>Must be called (if at all) before <see cref="Start"/> for a Client session. See
+        /// <see cref="_connectTargetOverride"/>.</summary>
+        public void SetConnectTarget(string address, int port, string displayLabel)
+            => _connectTargetOverride = (address, port, displayLabel);
+
         private void ConnectToHost(bool initial)
         {
             if (_net == null || _mode != NetMode.Client) return;
@@ -300,15 +314,15 @@ namespace SULFURTogether.Networking
             _clientConnectInProgress = true;
             _clientReconnectAttempts++;
 
-            _net.Connect(
-                Plugin.Cfg.HostAddress.Value,
-                Plugin.Cfg.HostPort.Value,
-                Plugin.Cfg.ConnectionKey.Value);
+            string address = _connectTargetOverride?.Address ?? Plugin.Cfg.HostAddress.Value;
+            int port = _connectTargetOverride?.Port ?? Plugin.Cfg.HostPort.Value;
+
+            _net.Connect(address, port, Plugin.Cfg.ConnectionKey.Value);
 
             if (initial)
-                NetLogger.Info($"[Net] Client connecting to {Plugin.Cfg.HostAddress.Value}:{Plugin.Cfg.HostPort.Value}");
+                NetLogger.Info($"[Net] Client connecting to {address}:{port}");
             else
-                NetLogger.Info($"[Net] Client reconnecting to {Plugin.Cfg.HostAddress.Value}:{Plugin.Cfg.HostPort.Value} attempt={_clientReconnectAttempts}");
+                NetLogger.Info($"[Net] Client reconnecting to {address}:{port} attempt={_clientReconnectAttempts}");
         }
 
         private void HandleClientReconnectTimer()

@@ -48,6 +48,19 @@ namespace SULFURTogether
             // via CoopConnection and is never read from the .cfg; Initialize just establishes the clean Off state.
             CoopConnection.Initialize();
 
+            // STEAM-1: resolve Steam availability + log local SteamID once at startup (no behaviour change —
+            // the relay bridge that actually uses this is STEAM-2). Soft: false when Steam isn't running.
+            bool steamOk = SteamNetworkingSupport.IsAvailable;
+            Log.Info($"[Config] SteamNetworkingAvailable={steamOk}");
+            // STEAM-3: register the inbound-invite callback unconditionally — a friend can invite us even if we
+            // never host ourselves this session, so this can't wait for a later "Invite Friends" click.
+            SteamRichPresenceJoin.Initialize();
+            // STEAM-2: register the inbound P2P session-request handler unconditionally — a joining friend's
+            // very first attempt can otherwise race ahead of us clicking "Invite Friends" and get silently
+            // dropped for ~30s (Steam's own session-negotiation timeout) with nobody subscribed to respond at
+            // all. The handler itself still no-ops (fast, logged) unless Steam hosting is actually enabled.
+            SteamRelayBridge.Initialize();
+
             Log.Info("[ConfigPolicy] Private development build: active experimental gameplay defaults are forced on load; connection settings such as HostAddress/HostPort/PlayerName are left user-owned. The networking role is runtime-only (not persisted).");
             Log.Info($"[Config] EnableDebugLog={Cfg.EnableDebugLog.Value} | EnableReverseProbe={Cfg.EnableReverseProbe.Value} | NetMode={NetConfig.GetMode()}");
             Log.Info($"[Config] EnableInventorySerializationProbe={Cfg.EnableInventorySerializationProbe.Value} | EnableAiUpdateTargetProbe={Cfg.EnableAiUpdateTargetProbe.Value} | EnableAiSetDestinationProbe={Cfg.EnableAiSetDestinationProbe.Value}");

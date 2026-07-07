@@ -2,7 +2,9 @@
 using System;
 using System.Collections.Generic;
 using Ryuka.Sulfur.NativeUI;
+using Steamworks;
 using SULFURTogether.Networking;
+using TMPro;
 using UnityEngine;
 
 namespace SULFURTogether.UI
@@ -41,11 +43,21 @@ namespace SULFURTogether.UI
         private static SulfurListHandle     _playerListHandle;
         private static string               _lastPlayerSig = "\0"; // forces a first paint
 
+        // STEAM-4: Steam connect-method block handles.
+        private static SulfurTextHandle   _steamUnavailableHandle;
+        private static SulfurTextHandle   _yourSteamIdHandle;
+        private static SulfurButtonHandle _steamInviteHandle;
+        private static SulfurButtonHandle _steamJoinHandle;
+        private static SulfurTextHandle   _steamPendingInviteHandle;
+        private static TMP_InputField     _steamIdInputField;
+        private static string             _autoFilledSteamId; // guards the pending-invite auto-fill to once per invite
+
         // Draft field values, reloaded from config on every page build and pushed to config on Save/Create/Join.
         private static string _draftName;
         private static string _draftAddress;
         private static string _draftPort;
         private static string _draftKey;
+        private static string _draftSteamId;
 
         // Auto-save: signature of the drafts last persisted to config. The fields write only to the drafts on edit;
         // Tick persists them when this signature changes (a built-in ~0.4s debounce, no per-keystroke disk writes).
@@ -96,6 +108,7 @@ namespace SULFURTogether.UI
                 ApplyButtonStates();
                 ApplyJoinFeedback();
                 ApplyHostLanIp();
+                ApplySteamState();
                 RefreshPlayerList();
                 PollJoinClose();
             }
@@ -146,6 +159,28 @@ namespace SULFURTogether.UI
             _joinFeedbackHandle = ctx.AddTextRow("");
             _joinFeedbackHandle.SetVisible(false);
 
+            // --- Steam (second connection method — additive, Direct IP above is unchanged) --------------
+            ctx.AddSection("Steam");
+            ctx.AddDescription("Connect over Steam instead of a typed IP — no port forwarding needed. Works alongside Direct IP: a host can accept both at once.");
+            _steamUnavailableHandle = ctx.AddTextRow("Steam is not available — connect method disabled.");
+            _steamUnavailableHandle.SetColor(NeutralColor);
+            _steamUnavailableHandle.SetVisible(false);
+
+            _yourSteamIdHandle = ctx.AddTextRow("");
+            _yourSteamIdHandle.SetVisible(false);
+
+            IReadOnlyList<SulfurButtonHandle> inviteRow = ctx.AddButtonRow(
+                new SulfurButton("Invite Friends via Steam", OnInviteFriends, 220f));
+            _steamInviteHandle = Handle(inviteRow, 0);
+
+            _steamIdInputField = ctx.AddInlineTextInput("Steam ID to join", _draftSteamId, v => _draftSteamId = v);
+            IReadOnlyList<SulfurButtonHandle> steamJoinRow = ctx.AddButtonRow(
+                new SulfurButton("Join via Steam", OnJoinViaSteam, 170f));
+            _steamJoinHandle = Handle(steamJoinRow, 0);
+
+            _steamPendingInviteHandle = ctx.AddTextRow("");
+            _steamPendingInviteHandle.SetVisible(false);
+
             // --- Players in session (live, read-only; ping + kick deferred §7) --------------------------
             ctx.AddSection("Players in session");
             _playerListHandle = ctx.AddList();
@@ -184,6 +219,7 @@ namespace SULFURTogether.UI
             ApplyButtonStates();
             ApplyJoinFeedback();
             ApplyHostLanIp();
+            ApplySteamState();
             RefreshPlayerList();
         }
 
@@ -263,6 +299,89 @@ namespace SULFURTogether.UI
             }
         }
 
+        /// <summary>STEAM-4: live state for the Steam block — availability line, local Steam ID, Invite/Join
+        /// button interactable state (mirrors the Direct-IP Create/Join mutual-exclusion), and the pending-invite
+        /// banner (a friend accepted a Steam invite — auto-fills the join field so one click accepts it).</summary>
+        private static void ApplySteamState()
+        {
+            bool available = SteamNetworkingSupportAvailable();
+            if (_steamUnavailableHandle != null) _steamUnavailableHandle.SetVisible(!available);
+
+            if (_yourSteamIdHandle != null)
+            {
+                if (available && TryGetLocalSteamId(out ulong localId))
+                {
+                    _yourSteamIdHandle.SetText($"Your Steam ID: {localId}  (share this, or use Invite Friends while hosting)");
+                    _yourSteamIdHandle.SetColor(NeutralColor);
+                    _yourSteamIdHandle.SetVisible(true);
+                }
+                else _yourSteamIdHandle.SetVisible(false);
+            }
+
+            var mode = CoopConnection.CurrentMode;
+            bool inGame = IsInGame();
+            _steamInviteHandle?.SetInteractable(available && inGame && mode == NetMode.Host);
+            _steamInviteHandle?.SetLabel(CoopConnection.SteamHostingEnabled ? "Invite more friends via Steam" : "Invite Friends via Steam");
+            _steamJoinHandle?.SetInteractable(available && inGame && mode == NetMode.Off);
+
+            if (_steamPendingInviteHandle != null)
+            {
+                var pending = SteamRichPresenceJoin.PendingInviteHostId;
+                if (pending.HasValue && mode == NetMode.Off)
+                {
+                    string idText = pending.Value.m_SteamID.ToString();
+                    string friend = SteamRichPresenceJoin.PendingInviteFriendName;
+
+                    if (inGame && _autoFilledSteamId != idText)
+                    {
+                        // First time we've seen this exact invite while free to join (not already hosting/
+                        // connected) with a save loaded — accept it immediately, same as normal Steam
+                        // multiplayer UX (the friends-list "Accept" click IS the whole action, not a shortcut
+                        // to a field on a page the player has to remember to reopen). Tick() runs this every
+                        // 0.4s regardless of whether the connect page is currently on-screen, so this fires
+                        // even if the player is out in the game world when they accept.
+                        _autoFilledSteamId = idText;
+                        _draftSteamId = idText;
+                        if (_steamIdInputField != null) _steamIdInputField.text = idText;
+                        _steamPendingInviteHandle.SetText(string.IsNullOrEmpty(friend)
+                            ? "Joining a Steam friend's game…"
+                            : $"Joining {friend}'s SULFUR Together game…");
+                        _steamPendingInviteHandle.SetColor(OkColor);
+                        _steamPendingInviteHandle.SetVisible(true);
+                        JoinViaSteam(pending.Value, "steam-invite-auto-join");
+                    }
+                    else if (!inGame)
+                    {
+                        // No save loaded yet — can't join. Keep the banner up; the auto-fill guard above hasn't
+                        // latched yet, so this fires the auto-join itself the moment IsInGame() flips true.
+                        _steamPendingInviteHandle.SetText(string.IsNullOrEmpty(friend)
+                            ? "A Steam friend invited you — load a save to join automatically."
+                            : $"{friend} invited you — load a save to join automatically.");
+                        _steamPendingInviteHandle.SetColor(OkColor);
+                        _steamPendingInviteHandle.SetVisible(true);
+                    }
+                }
+                else _steamPendingInviteHandle.SetVisible(false);
+            }
+        }
+
+        private static bool SteamNetworkingSupportAvailable()
+        {
+            try { return SteamNetworkingSupport.IsAvailable; } catch { return false; }
+        }
+
+        private static bool TryGetLocalSteamId(out ulong steamId64)
+        {
+            steamId64 = 0;
+            try
+            {
+                if (!SteamNetworkingSupport.TryGetLocalSteamId(out CSteamID id)) return false;
+                steamId64 = id.m_SteamID;
+                return true;
+            }
+            catch { return false; }
+        }
+
         private static void RefreshPlayerList()
         {
             if (_playerListHandle == null) return;
@@ -330,6 +449,43 @@ namespace SULFURTogether.UI
             if (joined) CoopMenu.CloseIfOpen("ui-join-success");
         }
 
+        /// <summary>STEAM-4: open the already-running host to Steam P2P joins (additive to Direct IP — never a
+        /// replacement) and pop the Steam overlay invite-friends dialog in the same click.</summary>
+        private static void OnInviteFriends()
+        {
+            if (!IsInGame() || CoopConnection.CurrentMode != NetMode.Host) return;
+            CoopConnection.EnableSteamHosting("ui-steam-invite");
+            ApplySteamState();
+        }
+
+        /// <summary>STEAM-4: join a host via a pasted (or invite-auto-filled) Steam ID instead of a typed IP.
+        /// Mirrors <see cref="OnJoin"/> — same deferred menu-close-on-success, same client link timing.</summary>
+        private static void OnJoinViaSteam()
+        {
+            if (!IsInGame()) return;
+            string raw = (_draftSteamId ?? "").Trim();
+            if (!ulong.TryParse(raw, out ulong steamId64) || steamId64 == 0)
+            {
+                NetConnectFeedback.ReportError("Enter a valid Steam ID (numbers only) — or use Invite Friends / accept a Steam invite.");
+                return;
+            }
+            JoinViaSteam(new CSteamID(steamId64), "ui-join-steam");
+        }
+
+        /// <summary>Shared by the manual "Join via Steam" button and the pending-invite auto-join in
+        /// <see cref="ApplySteamState"/> — same drafts-save/consume-pending/menu-close/link-timing sequence
+        /// either way, only the trigger differs.</summary>
+        private static void JoinViaSteam(CSteamID hostId, string reason)
+        {
+            Plugin.Cfg.LastSteamIdToJoin.Value = hostId.m_SteamID.ToString();
+            SteamRichPresenceJoin.ConsumePendingInvite();
+            _closeMenuOnJoinSuccess = true;
+            CoopConnection.ApplySteamClient(hostId, reason);
+            NetLinkState.SetClientLinked(true, reason);
+            ApplyButtonStates();
+            ApplyJoinFeedback();
+        }
+
         /// <summary>Hard stop: tear the network down entirely (host closes the room / client leaves).</summary>
         private static void OnCloseRoom()
         {
@@ -346,6 +502,7 @@ namespace SULFURTogether.UI
             _draftAddress = Plugin.Cfg.HostAddress.Value;
             _draftPort    = Plugin.Cfg.HostPort.Value.ToString();
             _draftKey     = Plugin.Cfg.ConnectionKey.Value;
+            _draftSteamId = Plugin.Cfg.LastSteamIdToJoin.Value;
 
             // UI-3d: auto-seed the name from Steam while it's still the generic default — SULFUR already knows the
             // persona name (it logs "playing as …" at startup). A name the player has personally set is left alone.
@@ -363,11 +520,12 @@ namespace SULFURTogether.UI
             if (int.TryParse(_draftPort, out var port) && port > 0 && port < 65536)
                 Plugin.Cfg.HostPort.Value = port;
             Plugin.Cfg.ConnectionKey.Value = _draftKey ?? "";
+            Plugin.Cfg.LastSteamIdToJoin.Value = _draftSteamId ?? "";
         }
 
         /// <summary>Identity of the current draft field values, used to detect edits for auto-save.</summary>
         private static string DraftSig()
-            => $"{_draftName}\0{_draftAddress}\0{_draftPort}\0{_draftKey}";
+            => $"{_draftName}\0{_draftAddress}\0{_draftPort}\0{_draftKey}\0{_draftSteamId}";
 
         /// <summary>Auto-save: persist the drafts whenever they've changed since the last save. Called from the
         /// throttled Tick, so editing a field saves within ~0.4s with no explicit Save button and no per-keystroke
@@ -393,6 +551,12 @@ namespace SULFURTogether.UI
             _joinHandle         = null;
             _playerListHandle   = null;
             _lastPlayerSig      = "\0";
+            _steamUnavailableHandle   = null;
+            _yourSteamIdHandle        = null;
+            _steamInviteHandle        = null;
+            _steamJoinHandle          = null;
+            _steamPendingInviteHandle = null;
+            _steamIdInputField        = null;
         }
 
         private static SulfurButtonHandle Handle(IReadOnlyList<SulfurButtonHandle> handles, int index)

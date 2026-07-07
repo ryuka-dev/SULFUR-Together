@@ -176,6 +176,30 @@ One native Options page, `SulfurOptionsApi.RegisterPage`, category **"SULFUR Tog
   these reasons (`RejectPeer` strings; LiteNetLib `ConnectionFailed`); the client must capture the last
   failure and display it (needs a live text/error element, §8). Create disabled while joined.
 
+### Steam connect method (STEAM-1..4 — implemented; a second, additive way to connect)
+A second, additive section below "Start co-op" — Direct IP above is untouched and still works exactly as
+before. See `Docs/NetworkingArchitecture.md` "Connection methods" for the transport design (a loopback relay
+under the same LiteNetLib socket, not a rewrite).
+- **Availability line** — shown only when Steam isn't up ("Steam is not available — connect method disabled");
+  hidden otherwise.
+- **Your Steam ID** — read-only, shown whenever Steam is available (host or client), so it can be shared/pasted
+  the same way the LAN IP row already works for Direct IP.
+- **[ Invite Friends via Steam ]** — host only, enabled once hosting. A deliberate opt-in (not automatic on
+  Create) — opens the host to Steam P2P joins *in addition to* Direct IP and pops the Steam overlay invite
+  dialog in the same click. Label switches to "Invite more friends via Steam" once already enabled, and the
+  overlay dialog re-opens on every click (not just the first) so a host can invite a second/third friend, or
+  re-invite one who missed the popup, without closing and recreating the room.
+- **Steam ID to join** — text input (persisted, like Host address/Port/Key) + **[ Join via Steam ]** — client.
+  Same mutual-exclusion rule as Join game (disabled once connected). Errors surface through the same
+  `NetConnectFeedback` line Direct IP uses.
+- **Pending-invite banner + auto-join** — accepting a friend's Steam invite (their friends list "Join Game" or
+  the overlay) joins automatically, matching ordinary Steam multiplayer UX — no extra click needed. The banner
+  shows "Joining `<friend>`'s SULFUR Together game…" as feedback; if no save is loaded yet it instead reads
+  "load a save to join automatically" and fires the join itself the moment one is. Works even if the connect
+  page isn't open when the invite is accepted (the background tick that drives this runs regardless of page
+  visibility). Only auto-joins while free to (not already hosting/connected) — mid-session, an old accepted
+  invite stays latched but doesn't interrupt the current game.
+
 ### Local preferences (per-player, client-editable for itself)
 - **Show player join/leave notifications** `[on]` → `EnableCoopToasts`. (The earlier "co-op notifications"
   label was a duplicate of this — collapsed into this single toggle.)

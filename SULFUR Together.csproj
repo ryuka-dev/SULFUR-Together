@@ -62,6 +62,13 @@
       <HintPath>$(SulfurManagedDir)\PerfectRandom.Sulfur.Core.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- STEAM-1: Steam P2P connect method — compile against the game's own already-initialized Steamworks.NET
+         (real SULFUR AppID, its own Steam session). Private=false: never bundled, same convention as the game
+         assemblies above; only SteamIdentity.cs's persona-name lookup used pure reflection before this. -->
+    <Reference Include="com.rlabrecque.steamworks.net">
+      <HintPath>$(SulfurManagedDir)\com.rlabrecque.steamworks.net.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(SulfurManagedDir)\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>

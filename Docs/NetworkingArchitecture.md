@@ -12,6 +12,65 @@
 | ReliableUnordered | `DeliveryMethod.ReliableUnordered` | Reliable events where order doesn't matter (attack phase, projectile) |
 | Unreliable | `DeliveryMethod.Unreliable` | High-frequency snapshots (position, rotation, animator) |
 
+Every message, codec, and handler above is 100% LiteNetLib-typed (`NetPeer`/`NetDataWriter`/`NetDataReader`) and
+transport-agnostic in intent only — see "Connection methods" below for how a second real-world transport (Steam
+P2P) rides underneath this exact same layer without touching any of it.
+
+---
+
+## Connection methods (STEAM-1..4)
+
+Two ways to *establish* the LiteNetLib connection above; once established, everything above this line behaves
+identically regardless of which one was used.
+
+- **Direct IP** (original): host binds `NetManager.Start(HostPort)`, client `NetManager.Connect(HostAddress,
+  HostPort, ConnectionKey)`. Real UDP, LAN or port-forwarded WAN.
+- **Steam P2P** (`src/Networking/Steam*.cs`): rather than introduce a `Send(peerId, byte[])` abstraction and
+  touch every codec, Steam is added as a **loopback relay underneath** the exact same LiteNetLib socket calls:
+  - `SteamNetworkingSupport.cs` — compile-time reference to the game's own already-initialized
+    `com.rlabrecque.steamworks.net.dll` (real SULFUR AppID **2124120**; `Private=false` in the csproj — nothing
+    bundled). Availability check, local `CSteamID`, and raw send/receive/accept wrappers over
+    `SteamNetworkingMessages` (channel 0, **Reliable | NoNagle | AutoRestartBrokenSession** — see "Verified
+    fixes" below for why not unreliable). Exposes both `SessionRequested` (inbound P2P open) and
+    `SessionFailed` (negotiation/mid-session failure, with Steam's own reason code + debug string) as events.
+  - `SteamRelayBridge.cs` — the actual byte pump. **Host**: one small loopback `UdpClient` per connected Steam
+    peer, "connected" (UDP sense) to `127.0.0.1:HostPort` — to the real `NetManager` each looks like an ordinary
+    new remote endpoint (a distinct loopback source port), so `ConnectionRequestEvent`/handshake/version/
+    connection-key validation all run completely unmodified. **Client**: `NetService.SetConnectTarget` points
+    `ConnectToHost()` at a local loopback port instead of the configured `HostAddress`/`HostPort`; the bridge
+    shuttles bytes between that port and the host's `CSteamID` over Steam. A host can have Direct-IP and Steam
+    peers connected simultaneously — they're just distinct remote endpoints either way. `Initialize()` (called
+    once from `Plugin.Awake`) subscribes the inbound-session handler permanently — it no-ops (fast, logged)
+    unless Steam hosting is currently enabled — and subscribes `SessionFailed` to drop a peer's bridge entry so
+    a retry from the same SteamID is re-accepted instead of hitting a stale "already bridged" state.
+  - `SteamRichPresenceJoin.cs` — the "Invite Friends" convenience layer. Steam's `"connect"` rich-presence key
+    (not a Lobby — one less API surface) makes a "Join Game" entry appear in a friend's Steam friends list;
+    `ActivateGameOverlayInviteDialogConnectString` also pops the invite picker. Either path fires
+    `GameRichPresenceJoinRequested_t` on the invitee's side with our SteamID64 back — the exact same "address"
+    the manual "Steam ID to join" field takes. Only our own `"connect"` key is ever touched (never
+    `ClearRichPresence()`, which would also wipe the base game's own status text). The connect page's background
+    tick (`CoopConnectPage.ApplySteamState`, runs from `Plugin.Update` regardless of whether the page is
+    currently on-screen) auto-joins the instant an invite is seen while free to (not already hosting/connected,
+    save loaded) — accepting the invite is the whole action, matching ordinary Steam multiplayer UX.
+  - `CoopConnection.ApplySteamClient` / `EnableSteamHosting` / `DisableSteamHosting` — the entry points the
+    connect page (`CoopConnectPage.cs`) drives; Steam hosting is a deliberate opt-in (never automatic on
+    Create), so a host who never clicks "Invite Friends" exposes no Steam-facing surface at all.
+    `EnableSteamHosting` is safe to call repeatedly — the bridge itself only starts once, but the overlay
+    invite dialog re-opens on every call so a host can invite additional friends without recreating the room.
+  - **Known limitation**: without Valve's Steam Datagram Relay enabled for this AppID (not something a
+    third-party mod can turn on), there's no guaranteed relay fallback for restrictive/symmetric NATs — same
+    class of risk Direct IP already has with port forwarding, not worse, but not a guarantee either.
+  - **Verified fixes (real-machine, two-Steam-account testing — see Versioning.md STEAM-2/3):** an unreliable
+    first send never triggers Steam's session negotiation at all (silently dropped pre-session) → switched to
+    reliable; `CoopConnection.Apply()` unconditionally tore down a just-opened client bridge before
+    `NetService.Start()` could use it → skipped when a pending Steam join target is about to be consumed by
+    that very call; the host's per-peer bridge entry was never removed on session end → retries from the same
+    peer were silently ignored forever → cleaned up via the new `SessionFailed` event; the inbound-session
+    handler was only subscribed while hosting was enabled → an invite accepted before that click got no
+    response for ~30s → subscription moved to permanent `Initialize()`; `JoinRequested` had no subscribers at
+    all → invite-accept never actually joined → wired to auto-join; `EnableSteamHosting`'s early-return skipped
+    re-advertising → "Invite Friends" only worked once per room → fixed to always re-advertise.
+
 ---
 
 ## Message Type Table
