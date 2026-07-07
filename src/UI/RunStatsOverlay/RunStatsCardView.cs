@@ -6,14 +6,19 @@ using SULFURTogether.Networking.Gameplay;
 namespace SULFURTogether.UI.RunStatsOverlay
 {
     /// <summary>
-    /// RS-2/RS-3: a single run-stats card — player name + the 7 always-visible stat rows. Built entirely from
-    /// plain Unity UI/TMP primitives (no bundled art): a dark panel + gold accent border for the local player's
-    /// own card, using whatever TMP font <see cref="RunStatsOverlayManager"/> resolved from the currently active
-    /// native UI (so it matches the game's own current-language font, CJK included).
+    /// RS-4: a single run-stats card — player name + the 7 always-visible stat rows, in the SULFUR "fire lake"
+    /// palette: warm charcoal body, old-silver border (sulfur-gold for the local player's own card), ember
+    /// highlight. Built entirely from plain Unity UI/TMP primitives — no bundled art; the "texture" is layered
+    /// translucent panels + vertex-effect shadow/border/glow, and the font is whatever
+    /// <see cref="RunStatsOverlayManager"/> sampled from the game's own current-language UI.
+    ///
+    /// Layer stack (bottom to top): drop shadow (vertex effect, counter-moves on hover) → charcoal body +
+    /// border Outline (+ gold glow Outline on the own card) → inner warm panel (static, breaks the flatness) →
+    /// ember highlight strip (drifts toward the cursor on hover) → name/stat text. The highlight and inner
+    /// panel are <c>ignoreLayout</c> children so the VerticalLayoutGroup never repositions them.
     ///
     /// The whole card is one VerticalLayoutGroup + ContentSizeFitter (height only) so its height is always
-    /// exactly the content's real height — the 7 rows can never spill outside the background (the original bug:
-    /// a fixed pixel height with childControlHeight=false left every row at Unity's default 100px height).
+    /// exactly the content's real height — the 7 rows can never spill outside the background.
     /// </summary>
     internal sealed class RunStatsCardView
     {
@@ -29,31 +34,49 @@ namespace SULFURTogether.UI.RunStatsOverlay
             "Destructibles Destroyed",
         };
 
-        private static readonly Color NormalBg     = new Color(0.09f, 0.10f, 0.13f, 0.93f);
-        private static readonly Color NormalBorder = new Color(0.75f, 0.78f, 0.85f, 0.9f);
-        private static readonly Color LocalBorder  = new Color(1f, 0.80f, 0.25f, 1f);
-        private static readonly Color LabelColor   = new Color(0.85f, 0.86f, 0.90f, 1f); // bright, never dull grey
-        private static readonly Color ValueColor   = Color.white;
-        private static readonly Color NameColor    = Color.white;
-        private static readonly Color LocalNameColor = new Color(1f, 0.82f, 0.30f, 1f);
+        // Fire-lake palette: charred body, old-silver vs sulfur-gold accents, ember warmth. Deliberately warm
+        // dark (brown-black), never pure black, so the card separates from the black loading backdrop.
+        private static readonly Color BodyColor     = new Color(0.085f, 0.065f, 0.050f, 0.97f);
+        private static readonly Color InnerTint     = new Color(1f, 0.58f, 0.28f, 0.045f);
+        private static readonly Color NormalBorder  = new Color(0.72f, 0.71f, 0.66f, 0.95f); // old silver
+        private static readonly Color LocalBorder   = new Color(0.99f, 0.72f, 0.18f, 1f);    // sulfur gold
+        private static readonly Color LocalGlow     = new Color(1f, 0.55f, 0.15f, 0.30f);    // restrained ember halo
+        private static readonly Color DropShadow    = new Color(0f, 0f, 0f, 0.55f);
+        private static readonly Color EmberHighlight = new Color(1f, 0.50f, 0.20f, 1f);      // alpha driven by animator
+        private static readonly Color LabelColor    = new Color(0.84f, 0.81f, 0.76f, 1f);    // warm light grey
+        private static readonly Color ValueColor    = new Color(0.99f, 0.97f, 0.94f, 1f);
+        private static readonly Color NameColor     = Color.white;
+        private static readonly Color LocalNameColor = new Color(1f, 0.80f, 0.28f, 1f);
+
+        public const float RestHighlightAlpha = 0.05f;
+        public const float HotHighlightAlpha = 0.11f;
 
         private readonly GameObject _root;
         private readonly RectTransform _rect;
         private readonly TextMeshProUGUI _nameText;
         private readonly TextMeshProUGUI[] _valueTexts;
         private readonly Outline _border;
+        private readonly Outline _glow;
 
-        private RunStatsCardView(GameObject root, TextMeshProUGUI nameText, TextMeshProUGUI[] valueTexts, Outline border)
+        private RunStatsCardView(GameObject root, TextMeshProUGUI nameText, TextMeshProUGUI[] valueTexts,
+            Outline border, Outline glow, Shadow shadow, RectTransform highlightRect, Image highlightImage)
         {
             _root = root;
             _rect = (RectTransform)root.transform;
             _nameText = nameText;
             _valueTexts = valueTexts;
             _border = border;
+            _glow = glow;
+            ShadowFx = shadow;
+            HighlightRect = highlightRect;
+            HighlightImage = highlightImage;
         }
 
         public GameObject Root => _root;
         public RectTransform Rect => _rect;
+        public Shadow ShadowFx { get; }
+        public RectTransform HighlightRect { get; }
+        public Image HighlightImage { get; }
 
         public static RunStatsCardView Create(Transform parent, TMP_FontAsset? font)
         {
@@ -64,18 +87,31 @@ namespace SULFURTogether.UI.RunStatsOverlay
             rootRect.sizeDelta = new Vector2(RunStatsCanvasBuilder.CardWidth, rootRect.sizeDelta.y);
 
             var bg = root.GetComponent<Image>();
-            bg.color = NormalBg;
-            // Hover/carousel detection is pure RectTransformUtility geometry (see RunStatsCardHoverAnimator) —
-            // nothing here needs Unity's raycast/EventSystem routing, and leaving it on was intercepting clicks
-            // meant for native UI underneath (e.g. Hub dialogue) whenever a card visually overlapped it.
+            bg.color = BodyColor;
+            // Hover/carousel detection is pure RectTransformUtility geometry — nothing here needs Unity's
+            // raycast/EventSystem routing, and leaving it on was intercepting clicks meant for native UI
+            // underneath (e.g. Hub dialogue) whenever a card visually overlapped it (Log374).
             bg.raycastTarget = false;
 
-            // Border — an Outline effect on the background graphic, so it never consumes extra layout space.
-            var border = root.GetComponent<Outline>();
-            if (border == null) border = root.AddComponent<Outline>();
+            // Vertex effects on the body image, applied in component order: border outline first (crisp edge),
+            // then the gold glow (local card only — duplicates body+border in translucent gold, reading as a
+            // restrained halo), then the drop shadow LAST so it re-duplicates everything above into one dark
+            // grounded copy whose offset the hover animator counter-moves.
+            var border = root.AddComponent<Outline>();
             border.effectColor = NormalBorder;
             border.effectDistance = new Vector2(2f, -2f);
             border.useGraphicAlpha = false;
+
+            var glow = root.AddComponent<Outline>();
+            glow.effectColor = LocalGlow;
+            glow.effectDistance = new Vector2(4.5f, -4.5f);
+            glow.useGraphicAlpha = false;
+            glow.enabled = false;
+
+            var shadow = root.AddComponent<Shadow>();
+            shadow.effectColor = DropShadow;
+            shadow.effectDistance = new Vector2(5f, -5f);
+            shadow.useGraphicAlpha = false;
 
             var vlayout = root.GetComponent<VerticalLayoutGroup>();
             vlayout.padding = new RectOffset(20, 20, 18, 18);
@@ -91,6 +127,23 @@ namespace SULFURTogether.UI.RunStatsOverlay
             var fitter = root.GetComponent<ContentSizeFitter>();
             fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
             fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            // -- decoration layers (ignoreLayout: positioned by anchors, invisible to the VerticalLayoutGroup) --
+
+            var inner = CreateDecoration(root.transform, "InnerPanel", InnerTint);
+            inner.rect.anchorMin = Vector2.zero;
+            inner.rect.anchorMax = Vector2.one;
+            inner.rect.offsetMin = new Vector2(5f, 5f);
+            inner.rect.offsetMax = new Vector2(-5f, -5f);
+
+            var highlight = CreateDecoration(root.transform, "EmberHighlight",
+                new Color(EmberHighlight.r, EmberHighlight.g, EmberHighlight.b, RestHighlightAlpha));
+            highlight.rect.anchorMin = new Vector2(0f, 0.55f);
+            highlight.rect.anchorMax = new Vector2(1f, 1f);
+            highlight.rect.offsetMin = new Vector2(7f, 0f);
+            highlight.rect.offsetMax = new Vector2(-7f, -7f);
+
+            // -- text content (layout children) --
 
             var nameText = CreateText(root.transform, font, 30f, FontStyles.Bold, TextAlignmentOptions.Center, 38f);
 
@@ -122,7 +175,18 @@ namespace SULFURTogether.UI.RunStatsOverlay
                 valueTexts[i] = valueText;
             }
 
-            return new RunStatsCardView(root, nameText, valueTexts, border);
+            return new RunStatsCardView(root, nameText, valueTexts, border, glow, shadow, highlight.rect, highlight.image);
+        }
+
+        private static (RectTransform rect, Image image) CreateDecoration(Transform parent, string name, Color color)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(LayoutElement));
+            go.transform.SetParent(parent, false);
+            go.GetComponent<LayoutElement>().ignoreLayout = true;
+            var image = go.GetComponent<Image>();
+            image.color = color;
+            image.raycastTarget = false;
+            return ((RectTransform)go.transform, image);
         }
 
         private static TextMeshProUGUI CreateText(Transform parent, TMP_FontAsset? font, float size, FontStyles style, TextAlignmentOptions align, float minHeight)
@@ -152,6 +216,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
             _nameText.text = isLocalPlayer ? displayName + " (You)" : displayName; // Docs/Localization.md row 20
             _nameText.color = isLocalPlayer ? LocalNameColor : NameColor;
             _border.effectColor = isLocalPlayer ? LocalBorder : NormalBorder;
+            _glow.enabled = isLocalPlayer;
 
             SetValue(0, stats.ShotsFired);
             SetValue(1, stats.DamageDealt);
@@ -169,6 +234,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
             _nameText.text = "…"; // Docs/Localization.md row 20
             _nameText.color = NameColor;
             _border.effectColor = NormalBorder;
+            _glow.enabled = false;
             for (int i = 0; i < _valueTexts.Length; i++)
                 _valueTexts[i].text = "…";
         }

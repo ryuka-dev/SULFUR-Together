@@ -4,7 +4,7 @@ using UnityEngine.UI;
 namespace SULFURTogether.UI.RunStatsOverlay
 {
     /// <summary>
-    /// RS-3/RS-4: builds the root ScreenSpaceOverlay canvas + the carousel's Viewport/Track pair, bottom-anchored
+    /// RS-4: builds the root ScreenSpaceOverlay canvas + the carousel's Viewport/Track pair, bottom-anchored
     /// above a safe margin so cards never cover the native loading screen's "press ... to continue" prompt.
     /// Plain Unity UI construction only — no Native UI Lib dependency (this overlay isn't optional chrome, it
     /// needs to exist even when that soft dependency is absent).
@@ -12,21 +12,22 @@ namespace SULFURTogether.UI.RunStatsOverlay
     /// Viewport is a fixed-width <see cref="RectMask2D"/> window (~4 full cards); Track is the unclipped row of
     /// every card, laid out by a HorizontalLayoutGroup and then translated in X by
     /// <see cref="RunStatsCarouselController"/> — cards past the viewport edge are simply clipped to a peek
-    /// sliver, which is the whole "4 full + edge peek for 5+" effect. With <=4 players the track never needs to
-    /// move and nothing is ever clipped, so this collapses to the plain static Phase-3 layout for free.
+    /// sliver, which is the whole "4 full + edge peek for 5+" effect. The Track is anchored to the viewport's
+    /// LEFT edge (not centered): centering would clip BOTH ends of an overflowing row at once, while the
+    /// controller's base-pad math centers a non-overflowing row explicitly.
     /// </summary>
     internal static class RunStatsCanvasBuilder
     {
         public const float CardWidth = 340f;
         public const float CardSpacing = 28f;
         public const float CardPitch = CardWidth + CardSpacing;
+        public const float ViewportWidth = 1600f; // ~4 full cards + slivers of the neighbors either side
 
         // Reference-resolution units (1920x1080). Comfortably clears the native bottom-of-screen loading prompt.
         private const float BottomSafeMarginPx = 190f;
-        private const float ViewportWidthPx = 1600f;  // ~4 full cards + slivers of the neighbors either side
-        private const float ViewportHeightPx = 520f;  // generous — only horizontal clipping is wanted
+        private const float ViewportHeightPx = 560f; // generous headroom — only horizontal clipping is wanted
 
-        public static GameObject BuildRoot(out RectTransform track)
+        public static GameObject BuildRoot(out RectTransform viewport, out RectTransform track)
         {
             var root = new GameObject("RunStatsOverlayCanvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
 
@@ -50,18 +51,18 @@ namespace SULFURTogether.UI.RunStatsOverlay
             viewportRect.anchorMax = new Vector2(0.5f, 0f);
             viewportRect.pivot = new Vector2(0.5f, 0f);
             viewportRect.anchoredPosition = new Vector2(0f, BottomSafeMarginPx);
-            viewportRect.sizeDelta = new Vector2(ViewportWidthPx, ViewportHeightPx);
+            viewportRect.sizeDelta = new Vector2(ViewportWidth, ViewportHeightPx);
 
             var trackGo = new GameObject("Track", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(ContentSizeFitter));
             trackGo.transform.SetParent(viewportGo.transform, false);
             var trackRect = (RectTransform)trackGo.transform;
-            trackRect.anchorMin = new Vector2(0.5f, 0f);
-            trackRect.anchorMax = new Vector2(0.5f, 0f);
-            trackRect.pivot = new Vector2(0.5f, 0f);
-            trackRect.anchoredPosition = Vector2.zero; // moved in X by RunStatsCarouselController
+            trackRect.anchorMin = new Vector2(0f, 0f);
+            trackRect.anchorMax = new Vector2(0f, 0f);
+            trackRect.pivot = new Vector2(0f, 0f);
+            trackRect.anchoredPosition = Vector2.zero; // X owned by RunStatsCarouselController
 
             var layout = trackGo.GetComponent<HorizontalLayoutGroup>();
-            layout.childAlignment = TextAnchor.LowerCenter; // bottom-align every card to one common baseline
+            layout.childAlignment = TextAnchor.LowerLeft; // bottom-align every card to one common baseline
             layout.spacing = CardSpacing;
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = false;
@@ -72,6 +73,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
             fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
             fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
+            viewport = viewportRect;
             track = trackRect;
             return root;
         }

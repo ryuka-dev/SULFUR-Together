@@ -18,6 +18,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
     internal static class RunStatsOverlayManager
     {
         private static GameObject? _root;
+        private static RectTransform? _viewport;
         private static RectTransform? _track;
         private static readonly RunStatsCarouselController _carousel = new RunStatsCarouselController();
         private static readonly List<RunStatsCardView> _cards = new List<RunStatsCardView>();
@@ -111,9 +112,25 @@ namespace SULFURTogether.UI.RunStatsOverlay
             if (delta != 0) _carousel.MoveFocus(delta);
             _carousel.Tick(dt);
 
-            bool havePointer = RunStatsInputReader.TryGetPointerPosition(out var pointer);
-            foreach (var animator in _hoverAnimators)
-                animator.Tick(dt, havePointer && animator.IsPointerOver(pointer), pointer);
+            // Exactly one "hot" card: the first one under the pointer, and only while the pointer is inside
+            // the viewport — a card scrolled out of the visible window is clipped invisible and must not keep
+            // reacting to a cursor that happens to sit over its clipped-away rect.
+            bool havePointer = RunStatsInputReader.TryGetPointerPosition(out var pointer)
+                && _viewport != null
+                && RectTransformUtility.RectangleContainsScreenPoint(_viewport, pointer, null);
+            int hotIndex = -1;
+            if (havePointer)
+            {
+                for (int i = 0; i < _hoverAnimators.Count; i++)
+                {
+                    if (!_hoverAnimators[i].IsPointerOver(pointer)) continue;
+                    hotIndex = i;
+                    break;
+                }
+            }
+
+            for (int i = 0; i < _hoverAnimators.Count; i++)
+                _hoverAnimators[i].Tick(dt, i == hotIndex, pointer);
         }
 
         private static bool IsNetworkSessionActive()
@@ -138,7 +155,8 @@ namespace SULFURTogether.UI.RunStatsOverlay
         private static void EnsureBuilt()
         {
             if (_root != null) return;
-            _root = RunStatsCanvasBuilder.BuildRoot(out var track);
+            _root = RunStatsCanvasBuilder.BuildRoot(out var viewport, out var track);
+            _viewport = viewport;
             _track = track;
             _carousel.SetTrack(track);
             UnityEngine.Object.DontDestroyOnLoad(_root);
@@ -185,20 +203,29 @@ namespace SULFURTogether.UI.RunStatsOverlay
                 var placeholder = RunStatsCardView.Create(_track, font);
                 placeholder.SetEmpty();
                 _cards.Add(placeholder);
-                _hoverAnimators.Add(new RunStatsCardHoverAnimator(placeholder.Rect));
-                _carousel.ResetForNewData(1);
-                return;
+            }
+            else
+            {
+                string localPeerId = NetRunStateBridge.TryGetLocalRunState(out var local) ? local.PeerId : "";
+                foreach (var stats in list)
+                {
+                    var card = RunStatsCardView.Create(_track, font);
+                    card.Bind(stats, stats.PeerId == localPeerId);
+                    _cards.Add(card);
+                }
             }
 
-            string localPeerId = NetRunStateBridge.TryGetLocalRunState(out var local) ? local.PeerId : "";
-            foreach (var stats in list)
-            {
-                var card = RunStatsCardView.Create(_track, font);
-                card.Bind(stats, stats.PeerId == localPeerId);
-                _cards.Add(card);
-                _hoverAnimators.Add(new RunStatsCardHoverAnimator(card.Rect));
-            }
-            _carousel.ResetForNewData(list.Count);
+            _carousel.ResetForNewData(_cards.Count);
+
+            // Force the layout pass NOW so each hover animator captures the card's real layout-assigned
+            // baseline position (its animation is deltas around that baseline; capturing before layout ran
+            // would bake a (0,0) baseline in and teleport every card on the first animated frame).
+            // Cards first (their ContentSizeFitters resolve their heights), then the track row over them.
+            foreach (var card in _cards)
+                UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(card.Rect);
+            UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(_track);
+            foreach (var card in _cards)
+                _hoverAnimators.Add(new RunStatsCardHoverAnimator(card));
         }
 
         private static void HideAndClear()

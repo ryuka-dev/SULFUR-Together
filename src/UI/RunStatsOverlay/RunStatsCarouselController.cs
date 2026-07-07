@@ -4,21 +4,20 @@ namespace SULFURTogether.UI.RunStatsOverlay
 {
     /// <summary>
     /// RS-4: single-focus-index carousel over the card Track. One scroll/d-pad input moves the focus by exactly
-    /// one player, clamped at both ends (no wraparound); the Track's actual X position eases toward the target
-    /// with a critically-damped spring (<see cref="Mathf.SmoothDamp"/>) for the slide feel. With &lt;=4 players
-    /// the focus never needs to move past index 0, so the Track simply never moves and every card stays fully
-    /// visible — this only becomes an active carousel once there are enough cards to overflow the viewport.
+    /// one card, clamped so the row can never scroll past its first or last card; the Track's actual X position
+    /// follows the target through the shared under-damped spring, giving each step a distinct slide-and-settle
+    /// (not a continuous pan). A row of &lt;=4 cards fits the viewport whole: its max focus is 0, so input
+    /// moves nothing and the row just sits centered.
     /// </summary>
     internal sealed class RunStatsCarouselController
     {
-        private const float SmoothTime = 0.18f;
+        private const int VisibleCards = 4;
+        private const float OverflowLeftPad = 24f;
 
         private RectTransform? _track;
         private int _cardCount;
         private int _focusIndex;
-        private float _velocity;
-
-        public int FocusIndex => _focusIndex;
+        private RunStatsSpring _x;
 
         public void SetTrack(RectTransform track)
         {
@@ -31,30 +30,39 @@ namespace SULFURTogether.UI.RunStatsOverlay
         {
             _cardCount = Mathf.Max(0, cardCount);
             _focusIndex = 0;
-            _velocity = 0f;
-            SnapToFocus();
+            _x.Snap(TargetX());
+            Apply();
         }
 
         public void MoveFocus(int delta)
         {
-            if (_cardCount <= 1) return;
-            _focusIndex = Mathf.Clamp(_focusIndex + delta, 0, _cardCount - 1);
+            _focusIndex = Mathf.Clamp(_focusIndex + delta, 0, MaxFocus());
         }
 
         public void Tick(float deltaTime)
         {
-            if (_track == null) return;
-            float targetX = -_focusIndex * RunStatsCanvasBuilder.CardPitch;
-            var pos = _track.anchoredPosition;
-            pos.x = Mathf.SmoothDamp(pos.x, targetX, ref _velocity, SmoothTime, Mathf.Infinity, deltaTime);
-            _track.anchoredPosition = pos;
+            _x.Tick(TargetX(), deltaTime);
+            Apply();
         }
 
-        private void SnapToFocus()
+        /// <summary>The last focus position still has a full 4-card page to show — scrolling further would just
+        /// drag the row off the left edge for nothing. 0 when everything already fits.</summary>
+        private int MaxFocus() => Mathf.Max(0, _cardCount - VisibleCards);
+
+        private float TargetX()
+        {
+            float rowWidth = _cardCount * RunStatsCanvasBuilder.CardWidth
+                             + Mathf.Max(0, _cardCount - 1) * RunStatsCanvasBuilder.CardSpacing;
+            // Fits → center the row; overflows → small left pad so the first card sits flush with a peek margin.
+            float basePad = Mathf.Max(OverflowLeftPad, (RunStatsCanvasBuilder.ViewportWidth - rowWidth) * 0.5f);
+            return basePad - _focusIndex * RunStatsCanvasBuilder.CardPitch;
+        }
+
+        private void Apply()
         {
             if (_track == null) return;
             var pos = _track.anchoredPosition;
-            pos.x = -_focusIndex * RunStatsCanvasBuilder.CardPitch;
+            pos.x = _x.Value;
             _track.anchoredPosition = pos;
         }
     }
