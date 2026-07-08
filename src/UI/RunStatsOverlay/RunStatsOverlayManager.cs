@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using SULFURTogether.Networking;
@@ -226,7 +225,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
 
             // Re-resolved per Run (not cached for the process lifetime) so a language change since the last
             // Run is picked up, and every card in this batch shares one consistent font.
-            var font = ResolveNativeFont();
+            var font = NativeFontSampler.ResolveNativeFont();
 
             if (list == null || list.Count == 0)
             {
@@ -286,27 +285,5 @@ namespace SULFURTogether.UI.RunStatsOverlay
             _boundSimVersion = -1;
         }
 
-        /// <summary>Samples the font off any currently active native TextMeshProUGUI — the same trick the SULFUR
-        /// Native UI Lib uses for its own banner/toasts (Docs/Localization.md "Producer note"): the game already
-        /// keeps its own UI text components on the correct current-language font (CJK fallback chain included),
-        /// so copying that reference is simpler and more correct than trying to track the language ourselves.
-        /// Falls back to the project's TMP default if no active native text can be found (e.g. a bare loading
-        /// screen with no TMP components at all).</summary>
-        private static TMP_FontAsset? ResolveNativeFont()
-        {
-            try
-            {
-                foreach (var tmp in UnityEngine.Object.FindObjectsByType<TextMeshProUGUI>(FindObjectsSortMode.None))
-                {
-                    if (tmp == null || tmp.font == null) continue;
-                    if (!tmp.gameObject.activeInHierarchy) continue;
-                    return tmp.font;
-                }
-            }
-            catch { /* best-effort — fall through to default */ }
-
-            try { return TMP_Settings.defaultFontAsset; }
-            catch { return null; }
-        }
     }
 }

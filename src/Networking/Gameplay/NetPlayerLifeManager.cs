@@ -64,9 +64,65 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _nativeDeathBypassDepth;
         public static int HostDamageApplyDepth;
         private static int _sequence;
+        // Rescuer-local edge detection only (DR-1): which downed peer we've told the Host we're holding for.
+        // The Host owns the actual rescue clock — this field never drives a progress value, only start/stop edges.
         private static string _activeReviveTarget = "";
-        private static float _activeReviveHoldStartedAt;
-        private static bool _activeReviveRequestSent;
+
+        internal enum RescueEndReason { None, Completed, Cancelled }
+
+        internal struct RescueDisplayState
+        {
+            public string RescuerPeerId;
+            public string TargetPeerId;
+            public float Progress;
+            public bool Active;
+            public RescueEndReason LastEndReason;
+        }
+
+        // DR-1: the one authoritative rescue-progress value both the rescuer's and the downed player's UI read.
+        // Written directly by the Host's own tick (host path) and by HandleNetworkState on RescueProgress/
+        // RescueCancelled/ReviveAccepted (client path) — never computed independently by either UI.
+        private static RescueDisplayState _rescueDisplay;
+        public static RescueDisplayState CurrentRescueDisplay => _rescueDisplay;
+
+        // DR-2: read-only surface for the uGUI overlay — never a second source of truth (the fields above remain
+        // the only owners), just projections of already-private state into public, UI-friendly shapes.
+        public static string LocalPeerId => GetLocalPeerId();
+
+        public static string GetKnownPeerDisplayName(string peerId)
+        {
+            if (string.IsNullOrWhiteSpace(peerId)) return "";
+            if (peerId == GetLocalPeerId()) return Plugin.Cfg.PlayerName.Value;
+            return PeerStates.TryGetValue(peerId, out var peer) && !string.IsNullOrWhiteSpace(peer.PlayerName) ? peer.PlayerName : peerId;
+        }
+
+        /// <summary>Local-only proximity hint (not network state): is the local player near a downed teammate
+        /// they could start rescuing? Lets the rescuer's UI show a "Hold [key]" prompt before a hold has actually
+        /// started (matching the pre-DR-1 UX) without waiting on a round trip to the Host.</summary>
+        public static bool TryGetNearestDownedPeerHint(out string peerId, out string playerName, out float distance)
+        {
+            peerId = ""; playerName = ""; distance = 0f;
+            if (!IsEnabled() || _localDowned || _localNativeDeathCommitted) return false;
+            if (!TryFindNearestDownedPeer(out var target, out var dist)) return false;
+            peerId = target.PeerId;
+            playerName = string.IsNullOrWhiteSpace(target.PlayerName) ? target.PeerId : target.PlayerName;
+            distance = dist;
+            return true;
+        }
+
+        // Host-only: one active rescue per downed target (keyed by TargetPeerId so multiple simultaneous
+        // rescues of different downed players — 3+ player sessions — don't collide). First rescuer to reach a
+        // given target wins the slot (same first-come rule as WorldPickupTakeRequest).
+        private sealed class ActiveRescueRecord
+        {
+            public string RescuerPeerId = "";
+            public string TargetPeerId = "";
+            public float StartedAt;
+            public float LastBroadcastAt;
+        }
+        private static readonly Dictionary<string, ActiveRescueRecord> _hostActiveRescues = new Dictionary<string, ActiveRescueRecord>();
+        private static readonly List<string> _rescueTickScratch = new List<string>();
+        private const float RescueProgressBroadcastIntervalSeconds = 0.12f;
 
         public static void ClearLevelScoped(string source)
         {
@@ -77,8 +133,8 @@ namespace SULFURTogether.Networking.Gameplay
             _localNativeDeathCommitted = false;
             _localDownedAt = 0f;
             _activeReviveTarget = "";
-            _activeReviveHoldStartedAt = 0f;
-            _activeReviveRequestSent = false;
+            _rescueDisplay = default;
+            _hostActiveRescues.Clear();
             PeerStates.Clear();
 
             if (Plugin.Cfg.EnableCoopPlayerDownedRevive.Value && Plugin.Cfg.LogPlayerLifeSync.Value)
@@ -92,6 +148,8 @@ namespace SULFURTogether.Networking.Gameplay
             RefreshLocalPositionCache();
             HandleDownedTimeout();
             HandleReviveHoldInput();
+            if (NetConfig.GetMode() == NetMode.Host)
+                TickHostActiveRescues();
             UpdateDeathRespawnGuard();
             FlushPendingEnemyToClientDamage();
         }
@@ -180,10 +238,29 @@ namespace SULFURTogether.Networking.Gameplay
             string localPeerId = GetLocalPeerId();
             bool targetsLocal = state.TargetPeerId == localPeerId || (state.TargetPeerId == "*" && state.Kind == NetPlayerLifeStateKind.NativeDeathCommit);
 
-            if (state.Kind == NetPlayerLifeStateKind.ReviveRequest)
+            if (state.Kind == NetPlayerLifeStateKind.RescueHoldStart)
             {
                 if (receivedOnHost)
-                    HandleReviveRequestOnHost(state);
+                    HandleRescueHoldStartOnHost(state);
+                return;
+            }
+
+            if (state.Kind == NetPlayerLifeStateKind.RescueHoldStop)
+            {
+                if (receivedOnHost)
+                    HandleRescueHoldStopOnHost(state);
+                return;
+            }
+
+            if (state.Kind == NetPlayerLifeStateKind.RescueProgress)
+            {
+                ApplyRescueDisplay(state.SourcePeerId, state.TargetPeerId, state.Progress, true, RescueEndReason.None);
+                return;
+            }
+
+            if (state.Kind == NetPlayerLifeStateKind.RescueCancelled)
+            {
+                ApplyRescueDisplay(state.SourcePeerId, state.TargetPeerId, 0f, false, RescueEndReason.Cancelled);
                 return;
             }
 
@@ -194,6 +271,11 @@ namespace SULFURTogether.Networking.Gameplay
 
                 if (!string.IsNullOrWhiteSpace(state.TargetPeerId))
                     MarkPeerAlive(state.TargetPeerId, state);
+
+                // DR-1: if this is the rescue our own UI was showing, mark it completed (vs cancelled) so DR-2's
+                // panel can play the completion text before fading, instead of just going dark.
+                if (_rescueDisplay.Active && _rescueDisplay.TargetPeerId == state.TargetPeerId)
+                    ApplyRescueDisplay(_rescueDisplay.RescuerPeerId, _rescueDisplay.TargetPeerId, 1f, false, RescueEndReason.Completed);
                 return;
             }
 
@@ -443,52 +525,16 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
 
-        public static void DrawOnGUI()
-        {
-            if (!IsEnabled()) return;
-
-            try
-            {
-                if (_localDowned && !_localNativeDeathCommitted)
-                {
-                    DrawCenterPrompt("DOWNED\nWaiting for a teammate to revive you");
-                    return;
-                }
-
-                if (_localNativeDeathCommitted) return;
-                if (_localTransform == null) return;
-
-                if (TryFindNearestDownedPeer(out var target, out var distance))
-                {
-                    float required = Math.Max(0.1f, Plugin.Cfg.PlayerReviveHoldSeconds.Value);
-                    float progress = 0f;
-                    if (_activeReviveTarget == target.PeerId && _activeReviveHoldStartedAt > 0f)
-                        progress = Mathf.Clamp01((Time.realtimeSinceStartup - _activeReviveHoldStartedAt) / required);
-
-                    string name = string.IsNullOrWhiteSpace(target.PlayerName) ? target.PeerId : target.PlayerName;
-                    string key = Plugin.Cfg.PlayerReviveHoldKey.Value.MainKey.ToString();
-                    DrawCenterPrompt($"Hold [{key}] to revive {name}\n{distance:F1}m  {progress * 100f:F0}%");
-                }
-            }
-            catch { }
-        }
-
-        private static void DrawCenterPrompt(string text)
-        {
-            float width = 460f;
-            float height = 72f;
-            var rect = new Rect((Screen.width - width) * 0.5f, Screen.height * 0.72f, width, height);
-            GUI.Box(rect, text);
-        }
-
         private static void EnterLocalDownedState(object unit, string source)
         {
+            // DR-1: if this player was mid-hold rescuing someone else the instant they themselves went down,
+            // tell the Host that hold ended (otherwise the Host's own eligibility re-check catches it next tick
+            // anyway, but this avoids even the one-tick lag).
+            StopLocalRescueHold();
+
             _localDowned = true;
             _localNativeDeathCommitted = false;
             _localDownedAt = Time.realtimeSinceStartup;
-            _activeReviveTarget = "";
-            _activeReviveHoldStartedAt = 0f;
-            _activeReviveRequestSent = false;
 
             // RS-1: this may be the Host's own native lethal hit being intercepted here (Unit.Die called from
             // inside the still-executing Unit.ReceiveDamage). StabilizeDownedLocalPlayer below heals the unit
@@ -522,106 +568,221 @@ namespace SULFURTogether.Networking.Gameplay
             CommitLocalNativeDeath($"downed timeout elapsed={elapsed:F1}s");
         }
 
+        // DR-1: this only ever reports hold START/STOP edges to the Host — it never times or computes progress
+        // itself. The Host owns the rescue clock (TickHostActiveRescues) so both ends read one authoritative
+        // value (CurrentRescueDisplay) instead of racing two independent local timers.
         private static void HandleReviveHoldInput()
         {
             if (_localDowned || _localNativeDeathCommitted) return;
             if (_localTransform == null) return;
-            if (!Plugin.Cfg.PlayerReviveHoldKey.Value.IsPressed())
+
+            if (!Plugin.Cfg.PlayerReviveHoldKey.Value.IsPressed() || !TryFindNearestDownedPeer(out var target, out var distance))
             {
-                ResetReviveHold();
+                StopLocalRescueHold();
                 return;
             }
 
-            if (!TryFindNearestDownedPeer(out var target, out var distance))
-            {
-                ResetReviveHold();
-                return;
-            }
+            if (_activeReviveTarget == target.PeerId) return; // already holding for this target; Host owns timing
 
-            float now = Time.realtimeSinceStartup;
-            if (_activeReviveTarget != target.PeerId)
-            {
-                _activeReviveTarget = target.PeerId;
-                _activeReviveHoldStartedAt = now;
-                _activeReviveRequestSent = false;
-                if (Plugin.Cfg.LogPlayerLifeSync.Value)
-                    NetLogger.Info($"[PlayerLife] Started revive hold target={target.PeerId} distance={distance:F2}m hold={Plugin.Cfg.PlayerReviveHoldSeconds.Value:F1}s");
-            }
+            if (!string.IsNullOrEmpty(_activeReviveTarget))
+                StopLocalRescueHold(); // switched target without releasing the key first
 
-            if (_activeReviveRequestSent) return;
-
-            float required = Plugin.Cfg.PlayerReviveHoldSeconds.Value;
-            if (required < 0.1f) required = 0.1f;
-            if (now - _activeReviveHoldStartedAt < required) return;
-
-            _activeReviveRequestSent = true;
-            SendReviveRequest(target.PeerId, distance);
+            _activeReviveTarget = target.PeerId;
+            SendRescueHoldStart(target.PeerId, distance);
         }
 
-        private static void SendReviveRequest(string targetPeerId, float distance)
+        private static void SendRescueHoldStart(string targetPeerId, float distance)
         {
-            var request = BuildLocalState(NetPlayerLifeStateKind.ReviveRequest, targetPeerId, $"hold revive distance={distance:F2}m");
+            var request = BuildLocalState(NetPlayerLifeStateKind.RescueHoldStart, targetPeerId, $"hold revive distance={distance:F2}m");
             NetGameplaySyncBridge.ReportPlayerLifeState(request);
-            NetLogger.Info($"[PlayerLife] Revive request sent target={targetPeerId} distance={distance:F2}m");
-
             if (NetConfig.GetMode() == NetMode.Host)
-                HandleReviveRequestOnHost(request);
+                HandleRescueHoldStartOnHost(request);
+
+            if (Plugin.Cfg.LogPlayerLifeSync.Value)
+                NetLogger.Info($"[PlayerLife] Rescue hold start reported target={targetPeerId} distance={distance:F2}m");
         }
 
-        private static void HandleReviveRequestOnHost(NetPlayerLifeState request)
+        private static void StopLocalRescueHold()
         {
-            string sourcePeerId = request.SourcePeerId;
-            string targetPeerId = request.TargetPeerId;
-            if (string.IsNullOrWhiteSpace(sourcePeerId) || string.IsNullOrWhiteSpace(targetPeerId))
-            {
-                NetLogger.Warn($"[PlayerLife] Reject revive request: malformed {request.ToCompactString()}");
-                return;
-            }
+            string targetPeerId = _activeReviveTarget;
+            _activeReviveTarget = "";
+            if (string.IsNullOrEmpty(targetPeerId)) return;
 
-            if (sourcePeerId == targetPeerId)
-            {
-                NetLogger.Warn($"[PlayerLife] Reject revive request: source equals target {sourcePeerId}");
-                return;
-            }
+            var request = BuildLocalState(NetPlayerLifeStateKind.RescueHoldStop, targetPeerId, "hold released/lost target");
+            NetGameplaySyncBridge.ReportPlayerLifeState(request);
+            if (NetConfig.GetMode() == NetMode.Host)
+                HandleRescueHoldStopOnHost(request);
+        }
 
+        // ----- Host-authoritative rescue clock (DR-1) -----
+
+        private static bool TryValidateRescueEligibility(string rescuerPeerId, string targetPeerId, out string reason)
+        {
+            reason = "";
             if (!TryGetPeerLife(targetPeerId, out var target) || target.Kind != NetPlayerLifeStateKind.Downed)
             {
-                NetLogger.Warn($"[PlayerLife] Reject revive request: target not downed target={targetPeerId}");
-                return;
+                reason = "target not downed";
+                return false;
             }
 
-            if (TryGetPeerLife(sourcePeerId, out var source) && source.IsDownOrDead)
+            if (TryGetPeerLife(rescuerPeerId, out var rescuer) && rescuer.IsDownOrDead)
             {
-                NetLogger.Warn($"[PlayerLife] Reject revive request: source is not alive source={sourcePeerId} state={source.Kind}");
-                return;
+                reason = "rescuer is not alive";
+                return false;
             }
 
             if (Plugin.Cfg.RequireReviveDistanceValidationOnHost.Value)
             {
-                if (!TryGetPeerPosition(sourcePeerId, out var sourcePos) || !TryGetPeerPosition(targetPeerId, out var targetPos))
+                if (!TryGetPeerPosition(rescuerPeerId, out var rescuerPos) || !TryGetPeerPosition(targetPeerId, out var targetPos))
                 {
-                    NetLogger.Warn($"[PlayerLife] Reject revive request: missing position source={sourcePeerId} target={targetPeerId}");
-                    return;
+                    reason = "missing position";
+                    return false;
                 }
 
-                float distance = Vector3.Distance(sourcePos, targetPos);
+                float distance = Vector3.Distance(rescuerPos, targetPos);
                 float radius = Math.Max(0.5f, Plugin.Cfg.PlayerReviveDistance.Value + 1.0f);
                 if (distance > radius)
                 {
-                    NetLogger.Warn($"[PlayerLife] Reject revive request: too far source={sourcePeerId} target={targetPeerId} distance={distance:F2}m limit={radius:F2}m");
-                    return;
+                    reason = $"too far ({distance:F2}m > {radius:F2}m)";
+                    return false;
                 }
             }
 
-            var accepted = BuildHostState(NetPlayerLifeStateKind.ReviveAccepted, targetPeerId, $"revived by {sourcePeerId}");
-            MarkPeerAlive(targetPeerId, accepted);
+            return true;
+        }
+
+        private static void HandleRescueHoldStartOnHost(NetPlayerLifeState request)
+        {
+            string rescuerPeerId = request.SourcePeerId;
+            string targetPeerId = request.TargetPeerId;
+            if (string.IsNullOrWhiteSpace(rescuerPeerId) || string.IsNullOrWhiteSpace(targetPeerId) || rescuerPeerId == targetPeerId)
+            {
+                NetLogger.Warn($"[PlayerLife] Reject rescue hold start: malformed {request.ToCompactString()}");
+                return;
+            }
+
+            if (_hostActiveRescues.ContainsKey(targetPeerId))
+                return; // another rescuer already holds this target's slot — first-come-wins (WorldPickupTakeRequest rule)
+
+            if (!TryValidateRescueEligibility(rescuerPeerId, targetPeerId, out string reason))
+            {
+                if (Plugin.Cfg.LogPlayerLifeSync.Value)
+                    NetLogger.Warn($"[PlayerLife] Reject rescue hold start: {reason} rescuer={rescuerPeerId} target={targetPeerId}");
+                return;
+            }
+
+            float now = Time.realtimeSinceStartup;
+            var record = new ActiveRescueRecord { RescuerPeerId = rescuerPeerId, TargetPeerId = targetPeerId, StartedAt = now, LastBroadcastAt = now };
+            _hostActiveRescues[targetPeerId] = record;
+            BroadcastRescueProgress(record, 0f);
+
+            if (Plugin.Cfg.LogPlayerLifeSync.Value)
+                NetLogger.Info($"[PlayerLife] Rescue started rescuer={rescuerPeerId} target={targetPeerId}");
+        }
+
+        private static void HandleRescueHoldStopOnHost(NetPlayerLifeState request)
+        {
+            if (!_hostActiveRescues.TryGetValue(request.TargetPeerId, out var record)) return;
+            if (record.RescuerPeerId != request.SourcePeerId) return; // stale stop from a rescuer that already lost the slot
+            CancelHostActiveRescue(record, "rescuer released hold");
+        }
+
+        private static void TickHostActiveRescues()
+        {
+            if (_hostActiveRescues.Count == 0) return;
+
+            _rescueTickScratch.Clear();
+            _rescueTickScratch.AddRange(_hostActiveRescues.Keys);
+
+            float required = Math.Max(0.1f, Plugin.Cfg.PlayerReviveHoldSeconds.Value);
+            float now = Time.realtimeSinceStartup;
+
+            foreach (string targetPeerId in _rescueTickScratch)
+            {
+                if (!_hostActiveRescues.TryGetValue(targetPeerId, out var record)) continue;
+
+                // Re-validated every tick (not just at hold-start) — this is what gives "rescuer leaves range /
+                // dies / target stops being downed" auto-cancel, matching the design spec's interruption rules.
+                if (!TryValidateRescueEligibility(record.RescuerPeerId, targetPeerId, out string invalidReason))
+                {
+                    CancelHostActiveRescue(record, invalidReason);
+                    continue;
+                }
+
+                float progress = Mathf.Clamp01((now - record.StartedAt) / required);
+                if (progress >= 1f)
+                {
+                    CompleteHostActiveRescue(record);
+                    continue;
+                }
+
+                if (now - record.LastBroadcastAt >= RescueProgressBroadcastIntervalSeconds)
+                {
+                    record.LastBroadcastAt = now;
+                    BroadcastRescueProgress(record, progress);
+                }
+            }
+        }
+
+        private static void BroadcastRescueProgress(ActiveRescueRecord record, float progress)
+        {
+            var state = BuildHostState(NetPlayerLifeStateKind.RescueProgress, record.TargetPeerId, "rescue progress");
+            // RescueProgress/RescueCancelled repurpose SourcePeerId as "the rescuer's peer id" (mirroring the
+            // client-sent RescueHoldStart/Stop convention) rather than "who sent this packet" (always the Host
+            // for these two Kinds) — BuildHostState's default of "host" is overwritten here on purpose.
+            state.SourcePeerId = record.RescuerPeerId;
+            state.Progress = progress;
+            NetGameplaySyncBridge.ReportHostPlayerLifeStateToAll(state);
+            ApplyRescueDisplay(record.RescuerPeerId, record.TargetPeerId, progress, true, RescueEndReason.None);
+        }
+
+        private static void CancelHostActiveRescue(ActiveRescueRecord record, string reason)
+        {
+            _hostActiveRescues.Remove(record.TargetPeerId);
+
+            var state = BuildHostState(NetPlayerLifeStateKind.RescueCancelled, record.TargetPeerId, reason);
+            state.SourcePeerId = record.RescuerPeerId;
+            NetGameplaySyncBridge.ReportHostPlayerLifeStateToAll(state);
+            ApplyRescueDisplay(record.RescuerPeerId, record.TargetPeerId, 0f, false, RescueEndReason.Cancelled);
+
+            if (Plugin.Cfg.LogPlayerLifeSync.Value)
+                NetLogger.Info($"[PlayerLife] Rescue cancelled rescuer={record.RescuerPeerId} target={record.TargetPeerId} reason={reason}");
+        }
+
+        private static void CompleteHostActiveRescue(ActiveRescueRecord record)
+        {
+            _hostActiveRescues.Remove(record.TargetPeerId);
+
+            var accepted = BuildHostState(NetPlayerLifeStateKind.ReviveAccepted, record.TargetPeerId, $"revived by {record.RescuerPeerId}");
+            MarkPeerAlive(record.TargetPeerId, accepted);
             NetGameplaySyncBridge.ReportHostPlayerLifeStateToAll(accepted);
-            NetRunStatsManager.RecordRescue(sourcePeerId);
+            NetRunStatsManager.RecordRescue(record.RescuerPeerId);
+            ApplyRescueDisplay(record.RescuerPeerId, record.TargetPeerId, 1f, false, RescueEndReason.Completed);
 
-            if (targetPeerId == GetLocalPeerId())
-                ReviveLocalPlayer($"revived by {sourcePeerId}");
+            if (record.TargetPeerId == GetLocalPeerId())
+                ReviveLocalPlayer($"revived by {record.RescuerPeerId}");
 
-            NetLogger.Info($"[PlayerLife] Revive accepted source={sourcePeerId} target={targetPeerId}");
+            NetLogger.Info($"[PlayerLife] Revive accepted rescuer={record.RescuerPeerId} target={record.TargetPeerId}");
+        }
+
+        // Every broadcast fans out to ALL peers regardless of who's actually involved (ReportHostPlayerLifeStateToAll
+        // is unconditional) — in a 3+ player session, two independent simultaneous rescues would otherwise stomp
+        // each other in this single cached slot. The DR-2 UI only ever needs to show a rescue the LOCAL player is
+        // personally part of (rescuer or downed target), so anything else is filtered out right here, once, rather
+        // than at every call site.
+        private static void ApplyRescueDisplay(string rescuerPeerId, string targetPeerId, float progress, bool active, RescueEndReason endReason)
+        {
+            string localPeerId = GetLocalPeerId();
+            if (rescuerPeerId != localPeerId && targetPeerId != localPeerId) return;
+
+            _rescueDisplay = new RescueDisplayState
+            {
+                RescuerPeerId = rescuerPeerId ?? "",
+                TargetPeerId = targetPeerId ?? "",
+                Progress = Mathf.Clamp01(progress),
+                Active = active,
+                LastEndReason = endReason
+            };
         }
 
         private static void CheckAllDownedOnHost(string reason)
@@ -1052,11 +1213,12 @@ namespace SULFURTogether.Networking.Gameplay
             return true;
         }
 
+        // Defensive local-only clear (no network send) for the impossible-in-practice case of a just-revived
+        // player's own rescuer-hold tracking still being set (HandleReviveHoldInput never runs while downed, so
+        // this is belt-and-suspenders, not a real path). Use StopLocalRescueHold() for an actual release.
         private static void ResetReviveHold()
         {
             _activeReviveTarget = "";
-            _activeReviveHoldStartedAt = 0f;
-            _activeReviveRequestSent = false;
         }
 
         private static void PublishLocalLifeState(NetPlayerLifeStateKind kind, string targetPeerId, string reason)

@@ -157,6 +157,7 @@ namespace SULFURTogether
             Networking.Gameplay.Boss.BossDynamicSpawnManifest.TickReleaseStaleGated(); // RT3-A safety: release stuck gates
             Networking.Gameplay.ArenaLockdownManager.Tick(); // LD-2a: host arena lockdown timers
             UI.RunStatsOverlay.RunStatsOverlayManager.Tick(); // RS-2: Run-end stat cards over the Hub loading screen
+            UI.DownedRescueOverlay.DownedRescueOverlayManager.Tick(); // DR-2: downed/rescue HUD (replaces the old OnGUI prompt)
             CoopConnection.Tick();
             Patches.PauseControlPatches.Tick(); // 5.7-NP2: seamless un-pause when a session starts with a menu open
 #if NATIVE_UI_LIB
@@ -173,17 +174,13 @@ namespace SULFURTogether
             CoopConnection.FixedTick();
         }
 
-        private void OnGUI()
-        {
-            NetPlayerLifeManager.DrawOnGUI();
-        }
-
         private void OnDestroy()
         {
 #if NATIVE_UI_LIB
             try { UI.CoopConnectPage.Unregister(); } catch { /* lib may be gone */ }
 #endif
             try { UI.RunStatsOverlay.RunStatsOverlayManager.Shutdown(); } catch { /* never block plugin teardown */ }
+            try { UI.DownedRescueOverlay.DownedRescueOverlayManager.Shutdown(); } catch { /* never block plugin teardown */ }
             CoopConnection.Stop("plugin destroyed");
         }
     }

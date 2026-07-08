@@ -27,6 +27,7 @@ namespace SULFURTogether.Networking.Gameplay
             w.Put(state.Reason ?? "");
             w.Put(state.DamageAmount);
             w.Put(state.DamageType);
+            w.Put(state.Progress);
         }
 
         public static bool TryRead(NetPacketReader r, out NetPlayerLifeState state)
@@ -53,6 +54,7 @@ namespace SULFURTogether.Networking.Gameplay
                 state.Reason = r.GetString();
                 state.DamageAmount = r.GetFloat();
                 state.DamageType = r.GetInt();
+                state.Progress = r.GetFloat();
                 return true;
             }
             catch (Exception ex)

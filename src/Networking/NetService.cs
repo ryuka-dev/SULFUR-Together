@@ -4325,7 +4325,12 @@ namespace SULFURTogether.Networking
 
                 NetPlayerLifeManager.HandleNetworkState(state, receivedOnHost: true);
 
-                if (state.Kind != NetPlayerLifeStateKind.ReviveRequest)
+                // ReviveRequest/RescueHoldStart/RescueHoldStop are Client→Host only inputs the Host consumes and
+                // answers with its own authoritative broadcast (RescueProgress/RescueCancelled/ReviveAccepted) —
+                // relaying the raw input to other clients would be dead traffic they silently ignore.
+                if (state.Kind != NetPlayerLifeStateKind.ReviveRequest
+                    && state.Kind != NetPlayerLifeStateKind.RescueHoldStart
+                    && state.Kind != NetPlayerLifeStateKind.RescueHoldStop)
                     SendPlayerLifeStateToClients(state, except: peer);
                 return;
             }

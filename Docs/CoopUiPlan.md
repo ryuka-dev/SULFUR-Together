@@ -12,11 +12,10 @@ built + deployed, pending in-game verify. See the registry in [Versioning.md](Ve
 > page is **§5**; §6 records the settled decisions, §7 the deferred backlog, §8 the UI-lib prerequisites
 > (the next thing to build — handles the page leans on).
 
-The **UI track** has had no feature work yet. Today the mod's entire on-screen surface is two IMGUI calls:
-
-- [`NetPlayerLifeManager.DrawCenterPrompt`](../src/Networking/Gameplay/NetPlayerLifeManager.cs) — downed /
-  revive prompt, a bare `GUI.Box` with the default skin.
-- [`Plugin.OnGUI`](../src/Plugin.cs) — just forwards to the above.
+The downed/revive prompt used to be the mod's last raw IMGUI surface (`NetPlayerLifeManager.DrawCenterPrompt`,
+a bare `GUI.Box`) — **replaced by DR-1..DR-5** (see UI-4 below): a host-authoritative rescue-progress protocol
+plus a real uGUI overlay (`src/UI/DownedRescueOverlay/`) styled after the RunStatsOverlay precedent. `Plugin.OnGUI`
+itself has been removed; there is no more IMGUI in this mod.
 
 Everything else (host/join, link on/off, who's connected) is **config-file toggles + hidden hotkeys**
 (`PageDown` link / `PageUp` unlink / host toggle key). For a public release this is unusable: a player must
@@ -112,12 +111,16 @@ the listener/managers are built inline in `Awake`. Need to:
 
 This is the bulk of the work and the only part touching netcode. Everything else is presentation.
 
-### UI-4 — Revive/downed HUD polish (medium, optional)
+### UI-4 — Revive/downed HUD polish (done — Phase DR)
 
-Replace the bare `GUI.Box` downed/revive prompt with a nicer surface. The downed banner ("waiting for
-revive") is a natural `SulfurPopupApi.ShowBanner` use; the "hold [K] to revive {name} {progress}%" is a
-live prompt better kept as the mod's own HUD (updates every frame, has a progress value). Low priority vs
-UI-3; do after the connect page proves the lib integration end-to-end.
+**Done.** The bare `GUI.Box` downed/revive prompt is replaced by Phase DR: a host-authoritative rescue-progress
+protocol (DR-1, reusing the `PlayerLifeState` message/DTO — see `NetPlayerLifeState.cs`/`NetPlayerLifeManager.cs`)
+feeding a real uGUI overlay (`src/UI/DownedRescueOverlay/`, DR-2 through DR-5) built on the RunStatsOverlay
+pattern: a perimeter-tracing border-progress stroke (DR-3, `DownedRescueBorderProgress`), a continuous
+"vitality" animation from near-death to alive (DR-4, `DownedRescueVitalityAnimator`, reusing `RunStatsSpring`),
+and a brief completion-text hold + fade (DR-5; a cancelled rescue just fades, no text). Both the rescuer's and
+the downed player's views read the same host-authoritative progress value — never independently timed locally.
+See `phase-dr-downed-rescue-ui` memory for the design/implementation trail.
 
 ---
 
@@ -143,7 +146,7 @@ UI-3; do after the connect page proves the lib integration end-to-end.
 2. **UI-3 connect page** — the release blocker; do the `NetService` runtime start/stop first, then the page.
    (the real project) Split: **UI-3a** netservice runtime restart, **UI-3b** the options page on top.
 3. **UI-2 status indicator** — folds in cheaply once link state is user-driven.
-4. **UI-4 revive polish** — last, cosmetic.
+4. **UI-4 revive polish** — done (Phase DR), out of order relative to UI-3/UI-2 (user-requested ahead of schedule).
 
 Stop after each sub-step and verify in a real co-op session (per the phase-gate rule) before the next.
 

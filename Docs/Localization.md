@@ -46,8 +46,8 @@ cover our strings.
 | # | String (current English) | Source | Notes |
 |---|---|---|---|
 | 1 | `Press [{key}] to enter the arena` | `ArenaLockdownManager.cs` (LD-2c popup banner, via `ShowPrompt`) | `{key}` = `ArenaEnterConfirmKey`. Shown to the out-of-room player at t0+10 s. |
-| 2 | `DOWNED\nWaiting for a teammate to revive you` | `NetPlayerLifeManager.DrawCenterPrompt` | IMGUI center prompt while locally downed. |
-| 3 | `Hold [{key}] to revive {name}\n{dist}m  {pct}%` | `NetPlayerLifeManager.DrawCenterPrompt` | IMGUI revive prompt; interpolates key/name/distance/progress. |
+| 2 | `Waiting for a teammate to revive you` | `DownedRescueOverlayManager` (DR-2) | Downed player's idle prompt — shown before anyone has started rescuing them. Replaces the old IMGUI `DOWNED\n...` text. |
+| 3 | `{name} is rescuing you` / `Hang on` | `DownedRescueOverlayManager` (DR-2) | Downed player's prompt (main/sub text) while a teammate is actively rescuing them; the shown progress comes from the host-authoritative rescue state (DR-1), never timed locally. Replaces the old IMGUI revive prompt. |
 | 4 | title `Arena Lockdown` / msg `A teammate entered the arena — head in now to join them!` | `ArenaLockdownManager.cs` (LD-2c `Notify` toast, t0, via `ShowToast`) | Heads-up at t0; LD-2d grace keeps the door open ~5 s, so it invites the player to run in. |
 | 5 | title `Arena Lockdown` / msg `You've been sealed out — you'll be brought in shortly.` | `ArenaLockdownManager.cs` (LD-2c `Seal` toast, t0+5 s) | Explains the otherwise-invisible barrier. |
 | 6 | title `Arena` / msg `Entering the arena.` | `ArenaLockdownManager.cs` (LD-2c teleport toast) | Fired on teleport-in (confirm / boss-death release). |
@@ -68,6 +68,9 @@ cover our strings.
 | 20 | Run Stats card (RS-2): 7 stat row labels `Shots Fired` / `Damage Dealt` / `Kills` / `Times Downed` / `Rescues` / `Damage Taken` / `Destructibles Destroyed`; name-row suffix `{name} (You)` for the local player's own card; placeholder `…` shown before the finalized broadcast has arrived | `RunStatsCardView.cs` | End-of-Run card overlay shown over the Hub-return loading screen. Player names themselves are user data, not translatable literals. |
 | 21 | `Friendly fire` toggle (desc `Players can damage each other. The host's setting applies to the whole session.`) / `Session friendly fire: ON (set by host)` / `Session friendly fire: OFF (set by host)` | `CoopConnectPage.cs` (FF-1) | Replaces the row-16 `Friendly fire` + `Coming soon` placeholder with a live toggle; the session line is read-only and shown only while connected as a client. |
 | 22 | `{label}: On` / `{label}: Off` session-setting change toast; current `{label}` value: `Friendly fire` | `CoopToasts.NotifySessionSetting` (SS-Toast) | Fired on host + every client when the host changes a session setting mid-session (join-time sync is silent). Every future session setting reuses this formatter with its own label. |
+| 23 | `Rescuing {name}` / `Hold [{key}]` | `DownedRescueOverlayManager` (DR-2) | Rescuer's prompt (main/sub text) while actively holding the revive key near a downed teammate. |
+| 24 | `Rescue {name}` / `Hold [{key}]` | `DownedRescueOverlayManager` (DR-2) | Rescuer's idle hint — shown when near a downed teammate but not yet holding the key (progress 0, a local-only proximity check, not network state). |
+| 25 | `Rescue complete` / `Restored` | `DownedRescueOverlayManager` (DR-5) | Brief completion text — first form shown to the rescuer, second to the just-revived player — held ~0.6s before the panel fades out. Never shown on a cancelled rescue (that just fades, no text change). |
 
 ### Planned, not yet written (register here when added)
 
