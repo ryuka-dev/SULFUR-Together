@@ -18,9 +18,6 @@ namespace SULFURTogether.UI
         // (title, message) → SulfurToastApi.Show(title, message). Null until wired / when the lib is absent.
         private static Action<string, string> _show;
 
-        /// <summary>Default toast title (English placeholder; see Docs/Localization.md).</summary>
-        private const string DefaultTitle = "Together";
-
         /// <summary>Assign the resolved toast seam. Null is allowed (lib absent → log-only).</summary>
         public static void Wire(Action<string, string> showToast) => _show = showToast;
 
@@ -31,7 +28,9 @@ namespace SULFURTogether.UI
         /// see the host's change the moment it lands. English placeholder; see Docs/Localization.md.
         /// </summary>
         public static void NotifySessionSetting(string settingLabel, bool enabled)
-            => Notify($"{settingLabel}: {(enabled ? "On" : "Off")}");
+            => Notify(CoopLoc.Format("session.settingChanged", "{label}: {state}",
+                ("label", settingLabel),
+                ("state", enabled ? CoopLoc.Get("common.on", "On") : CoopLoc.Get("common.off", "Off"))));
 
         /// <summary>
         /// Show a co-op toast (and always log the event). No-op when <c>EnableCoopToasts</c> is off.
@@ -45,7 +44,7 @@ namespace SULFURTogether.UI
             try { enabled = Plugin.Cfg.EnableCoopToasts.Value; } catch { /* config not ready yet */ }
             if (!enabled) return;
 
-            string heading = string.IsNullOrEmpty(title) ? DefaultTitle : title;
+            string heading = string.IsNullOrEmpty(title) ? CoopLoc.Get("toast.title.default", "Together") : title;
 
             // Always log so the event is observable even without the UI Lib installed.
             Plugin.Log?.Info($"[CoopToast] {heading}: {message}");

@@ -195,6 +195,9 @@
     <ItemGroup>
       <_DeployDir Include="$(BepInExPluginDir)\SULFUR Together"        Condition="'$(BepInExPluginDir)' != ''" />
       <_DeployDir Include="$(BepInExPluginDirSandbox)\SULFUR Together" Condition="'$(BepInExPluginDirSandbox)' != ''" />
+      <!-- Per-language localization files (lang\en.json, lang\zh-CN.json, …) shipped next to the DLL.
+           SulfurLocalization.LoadPluginLocalization reads them from a "lang" folder beside the plugin. -->
+      <_LangFile Include="$(MSBuildProjectDirectory)\lang\*.json" />
     </ItemGroup>
     <MakeDir Directories="@(_DeployDir)" />
     <Copy
@@ -205,6 +208,11 @@
       Condition="Exists('$(OutputPath)LiteNetLib.dll')"
       SourceFiles="$(OutputPath)LiteNetLib.dll"
       DestinationFolder="%(_DeployDir.Identity)"
+      OverwriteReadOnlyFiles="true" />
+    <Copy
+      Condition="'@(_LangFile)' != ''"
+      SourceFiles="@(_LangFile)"
+      DestinationFolder="%(_DeployDir.Identity)\lang"
       OverwriteReadOnlyFiles="true" />
     <Message Text="Deployed → %(_DeployDir.Identity)" Importance="high" />
   </Target>

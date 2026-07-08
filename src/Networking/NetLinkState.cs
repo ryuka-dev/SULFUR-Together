@@ -39,7 +39,9 @@ namespace SULFURTogether.Networking
             }
             _clientLinked = on;
             Plugin.Log.Info($"[LinkState] client {(on ? "LINKED (joining/following host)" : "UNLINKED (independent local run)")} reason={reason}");
-            UI.CoopToasts.Notify(on ? "Linked to host" : "Playing solo");
+            UI.CoopToasts.Notify(on
+                ? UI.CoopLoc.Get("link.linkedToHost", "Linked to host")
+                : UI.CoopLoc.Get("link.playingSolo", "Playing solo"));
             if (!on)
             {
                 // Leaving the session clears joined-state so boss authority / auto-follow stop immediately, and
@@ -58,7 +60,9 @@ namespace SULFURTogether.Networking
             }
             _hostLinked = on;
             Plugin.Log.Info($"[LinkState] host multiplayer {(on ? "ON (broadcasting + leading client relays)" : "OFF (single-player; ignoring relays)")} reason={reason}");
-            UI.CoopToasts.Notify(on ? "Hosting ON" : "Hosting OFF");
+            UI.CoopToasts.Notify(on
+                ? UI.CoopLoc.Get("link.hostingOn", "Hosting ON")
+                : UI.CoopLoc.Get("link.hostingOff", "Hosting OFF"));
         }
 
         public static void ToggleHost(string reason) => SetHostLinked(!_hostLinked, reason);

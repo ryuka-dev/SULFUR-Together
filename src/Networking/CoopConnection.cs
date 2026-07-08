@@ -147,7 +147,9 @@ namespace SULFURTogether.Networking
                 _service = null;
                 CurrentMode = NetMode.Off;
                 _lastSignature = null;
-                NetConnectFeedback.ReportError($"Could not start networking ({ex.GetType().Name}). The port may be in use or LiteNetLib is missing.");
+                NetConnectFeedback.ReportError(UI.CoopLoc.Format("connect.error.couldNotStart",
+                    "Could not start networking ({type}). The port may be in use or LiteNetLib is missing.",
+                    ("type", ex.GetType().Name)));
                 Plugin.Log.Error($"[CoopConn] failed to start mode={mode} — LiteNetLib missing or socket error. ({ex.GetType().Name}: {ex.Message})");
             }
         }
@@ -164,7 +166,7 @@ namespace SULFURTogether.Networking
             NetConnectFeedback.BeginAttempt();
             if (!SteamRelayBridge.StartJoining(hostId, out int localPort, out string error))
             {
-                NetConnectFeedback.ReportError(error ?? "Could not start the Steam connection.");
+                NetConnectFeedback.ReportError(error ?? UI.CoopLoc.Get("connect.error.steamStart", "Could not start the Steam connection."));
                 return;
             }
             _pendingSteamJoinTarget = ("127.0.0.1", localPort, $"Steam ({hostId.m_SteamID})");
@@ -192,7 +194,7 @@ namespace SULFURTogether.Networking
             {
                 if (!SteamRelayBridge.StartHosting(BuildHostGamePort()))
                 {
-                    NetConnectFeedback.ReportError("Steam is not available.");
+                    NetConnectFeedback.ReportError(UI.CoopLoc.Get("connect.error.steamUnavailable", "Steam is not available."));
                     return false;
                 }
                 SteamHostingEnabled = true;

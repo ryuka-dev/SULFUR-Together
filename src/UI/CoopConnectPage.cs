@@ -144,25 +144,25 @@ namespace SULFURTogether.UI
 
             // --- Current status -------------------------------------------------------------------------
             ctx.AddSection("SULFUR Together");
-            ctx.AddDescription("Early-preview co-op. Set up your connection below.");
+            ctx.AddDescription(CoopLoc.Get("connect.desc.intro", "Early-preview co-op. Set up your connection below."));
             _statusHandle = ctx.AddTextRow(StatusLine());
             _statusHandle.SetColor(StatusColor());
 
             // --- Player ---------------------------------------------------------------------------------
-            ctx.AddSection("Player");
-            ctx.AddInlineTextInput("Player name", _draftName, v => _draftName = v);
+            ctx.AddSection(CoopLoc.Get("connect.section.player", "Player"));
+            ctx.AddInlineTextInput(CoopLoc.Get("connect.label.playerName", "Player name"), _draftName, v => _draftName = v);
 
             // --- Connection (host / join / leave) -------------------------------------------------------
-            ctx.AddSection("Connection");
-            ctx.AddDescription("Host a co-op session or join one. Your settings save automatically as you edit them. Close room (host) / Leave (client) ends the session for you.");
-            ctx.AddInlineTextInput("Host address (IP)", _draftAddress, v => _draftAddress = v);
-            ctx.AddInlineTextInput("Port", _draftPort, v => _draftPort = v);
-            ctx.AddInlineTextInput("Connection key", _draftKey, v => _draftKey = v);
+            ctx.AddSection(CoopLoc.Get("connect.section.connection", "Connection"));
+            ctx.AddDescription(CoopLoc.Get("connect.desc.connection", "Host a co-op session or join one. Your settings save automatically as you edit them. Close room (host) / Leave (client) ends the session for you."));
+            ctx.AddInlineTextInput(CoopLoc.Get("connect.label.hostAddress", "Host address (IP)"), _draftAddress, v => _draftAddress = v);
+            ctx.AddInlineTextInput(CoopLoc.Get("connect.label.port", "Port"), _draftPort, v => _draftPort = v);
+            ctx.AddInlineTextInput(CoopLoc.Get("connect.label.connectionKey", "Connection key"), _draftKey, v => _draftKey = v);
 
             IReadOnlyList<SulfurButtonHandle> connButtons = ctx.AddButtonRow(
-                new SulfurButton("Create game", OnCreate, 170f),
-                new SulfurButton("Join game", OnJoin, 170f),
-                new SulfurButton("Close room", OnCloseRoom, 150f));
+                new SulfurButton(CoopLoc.Get("connect.button.create", "Create game"), OnCreate, 170f),
+                new SulfurButton(CoopLoc.Get("connect.button.join", "Join game"), OnJoin, 170f),
+                new SulfurButton(CoopLoc.Get("connect.button.closeRoom", "Close room"), OnCloseRoom, 150f));
             _createHandle = Handle(connButtons, 0);
             _joinHandle   = Handle(connButtons, 1);
             _closeHandle  = Handle(connButtons, 2);
@@ -179,8 +179,8 @@ namespace SULFURTogether.UI
 
             // --- Steam (second connection method — additive, Direct IP above is unchanged) --------------
             ctx.AddSection("Steam");
-            ctx.AddDescription("Connect over Steam instead of a typed IP — no port forwarding needed. Works alongside Direct IP: a host can accept both at once.");
-            _steamUnavailableHandle = ctx.AddTextRow("Steam is not available — connect method disabled.");
+            ctx.AddDescription(CoopLoc.Get("connect.desc.steam", "Connect over Steam instead of a typed IP — no port forwarding needed. Works alongside Direct IP: a host can accept both at once. Create a game first — you can only invite friends while hosting."));
+            _steamUnavailableHandle = ctx.AddTextRow(CoopLoc.Get("connect.steam.unavailable", "Steam is not available — connect method disabled."));
             _steamUnavailableHandle.SetColor(NeutralColor);
             _steamUnavailableHandle.SetVisible(false);
 
@@ -188,57 +188,57 @@ namespace SULFURTogether.UI
             _yourSteamIdHandle.SetVisible(false);
 
             IReadOnlyList<SulfurButtonHandle> inviteRow = ctx.AddButtonRow(
-                new SulfurButton("Invite Friends via Steam", OnInviteFriends, 220f));
+                new SulfurButton(CoopLoc.Get("connect.button.inviteFriends", "Invite Friends via Steam"), OnInviteFriends, 220f));
             _steamInviteHandle = Handle(inviteRow, 0);
 
-            _steamIdInputField = ctx.AddInlineTextInput("Steam ID to join", _draftSteamId, v => _draftSteamId = v);
+            _steamIdInputField = ctx.AddInlineTextInput(CoopLoc.Get("connect.label.steamIdToJoin", "Steam ID to join"), _draftSteamId, v => _draftSteamId = v);
             IReadOnlyList<SulfurButtonHandle> steamJoinRow = ctx.AddButtonRow(
-                new SulfurButton("Join via Steam", OnJoinViaSteam, 170f));
+                new SulfurButton(CoopLoc.Get("connect.button.joinViaSteam", "Join via Steam"), OnJoinViaSteam, 170f));
             _steamJoinHandle = Handle(steamJoinRow, 0);
 
             _steamPendingInviteHandle = ctx.AddTextRow("");
             _steamPendingInviteHandle.SetVisible(false);
 
             // --- Players in session (live, read-only; ping + kick deferred §7) --------------------------
-            ctx.AddSection("Players in session");
+            ctx.AddSection(CoopLoc.Get("connect.section.players", "Players in session"));
             _playerListHandle = ctx.AddList();
             _lastPlayerSig = "\0";
 
             // --- Local preferences (per-player) ---------------------------------------------------------
-            ctx.AddSection("Local preferences (only affect you)");
+            ctx.AddSection(CoopLoc.Get("connect.section.localPrefs", "Local preferences (only affect you)"));
             ctx.AddToggle(
-                "Show player join/leave notifications",
-                "Brief top-right toasts when a player joins or leaves.",
+                CoopLoc.Get("connect.label.showToasts", "Show player join/leave notifications"),
+                CoopLoc.Get("connect.desc.showToasts", "Brief top-right toasts when a player joins or leaves."),
                 ReadBool(() => Plugin.Cfg.EnableCoopToasts.Value, true),
                 v => { try { Plugin.Cfg.EnableCoopToasts.Value = v; } catch { } });
-            ctx.AddReadonlyText("Show network status on HUD", "Coming soon");
-            ctx.AddReadonlyText("Show other players' names", "Coming soon");
-            ctx.AddReadonlyText("Rescue key", KeyText(() => Plugin.Cfg.PlayerReviveHoldKey.Value.ToString()));
-            ctx.AddReadonlyText("Confirm-enter-boss-room key", KeyText(() => Plugin.Cfg.ArenaEnterConfirmKey.Value.ToString()));
+            ctx.AddReadonlyText(CoopLoc.Get("connect.label.showHudStatus", "Show network status on HUD"), CoopLoc.Get("connect.value.comingSoon", "Coming soon"));
+            ctx.AddReadonlyText(CoopLoc.Get("connect.label.showNames", "Show other players' names"), CoopLoc.Get("connect.value.comingSoon", "Coming soon"));
+            ctx.AddReadonlyText(CoopLoc.Get("connect.label.rescueKey", "Rescue key"), KeyText(() => Plugin.Cfg.PlayerReviveHoldKey.Value.ToString()));
+            ctx.AddReadonlyText(CoopLoc.Get("connect.label.confirmEnterKey", "Confirm-enter-boss-room key"), KeyText(() => Plugin.Cfg.ArenaEnterConfirmKey.Value.ToString()));
 
             // --- Session settings (host-authoritative; rest deferred §7) --------------------------------
-            ctx.AddSection("Session settings (host)");
-            ctx.AddReadonlyText("Loot mode", "Independent (Shared coming soon)");
-            ctx.AddReadonlyText("Client may start next level", "Coming soon");
+            ctx.AddSection(CoopLoc.Get("connect.section.sessionSettings", "Session settings (host)"));
+            ctx.AddReadonlyText(CoopLoc.Get("connect.label.lootMode", "Loot mode"), CoopLoc.Get("connect.value.lootIndependent", "Independent (Shared coming soon)"));
+            ctx.AddReadonlyText(CoopLoc.Get("connect.label.clientMayStart", "Client may start next level"), CoopLoc.Get("connect.value.comingSoon", "Coming soon"));
             // FF-1: the toggle edits this machine's own setting (= the session setting when it hosts). While
             // connected as a CLIENT the row is locked and mirrors the host's synced session value instead (FF-1b,
             // driven from Tick); the read-only line below spells out who owns it.
             _ffToggleOption = ctx.AddToggle(
-                "Friendly fire",
-                "Players can damage each other. The host's setting applies to the whole session.",
+                CoopLoc.Get("session.friendlyFire.label", "Friendly fire"),
+                CoopLoc.Get("connect.desc.friendlyFire", "Players can damage each other. The host's setting applies to the whole session."),
                 ReadBool(() => Plugin.Cfg.FriendlyFire.Value, false),
                 OnFriendlyFireToggled);
             _ffSessionHandle = ctx.AddTextRow("");
             _ffSessionHandle.SetVisible(false);
 
             // --- About ----------------------------------------------------------------------------------
-            ctx.AddSection("About");
-            ctx.AddReadonlyText("Version", ModInfo.Version);
+            ctx.AddSection(CoopLoc.Get("connect.section.about", "About"));
+            ctx.AddReadonlyText(CoopLoc.Get("connect.label.version", "Version"), ModInfo.Version);
             // Explicit width: AddSmallButton's auto-size clamps at 180px, which ellipsises these ~16-char
             // labels ("Open-sourc…" / "Support on …"). The minWidth overload bypasses the clamp; the row is
             // full-option width so 260px fits comfortably.
-            ctx.AddSmallButton("Open-source repo", () => OpenUrl(RepoUrl), 260f);
-            ctx.AddSmallButton("Support on Ko-fi", () => OpenUrl(KoFiUrl), 260f);
+            ctx.AddSmallButton(CoopLoc.Get("connect.button.repo", "Open-source repo"), () => OpenUrl(RepoUrl), 260f);
+            ctx.AddSmallButton(CoopLoc.Get("connect.button.kofi", "Support on Ko-fi"), () => OpenUrl(KoFiUrl), 260f);
 
             // No footer / "Save settings" button — settings persist automatically (see AutoSaveDrafts). Seed the
             // auto-save baseline from the freshly loaded drafts so merely opening the page (incl. the Steam-name seed)
@@ -259,8 +259,8 @@ namespace SULFURTogether.UI
         private static string StatusLine()
         {
             var svc = CoopConnection.Service;
-            if (svc == null) return "● Not connected";
-            if (NetConnectFeedback.Connecting) return "◌ Connecting…";
+            if (svc == null) return "● " + CoopLoc.Get("connect.status.notConnected", "Not connected");
+            if (NetConnectFeedback.Connecting) return "◌ " + CoopLoc.Get("connect.status.connecting", "Connecting…");
             return "● " + svc.GetConnectionSummary();
         }
 
@@ -284,14 +284,16 @@ namespace SULFURTogether.UI
             _createHandle?.SetInteractable(inGame && mode != NetMode.Client);
             _joinHandle?.SetInteractable(inGame && mode == NetMode.Off);
             _closeHandle?.SetInteractable(mode != NetMode.Off);
-            _closeHandle?.SetLabel(mode == NetMode.Client ? "Leave" : "Close room");
+            _closeHandle?.SetLabel(mode == NetMode.Client
+                ? CoopLoc.Get("connect.button.leave", "Leave")
+                : CoopLoc.Get("connect.button.closeRoom", "Close room"));
 
             if (_gateHintHandle != null)
             {
                 bool showHint = !inGame && mode == NetMode.Off;
                 if (showHint)
                 {
-                    _gateHintHandle.SetText("Load a save first — co-op is hosted / joined from inside the game.");
+                    _gateHintHandle.SetText(CoopLoc.Get("connect.gateHint", "Load a save first — co-op is hosted / joined from inside the game."));
                     _gateHintHandle.SetColor(NeutralColor);
                 }
                 _gateHintHandle.SetVisible(showHint);
@@ -320,7 +322,9 @@ namespace SULFURTogether.UI
             if (CoopConnection.CurrentMode == NetMode.Host && NetLocalAddress.TryGetLanIPv4(out var ip))
             {
                 int port = ReadInt(() => Plugin.Cfg.HostPort.Value, 9050);
-                _lanIpHandle.SetText($"Your LAN address: {ip}:{port}  (others on your network join with this)");
+                _lanIpHandle.SetText(CoopLoc.Format("connect.lanAddress",
+                    "Your LAN address: {ip}:{port}  (others on your network join with this)",
+                    ("ip", ip.ToString()), ("port", port.ToString())));
                 _lanIpHandle.SetColor(OkColor);
                 _lanIpHandle.SetVisible(true);
             }
@@ -342,7 +346,8 @@ namespace SULFURTogether.UI
             {
                 if (available && TryGetLocalSteamId(out ulong localId))
                 {
-                    _yourSteamIdHandle.SetText($"Your Steam ID: {localId}  (share this, or use Invite Friends while hosting)");
+                    _yourSteamIdHandle.SetText(CoopLoc.Format("connect.steam.yourId",
+                        "Your Steam ID: {id}  (share this, or use Invite Friends while hosting)", ("id", localId.ToString())));
                     _yourSteamIdHandle.SetColor(NeutralColor);
                     _yourSteamIdHandle.SetVisible(true);
                 }
@@ -352,7 +357,9 @@ namespace SULFURTogether.UI
             var mode = CoopConnection.CurrentMode;
             bool inGame = IsInGame();
             _steamInviteHandle?.SetInteractable(available && inGame && mode == NetMode.Host);
-            _steamInviteHandle?.SetLabel(CoopConnection.SteamHostingEnabled ? "Invite more friends via Steam" : "Invite Friends via Steam");
+            _steamInviteHandle?.SetLabel(CoopConnection.SteamHostingEnabled
+                ? CoopLoc.Get("connect.button.inviteMoreFriends", "Invite more friends via Steam")
+                : CoopLoc.Get("connect.button.inviteFriends", "Invite Friends via Steam"));
             _steamJoinHandle?.SetInteractable(available && inGame && mode == NetMode.Off);
 
             if (_steamPendingInviteHandle != null)
@@ -375,8 +382,8 @@ namespace SULFURTogether.UI
                         _draftSteamId = idText;
                         if (_steamIdInputField != null) _steamIdInputField.text = idText;
                         _steamPendingInviteHandle.SetText(string.IsNullOrEmpty(friend)
-                            ? "Joining a Steam friend's game…"
-                            : $"Joining {friend}'s SULFUR Together game…");
+                            ? CoopLoc.Get("connect.steam.joiningFriend", "Joining a Steam friend's game…")
+                            : CoopLoc.Format("connect.steam.joiningNamed", "Joining {name}'s SULFUR Together game…", ("name", friend)));
                         _steamPendingInviteHandle.SetColor(OkColor);
                         _steamPendingInviteHandle.SetVisible(true);
                         JoinViaSteam(pending.Value, "steam-invite-auto-join");
@@ -386,8 +393,8 @@ namespace SULFURTogether.UI
                         // No save loaded yet — can't join. Keep the banner up; the auto-fill guard above hasn't
                         // latched yet, so this fires the auto-join itself the moment IsInGame() flips true.
                         _steamPendingInviteHandle.SetText(string.IsNullOrEmpty(friend)
-                            ? "A Steam friend invited you — load a save to join automatically."
-                            : $"{friend} invited you — load a save to join automatically.");
+                            ? CoopLoc.Get("connect.steam.invitedLoadSave", "A Steam friend invited you — load a save to join automatically.")
+                            : CoopLoc.Format("connect.steam.invitedLoadSaveNamed", "{name} invited you — load a save to join automatically.", ("name", friend)));
                         _steamPendingInviteHandle.SetColor(OkColor);
                         _steamPendingInviteHandle.SetVisible(true);
                     }
@@ -427,7 +434,7 @@ namespace SULFURTogether.UI
             {
                 if (rows.Count == 0)
                 {
-                    c.AddTextRow("No players connected.");
+                    c.AddTextRow(CoopLoc.Get("connect.players.none", "No players connected."));
                     return;
                 }
                 foreach (var row in rows)
@@ -497,7 +504,7 @@ namespace SULFURTogether.UI
             string raw = (_draftSteamId ?? "").Trim();
             if (!ulong.TryParse(raw, out ulong steamId64) || steamId64 == 0)
             {
-                NetConnectFeedback.ReportError("Enter a valid Steam ID (numbers only) — or use Invite Friends / accept a Steam invite.");
+                NetConnectFeedback.ReportError(CoopLoc.Get("connect.error.invalidSteamId", "Enter a valid Steam ID (numbers only) — or use Invite Friends / accept a Steam invite."));
                 return;
             }
             JoinViaSteam(new CSteamID(steamId64), "ui-join-steam");
@@ -620,7 +627,7 @@ namespace SULFURTogether.UI
                     // SS-Toast: the host sees its own change too (clients toast on receive, see
                     // NetService.HandleSessionSettings). Offline toggles notify nobody.
                     if (changed)
-                        CoopToasts.NotifySessionSetting("Friendly fire", value);
+                        CoopToasts.NotifySessionSetting(CoopLoc.Get("session.friendlyFire.label", "Friendly fire"), value);
                 }
             }
             catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] friendly-fire broadcast failed: {e.Message}"); }
@@ -652,7 +659,8 @@ namespace SULFURTogether.UI
             if (_ffSessionHandle == null) return;
             if (isClient)
             {
-                _ffSessionHandle.SetText($"Session friendly fire: {(NetSessionSettings.FriendlyFireEnabled ? "ON" : "OFF")} (set by host)");
+                _ffSessionHandle.SetText(CoopLoc.Format("connect.ffSession", "Session friendly fire: {state} (set by host)",
+                    ("state", NetSessionSettings.FriendlyFireEnabled ? CoopLoc.Get("common.onUpper", "ON") : CoopLoc.Get("common.offUpper", "OFF"))));
                 _ffSessionHandle.SetColor(NeutralColor);
                 _ffSessionHandle.SetVisible(true);
             }

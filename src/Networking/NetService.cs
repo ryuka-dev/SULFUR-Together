@@ -157,15 +157,22 @@ namespace SULFURTogether.Networking
         {
             if (_mode == NetMode.Host)
             {
-                string steamSuffix = CoopConnection.SteamHostingEnabled ? " (Steam invites open)" : "";
-                return $"Hosting on port {Plugin.Cfg.HostPort.Value}{steamSuffix} — {_sessions.RemoteConnectedCount} player(s) connected";
+                string steamSuffix = CoopConnection.SteamHostingEnabled
+                    ? UI.CoopLoc.Get("connect.summary.steamSuffix", " (Steam invites open)") : "";
+                return UI.CoopLoc.Format("connect.summary.hosting",
+                    "Hosting on port {port}{steam} — {n} player(s) connected",
+                    ("port", Plugin.Cfg.HostPort.Value.ToString()),
+                    ("steam", steamSuffix),
+                    ("n", _sessions.RemoteConnectedCount.ToString()));
             }
             if (_mode == NetMode.Client)
             {
                 string label = _connectTargetOverride?.Label ?? $"{Plugin.Cfg.HostAddress.Value}:{Plugin.Cfg.HostPort.Value}";
-                return _hostPeer != null ? $"Connected to host {label}" : $"Connecting to {label}…";
+                return _hostPeer != null
+                    ? UI.CoopLoc.Format("connect.summary.connectedHost", "Connected to host {label}", ("label", label))
+                    : UI.CoopLoc.Format("connect.summary.connecting", "Connecting to {label}…", ("label", label));
             }
-            return "Off";
+            return UI.CoopLoc.Get("connect.summary.off", "Off");
         }
 
         /// <summary>UI-3c: one display line per known session (name + slot + state) for the connect page's live
@@ -2151,7 +2158,7 @@ namespace SULFURTogether.Networking
             }
             // SS-Toast: a live host-side change (not the join-time sync) is announced to this player too.
             if (NetSessionSettings.ApplyReceived(state))
-                UI.CoopToasts.NotifySessionSetting("Friendly fire", state.FriendlyFire);
+                UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.friendlyFire.label", "Friendly fire"), state.FriendlyFire);
         }
 
         // ------------------------------------------------------------------- FF-1 friendly-fire hit (msg 69)
@@ -2810,7 +2817,7 @@ namespace SULFURTogether.Networking
                     case NetMessageType.HandshakeRejected:
                         string rejectReason = reader.GetString();
                         NetLogger.Info($"[Net] Handshake rejected: {rejectReason}");
-                        NetConnectFeedback.ReportError($"Host rejected: {rejectReason}");
+                        NetConnectFeedback.ReportError(UI.CoopLoc.Format("connect.error.hostRejected", "Host rejected: {reason}", ("reason", rejectReason)));
                         peer.Disconnect();
                         break;
 
@@ -3122,7 +3129,7 @@ namespace SULFURTogether.Networking
 
             NetLogger.Info($"[Net] Handshake OK — player='{session.PlayerName}' v={data.ModVersion}");
             NetLogger.Info($"[Session] Peer joined: id={session.PeerId} slot={session.Slot} name='{session.PlayerName}' endpoint={session.EndPoint}");
-            UI.CoopToasts.Notify($"{session.PlayerName} joined");
+            UI.CoopToasts.Notify(UI.CoopLoc.Format("toast.playerJoined", "{name} joined", ("name", session.PlayerName)));
 
             var w = NetMessage.For(NetMessageType.HandshakeAccepted);
             NetHandshake.WriteAccepted(
@@ -3169,7 +3176,7 @@ namespace SULFURTogether.Networking
                 NetLogger.Info("[Net] Handshake accepted by host — session established");
                 NetLogger.Info($"[Session] Local session assigned: id={local.PeerId} slot={local.Slot} name='{local.PlayerName}'");
                 NetLogger.Info($"[Session] Host session known: id={data.HostPeerId} name='{data.HostPlayerName}' maxPlayers={data.MaxPlayers}");
-                UI.CoopToasts.Notify($"Connected to {data.HostPlayerName}");
+                UI.CoopToasts.Notify(UI.CoopLoc.Format("toast.connectedTo", "Connected to {host}", ("host", data.HostPlayerName)));
                 NetConnectFeedback.ReportConnected();
                 SendRunState(peer, _runStates.LocalState);
             }
@@ -4501,7 +4508,9 @@ namespace SULFURTogether.Networking
                 NetLoadBarrier.RemovePeer(peerId);
                 _peerIds.Remove(peer);
                 NetLogger.Info($"[Session] Peer left: id={peerId}");
-                UI.CoopToasts.Notify(_mode == NetMode.Host ? $"{leftName} left" : "Disconnected from host");
+                UI.CoopToasts.Notify(_mode == NetMode.Host
+                    ? UI.CoopLoc.Format("toast.playerLeft", "{name} left", ("name", leftName))
+                    : UI.CoopLoc.Get("toast.disconnectedFromHost", "Disconnected from host"));
             }
 
             if (_mode == NetMode.Client)
@@ -4518,7 +4527,7 @@ namespace SULFURTogether.Networking
 
                 if (info.Reason == DisconnectReason.ConnectionFailed)
                 {
-                    NetConnectFeedback.ReportError("Connection failed — host unreachable. Check the address, port and that the host is up.");
+                    NetConnectFeedback.ReportError(UI.CoopLoc.Get("connect.error.unreachable", "Connection failed — host unreachable. Check the address, port and that the host is up."));
                     NetLogger.Info("[Net] Client will retry connection in 5 seconds");
                 }
                 else

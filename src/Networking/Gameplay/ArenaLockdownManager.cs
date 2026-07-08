@@ -571,13 +571,15 @@ namespace SULFURTogether.Networking.Gameplay
                     case ArenaCommandKind.Notify:
                         // t0 heads-up to the OUT-OF-ROOM players: with grace the door stays open ~5 s, so invite them in.
                         // Player-facing → localize (Docs/Localization.md).
-                        Toast("Arena Lockdown", "A teammate entered the arena — head in now to join them!");
+                        Toast(UI.CoopLoc.Get("arena.toast.title", "Arena Lockdown"),
+                              UI.CoopLoc.Get("arena.toast.teammateEntered", "A teammate entered the arena — head in now to join them!"));
                         break;
 
                     case ArenaCommandKind.NotifyEntered:
                         // t0 heads-up to the player(s) who entered first, so they know the lockdown started too.
                         // Player-facing → localize.
-                        Toast("Arena Lockdown", "You entered the arena — the gate seals in a few seconds; teammates can still run in.");
+                        Toast(UI.CoopLoc.Get("arena.toast.title", "Arena Lockdown"),
+                              UI.CoopLoc.Get("arena.toast.youEntered", "You entered the arena — the gate seals in a few seconds; teammates can still run in."));
                         break;
 
                     case ArenaCommandKind.CloseDoor:
@@ -596,7 +598,8 @@ namespace SULFURTogether.Networking.Gameplay
                         if (IsEffectivelyInArena(arenaPos)) { if (LogOn) NetLogger.Info($"[ArenaLockdown] Seal arena={Key(arenaPos)} local player inside — no barrier"); break; }
                         ArenaBarrierManager.Seal(arenaPos);
                         // Explain the otherwise-invisible barrier. Player-facing → localize.
-                        Toast("Arena Lockdown", "You've been sealed out — you'll be brought in shortly.");
+                        Toast(UI.CoopLoc.Get("arena.toast.title", "Arena Lockdown"),
+                              UI.CoopLoc.Get("arena.toast.sealedOut", "You've been sealed out — you'll be brought in shortly."));
                         break;
 
                     case ArenaCommandKind.Popup:
@@ -607,7 +610,7 @@ namespace SULFURTogether.Networking.Gameplay
                         _armedArena = arenaPos;
                         string keyName = "?";
                         try { keyName = Plugin.Cfg.ArenaEnterConfirmKey.Value.ToString(); } catch { }
-                        string text = $"Press [{keyName}] to enter the arena";
+                        string text = UI.CoopLoc.Format("arena.enterPrompt", "Press [{key}] to enter the arena", ("key", keyName));
                         if (ShowPrompt != null) { try { ShowPrompt(text); } catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] ShowPrompt failed: {ex.Message}"); } }
                         else NetLogger.Info($"[ArenaLockdown] POPUP armed teleport (UI deferred to Native UI Lib) — {text}");
                         break;
@@ -649,7 +652,8 @@ namespace SULFURTogether.Networking.Gameplay
                             NetLogger.Info($"[ArenaLockdown] PullIn local player OUTSIDE sphere (dist={dist:0.0}m r={radius:0.0} ppos={ppos:F0}) — teleporting to {dest:F0} (near first player)");
                             MoveLocalPlayerTo(pu, dest);
                             // Player-facing → localize (Docs/Localization.md).
-                            Toast("Sandstorm Arena", "Pulled into the arena — the sandstorm outside would grind you down.");
+                            Toast(UI.CoopLoc.Get("arena.sandstorm.title", "Sandstorm Arena"),
+                                  UI.CoopLoc.Get("arena.sandstorm.pulledIn", "Pulled into the arena — the sandstorm outside would grind you down."));
                             // Teleported in counts as entering the boss room — catch up the intro dialog if still open.
                             try { Boss.NetBossEncounterManager.OnLocalTeleportedIntoArena(); } catch { }
                         }
@@ -696,7 +700,8 @@ namespace SULFURTogether.Networking.Gameplay
                     else if (unit is Component c && c != null) c.transform.position = dest;
                     NetLogger.Info($"[ArenaLockdown] teleported local player into arena arena=({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0}) dest={dest:F1}");
                     // Player-facing → localize (Docs/Localization.md).
-                    Toast("Arena", "Entering the arena.");
+                    Toast(UI.CoopLoc.Get("arena.entering.title", "Arena"),
+                          UI.CoopLoc.Get("arena.entering.msg", "Entering the arena."));
                 }
                 else NetLogger.Warn("[ArenaLockdown] teleport: local player unit missing");
             }

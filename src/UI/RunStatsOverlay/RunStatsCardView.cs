@@ -22,16 +22,18 @@ namespace SULFURTogether.UI.RunStatsOverlay
     /// </summary>
     internal sealed class RunStatsCardView
     {
-        // English placeholders — Docs/Localization.md registry row 20 (localization layer not implemented yet).
-        private static readonly string[] Labels =
+        // Localization keys + English fallbacks for the 7 stat rows (Docs/Localization.md registry row 20).
+        // Resolved to display strings in Create() — cards are rebuilt each run-end, so they pick up the current
+        // language without any live-refresh path.
+        private static readonly (string key, string en)[] LabelDefs =
         {
-            "Shots Fired",
-            "Damage Dealt",
-            "Kills",
-            "Times Downed",
-            "Rescues",
-            "Damage Taken",
-            "Destructibles Destroyed",
+            ("runstats.stat.shotsFired",             "Shots Fired"),
+            ("runstats.stat.damageDealt",            "Damage Dealt"),
+            ("runstats.stat.kills",                  "Kills"),
+            ("runstats.stat.timesDowned",            "Times Downed"),
+            ("runstats.stat.rescues",                "Rescues"),
+            ("runstats.stat.damageTaken",            "Damage Taken"),
+            ("runstats.stat.destructiblesDestroyed", "Destructibles Destroyed"),
         };
 
         // Fire-lake palette: charred body, old-silver vs sulfur-gold accents, ember warmth. Deliberately warm
@@ -162,8 +164,8 @@ namespace SULFURTogether.UI.RunStatsOverlay
             spacer.transform.SetParent(root.transform, false);
             spacer.GetComponent<LayoutElement>().minHeight = 6f;
 
-            var valueTexts = new TextMeshProUGUI[Labels.Length];
-            for (int i = 0; i < Labels.Length; i++)
+            var valueTexts = new TextMeshProUGUI[LabelDefs.Length];
+            for (int i = 0; i < LabelDefs.Length; i++)
             {
                 var rowGo = new GameObject($"Row_{i}", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
                 rowGo.transform.SetParent(root.transform, false);
@@ -176,7 +178,7 @@ namespace SULFURTogether.UI.RunStatsOverlay
                 rowLayout.spacing = 14f;
 
                 var labelText = CreateText(rowGo.transform, font, 19f, FontStyles.Normal, TextAlignmentOptions.Left, 28f);
-                labelText.text = Labels[i];
+                labelText.text = CoopLoc.Get(LabelDefs[i].key, LabelDefs[i].en);
                 labelText.color = LabelColor;
                 labelText.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
 
@@ -224,7 +226,9 @@ namespace SULFURTogether.UI.RunStatsOverlay
         public void Bind(NetRunStats stats, bool isLocalPlayer, RunStatsBestMarks best)
         {
             string displayName = string.IsNullOrWhiteSpace(stats.PlayerName) ? stats.PeerId : stats.PlayerName;
-            _nameText.text = isLocalPlayer ? displayName + " (You)" : displayName; // Docs/Localization.md row 20
+            _nameText.text = isLocalPlayer
+                ? CoopLoc.Format("runstats.youSuffix", "{name} (You)", ("name", displayName))
+                : displayName;
             _nameText.color = isLocalPlayer ? LocalNameColor : NameColor;
             _border.effectColor = isLocalPlayer ? LocalBorder : NormalBorder;
             _glow.enabled = isLocalPlayer;

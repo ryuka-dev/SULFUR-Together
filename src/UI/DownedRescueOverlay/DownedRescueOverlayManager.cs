@@ -101,7 +101,9 @@ namespace SULFURTogether.UI.DownedRescueOverlay
                 _endPhase = rescue.LastEndReason == NetPlayerLifeManager.RescueEndReason.Completed ? EndFadePhase.Hold : EndFadePhase.Fade;
                 _endPhaseStartedAt = Time.unscaledTime;
                 bool wasDownedTarget = _lastTargetPeerId == localPeerId;
-                _endMainText = wasDownedTarget ? "Restored" : "Rescue complete"; // Docs/Localization.md registry
+                _endMainText = wasDownedTarget
+                    ? CoopLoc.Get("rescue.complete.restored", "Restored")
+                    : CoopLoc.Get("rescue.complete.rescuer", "Rescue complete");
                 _endSubText = "";
             }
 
@@ -141,14 +143,14 @@ namespace SULFURTogether.UI.DownedRescueOverlay
             if (showAsDownedActive)
             {
                 string rescuerName = NetPlayerLifeManager.GetKnownPeerDisplayName(rescue.RescuerPeerId);
-                _panel.SetMainText($"{rescuerName} is rescuing you"); // Docs/Localization.md registry
-                _panel.SetSubText("Hang on");
+                _panel.SetMainText(CoopLoc.Format("rescue.downed.active", "{name} is rescuing you", ("name", rescuerName)));
+                _panel.SetSubText(CoopLoc.Get("rescue.downed.hangOn", "Hang on"));
                 _panel.SetBorderProgress(rescue.Progress);
                 _currentProgressForAnimation = rescue.Progress;
             }
             else if (showAsDownedIdle)
             {
-                _panel.SetMainText("Waiting for a teammate to revive you"); // Docs/Localization.md registry
+                _panel.SetMainText(CoopLoc.Get("rescue.downed.waiting", "Waiting for a teammate to revive you"));
                 _panel.SetSubText("");
                 _panel.SetBorderProgress(0f);
                 _currentProgressForAnimation = 0f;
@@ -157,16 +159,16 @@ namespace SULFURTogether.UI.DownedRescueOverlay
             {
                 string targetName = NetPlayerLifeManager.GetKnownPeerDisplayName(rescue.TargetPeerId);
                 string key = Plugin.Cfg.PlayerReviveHoldKey.Value.MainKey.ToString();
-                _panel.SetMainText($"Rescuing {targetName}"); // Docs/Localization.md registry
-                _panel.SetSubText($"Hold [{key}]");
+                _panel.SetMainText(CoopLoc.Format("rescue.rescuer.active", "Rescuing {name}", ("name", targetName)));
+                _panel.SetSubText(CoopLoc.Format("rescue.hold", "Hold [{key}]", ("key", key)));
                 _panel.SetBorderProgress(rescue.Progress);
                 _currentProgressForAnimation = rescue.Progress;
             }
             else // showAsRescuerIdle
             {
                 string key = Plugin.Cfg.PlayerReviveHoldKey.Value.MainKey.ToString();
-                _panel.SetMainText($"Rescue {hintName}"); // Docs/Localization.md registry
-                _panel.SetSubText($"Hold [{key}]");
+                _panel.SetMainText(CoopLoc.Format("rescue.rescuer.idle", "Rescue {name}", ("name", hintName)));
+                _panel.SetSubText(CoopLoc.Format("rescue.hold", "Hold [{key}]", ("key", key)));
                 _panel.SetBorderProgress(0f);
                 _currentProgressForAnimation = 0f;
             }

@@ -91,6 +91,10 @@ namespace SULFURTogether
         {
             try
             {
+                // Localization: load our lang/*.json + bind the lookup (soft — English fallback when the lib is
+                // absent). Wired first so every player-facing surface below can resolve localized strings.
+                CoopLoc.Wire(Info.Location);
+
                 var apiType = AccessTools.TypeByName("Ryuka.Sulfur.NativeUI.SulfurPopupApi");
                 if (apiType == null)
                 {
