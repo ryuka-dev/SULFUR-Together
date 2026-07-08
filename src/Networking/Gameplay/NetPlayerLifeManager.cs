@@ -330,6 +330,13 @@ namespace SULFURTogether.Networking.Gameplay
             return PeerStates.TryGetValue(peerId, out var peer) && peer.IsDownOrDead;
         }
 
+        /// <summary>True only while the peer is Downed (not fully dead) — WS-4-Downed proxy body pose.</summary>
+        public static bool IsPeerDowned(string peerId)
+        {
+            if (string.IsNullOrWhiteSpace(peerId)) return false;
+            return PeerStates.TryGetValue(peerId, out var peer) && peer.Kind == NetPlayerLifeStateKind.Downed;
+        }
+
         public static IReadOnlyList<PeerCombatPosition> GetHostKnownAliveRemotePeerPositions()
         {
             var result = new List<PeerCombatPosition>();

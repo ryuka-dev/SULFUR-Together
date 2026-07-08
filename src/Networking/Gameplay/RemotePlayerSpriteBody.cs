@@ -14,7 +14,11 @@ namespace SULFURTogether.Networking.Gameplay
     ///    (player faces toward viewer → front; faces away → back — independent of the viewer's own facing),
     ///  - plays the 8-frame walk animation while the player is moving,
     ///  - shows the dedicated standing (idle) sprite while the player is not moving (WS-3-Idle;
-    ///    falls back to walk frame 0 if the idle resources are missing).
+    ///    falls back to walk frame 0 if the idle resources are missing),
+    ///  - while the player is DOWNED (WS-4-Downed) lies the idle sprite flat on the ground (plane parallel to the
+    ///    floor, hovering slightly to avoid clipping): look yaw rotates the whole sprite (head points along the
+    ///    player's horizontal look direction), look pitch only selects front (looking up) vs back (looking down)
+    ///    with a hysteresis band around the horizon; no walk animation while downed.
     /// Visual only.
     /// </summary>
     internal sealed class RemotePlayerSpriteBody : MonoBehaviour
@@ -22,6 +26,10 @@ namespace SULFURTogether.Networking.Gameplay
         private const int   FrameCount = 8;
         private const float FrameSeconds = 0.125f; // APNG delay = 125ms (8 fps)
         private const float PixelsPerUnit = 256f;  // front sheet 512px tall → ~2m
+
+        // WS-4-Downed: lying-flat pose tuning.
+        private const float DownedPitchHysteresis = 5f;   // degrees past the horizon before front/back flips
+        private const float DownedHoverWorldY     = 0.10f; // metres above the feet (proxy origin) to avoid ground clipping
 
         private static Sprite[] _front;
         private static Sprite[] _back;
@@ -32,10 +40,13 @@ namespace SULFURTogether.Networking.Gameplay
 
         private SpriteRenderer _sr;
         private float _facingYaw;
+        private float _lookPitch;    // synced camera pitch, + = looking DOWN (Euler-X convention)
         private bool  _moving;       // synced INPUT-walking flag (not physics) → clean start/stop
+        private bool  _downed;       // WS-4-Downed: peer life state says Downed → lie the sprite flat
         private float _animTimer;
         private int   _frame;
         private bool  _showingBack;
+        private bool  _downedShowingBack; // downed-only front/back latch (pitch-driven, hysteresis)
 
         public static bool ResourcesAvailable()
         {
@@ -73,10 +84,14 @@ namespace SULFURTogether.Networking.Gameplay
             return go;
         }
 
-        public void SetState(float facingYaw, bool moving)
+        public void SetState(float facingYaw, float lookPitch, bool moving, bool downed)
         {
             _facingYaw = facingYaw;
+            _lookPitch = lookPitch;
             _moving = moving;
+            if (downed && !_downed)
+                _downedShowingBack = lookPitch > 0f; // entering downed: looking down → back, up/level → front
+            _downed = downed;
         }
 
         private void Awake()
@@ -92,6 +107,12 @@ namespace SULFURTogether.Networking.Gameplay
         private void LateUpdate()
         {
             if (!_loadOk || _sr == null) return;
+
+            if (_downed)
+            {
+                UpdateDowned();
+                return;
+            }
 
             Camera cam = ResolveCamera();
             if (cam == null) return;
@@ -160,6 +181,51 @@ namespace SULFURTogether.Networking.Gameplay
                 if (frames != null && frames.Length == FrameCount)
                     _sr.sprite = frames[_frame];
             }
+        }
+
+        // WS-4-Downed: lie the sprite flat on the ground. The plane stays parallel to the floor regardless of the
+        // viewer or the player's pitch; look yaw spins the whole sprite (head along the horizontal look direction);
+        // pitch only picks front (looking up) vs back (looking down) with a hysteresis band so the horizon can't flicker.
+        private void UpdateDowned()
+        {
+            // Front/back: pitch is + when looking DOWN. Flip only past the hysteresis band.
+            if (!_downedShowingBack && _lookPitch > DownedPitchHysteresis)
+                _downedShowingBack = true;
+            else if (_downedShowingBack && _lookPitch < -DownedPitchHysteresis)
+                _downedShowingBack = false;
+
+            // Static pose — no walk animation while downed.
+            _frame = 0;
+            _animTimer = 0f;
+            Sprite idle = _downedShowingBack ? _idleBack : _idleFront;
+            if (idle != null)
+            {
+                _sr.sprite = idle;
+            }
+            else
+            {
+                Sprite[] frames = _downedShowingBack ? _back : _front;
+                if (frames != null && frames.Length == FrameCount)
+                    _sr.sprite = frames[0];
+            }
+
+            // Flat rotation: sprite +Z (the face seen by a camera above, same side as the upright billboard shows)
+            // points world-up; sprite +Y (head) points along the player's horizontal look direction.
+            Vector3 headDir = Quaternion.Euler(0f, _facingYaw, 0f) * Vector3.forward;
+            transform.rotation = Quaternion.LookRotation(Vector3.up, headDir);
+
+            // Anchor at the proxy root (= the feet / player ground position), hovering slightly to avoid clipping.
+            // Fallback: the waist holder minus the sprite half-height (holder sits half the body height above the feet).
+            Transform parent = transform.parent;
+            Transform? root = parent != null ? parent.parent : null;
+            Vector3 groundPos;
+            if (root != null)
+                groundPos = root.position;
+            else if (parent != null)
+                groundPos = parent.position - Vector3.up * (transform.lossyScale.y);
+            else
+                groundPos = transform.position;
+            transform.position = groundPos + Vector3.up * DownedHoverWorldY;
         }
 
         private static Camera ResolveCamera()

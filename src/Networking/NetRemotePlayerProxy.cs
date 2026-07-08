@@ -218,11 +218,14 @@ namespace SULFURTogether.Networking
 
         // WS-3: feed the Father sprite body the remote player's CAMERA/look yaw (front/back) and INPUT-moving flag
         // (walk animation — only on intentional movement, not pushes/sliding; stops cleanly when input stops).
+        // WS-4-Downed: also the look pitch + downed flag, so the body can lie flat while the peer is downed and the
+        // weapon rides the flat pose instead of aiming independently.
         private void UpdateSpriteBodyState(float deltaTime)
         {
+            bool downed = Gameplay.NetPlayerLifeManager.IsPeerDowned(_peerId);
             if (_spriteBody != null)
-                _spriteBody.SetState(_lookYaw, _moving);
-            UpdateWeaponOrientation();
+                _spriteBody.SetState(_lookYaw, _lookPitch, _moving, downed);
+            UpdateWeaponOrientation(downed);
         }
 
         private void HideCapsuleMesh()
@@ -303,12 +306,24 @@ namespace SULFURTogether.Networking
             ht.localRotation = Quaternion.identity; // updated each tick to the look yaw
         }
 
+        // WS-4-Downed: while the peer is downed the weapon lies flat near the ground beside the body.
+        private const float DownedWeaponWorldY = 0.15f;
+
         // WS-2: orbit the held weapon around the hip to point along the remote player's look (camera) yaw each frame.
-        private void UpdateWeaponOrientation()
+        // WS-4-Downed: while downed the weapon stops aiming independently (no pitch) and rides the flat body as one
+        // unit — lowered to the ground, spinning with the look yaw only. Stateless per-frame writes → auto-revert.
+        private void UpdateWeaponOrientation(bool downed)
         {
-            if (_weaponHolder == null) return;
-            // Orbit the weapon around the hip with the player's look yaw AND pitch (aim up/down), pivoting at the hip.
-            _weaponHolder.transform.rotation = Quaternion.Euler(_lookPitch, _lookYaw, 0f);
+            if (_weaponHolder == null || _root == null) return;
+
+            float ry = _root.transform.localScale.y;
+            if (Mathf.Approximately(ry, 0f)) ry = 1f;
+            float holderWorldY = downed ? DownedWeaponWorldY
+                                        : SafeCfg(() => Plugin.Cfg.RemoteWeaponHipHeight.Value, 1.2f);
+            var ht = _weaponHolder.transform;
+            ht.localPosition = new Vector3(0f, holderWorldY / ry, 0f);
+            // Orbit with the player's look yaw; pitch (aim up/down) only while standing — never while downed.
+            ht.rotation = Quaternion.Euler(downed ? 0f : _lookPitch, _lookYaw, 0f);
         }
 
         private static float SafeCfg(System.Func<float> get, float fallback)
