@@ -942,7 +942,7 @@ namespace SULFURTogether.Config
             LogPlayerLifeSync = cfg.Bind("NetworkPlayerLifeExperimental", "LogPlayerLifeSync", true,
                 "Log player downed/revive/native-death lifecycle packets and local decisions.");
             PlayerDownedRescueTimeoutSeconds = new Fixed<float>(0f);   // 0 = infinite wait before forced death.
-            PlayerReviveHoldSeconds = new Fixed<float>(2.0f);
+            PlayerReviveHoldSeconds = new Fixed<float>(5.0f);
             PlayerReviveDistance = new Fixed<float>(2.5f);
             PlayerReviveHealthRatio = new Fixed<float>(0.35f);
             PlayerReviveInvulnerabilitySeconds = new Fixed<float>(2f);
