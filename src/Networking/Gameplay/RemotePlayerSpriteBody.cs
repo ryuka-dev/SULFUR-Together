@@ -16,7 +16,7 @@ namespace SULFURTogether.Networking.Gameplay
     ///  - shows the dedicated standing (idle) sprite while the player is not moving (WS-3-Idle;
     ///    falls back to walk frame 0 if the idle resources are missing),
     ///  - while the player is DOWNED (WS-4-Downed) lies the idle sprite flat on the ground (plane parallel to the
-    ///    floor, hovering slightly to avoid clipping): look yaw rotates the whole sprite (head points along the
+    ///    floor, hovering slightly to avoid clipping): look yaw rotates the whole sprite (feet point along the
     ///    player's horizontal look direction), look pitch only selects front (looking up) vs back (looking down)
     ///    with a hysteresis band around the horizon; no walk animation while downed.
     /// Visual only.
@@ -29,7 +29,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         // WS-4-Downed: lying-flat pose tuning.
         private const float DownedPitchHysteresis = 5f;   // degrees past the horizon before front/back flips
-        private const float DownedHoverWorldY     = 0.10f; // metres above the feet (proxy origin) to avoid ground clipping
+        private const float DownedHoverWorldY     = 0.20f; // metres above the feet (proxy origin) to avoid ground clipping
 
         private static Sprite[] _front;
         private static Sprite[] _back;
@@ -210,8 +210,9 @@ namespace SULFURTogether.Networking.Gameplay
             }
 
             // Flat rotation: sprite +Z (the face seen by a camera above, same side as the upright billboard shows)
-            // points world-up; sprite +Y (head) points along the player's horizontal look direction.
-            Vector3 headDir = Quaternion.Euler(0f, _facingYaw, 0f) * Vector3.forward;
+            // points world-up; sprite +Y (head) points AWAY from the look direction — the feet point where the
+            // player is looking (like a real body seen through its own first-person camera at the head).
+            Vector3 headDir = Quaternion.Euler(0f, _facingYaw, 0f) * Vector3.back;
             transform.rotation = Quaternion.LookRotation(Vector3.up, headDir);
 
             // Anchor at the proxy root (= the feet / player ground position), hovering slightly to avoid clipping.
