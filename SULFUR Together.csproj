@@ -217,4 +217,37 @@
     <Message Text="Deployed → %(_DeployDir.Identity)" Importance="high" />
   </Target>
 
+  <!--
+    CopyToRelease: after every RELEASE build, refresh the Thunderstore package folder with the freshly built
+    plugin DLL + LiteNetLib + the lang\*.json files, so the packaged artifact never drifts from source.
+    Unlike Deploy (above) this is NOT gated on LocalPaths deploy dirs — the release folder is project-relative
+    and always populated. Gated on Configuration=Release so a Debug build can't drop debug binaries into the
+    package. The copied binaries and lang\ folder are gitignored (see .gitignore); only manifest/README/
+    CHANGELOG/icon stay tracked. At release time, zip the CONTENTS of Thunderstore\ (not the folder) to upload.
+  -->
+  <Target Name="CopyToRelease" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <ReleaseDir>$(MSBuildProjectDirectory)\Thunderstore</ReleaseDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ReleaseLangFile Include="$(MSBuildProjectDirectory)\lang\*.json" />
+    </ItemGroup>
+    <MakeDir Directories="$(ReleaseDir)\lang" />
+    <Copy
+      SourceFiles="$(TargetPath)"
+      DestinationFolder="$(ReleaseDir)"
+      OverwriteReadOnlyFiles="true" />
+    <Copy
+      Condition="Exists('$(OutputPath)LiteNetLib.dll')"
+      SourceFiles="$(OutputPath)LiteNetLib.dll"
+      DestinationFolder="$(ReleaseDir)"
+      OverwriteReadOnlyFiles="true" />
+    <Copy
+      Condition="'@(_ReleaseLangFile)' != ''"
+      SourceFiles="@(_ReleaseLangFile)"
+      DestinationFolder="$(ReleaseDir)\lang"
+      OverwriteReadOnlyFiles="true" />
+    <Message Text="Release package refreshed → $(ReleaseDir)" Importance="high" />
+  </Target>
+
 </Project>
