@@ -12,7 +12,9 @@ namespace SULFURTogether.Networking.Gameplay
     ///  - billboards the sprite to face the local camera horizontally (upright, like enemy paper sprites),
     ///  - picks front vs back content from the angle between the remote player's facing and the viewer direction
     ///    (player faces toward viewer → front; faces away → back — independent of the viewer's own facing),
-    ///  - plays the 8-frame walk animation while the player is moving.
+    ///  - plays the 8-frame walk animation while the player is moving,
+    ///  - shows the dedicated standing (idle) sprite while the player is not moving (WS-3-Idle;
+    ///    falls back to walk frame 0 if the idle resources are missing).
     /// Visual only.
     /// </summary>
     internal sealed class RemotePlayerSpriteBody : MonoBehaviour
@@ -23,6 +25,8 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static Sprite[] _front;
         private static Sprite[] _back;
+        private static Sprite   _idleFront;
+        private static Sprite   _idleBack;
         private static bool     _loadTried;
         private static bool     _loadOk;
 
@@ -80,7 +84,8 @@ namespace SULFURTogether.Networking.Gameplay
             EnsureLoaded();
             _sr = gameObject.GetComponent<SpriteRenderer>();
             if (_sr == null) _sr = gameObject.AddComponent<SpriteRenderer>();
-            _sr.sprite = (_front != null && _front.Length > 0) ? _front[0] : null;
+            _sr.sprite = _idleFront != null ? _idleFront
+                : (_front != null && _front.Length > 0) ? _front[0] : null;
             // We billboard ourselves (waist pivot + clamped pitch) in LateUpdate — no game BillboardSprite component.
         }
 
@@ -127,7 +132,8 @@ namespace SULFURTogether.Networking.Gameplay
             // (depthBias defaults to 0; a non-zero value can re-enable the old back-in-front behaviour.)
             transform.position = anchor + flatNorm * (showBack ? depthBias : 0f);
 
-            // Animate only while the player is INPUT-walking (synced flag); freeze on frame 0 the instant they stop.
+            // Animate only while the player is INPUT-walking (synced flag); show the standing (idle)
+            // sprite the instant they stop (walk frame 0 if the idle resources are missing).
             if (_moving)
             {
                 _animTimer += Time.deltaTime;
@@ -143,9 +149,17 @@ namespace SULFURTogether.Networking.Gameplay
                 _animTimer = 0f;
             }
 
-            Sprite[] frames = _showingBack ? _back : _front;
-            if (frames != null && frames.Length == FrameCount)
-                _sr.sprite = frames[_frame];
+            Sprite idle = _showingBack ? _idleBack : _idleFront;
+            if (!_moving && idle != null)
+            {
+                _sr.sprite = idle;
+            }
+            else
+            {
+                Sprite[] frames = _showingBack ? _back : _front;
+                if (frames != null && frames.Length == FrameCount)
+                    _sr.sprite = frames[_frame];
+            }
         }
 
         private static Camera ResolveCamera()
@@ -165,13 +179,18 @@ namespace SULFURTogether.Networking.Gameplay
             _loadTried = true;
             try
             {
-                _front = LoadSheet("father_front");
-                _back = LoadSheet("father_back");
+                _front = LoadSheet("father_front", FrameCount);
+                _back = LoadSheet("father_back", FrameCount);
+                // Idle sprites are optional: without them the body falls back to walk frame 0 (pre-WS-3-Idle look).
+                var idleFront = LoadSheet("father_idle_front", 1);
+                var idleBack = LoadSheet("father_idle_back", 1);
+                _idleFront = idleFront != null && idleFront.Length == 1 ? idleFront[0] : null;
+                _idleBack = idleBack != null && idleBack.Length == 1 ? idleBack[0] : null;
                 _loadOk = _front != null && _back != null && _front.Length == FrameCount && _back.Length == FrameCount;
                 if (!_loadOk)
                     Plugin.Log.Warn("[FatherBody] sprite sheets failed to load (embedded resources missing?)");
                 else if (Plugin.Cfg.LogRemotePlayerBody.Value)
-                    Plugin.Log.Info("[FatherBody] sprite sheets loaded (front/back, 8 frames each)");
+                    Plugin.Log.Info($"[FatherBody] sprite sheets loaded (front/back, 8 frames each; idle {(_idleFront != null && _idleBack != null ? "loaded" : "MISSING")})");
             }
             catch (Exception ex)
             {
@@ -200,7 +219,7 @@ namespace SULFURTogether.Networking.Gameplay
             return r is bool b && b;
         }
 
-        private static Sprite[] LoadSheet(string resourceName)
+        private static Sprite[] LoadSheet(string resourceName, int frameCount)
         {
             var asm = Assembly.GetExecutingAssembly();
             using (Stream s = asm.GetManifestResourceStream(resourceName))
@@ -218,10 +237,10 @@ namespace SULFURTogether.Networking.Gameplay
                 tex.filterMode = FilterMode.Bilinear;
                 tex.wrapMode = TextureWrapMode.Clamp;
 
-                int cellW = tex.width / FrameCount;
+                int cellW = tex.width / frameCount;
                 int cellH = tex.height;
-                var sprites = new Sprite[FrameCount];
-                for (int i = 0; i < FrameCount; i++)
+                var sprites = new Sprite[frameCount];
+                for (int i = 0; i < frameCount; i++)
                 {
                     var rect = new Rect(i * cellW, 0, cellW, cellH);
                     // Pivot = CENTRE (waist) so the billboard tilts around the waist like NPC sprites (not the feet).

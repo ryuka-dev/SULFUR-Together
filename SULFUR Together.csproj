@@ -164,13 +164,20 @@
     </Reference>
   </ItemGroup>
 
-  <!-- Phase 5.6-WS-3: embed the priest (Father) walk sprite sheets (front/back, 8 frames each) into the DLL. -->
+  <!-- Phase 5.6-WS-3: embed the priest (Father) walk sprite sheets (front/back, 8 frames each) into the DLL.
+       WS-3-Idle: plus the single-frame standing (idle) sprites (front/back). -->
   <ItemGroup>
     <EmbeddedResource Include="src\Resources\father_front.png">
       <LogicalName>father_front</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="src\Resources\father_back.png">
       <LogicalName>father_back</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="src\Resources\father_idle_front.png">
+      <LogicalName>father_idle_front</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="src\Resources\father_idle_back.png">
+      <LogicalName>father_idle_back</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
