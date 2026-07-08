@@ -601,11 +601,23 @@ namespace SULFURTogether.UI
                 ApplySessionFriendlyFireControl();
                 return;
             }
-            try { Plugin.Cfg.FriendlyFire.Value = value; } catch { }
+            bool changed = false;
+            try
+            {
+                changed = Plugin.Cfg.FriendlyFire.Value != value;
+                Plugin.Cfg.FriendlyFire.Value = value;
+            }
+            catch { }
             try
             {
                 if (CoopConnection.CurrentMode == NetMode.Host)
+                {
                     CoopConnection.Service?.BroadcastSessionSettings("ui-toggle");
+                    // SS-Toast: the host sees its own change too (clients toast on receive, see
+                    // NetService.HandleSessionSettings). Offline toggles notify nobody.
+                    if (changed)
+                        CoopToasts.NotifySessionSetting("Friendly fire", value);
+                }
             }
             catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] friendly-fire broadcast failed: {e.Message}"); }
         }

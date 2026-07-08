@@ -44,16 +44,20 @@ namespace SULFURTogether.Networking
             catch { return false; }
         }
 
-        /// <summary>Client: apply a received host snapshot. Stale revisions (reordered re-sends) are dropped.</summary>
-        public static void ApplyReceived(NetSessionSettingsState state)
+        /// <summary>Client: apply a received host snapshot. Stale revisions (reordered re-sends) are dropped.
+        /// Returns true only for a live change — a value that differs from the previous snapshot AND is not the
+        /// initial join-time sync — so the caller can notify the player (SS-Toast) without toasting on join.</summary>
+        public static bool ApplyReceived(NetSessionSettingsState state)
         {
-            if (state == null) return;
-            if (state.Revision <= _lastAppliedRevision) return;
+            if (state == null) return false;
+            if (state.Revision <= _lastAppliedRevision) return false;
+            bool initial = _lastAppliedRevision < 0;
             _lastAppliedRevision = state.Revision;
             bool changed = _receivedFriendlyFire != state.FriendlyFire;
             _receivedFriendlyFire = state.FriendlyFire;
             if (changed && Plugin.Cfg.LogFriendlyFire.Value)
                 Plugin.Log.Info($"[FF] session settings applied: friendlyFire={state.FriendlyFire} rev={state.Revision}");
+            return changed && !initial;
         }
 
         /// <summary>Reset on session teardown so a later session starts from the safe default (OFF).</summary>

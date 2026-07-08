@@ -67,6 +67,7 @@ cover our strings.
 
 | 20 | Run Stats card (RS-2): 7 stat row labels `Shots Fired` / `Damage Dealt` / `Kills` / `Times Downed` / `Rescues` / `Damage Taken` / `Destructibles Destroyed`; name-row suffix `{name} (You)` for the local player's own card; placeholder `…` shown before the finalized broadcast has arrived | `RunStatsCardView.cs` | End-of-Run card overlay shown over the Hub-return loading screen. Player names themselves are user data, not translatable literals. |
 | 21 | `Friendly fire` toggle (desc `Players can damage each other. The host's setting applies to the whole session.`) / `Session friendly fire: ON (set by host)` / `Session friendly fire: OFF (set by host)` | `CoopConnectPage.cs` (FF-1) | Replaces the row-16 `Friendly fire` + `Coming soon` placeholder with a live toggle; the session line is read-only and shown only while connected as a client. |
+| 22 | `{label}: On` / `{label}: Off` session-setting change toast; current `{label}` value: `Friendly fire` | `CoopToasts.NotifySessionSetting` (SS-Toast) | Fired on host + every client when the host changes a session setting mid-session (join-time sync is silent). Every future session setting reuses this formatter with its own label. |
 
 ### Planned, not yet written (register here when added)
 

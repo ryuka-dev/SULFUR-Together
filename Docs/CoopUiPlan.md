@@ -217,6 +217,24 @@ graphic and bypasses `SetLocked` — verified in the game IL). A locked control 
 value live** (updates via `SetIsOnWithoutNotify`, never firing the change callback, so the client's own saved
 preference is untouched). Any future live session-settings row (loot mode, client-may-start-next-level, …) must
 follow this same pattern. Off/host = editable: outside a session the toggle prepares your own future room.
+
+**Change-notification rule (SS-Toast):** whenever the host changes **any** session setting during a live session,
+**every player is told via a toast** — the host at its commit point (the settings-row callback, after the
+broadcast), each client where the received snapshot is applied (`NetService.HandleSessionSettings`, gated by
+`NetSessionSettings.ApplyReceived` returning true only for a live change). Both ends share one formatter,
+`CoopToasts.NotifySessionSetting(label, enabled)`, so the text exists once. The **join-time initial sync is
+silent** (the client's first `ApplyReceived` never toasts — the locked row already shows the value), and toggling
+a setting **outside a session notifies nobody**. This rule applies to every future session-settings row.
+
+**Checklist for adding a new session setting** (each step has an FF-1 reference implementation):
+1. Field on `NetSessionSettingsState` + read/write in `NetSessionSettingsCodec`.
+2. Host authority: config value read live on the host; broadcast on change (`BroadcastSessionSettings`) and once
+   per handshake (`SendSessionSettingsToPeer`).
+3. Client mirror in `NetSessionSettings` with per-field change detection in `ApplyReceived` (feeds the SS-Toast
+   return value) and a reset in `ResetSession`.
+4. Connect-page row locked + live-mirrored on clients (non-host rule above).
+5. SS-Toast on both ends via `CoopToasts.NotifySessionSetting` (host commit point + the `ApplyReceived` signal).
+6. Register the player-facing strings in `Docs/Localization.md`; ledger row in `Docs/Versioning.md` §4.
 - **Player table** — who is in the room, **ping per player**, and a **kick button** per row (host only).
   Needs a refreshable list (§8).
 - **Loot mode** `[ Independent ▼ ]` — Independent works today; **Shared is deferred** (§7).

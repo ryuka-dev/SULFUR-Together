@@ -2149,7 +2149,9 @@ namespace SULFURTogether.Networking
                 NetLogger.Warn("[FF] malformed SessionSettings packet");
                 return;
             }
-            NetSessionSettings.ApplyReceived(state);
+            // SS-Toast: a live host-side change (not the join-time sync) is announced to this player too.
+            if (NetSessionSettings.ApplyReceived(state))
+                UI.CoopToasts.NotifySessionSetting("Friendly fire", state.FriendlyFire);
         }
 
         // ------------------------------------------------------------------- FF-1 friendly-fire hit (msg 69)

@@ -27,6 +27,13 @@ namespace SULFURTogether.UI
         public static void Notify(string message) => Notify(null, message);
 
         /// <summary>
+        /// SS-Toast: session-setting change toast, same text on the host and every client so all players
+        /// see the host's change the moment it lands. English placeholder; see Docs/Localization.md.
+        /// </summary>
+        public static void NotifySessionSetting(string settingLabel, bool enabled)
+            => Notify($"{settingLabel}: {(enabled ? "On" : "Off")}");
+
+        /// <summary>
         /// Show a co-op toast (and always log the event). No-op when <c>EnableCoopToasts</c> is off.
         /// Safe to call when the UI Lib is absent — the event is logged only.
         /// </summary>
