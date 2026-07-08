@@ -229,6 +229,12 @@ broadcast), each client where the received snapshot is applied (`NetService.Hand
 silent** (the client's first `ApplyReceived` never toasts — the locked row already shows the value), and toggling
 a setting **outside a session notifies nobody**. This rule applies to every future session-settings row.
 
+`NotifySessionSetting` deliberately **bypasses the local `EnableCoopToasts` preference** (the personal "show
+player join/leave notifications" toggle): a host changing a session rule (e.g. friendly fire) affects gameplay and
+must reach every player regardless of their join/leave-notification choice — otherwise a client with join/leave
+toasts off silently never learns FF was turned on. Only the join/leave/link/connect toasts stay gated by that
+preference.
+
 **Checklist for adding a new session setting** (each step has an FF-1 reference implementation):
 1. Field on `NetSessionSettingsState` + read/write in `NetSessionSettingsCodec`.
 2. Host authority: config value read live on the host; broadcast on change (`BroadcastSessionSettings`) and once
