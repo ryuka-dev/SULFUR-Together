@@ -24,6 +24,7 @@ namespace SULFURTogether.UI
     {
         private const string PageId  = "ryuka.sulfur.together";
         private const string RepoUrl = "https://github.com/ryuka-dev/SULFUR-Together";
+        private const string KoFiUrl = "https://ko-fi.com/ryukadev";
 
         private static readonly Color ErrorColor  = new Color(1f, 0.45f, 0.45f, 1f);
         private static readonly Color OkColor     = new Color(0.55f, 1f, 0.65f, 1f);
@@ -233,8 +234,11 @@ namespace SULFURTogether.UI
             // --- About ----------------------------------------------------------------------------------
             ctx.AddSection("About");
             ctx.AddReadonlyText("Version", ModInfo.Version);
-            ctx.AddSmallButton("Open-source repo", () => OpenUrl(RepoUrl));
-            ctx.AddReadonlyText("Ko-fi", "Coming soon");
+            // Explicit width: AddSmallButton's auto-size clamps at 180px, which ellipsises these ~16-char
+            // labels ("Open-sourc…" / "Support on …"). The minWidth overload bypasses the clamp; the row is
+            // full-option width so 260px fits comfortably.
+            ctx.AddSmallButton("Open-source repo", () => OpenUrl(RepoUrl), 260f);
+            ctx.AddSmallButton("Support on Ko-fi", () => OpenUrl(KoFiUrl), 260f);
 
             // No footer / "Save settings" button — settings persist automatically (see AutoSaveDrafts). Seed the
             // auto-save baseline from the freshly loaded drafts so merely opening the page (incl. the Steam-name seed)
