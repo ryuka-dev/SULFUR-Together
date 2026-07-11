@@ -1576,6 +1576,87 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- HZ-3 throwable in-flight body sync
+        // Same topology as ThrowableEffect; broadcast at release so peers render the flight arc (visual only).
+
+        internal void BroadcastLocalThrowableFlight(Gameplay.NetThrowableFlight msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnableThrowableEffectSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendThrowableFlight(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendThrowableFlight(_hostPeer, msg);
+            }
+        }
+
+        private void SendThrowableFlight(NetPeer peer, Gameplay.NetThrowableFlight msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ThrowableFlight);
+                Gameplay.NetThrowableFlightCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[ThrowableEffect] flight failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleThrowableFlight(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableThrowableEffectSync.Value) return;
+            if (!Gameplay.NetThrowableFlightCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[ThrowableEffect] malformed ThrowableFlight packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId)) return;
+                msg.PeerId = peerId;
+
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowFlight(msg);
+
+                RelayThrowableFlightToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.PeerId == _runStates.LocalState.PeerId) return; // never render my own flight
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowFlight(msg);
+            }
+        }
+
+        private void RelayThrowableFlightToOtherClients(NetPeer sourcePeer, Gameplay.NetThrowableFlight msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendThrowableFlight(client, msg);
+            }
+        }
+
         // ---------------------------------------------------------------- Phase LD-1 combat-room gate (MetalGate) sync
         // Same topology as BreakableBreak: the peer that opened/closed a gate reports it; the Host stamps the PeerId,
         // mirrors it locally (same scene) and relays to all other clients. The firing peer never mirrors its own.
@@ -3123,6 +3204,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.ThrowableEffect:
                         HandleThrowableEffect(peer, reader);
+                        break;
+
+                    case NetMessageType.ThrowableFlight:
+                        HandleThrowableFlight(peer, reader);
                         break;
 
                     case NetMessageType.WorldPickupSpawn:

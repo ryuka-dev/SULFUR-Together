@@ -336,5 +336,9 @@ namespace SULFURTogether.Networking
         // EFFECT (ground hazard / explosion VFX). Throwables are spawned at runtime (non-deterministic), so unlike the
         // in-scene BreakableBreak channel there is no existing local instance to match — the receiver spawns one.
         ThrowableEffect = 71,
+
+        // HZ-3 (any peer → Host → relay, ReliableOrdered): a throwable was released. Carries the weapon ItemId + launch
+        // position/velocity so peers render a visual-only flying body (the on-break effect still comes via ThrowableEffect).
+        ThrowableFlight = 72,
     }
 }

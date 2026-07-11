@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Reflection;
 using HarmonyLib;
+using UnityEngine;
 using PerfectRandom.Sulfur.Core.Units;
 using PerfectRandom.Sulfur.Core.Items;
 using SULFURTogether.Networking.Gameplay;
@@ -71,9 +73,22 @@ namespace SULFURTogether.Patches
             if (__instance is Breakable brk)
             {
                 ThrowableEffectManager.MarkThrown(brk, _pendingItemId);
+                // Throw's AddForce (Impulse) is applied on the NEXT physics step, not synchronously — so the body's
+                // launch velocity isn't readable this frame (Log400: vel=0.0). Read it one FixedUpdate later, on the
+                // body itself, and broadcast the HZ-3 flight then.
+                brk.StartCoroutine(CaptureFlightAfterLaunch(brk, _pendingItemId));
                 if (Plugin.Cfg.LogThrowableEffectSync.Value)
                     Plugin.Log.Info($"[ThrowableEffect] tagged thrown Breakable name={brk.name} itemId={_pendingItemId}");
             }
+        }
+
+        private static IEnumerator CaptureFlightAfterLaunch(Breakable brk, int itemId)
+        {
+            yield return new WaitForFixedUpdate(); // let Throw's AddForce(Impulse) land on the rigidbody
+            if (brk == null) yield break;
+            var rb = brk.Rigidbody;
+            if (rb == null) yield break;
+            ThrowableEffectManager.CaptureThrowFlight(itemId, brk.transform.position, rb.linearVelocity);
         }
 
         // Read the throwing weapon's stable ItemId value (Holdable.ItemDefinition.id.value). 0 if unavailable.

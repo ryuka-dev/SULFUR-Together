@@ -97,6 +97,12 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalThrowableEffect(msg);
         }
 
+        // HZ-3 — thrown throwable in-flight body channel (broadcast at release so peers can see the throw arc).
+        public static void ReportLocalThrowableFlight(NetThrowableFlight msg)
+        {
+            _service?.BroadcastLocalThrowableFlight(msg);
+        }
+
         // Phase LD-1 — generic combat-room gate (MetalGate) open/close channel. The peer that changed a gate reports it;
         // NetService stamps PeerId + scene context and routes it (Client→Host→relay to other Clients; firing peer never
         // mirrors its own). See GateSyncManager.
