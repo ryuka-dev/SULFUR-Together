@@ -1489,6 +1489,93 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- HZ-2 throwable-effect sync
+        // Same topology as BreakableBreak: the peer that threw + broke a throwable reports it; the Host stamps the PeerId,
+        // mirrors it locally (same scene) and relays to all other clients. The throwing peer never mirrors its own.
+
+        internal void BroadcastLocalThrowableEffect(Gameplay.NetThrowableEffect msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnableThrowableEffectSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendThrowableEffect(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendThrowableEffect(_hostPeer, msg);
+            }
+        }
+
+        private void SendThrowableEffect(NetPeer peer, Gameplay.NetThrowableEffect msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ThrowableEffect);
+                Gameplay.NetThrowableEffectCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[ThrowableEffect] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleThrowableEffect(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableThrowableEffectSync.Value) return;
+            if (!Gameplay.NetThrowableEffectCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[ThrowableEffect] malformed ThrowableEffect packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId))
+                {
+                    if (Plugin.Cfg.EnableDebugLog.Value)
+                        NetLogger.Debug($"[ThrowableEffect] ignoring throw from unregistered peer {peer.Address}");
+                    return;
+                }
+                msg.PeerId = peerId;
+
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowableEffect(msg);
+
+                RelayThrowableEffectToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.PeerId == _runStates.LocalState.PeerId) return; // never mirror my own throw
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowableEffect(msg);
+            }
+        }
+
+        private void RelayThrowableEffectToOtherClients(NetPeer sourcePeer, Gameplay.NetThrowableEffect msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendThrowableEffect(client, msg);
+            }
+        }
+
         // ---------------------------------------------------------------- Phase LD-1 combat-room gate (MetalGate) sync
         // Same topology as BreakableBreak: the peer that opened/closed a gate reports it; the Host stamps the PeerId,
         // mirrors it locally (same scene) and relays to all other clients. The firing peer never mirrors its own.
@@ -3032,6 +3119,10 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.BreakableBreak:
                         HandleBreakableBreak(peer, reader);
+                        break;
+
+                    case NetMessageType.ThrowableEffect:
+                        HandleThrowableEffect(peer, reader);
                         break;
 
                     case NetMessageType.WorldPickupSpawn:

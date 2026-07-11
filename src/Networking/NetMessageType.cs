@@ -329,5 +329,12 @@ namespace SULFURTogether.Networking
         // friendly-fire flag) + a monotonic revision so a client ignores stale re-sends. Broadcast on toggle change
         // and pushed once to each newly accepted peer right after the handshake.
         SessionSettings = 70,
+
+        // HZ-2 (any peer → Host → relay to other Clients, ReliableOrdered): a thrown Breakable-type throwable (poison/fire
+        // flask, explosive, etc.) broke locally on the throwing peer. Carries the throwable's UnitSO id + the locked impact
+        // position/rotation so every other peer spawns that unit at the same spot and Break()s it, mirroring the on-break
+        // EFFECT (ground hazard / explosion VFX). Throwables are spawned at runtime (non-deterministic), so unlike the
+        // in-scene BreakableBreak channel there is no existing local instance to match — the receiver spawns one.
+        ThrowableEffect = 71,
     }
 }

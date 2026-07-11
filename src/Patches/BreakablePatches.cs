@@ -58,6 +58,17 @@ namespace SULFURTogether.Patches
 
         private static void Breakable_Die_Pre(Breakable __instance)
         {
+            // HZ-2: a thrown throwable (ThrowableWeapon) has no deterministic in-scene match on other peers, so route it to
+            // the throwable-effect channel (broadcast UnitSO id + impact pose → peers spawn+break) instead of the in-scene
+            // BreakableBreak channel. The real Die still runs locally on the thrower; this prefix only broadcasts.
+            if (ThrowableEffectManager.IsThrown(__instance))
+            {
+                ThrowableEffectManager.CaptureLocalThrowableEffect(__instance);
+                ThrowableEffectManager.Unmark(__instance);
+                BreakableBreakManager.Unregister(__instance);
+                return;
+            }
+
             // Capture FIRST (reads the spawn-position registry), then drop it from the live registry so it can't match again.
             BreakableBreakManager.CaptureLocalBreak(__instance);
             BreakableBreakManager.Unregister(__instance);

@@ -278,6 +278,56 @@ namespace SULFURTogether.Networking.Gameplay
             catch (Exception ex) { RuntimeSpawnMirrorFailed++; Plugin.Log.Warn($"[RuntimeSpawn] MirrorSpawnAsync failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
+        // ---- HZ-2: reused by the throwable-effect mirror (resolve the throwing weapon's prefab from its ItemId).
+
+        private static PropertyInfo? _itemDbProp;      // AsyncAssetLoading.itemDatabase
+        private static Type?         _itemIdType;      // PerfectRandom.Sulfur.Core.ItemId (struct : ctor(ushort))
+        private static MethodInfo?   _itemDbIndexer;   // ItemDatabase get_Item(ItemId)
+        private static FieldInfo?    _itemDefPrefabField; // ItemDefinition.prefab
+        private static bool          _itemResolved;
+
+        /// <summary>The GameManager singleton (or null) — used by the throwable mirror to parent the spawned effect and
+        /// resolve the local player as its owner.</summary>
+        internal static object? GameManagerInstance() => ResolveGameManager();
+
+        /// <summary>HZ-2: resolve a weapon's world prefab from its <c>ItemId</c> value via the item database
+        /// (<c>AsyncAssetLoading.itemDatabase[new ItemId(value)].prefab</c>). Returns the weapon prefab GameObject (which
+        /// carries the <c>ThrowableWeapon</c> component) or null. All reflection is cached after the first call.</summary>
+        internal static GameObject? ResolveItemPrefab(int itemIdValue)
+        {
+            try
+            {
+                EnsureResolved(); // resolves _asyncAssetLoadingInstance
+                EnsureItemResolved();
+                if (_asyncAssetLoadingInstance == null || _itemDbProp == null || _itemDbIndexer == null || _itemIdType == null) return null;
+                object? db = _itemDbProp.GetValue(_asyncAssetLoadingInstance);
+                if (db == null) return null;
+                object itemId = Activator.CreateInstance(_itemIdType, (ushort)itemIdValue);
+                object? itemDef = _itemDbIndexer.Invoke(db, new[] { itemId });
+                if (itemDef == null) return null;
+                _itemDefPrefabField ??= itemDef.GetType().GetField("prefab", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                return _itemDefPrefabField?.GetValue(itemDef) as GameObject;
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[ThrowableEffect] ResolveItemPrefab failed: {ex.GetType().Name}: {ex.Message}"); return null; }
+        }
+
+        private static void EnsureItemResolved()
+        {
+            if (_itemResolved) return;
+            _itemResolved = true;
+            try
+            {
+                var aalType = BossReflect.FindType("AsyncAssetLoading", "PerfectRandom.Sulfur.Core.AsyncAssetLoading");
+                _itemDbProp = aalType?.GetProperty("itemDatabase", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                _itemIdType = BossReflect.FindType("ItemId", "PerfectRandom.Sulfur.Core.ItemId");
+                var itemDbType = BossReflect.FindType("ItemDatabase", "PerfectRandom.Sulfur.Core.ItemDatabase");
+                if (itemDbType != null && _itemIdType != null)
+                    _itemDbIndexer = itemDbType.GetMethod("get_Item", BindingFlags.Instance | BindingFlags.Public, null, new[] { _itemIdType }, null);
+                Plugin.Log.Info($"[ThrowableEffect] item-db resolved itemDb={_itemDbProp != null} itemId={_itemIdType != null} indexer={_itemDbIndexer != null}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[ThrowableEffect] EnsureItemResolved failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
         // ================================================================== reflection
 
         private static int ReadUnitIdValue(object unitSO)

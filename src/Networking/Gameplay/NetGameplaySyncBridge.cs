@@ -90,6 +90,13 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalBreakableBreak(msg);
         }
 
+        // HZ-2 — thrown Breakable-throwable effect channel. The peer that threw + broke it reports it; NetService stamps
+        // PeerId + scene context and routes it (Client→Host→relay to other Clients; throwing peer never mirrors its own).
+        public static void ReportLocalThrowableEffect(NetThrowableEffect msg)
+        {
+            _service?.BroadcastLocalThrowableEffect(msg);
+        }
+
         // Phase LD-1 — generic combat-room gate (MetalGate) open/close channel. The peer that changed a gate reports it;
         // NetService stamps PeerId + scene context and routes it (Client→Host→relay to other Clients; firing peer never
         // mirrors its own). See GateSyncManager.

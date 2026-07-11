@@ -228,6 +228,8 @@ namespace SULFURTogether.Config
         // ----- Phase 5.7-BR in-scene destructible (Breakable) sync -----
         public Fixed<bool>         EnableBreakableSync { get; }   // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogBreakableSync { get; }
+        public Fixed<bool>         EnableThrowableEffectSync { get; }  // HZ-2 functional: always on (release-hardcoded)
+        public ConfigEntry<bool>   LogThrowableEffectSync { get; }
         // ----- Phase LD-1 generic combat-room gate (MetalGate) open/close sync -----
         public Fixed<bool>         EnableGateSync { get; }        // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogGateSync { get; }
@@ -817,6 +819,9 @@ namespace SULFURTogether.Config
             EnableBreakableSync = new Fixed<bool>(true); // Phase 5.7-BR destructible sync — functional, always on.
             LogBreakableSync = cfg.Bind("Destructibles", "LogBreakableSync", true,
                 "Phase 5.7-BR: verbose log for destructible sync (capture / broadcast / mirror match).");
+            EnableThrowableEffectSync = new Fixed<bool>(true); // HZ-2 throwable-effect sync — functional, always on.
+            LogThrowableEffectSync = cfg.Bind("Destructibles", "LogThrowableEffectSync", true,
+                "HZ-2: verbose log for thrown-throwable effect sync (capture / mirror spawn+break). Default ON while stabilizing.");
 
             // Phase LD-1: sync combat-room gates (MetalGate). SULFUR seals combat rooms (boss arenas AND ordinary elite
             // rooms) with a MetalGate closed by a PlayerTrigger the entering player crosses; gates are per-end independent

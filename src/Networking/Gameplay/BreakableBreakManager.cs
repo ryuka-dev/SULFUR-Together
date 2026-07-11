@@ -59,6 +59,7 @@ namespace SULFURTogether.Networking.Gameplay
             try
             {
                 if (_applyingMirror) return;                                // mirrored break — never re-broadcast
+                if (ThrowableEffectManager.IsApplyingMirror) return;       // HZ-2: a mirrored throwable's spawn+break — not a real in-scene break
                 if (!Plugin.Cfg.EnableBreakableSync.Value) return;
                 if (!NetGameplaySyncBridge.IsSessionActive) return;        // skip all work in solo play
                 if (b == null) return;

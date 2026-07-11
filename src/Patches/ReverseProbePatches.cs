@@ -290,6 +290,7 @@ namespace SULFURTogether.Patches
                 NetLevelSeed.BeginLevelTransition(__instance, "GameManager.GoToLevel");
                 NetGameplayProbeManager.ClearLevelScoped("GameManager.GoToLevel");
                 SULFURTogether.Networking.Gameplay.BreakableBreakManager.Clear(); // Phase 5.7-BR drop prev level's breakable registry
+                SULFURTogether.Networking.Gameplay.ThrowableEffectManager.Clear(); // HZ-2 drop prev level's thrown-throwable tags
                 SULFURTogether.Networking.Gameplay.GateSyncManager.Clear();        // Phase LD-1 drop prev level's gate registry
                 SULFURTogether.Networking.Gameplay.ArenaLockdownManager.Clear();    // Phase LD-2a drop prev level's lockdowns
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
@@ -531,6 +532,7 @@ namespace SULFURTogether.Patches
                 ReverseProbeKnownObjects.ClearLevelScopedObjects();
                 NetGameplayProbeManager.ClearLevelScoped("GameManager.ClearLevel");
                 SULFURTogether.Networking.Gameplay.BreakableBreakManager.Clear(); // Phase 5.7-BR drop prev level's breakable registry
+                SULFURTogether.Networking.Gameplay.ThrowableEffectManager.Clear(); // HZ-2 drop prev level's thrown-throwable tags
                 SULFURTogether.Networking.Gameplay.GateSyncManager.Clear();        // Phase LD-1 drop prev level's gate registry
                 SULFURTogether.Networking.Gameplay.ArenaLockdownManager.Clear();    // Phase LD-2a drop prev level's lockdowns
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
