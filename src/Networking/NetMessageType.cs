@@ -340,5 +340,10 @@ namespace SULFURTogether.Networking
         // HZ-3 (any peer → Host → relay, ReliableOrdered): a throwable was released. Carries the weapon ItemId + launch
         // position/velocity so peers render a visual-only flying body (the on-break effect still comes via ThrowableEffect).
         ThrowableFlight = 72,
+
+        // Issue #5 (Client → Host, ReliableUnordered): a client entered a one-shot TriggerSpawner ambush. Carries the
+        // trigger's world position (seed-deterministic key) so the host runs the real spawn once (first-trigger-wins);
+        // the spawned skeletons then reach every peer via the existing HostRuntimeSpawn mirror.
+        ClientTriggerSpawn = 73,
     }
 }

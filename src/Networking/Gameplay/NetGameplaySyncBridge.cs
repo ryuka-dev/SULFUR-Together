@@ -166,6 +166,12 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.SendClientHitRequest(request);
         }
 
+        // Issue #5 Client → Host one-shot TriggerSpawner request.
+        public static void SendClientTriggerSpawn(NetTriggerSpawn msg)
+        {
+            _service?.SendClientTriggerSpawn(msg);
+        }
+
         // Phase 5.3-E Host → Client level manifest.
         public static void SendHostLevelManifest(NetLevelManifest manifest)
         {

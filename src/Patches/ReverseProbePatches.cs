@@ -294,6 +294,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.GateSyncManager.Clear();        // Phase LD-1 drop prev level's gate registry
                 SULFURTogether.Networking.Gameplay.ArenaLockdownManager.Clear();    // Phase LD-2a drop prev level's lockdowns
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
+                SULFURTogether.Networking.Gameplay.TriggerSpawnSyncManager.Clear(); // Issue #5 drop prev level's fired-trigger set
                 string chapterName = chapterSO?.ToString() ?? "<unknown>";
                 string loadingModeName = loadingMode?.ToString() ?? "";
                 string spawn = spawnIdentifier ?? "";
@@ -536,6 +537,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.GateSyncManager.Clear();        // Phase LD-1 drop prev level's gate registry
                 SULFURTogether.Networking.Gameplay.ArenaLockdownManager.Clear();    // Phase LD-2a drop prev level's lockdowns
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
+                SULFURTogether.Networking.Gameplay.TriggerSpawnSyncManager.Clear(); // Issue #5 drop prev level's fired-trigger set
                 NetRunStateBridge.ReportClearLevel();
                 Log.Info("[GM] ClearLevel <<");
             }

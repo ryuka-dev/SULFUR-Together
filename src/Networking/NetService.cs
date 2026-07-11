@@ -2776,6 +2776,49 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---- Issue #5: client asks the host to run a one-shot TriggerSpawner ambush (host-authoritative) ----
+        internal void SendClientTriggerSpawn(Gameplay.NetTriggerSpawn msg)
+        {
+            if (_mode != NetMode.Client || _net == null) return;
+            if (!Plugin.Cfg.EnableTriggerSpawnSync.Value) return;
+            if (msg == null || _hostPeer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientTriggerSpawn);
+                Gameplay.NetTriggerSpawnCodec.Write(w, msg);
+                _hostPeer.Send(w, DeliveryMethod.ReliableUnordered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[TriggerSpawn] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleClientTriggerSpawn(NetPeer peer, NetDataReader reader)
+        {
+            try
+            {
+                if (_mode != NetMode.Host) return;
+                if (!Plugin.Cfg.EnableTriggerSpawnSync.Value) return;
+                if (!Gameplay.NetTriggerSpawnCodec.TryRead(reader, out var msg))
+                {
+                    NetLogger.Warn("[TriggerSpawn] malformed ClientTriggerSpawn packet");
+                    return;
+                }
+                if (!_peerIds.TryGetValue(peer, out var peerId))
+                {
+                    NetLogger.Warn($"[TriggerSpawn] ignoring request from unregistered peer {peer.Address}");
+                    return;
+                }
+                Gameplay.TriggerSpawnSyncManager.HandleClientTriggerRequest(msg, peerId);
+            }
+            catch (Exception ex)
+            {
+                NetLogger.Warn($"[TriggerSpawn] receive error: {ex.Message}");
+            }
+        }
+
         // ----------------------------------------------------------------
         // Phase 5.3-E: Host-authoritative level manifest
         // ----------------------------------------------------------------
@@ -3065,6 +3108,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.ClientHitRequest:
                         HandleClientHitRequest(peer, reader);
+                        break;
+
+                    case NetMessageType.ClientTriggerSpawn:
+                        HandleClientTriggerSpawn(peer, reader);
                         break;
 
                     case NetMessageType.HostLevelManifest:

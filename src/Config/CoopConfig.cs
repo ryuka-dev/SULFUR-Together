@@ -212,6 +212,9 @@ namespace SULFURTogether.Config
         // ----- Phase 5.5-RT1 runtime spawn sync ----- (functional: always on, release-hardcoded)
         public Fixed<bool>         EnableRuntimeSpawnSync { get; }
         public ConfigEntry<bool>   LogRuntimeSpawnSync { get; }
+        // ----- Issue #5: host-authoritative one-shot TriggerSpawner (skeleton ambush) sync -----
+        public Fixed<bool>         EnableTriggerSpawnSync { get; }
+        public ConfigEntry<bool>   LogTriggerSpawnSync { get; }
         // ----- Phase 5.5-RT3-A bind correction (snap-on-bind + inert + hit-gate) -----
         public Fixed<bool>         EnableRuntimeSpawnSnapOnBind { get; }
         public Fixed<bool>         EnableRuntimeSpawnInertUntilBound { get; }
@@ -788,6 +791,9 @@ namespace SULFURTogether.Config
             // mirrored to the Client and bound into the puppet pipeline (one-sided, no double-spawn). Boss adds + client
             // F3 spawns come in later stages. Reversible.
             EnableRuntimeSpawnSync = new Fixed<bool>(true); // Phase 5.5-RT1 runtime spawn sync — functional, always on.
+            EnableTriggerSpawnSync = new Fixed<bool>(true); // Issue #5 host-authoritative trigger-spawn — functional, always on.
+            LogTriggerSpawnSync = cfg.Bind("NetworkEnemy", "LogTriggerSpawnSync", false,
+                "Log host-authoritative one-shot TriggerSpawner (skeleton ambush) sync (Issue #5). Diagnostic only; sync is always on.");
             LogRuntimeSpawnSync = cfg.Bind("NetworkEnemy", "LogRuntimeSpawnSync", true,
                 "Phase 5.5-RT1: verbose log for runtime spawn sync (broadcast / mirror / bind).");
 

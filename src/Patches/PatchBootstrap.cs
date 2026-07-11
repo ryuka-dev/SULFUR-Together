@@ -16,6 +16,7 @@ namespace SULFURTogether.Patches
             WeaponFirePatches.Apply(harmony);
             BreakablePatches.Apply(harmony);
             ThrowablePatches.Apply(harmony);
+            TriggerSpawnPatches.Apply(harmony);
             MetalGatePatches.Apply(harmony);
             PickupPatches.Apply(harmony);
             PauseControlPatches.Apply(harmony);

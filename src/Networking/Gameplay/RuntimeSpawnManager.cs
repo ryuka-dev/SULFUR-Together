@@ -192,6 +192,9 @@ namespace SULFURTogether.Networking.Gameplay
         {
             string tn = owner.GetType().Name;
             if (tn == "DevToolsManager") return "DevTools";
+            // Issue #5: a one-shot TriggerSpawner (Caves maze skeleton ambush, ...) is host-authoritative — the client's
+            // local spawn is suppressed (see TriggerSpawnSyncManager), so the host's is one-sided and safe to mirror.
+            if (tn == "TriggerSpawner") return "TriggerSpawn";
             return null;
         }
 
