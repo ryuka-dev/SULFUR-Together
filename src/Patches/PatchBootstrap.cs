@@ -18,6 +18,7 @@ namespace SULFURTogether.Patches
             MetalGatePatches.Apply(harmony);
             PickupPatches.Apply(harmony);
             PauseControlPatches.Apply(harmony);
+            HazardProbePatches.Apply(harmony);
             Plugin.Log.Info("[PatchBootstrap] Done.");
         }
     }

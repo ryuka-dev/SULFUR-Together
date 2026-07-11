@@ -14,6 +14,9 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool> EnableUnitProbe   { get; }
         public ConfigEntry<bool> EnableNpcProbe    { get; }
         public ConfigEntry<bool> LogUnitReceiveDamage { get; }  // pure diagnostic log; the damage patch itself is functional + always-on
+        // Issue #2 diag: ground-hazard / DoT status on the local player (poison/burning/bleed) — source identity + per-change
+        // edge + live DoT coroutine count, to locate the client-side "poison stacks infinitely, instantly downs" runaway.
+        public ConfigEntry<bool> LogHazardProbe { get; }
         // Phase 5.5 diag: player teleport trigger (TeleportPlayer.DoTeleport) + local-player TeleportTo from/to + full
         // DamageSourceData dump on suppressed puppet hits — to identify the client teleport loop and the real 800 source.
         public ConfigEntry<bool> LogTeleportDiag   { get; }
@@ -517,6 +520,8 @@ namespace SULFURTogether.Config
             LogUnitReceiveDamage = cfg.Bind("Probe", "LogUnitReceiveDamage", false,
                 "Log a line per Unit/Npc ReceiveDamage call (high-frequency in combat — default OFF). NOTE: this is a PURE LOG. The damage patches themselves (downed/client damage suppression, client→host hit forwarding, host Npc health-sync) are functional and always on, independent of this switch — see ApplyDamageForwardPatches. The old EnableDamageProbe/EnableNpcProbe gates conflated the two and could break combat when toggled off as a 'log'.");
             LogTeleportDiag   = cfg.Bind("Probe", "LogTeleportDiag",   false, "Diag (default OFF — high volume; also drives the per-enemy [PosDiag] line): TeleportPlayer.DoTeleport trigger + stack, local-player TeleportTo from/to, full DamageSourceData on suppressed puppet hits. Enable to debug teleport/position.");
+            LogHazardProbe    = cfg.Bind("Probe", "LogHazardProbe",    false,
+                "Diag (default OFF — issue #2): per-change [Hazard] lines for damaging statuses (Poisoned/Burning/Bleed/Electrocuted) on the LOCAL player — the applying source's identity (player weapon vs enemy vs environment), the change edge (Apply 0→+, Inc, Tick/Dec, Remove +→0), the live DoT coroutine count, and current HP. The status value itself is hard-capped at 7 for players, so a climbing coroutine count is the signal for the runaway. PURE LOG; no functional effect.");
             LogFriendlyFire   = cfg.Bind("Probe", "LogFriendlyFire",   false,
                 "Diag (default OFF): FF-1 friendly-fire lines — per-proxy-hit source classification (sampled), FF hit request send/receive, session-settings broadcast/apply. PURE LOG; the friendly-fire feature itself is controlled by the connect-page toggle, not this switch.");
             EnableLootProbe   = cfg.Bind("Probe", "EnableLootProbe",   true, "Log LootManager and InventoryItem events.");

@@ -63,6 +63,29 @@ namespace SULFURTogether.Patches
         private static string V(Vector3 v)        => ReverseProbeFormatter.FormatVector3(v);
         private static string ItemName(object? o) => ReverseProbeFormatter.FormatItemName(o);
 
+        // Issue #2: true when a ReceiveDamage source is a periodic damage-over-time tick. The game's AttributeEffect
+        // stamps DamageSourceData.name = "PeriodicModifier" on every poison/fire/bleed tick (DamageSourceData is a
+        // struct, so this arrives boxed via __args[2]). Used to keep enemy DoT client-local instead of double-counting
+        // it through the host→proxy damage-forward channel.
+        private static string? _dsdNameField_typeName;
+        private static System.Reflection.FieldInfo? _dsdNameField;
+        private static bool IsPeriodicDotSource(object? source)
+        {
+            if (source == null) return false;
+            try
+            {
+                var t = source.GetType();
+                if (_dsdNameField == null || _dsdNameField_typeName != t.FullName)
+                {
+                    _dsdNameField = t.GetField("name",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    _dsdNameField_typeName = t.FullName;
+                }
+                return _dsdNameField != null && (_dsdNameField.GetValue(source) as string) == "PeriodicModifier";
+            }
+            catch { return false; }
+        }
+
         private static HarmonyMethod Pre(string name) =>
             new HarmonyMethod(typeof(ReverseProbePatches)
                 .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic));
@@ -1028,6 +1051,16 @@ namespace SULFURTogether.Patches
                     && SULFURTogether.Networking.RemotePlayerTargetProxyManager.TryGetProxyPeer(__instance, out var proxyPeer))
                 {
                     object? ffSource = (__args != null && __args.Length > 2) ? __args[2] : null;
+
+                    // Issue #2: a periodic damage-over-time tick (poison/fire/bleed — AttributeEffect stamps
+                    // DamageSourceData.name = "PeriodicModifier") on the ghost proxy must NOT be forwarded. The owning
+                    // client already runs its OWN local status DoT from the same synced enemy, so forwarding the proxy's
+                    // tick double-counts it (confirmed Log394: client took local poison DoT + host-relayed poison =
+                    // ~3x death speed). Still return false so the proxy absorbs the tick locally and stays alive;
+                    // direct hits (different source name) fall through and forward as before.
+                    if (IsPeriodicDotSource(ffSource))
+                        return false;
+
                     bool fromLocalPlayer = FriendlyFireClassifier.IsFromLocalPlayer(ffSource);
                     FriendlyFireClassifier.LogClassification("host proxy hit", ffSource, damage, fromLocalPlayer);
                     if (fromLocalPlayer)
