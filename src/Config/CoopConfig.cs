@@ -308,6 +308,8 @@ namespace SULFURTogether.Config
         // ----- Phase 4.0-B host enemy death event mirror experiment ----- (functional: always on, release-hardcoded; Log* kept)
         public Fixed<bool>         EnableHostEnemyDeathEventMirror { get; }
         public ConfigEntry<bool>   LogReceivedEnemyDeathEvents { get; }
+        // Issue #4: pure diagnostic log for client-side weapon-XP crediting (the credit itself is always-on).
+        public ConfigEntry<bool>   LogWeaponXpCredit { get; }
         public Fixed<bool>         ApplyReceivedEnemyDeathEvents { get; }
         public Fixed<float>        EnemyDeathMirrorPositionTolerance { get; }
         public Fixed<bool>         EnemyDeathMirrorUseHorizontalPositionTolerance { get; }
@@ -938,6 +940,8 @@ namespace SULFURTogether.Config
             EnableHostEnemyDeathEventMirror = new Fixed<bool>(true);
             LogReceivedEnemyDeathEvents = cfg.Bind("NetworkGameplaySyncExperimental", "LogReceivedEnemyDeathEvents", true,
                 "Log Host enemy death events received by a Client and the local entity match result.");
+            LogWeaponXpCredit = cfg.Bind("NetworkGameplaySyncExperimental", "LogWeaponXpCredit", false,
+                "Log client-side weapon-XP crediting on enemy kills (Issue #4). Diagnostic only; crediting is always on.");
             ApplyReceivedEnemyDeathEvents = new Fixed<bool>(true);
             EnemyDeathMirrorPositionTolerance = new Fixed<float>(2.5f);
             EnemyDeathMirrorUseHorizontalPositionTolerance = new Fixed<bool>(true);

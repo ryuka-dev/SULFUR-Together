@@ -94,6 +94,9 @@ namespace SULFURTogether.Networking.Gameplay
             public int AiAgentId { get; set; }
             public int MovementDriverId { get; set; }
             public bool Applied { get; set; }
+            // Issue #4: set true when the LOCAL player's damage was routed to the host for this puppet (client hit path).
+            // Consumed on death to credit local weapon XP, mirroring vanilla Npc.GiveExperience()'s damagedByPlayer gate.
+            public bool DamagedByLocalPlayer { get; set; }
             public float LastSeenAt { get; set; }
             public float LastAppliedAt { get; set; }
             public bool? OriginalDisableVerifyPosition { get; set; }
@@ -1671,6 +1674,34 @@ namespace SULFURTogether.Networking.Gameplay
             return TryApplyMatchedNpcDeath(deathEvent, snapshot, "ClientEnemyDeathClaim", out detail);
         }
 
+        /// <summary>
+        /// Issue #4: when a puppet the LOCAL player damaged dies (on the Client), credit its ExperienceOnKill to the
+        /// local last-equipped weapon — the vanilla Npc.GiveExperience() credit the client otherwise misses because its
+        /// local damage was suppressed and routed to the host. Consumes the per-puppet flag so a re-applied death event
+        /// can never double-credit. No-op on the Host (its real Npc.Die() already credits via damagedByPlayer).
+        /// </summary>
+        private static void TryCreditLocalWeaponXpForKill(object? npc)
+        {
+            try
+            {
+                if (npc == null) return;
+                if (NetConfig.GetMode() != NetMode.Client) return;
+
+                int npcId = ObjectIdentity(npc);
+                if (npcId == 0) return;
+                if (!ActiveEnemyPuppetsByNpcId.TryGetValue(npcId, out var record) || record == null) return;
+                if (!record.DamagedByLocalPlayer) return;
+
+                record.DamagedByLocalPlayer = false; // consume: one kill credits at most once, even on death re-apply
+                WeaponXpCreditManager.CreditLocalPlayerWeaponForKill(npc);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.LogWeaponXpCredit.Value)
+                    NetLogger.Warn($"[WeaponXp] death-credit hook failed: {ex.Message}");
+            }
+        }
+
         private static bool TryApplyMatchedNpcDeath(NetGameplayDeathEvent deathEvent, NetGameplayEntitySnapshot? snapshot, string reason, out string detail)
         {
             detail = "";
@@ -1771,6 +1802,13 @@ namespace SULFURTogether.Networking.Gameplay
             }
 
             if (isRosterBound) _hostDeathAppliedByRosterBinding++;
+
+            // Issue #4: credit local weapon XP for a kill the local player contributed to. The host credits its own
+            // weapon in the real Npc.Die()->GiveExperience(); the client's puppet has damagedByPlayer unset (local damage
+            // is suppressed and routed to the host), so vanilla GiveExperience early-returns here. We reproduce the credit
+            // on the machine that dealt the damage, reading ExperienceOnKill before Die() runs. Guarded + consumes the
+            // flag so a death re-apply can never double-credit. Personal XP stays client-owned; the kill stays host-authoritative.
+            TryCreditLocalWeaponXpForKill(runtimeObject);
 
             var die = FindNoArgInstanceMethod(runtimeObject.GetType(), "Die");
             if (die == null)
@@ -9005,6 +9043,9 @@ namespace SULFURTogether.Networking.Gameplay
                 NetGameplaySyncBridge.SendClientHitRequest(req);
                 _clientHitRequestsSent++;
                 _clientLocalHitPredicted++;
+                // Issue #4: tag this puppet as damaged by the local player so its death credits local weapon XP.
+                // Mirrors vanilla Unit.ReceiveDamage setting damagedByPlayer for a player-faction source.
+                if (record != null) record.DamagedByLocalPlayer = true;
                 // Record so the resulting HostEnemyHealthState can confirm this hit.
                 _clientPendingHitByHostIdx[hostIdx] = Time.realtimeSinceStartup;
 
