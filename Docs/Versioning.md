@@ -7,10 +7,10 @@ like "RM-2a" look opaque. This document is the single source of truth for both.
 
 ## 1. Plugin version (semver) — the release number
 
-- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.0.0`** (Version 1.0 — Public Beta).
+- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.0.1`** (Version 1.0.1 — Public Beta bugfix release).
 - This is the only number a *player* ever sees (Thunderstore, BepInEx load line).
 - Bumped **only at a Thunderstore release milestone**, MAJOR.MINOR.PATCH:
-  - **PATCH** (0.2.0 → 0.2.1): bug-fix-only release, no new networked feature, wire-compatible.
+  - **PATCH** (0.2.0 → 0.2.1): bug-fix release. During Public Beta, all players should still update to the same version when a fix touches network messages.
   - **MINOR** (0.2.0 → 0.3.0): new synced feature(s) shipped; may change the net protocol (see §3).
   - **MAJOR**: reserved for a broad rewrite / breaking redesign.
 - Bumping it is a deliberate release act (commit subject `Bump to X.Y.Z`), **not** something every dev change does.

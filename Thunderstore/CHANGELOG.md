@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.1 - Bugfix update
+
+This update fixes several multiplayer sync problems found in the first public beta.
+All players must update to the same version before joining the same session.
+
+**Fixed:**
+- Fixed client poison/fire ground hazards causing excessive duplicate damage.
+- Synced throwable landing effects such as poison, fire, and explosions across peers.
+- Synced in-flight throwable visuals so other players can see where grenades and flasks are thrown.
+- Fixed client weapon XP not being credited on kills.
+- Fixed one-shot trigger spawns creating separate local encounters for each player.
+- Fixed goblin civilians briefly playing spearman attack animations on clients.
+
 ## 1.0.0 — Version 1.0, Public Beta
 
 First public **Beta** of **SULFUR Together**, a co-op multiplayer mod for SULFUR.

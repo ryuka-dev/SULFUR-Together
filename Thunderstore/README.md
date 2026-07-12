@@ -4,7 +4,7 @@ Co-op multiplayer for **SULFUR**.
 
 **Language:** **English** · [简体中文](#简体中文) · [日本語](#日本語)
 
-> **Version 1.0 — Public Beta.** It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+> **Version 1.0.1 — Public Beta bugfix release.** It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
 
 ---
 
