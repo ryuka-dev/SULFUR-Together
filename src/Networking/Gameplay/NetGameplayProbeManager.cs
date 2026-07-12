@@ -1160,6 +1160,20 @@ namespace SULFURTogether.Networking.Gameplay
                 Plugin.Log.Info($"[GameplayProbe] Clear level scoped entities count={count} source={Clean(source)}");
         }
 
+        // Issue #9: reflection helper retained for IsCivilianNpc (reads unitSO.isCivilian off a puppet Npc).
+        private static object? ReadMemberValue(object obj, string name)
+        {
+            const BindingFlags F = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            for (Type? t = obj.GetType(); t != null; t = t.BaseType)
+            {
+                var f = t.GetField(name, F);
+                if (f != null) return f.GetValue(obj);
+                var p = t.GetProperty(name, F);
+                if (p != null && p.CanRead && p.GetIndexParameters().Length == 0) return p.GetValue(obj);
+            }
+            return null;
+        }
+
         public static void ReportSpawn(object? entity, string source, string category)
         {
             if (!IsEnabled()) return;
@@ -3127,12 +3141,53 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
+        private static bool IsSpontaneousAttackInitiatorSource(string source)
+        {
+            if (string.IsNullOrEmpty(source)) return false;
+            return source.IndexOf("TriggerAttackAnimation", StringComparison.OrdinalIgnoreCase) >= 0
+                || source.IndexOf("TriggerWeaponManually", StringComparison.OrdinalIgnoreCase) >= 0
+                || source.IndexOf("TriggerShoot", StringComparison.OrdinalIgnoreCase) >= 0
+                || source.IndexOf("MeleeAttack", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsCivilianNpc(object? npc)
+        {
+            try
+            {
+                object? so = ReadMemberValue(npc!, "unitSO");
+                if (so == null) return false;
+                object? v = ReadMemberValue(so, "isCivilian");
+                return v is bool b && b;
+            }
+            catch { return false; }
+        }
+
         public static bool ShouldBlockClientEnemyPuppetNpcCombat(object? npc, string source, out string detail)
         {
             detail = "";
             if (!IsEnemyCombatProbeEnabled()) return false;
             if (!IsClientEnemyPuppetModeEnabled()) return false;
             if (npc == null) return false;
+
+            // Issue #9: a client CIVILIAN puppet must never play an attack. Its animator controller reuses the
+            // spearman attack clip (GoblinSpearmanAttack), so any attack — the host briefly broadcasting a
+            // combat action for an RNG-"Offensive" civilian, then our mirror replaying Npc.TriggerWeaponManually,
+            // or a stray local AI call — flickers the civilian into a spearman on the client (host shows nothing).
+            // Suppress the attack-initiating call entirely (independent of replay depth); the puppet stays on its
+            // host-driven idle/cower/walk. Gated on ActiveEnemyPuppetsByNpcId membership so only CLIENT puppets are
+            // affected — the host's own civilian (not tracked) keeps its native behaviour. Companion to the
+            // combat-state-playback skip in ApplyClientEnemyAnimationMirror. Does not touch host-authoritative damage.
+            if (IsSpontaneousAttackInitiatorSource(source) && IsCivilianNpc(npc))
+            {
+                int civId = ObjectIdentity(npc);
+                if (civId != 0 && ActiveEnemyPuppetsByNpcId.ContainsKey(civId))
+                {
+                    _clientBlockedSpontaneousCombatCalls++;
+                    _clientEnemyPuppetCombatBlocks++;
+                    detail = $"issue9 civilian attack suppressed source={Clean(source)}";
+                    return true;
+                }
+            }
 
             // Phase 4.4.0-O3: non-combat entities must never be blocked (they are not puppeted)
             if (TryGetSnapshotForEntity(npc, out var npcEntitySnapshot) && npcEntitySnapshot != null && IsNonCombatForSync(npcEntitySnapshot))
@@ -5422,6 +5477,20 @@ namespace SULFURTogether.Networking.Gameplay
                 // here actionState reflects the effective (post-grace) playback state — the probe logs that.
                 bool actionState = rawActionState;
                 LogClientActionStateFlipIfChanged(record, hostSnapshot, actionState, now);
+
+                // Issue #9 diag: the client shows GoblinSpearmanAttack that the host never visually plays. Log what
+                // the host actually SENDS for civilians (attack/cowering bools + combat action) so we can see which
+                // signal drives the spurious attack. Throttled per unit to ~3/s.
+                // Issue #9: a CIVILIAN puppet must never play a combat/attack STATE. Its animator controller reuses
+                // the spearman attack clip, and the host civilian (RNG "Offensive" role) briefly enters it, so
+                // faithfully mirroring the host's attack state hash via the animator.Play below would flicker the
+                // client civilian into a spearman. Civilians only ever need idle/walk/cower, which the Moving/Cowering
+                // bools set just above already drive, so skip all host combat-state playback + hash Play for them.
+                // This runs only on clients (host doesn't receive its own snapshots), so the host civilian is
+                // unaffected. Companion to the civilian attack-method block in ShouldBlockClientEnemyPuppetNpcCombat.
+                if (IsCivilianNpc(runtimeObject))
+                    return;
+
                 if (actionState && Plugin.Cfg.EnemyAnimationMirrorApplyHostCombatStatePlayback.Value)
                 {
                     TryApplyClientCombatAnimatorTriggers(record, animator, hostSnapshot, now);
