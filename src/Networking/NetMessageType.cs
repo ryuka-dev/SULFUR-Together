@@ -345,5 +345,11 @@ namespace SULFURTogether.Networking
         // trigger's world position (seed-deterministic key) so the host runs the real spawn once (first-trigger-wins);
         // the spawned skeletons then reach every peer via the existing HostRuntimeSpawn mirror.
         ClientTriggerSpawn = 73,
+
+        // External mod payload (public integration surface, see SULFURTogether.Api.NetExternalChannel). Carries an
+        // opaque {channelId, payload} that ST relays over the session transport but never interprets. Lets a
+        // companion mod run its own host-authoritative protocol without ST learning its message ids. The sender
+        // peer id is stamped from the authenticated connection, not read from the wire.
+        ExternalModPayload = 74,
     }
 }
