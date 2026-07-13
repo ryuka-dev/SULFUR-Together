@@ -3114,6 +3114,10 @@ namespace SULFURTogether.Networking
                         HandleClientTriggerSpawn(peer, reader);
                         break;
 
+                    case NetMessageType.ExternalModPayload:
+                        HandleExternalModPayload(peer, reader);
+                        break;
+
                     case NetMessageType.HostLevelManifest:
                         HandleHostLevelManifest(peer, reader);
                         break;
@@ -4756,6 +4760,83 @@ namespace SULFURTogether.Networking
                 else
                     NetLogger.Info("[Net] Client reconnect scheduled in 5 seconds");
             }
+        }
+
+        // ---- External mod payload channel (public integration surface; see SULFURTogether.Api.NetExternalChannel) ----
+
+        /// <summary>Snapshot of session members for the read-only public <c>SULFURTogether.Api.NetSessionInfo</c> facade.</summary>
+        internal IReadOnlyCollection<NetPeerSession> SessionSnapshot => _sessions.Sessions;
+
+        /// <summary>
+        /// Relay an opaque external-mod payload to the requested target. Returns false when the current role does
+        /// not match the target, no such peer exists, or the socket is down. ST never interprets the payload.
+        /// </summary>
+        internal bool SendExternalPayload(string channelId, byte[] payload,
+            SULFURTogether.Api.ExternalDelivery delivery, SULFURTogether.Api.ExternalTarget target, string? targetPeerId)
+        {
+            if (_net == null) return false;
+            var dm = delivery == SULFURTogether.Api.ExternalDelivery.Unreliable ? DeliveryMethod.Unreliable : DeliveryMethod.ReliableOrdered;
+            try
+            {
+                switch (target)
+                {
+                    case SULFURTogether.Api.ExternalTarget.Host:
+                        if (_mode != NetMode.Client || _hostPeer == null) return false;
+                        _hostPeer.Send(BuildExternalPayload(channelId, payload), dm);
+                        return true;
+
+                    case SULFURTogether.Api.ExternalTarget.AllClients:
+                        if (_mode != NetMode.Host) return false;
+                        foreach (var peer in _clients.ToArray())
+                            peer.Send(BuildExternalPayload(channelId, payload), dm);
+                        return true;
+
+                    case SULFURTogether.Api.ExternalTarget.SpecificPeer:
+                        if (string.IsNullOrEmpty(targetPeerId)) return false;
+                        if (_mode == NetMode.Client)
+                        {
+                            // A client can only address the host.
+                            if (targetPeerId != "host" || _hostPeer == null) return false;
+                            _hostPeer.Send(BuildExternalPayload(channelId, payload), dm);
+                            return true;
+                        }
+                        foreach (var kv in _peerIds)
+                        {
+                            if (kv.Value == targetPeerId)
+                            {
+                                kv.Key.Send(BuildExternalPayload(channelId, payload), dm);
+                                return true;
+                            }
+                        }
+                        return false;
+
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                NetLogger.Warn($"[ExternalChannel] send failed on '{channelId}': {ex.Message}");
+                return false;
+            }
+        }
+
+        private static NetDataWriter BuildExternalPayload(string channelId, byte[] payload)
+        {
+            var w = NetMessage.For(NetMessageType.ExternalModPayload);
+            NetExternalPayloadCodec.Write(w, channelId, payload);
+            return w;
+        }
+
+        private void HandleExternalModPayload(NetPeer peer, NetDataReader reader)
+        {
+            if (!NetExternalPayloadCodec.TryRead(reader, out string channelId, out byte[] payload))
+            {
+                NetLogger.Warn("[ExternalChannel] malformed ExternalModPayload packet");
+                return;
+            }
+            string senderPeerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            NetExternalBridge.Dispatch(senderPeerId, channelId, payload);
         }
 
         private void TouchPeer(NetPeer peer)
