@@ -381,5 +381,12 @@ namespace SULFURTogether.Networking
         // customVisuals so the knife's flight + stick appear on every screen. Visual only — same topology as
         // PlayerWeaponFire (thrower never replays its own; Client→Host→relay; receivers skip their own PeerId).
         ThrowableProjectile = 80,
+
+        // SL-2 (Shared-loot): chest (Container) open sync, host-authoritative (Model A). A client that interacts asks the
+        // host to open the chest (ChestOpenRequest, client→host, keyed by the container's deterministic world position);
+        // the host opens its matching chest (rolls loot + SpawnPickup, mirrored via the shared-loot world-drop channel)
+        // and broadcasts ChestOpened (host→all) so every peer plays the open animation + marks it looted (visual only).
+        ChestOpenRequest = 81,
+        ChestOpened      = 82,
     }
 }

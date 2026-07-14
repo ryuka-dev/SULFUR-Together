@@ -1744,6 +1744,84 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- SL-2 shared-loot chest (host-authoritative)
+        // ChestOpenRequest is client→host only; ChestOpened is host→all clients only.
+        internal void SendChestOpenRequest(Gameplay.NetChestOpen msg)
+        {
+            if (_net == null || msg == null) return;
+            if (_mode != NetMode.Client || _hostPeer == null) return; // only a client requests; the host opens locally
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            SendChest(_hostPeer, NetMessageType.ChestOpenRequest, msg);
+        }
+
+        internal void BroadcastChestOpened(Gameplay.NetChestOpen msg)
+        {
+            if (_net == null || msg == null) return;
+            if (_mode != NetMode.Host) return; // only the host broadcasts an opened chest
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            foreach (var peer in _clients.ToArray())
+                SendChest(peer, NetMessageType.ChestOpened, msg);
+        }
+
+        private void SendChest(NetPeer peer, NetMessageType type, Gameplay.NetChestOpen msg)
+        {
+            try
+            {
+                var w = NetMessage.For(type);
+                Gameplay.NetChestOpenCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[ChestSync] failed to send {type}: {ex.Message}");
+            }
+        }
+
+        private void HandleChestOpenRequest(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return; // only the host services requests
+            if (!Gameplay.NetChestOpenCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[ChestSync] malformed ChestOpenRequest packet");
+                return;
+            }
+            if (!_peerIds.TryGetValue(peer, out var peerId)) return;
+            msg.PeerId = peerId;
+
+            if (msg.MatchesScene(_runStates.LocalState))
+                Gameplay.ChestSyncManager.HandleOpenRequest(msg);
+        }
+
+        private void HandleChestOpened(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return; // only clients mirror the host's opened chest
+            if (!Gameplay.NetChestOpenCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[ChestSync] malformed ChestOpened packet");
+                return;
+            }
+            if (msg.PeerId == _runStates.LocalState.PeerId) return; // the opener already saw it (won't happen host→client, but safe)
+            if (msg.MatchesScene(_runStates.LocalState))
+                Gameplay.ChestSyncManager.ApplyRemoteOpened(msg);
+        }
+
         // ---------------------------------------------------------------- Phase LD-1 combat-room gate (MetalGate) sync
         // Same topology as BreakableBreak: the peer that opened/closed a gate reports it; the Host stamps the PeerId,
         // mirrors it locally (same scene) and relays to all other clients. The firing peer never mirrors its own.
@@ -3587,6 +3665,12 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.ThrowableProjectile:
                         HandleThrowableProjectile(peer, reader);
+                        break;
+                    case NetMessageType.ChestOpenRequest:
+                        HandleChestOpenRequest(peer, reader);
+                        break;
+                    case NetMessageType.ChestOpened:
+                        HandleChestOpened(peer, reader);
                         break;
                     case NetMessageType.ThrowableFlight:
                         HandleThrowableFlight(peer, reader);

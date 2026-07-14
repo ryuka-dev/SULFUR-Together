@@ -110,6 +110,18 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalThrowableProjectile(msg);
         }
 
+        // SL-2 — shared-loot chest (host-authoritative). A client asks the host to open a chest.
+        public static void ReportChestOpenRequest(NetChestOpen msg)
+        {
+            _service?.SendChestOpenRequest(msg);
+        }
+
+        // SL-2 — the host broadcasts a chest it opened so every peer plays the open animation.
+        public static void ReportChestOpened(NetChestOpen msg)
+        {
+            _service?.BroadcastChestOpened(msg);
+        }
+
         // Phase LD-1 — generic combat-room gate (MetalGate) open/close channel. The peer that changed a gate reports it;
         // NetService stamps PeerId + scene context and routes it (Client→Host→relay to other Clients; firing peer never
         // mirrors its own). See GateSyncManager.

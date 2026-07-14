@@ -21,6 +21,7 @@ namespace SULFURTogether.Patches
             DoorBlockerPatches.Apply(harmony);
             PickupPatches.Apply(harmony);
             LootRollSuppressionPatches.Apply(harmony);
+            ChestPatches.Apply(harmony);
             PauseControlPatches.Apply(harmony);
             HazardProbePatches.Apply(harmony);
             GhostPlayerPatches.Apply(harmony);

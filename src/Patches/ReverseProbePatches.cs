@@ -348,6 +348,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.ThrowableEffectManager.Clear(); // HZ-2 drop prev level's thrown-throwable tags
                 SULFURTogether.Networking.Gameplay.GateSyncManager.Clear();        // Phase LD-1 drop prev level's gate registry
                 SULFURTogether.Networking.Gameplay.DoorBlockerSyncManager.Clear(); // Phase DB-1 drop prev level's door registry
+                SULFURTogether.Networking.Gameplay.ChestSyncManager.Clear();       // SL-2 drop prev level's chest registry
                 SULFURTogether.Networking.Gameplay.ArenaLockdownManager.Clear();    // Phase LD-2a drop prev level's lockdowns
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
                 SULFURTogether.Networking.Gameplay.TriggerSpawnSyncManager.Clear(); // Issue #5 drop prev level's fired-trigger set
@@ -592,6 +593,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.ThrowableEffectManager.Clear(); // HZ-2 drop prev level's thrown-throwable tags
                 SULFURTogether.Networking.Gameplay.GateSyncManager.Clear();        // Phase LD-1 drop prev level's gate registry
                 SULFURTogether.Networking.Gameplay.DoorBlockerSyncManager.Clear(); // Phase DB-1 drop prev level's door registry
+                SULFURTogether.Networking.Gameplay.ChestSyncManager.Clear();       // SL-2 drop prev level's chest registry
                 SULFURTogether.Networking.Gameplay.ArenaLockdownManager.Clear();    // Phase LD-2a drop prev level's lockdowns
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
                 SULFURTogether.Networking.Gameplay.TriggerSpawnSyncManager.Clear(); // Issue #5 drop prev level's fired-trigger set
