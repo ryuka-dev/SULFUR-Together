@@ -18,6 +18,9 @@
 
     { "key": "session.settingChanged", "value": "{label}：{state}" },
     { "key": "session.friendlyFire.label", "value": "友方伤害" },
+    { "key": "session.sharedLoot.label", "value": "共享战利品" },
+    { "key": "connect.desc.sharedLoot", "value": "敌人、木箱和宝箱的战利品共享：由房主决定掉落，谁先捡到归谁。关闭＝每名玩家获得各自的战利品。房主的设置对整个会话生效。" },
+    { "key": "connect.slSession", "value": "会话共享战利品：{state}（由房主设置）" },
 
     { "key": "arena.toast.title", "value": "竞技场封锁" },
     { "key": "arena.toast.teammateEntered", "value": "有队友进入了竞技场——快进来一起战斗！" },

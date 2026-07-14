@@ -9,6 +9,7 @@ namespace SULFURTogether.Networking
             w.Put(s.Revision);
             w.Put(s.FriendlyFire);
             w.Put(s.DeveloperMode);
+            w.Put(s.SharedLoot);
         }
 
         public static bool TryRead(NetDataReader r, out NetSessionSettingsState result)
@@ -20,6 +21,7 @@ namespace SULFURTogether.Networking
                 s.Revision      = r.GetInt();
                 s.FriendlyFire  = r.GetBool();
                 s.DeveloperMode = r.GetBool();
+                s.SharedLoot    = r.GetBool();
                 result = s;
                 return true;
             }

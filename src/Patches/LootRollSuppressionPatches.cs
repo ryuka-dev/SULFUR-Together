@@ -61,8 +61,7 @@ namespace SULFURTogether.Patches
         {
             try
             {
-                if (!Plugin.Cfg.ShareAllLoot.Value) return true;          // Independent mode — vanilla per-peer loot
-                if (!NetGameplaySyncBridge.IsSessionActive) return true;  // solo — never suppress
+                if (!NetSessionSettings.SharedLootEnabled) return true;   // Independent mode / solo — vanilla per-peer loot
                 if (NetGameplaySyncBridge.IsHost) return true;            // host is the sole authoritative roller
 
                 if (Plugin.Cfg.EnableDebugLog.Value)

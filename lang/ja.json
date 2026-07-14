@@ -18,6 +18,9 @@
 
     { "key": "session.settingChanged", "value": "{label}：{state}" },
     { "key": "session.friendlyFire.label", "value": "フレンドリーファイア" },
+    { "key": "session.sharedLoot.label", "value": "共有戦利品" },
+    { "key": "connect.desc.sharedLoot", "value": "敵・木箱・宝箱の戦利品を共有します。ホストが抽選し、最初に拾ったプレイヤーが入手します。オフ＝各プレイヤーが個別の戦利品を得ます。ホストの設定がセッション全体に適用されます。" },
+    { "key": "connect.slSession", "value": "セッション共有戦利品：{state}（ホストが設定）" },
 
     { "key": "arena.toast.title", "value": "アリーナロックダウン" },
     { "key": "arena.toast.teammateEntered", "value": "仲間がアリーナに入りました——今すぐ合流しましょう！" },

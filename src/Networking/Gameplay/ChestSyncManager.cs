@@ -46,7 +46,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static bool SharedLootActive
         {
-            get { try { return Plugin.Cfg.EnableChestSync.Value && Plugin.Cfg.ShareAllLoot.Value && NetGameplaySyncBridge.IsSessionActive; } catch { return false; } }
+            get { try { return Plugin.Cfg.EnableChestSync.Value && NetSessionSettings.SharedLootEnabled; } catch { return false; } }
         }
         private static bool LogOn
         {

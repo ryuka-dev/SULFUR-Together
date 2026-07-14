@@ -2612,6 +2612,7 @@ namespace SULFURTogether.Networking
                 Revision = ++_sessionSettingsRevision,
                 FriendlyFire = Plugin.Cfg.FriendlyFire.Value,
                 DeveloperMode = CoopDevAuthority.HostSessionDevEnabled,
+                SharedLoot = Plugin.Cfg.ShareAllLoot.Value,
             };
         }
 
@@ -2658,6 +2659,8 @@ namespace SULFURTogether.Networking
             var change = NetSessionSettings.ApplyReceived(state);
             if (change.FriendlyFire)
                 UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.friendlyFire.label", "Friendly fire"), state.FriendlyFire);
+            if (change.SharedLoot)
+                UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.sharedLoot.label", "Shared loot"), state.SharedLoot);
             if (change.DeveloperMode)
                 UI.CoopToasts.NotifyDeveloperMode(state.DeveloperMode);
             // DEV-1: re-assert the local GameManager.DeveloperMode flag to the received session value. Runs even on

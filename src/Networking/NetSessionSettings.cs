@@ -10,6 +10,7 @@ namespace SULFURTogether.Networking
         public int  Revision;
         public bool FriendlyFire;
         public bool DeveloperMode;   // DEV-1: host-authoritative session developer mode (vote/entitlement gated, transient)
+        public bool SharedLoot;      // SL-4: host-authoritative shared world loot (Model A rolling); the host's ShareAllLoot
     }
 
     /// <summary>DEV-1: which session-setting fields changed in a live (non-initial) apply, so the caller toasts
@@ -18,7 +19,8 @@ namespace SULFURTogether.Networking
     {
         public bool FriendlyFire;
         public bool DeveloperMode;
-        public bool Any => FriendlyFire || DeveloperMode;
+        public bool SharedLoot;
+        public bool Any => FriendlyFire || DeveloperMode || SharedLoot;
     }
 
     /// <summary>
@@ -33,6 +35,7 @@ namespace SULFURTogether.Networking
     {
         private static bool _receivedFriendlyFire;
         private static bool _receivedDeveloperMode;
+        private static bool _receivedSharedLoot;
         private static int  _lastAppliedRevision = -1;
 
         /// <summary>The effective friendly-fire setting for the local end, whatever its role.</summary>
@@ -65,9 +68,33 @@ namespace SULFURTogether.Networking
             }
         }
 
+        /// <summary>SL-4: the effective shared-world-loot setting for the local end. The HOST's
+        /// <c>Plugin.Cfg.ShareAllLoot</c> is the sole authority (the connect-page toggle edits it live); a CLIENT mirrors
+        /// what the host broadcast and defaults OFF until told otherwise, so a client that never receives it behaves like
+        /// Independent loot (per-peer). This is the single read point the loot-roll suppression (SL-1), chest sync (SL-2)
+        /// and world-drop capture filter gate on.</summary>
+        public static bool SharedLootEnabled
+        {
+            get
+            {
+                switch (NetConfig.GetMode())
+                {
+                    case NetMode.Host:   return ReadHostSharedLootConfig();
+                    case NetMode.Client: return _receivedSharedLoot;
+                    default:             return false;
+                }
+            }
+        }
+
         private static bool ReadHostConfig()
         {
             try { return Plugin.Cfg.FriendlyFire.Value; }
+            catch { return false; }
+        }
+
+        private static bool ReadHostSharedLootConfig()
+        {
+            try { return Plugin.Cfg.ShareAllLoot.Value; }
             catch { return false; }
         }
 
@@ -85,14 +112,17 @@ namespace SULFURTogether.Networking
 
             bool ffChanged  = _receivedFriendlyFire  != state.FriendlyFire;
             bool devChanged = _receivedDeveloperMode != state.DeveloperMode;
+            bool slChanged  = _receivedSharedLoot    != state.SharedLoot;
             _receivedFriendlyFire  = state.FriendlyFire;
             _receivedDeveloperMode = state.DeveloperMode;
+            _receivedSharedLoot    = state.SharedLoot;
 
-            if ((ffChanged || devChanged) && Plugin.Cfg.LogFriendlyFire.Value)
-                Plugin.Log.Info($"[SessionSettings] applied: friendlyFire={state.FriendlyFire} developerMode={state.DeveloperMode} rev={state.Revision}");
+            if ((ffChanged || devChanged || slChanged) && Plugin.Cfg.LogFriendlyFire.Value)
+                Plugin.Log.Info($"[SessionSettings] applied: friendlyFire={state.FriendlyFire} developerMode={state.DeveloperMode} sharedLoot={state.SharedLoot} rev={state.Revision}");
 
             change.FriendlyFire  = ffChanged  && !initial;
             change.DeveloperMode = devChanged && !initial;
+            change.SharedLoot    = slChanged  && !initial;
             return change;
         }
 
@@ -101,6 +131,7 @@ namespace SULFURTogether.Networking
         {
             _receivedFriendlyFire  = false;
             _receivedDeveloperMode = false;
+            _receivedSharedLoot    = false;
             _lastAppliedRevision = -1;
         }
     }

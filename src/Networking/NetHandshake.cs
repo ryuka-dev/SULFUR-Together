@@ -11,7 +11,8 @@ namespace SULFURTogether.Networking
         // 5: DB-1 added DoorBlockerOpen (79) — the 0.18 inter-chunk door sync; peers must agree on the wire set.
         // 6: K-1 added ThrowableProjectile (80) — ThrowingKnives flight visual sync; peers must agree on the wire set.
         // 7: SL-2 added ChestOpenRequest (81) + ChestOpened (82) — shared-loot chest sync; peers must agree on the wire set.
-        public const int    ProtocolVersion  = 7;
+        // 8: SL-4 added a SharedLoot field to the SessionSettings (70) snapshot — peers must agree on its wire shape.
+        public const int    ProtocolVersion  = 8;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

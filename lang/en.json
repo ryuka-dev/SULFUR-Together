@@ -18,6 +18,9 @@
 
     { "key": "session.settingChanged", "value": "{label}: {state}" },
     { "key": "session.friendlyFire.label", "value": "Friendly fire" },
+    { "key": "session.sharedLoot.label", "value": "Shared loot" },
+    { "key": "connect.desc.sharedLoot", "value": "Enemy, crate and chest loot is shared: the host rolls it and the first player to grab each item takes it. Off = each player gets their own loot. The host's setting applies to the whole session." },
+    { "key": "connect.slSession", "value": "Session shared loot: {state} (set by host)" },
 
     { "key": "arena.toast.title", "value": "Arena Lockdown" },
     { "key": "arena.toast.teammateEntered", "value": "A teammate entered the arena — head in now to join them!" },

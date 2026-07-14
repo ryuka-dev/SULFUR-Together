@@ -67,6 +67,14 @@ namespace SULFURTogether.UI
         // client's own coop.json preference is never touched by that mirroring).
         private static PerfectRandom.Sulfur.Core.OptionsScreenOption _ffToggleOption;
         private static bool _ffLockApplied;
+
+        // SL-4: the "Shared loot" toggle — same host-authoritative session-setting shape as FF (host edits + broadcasts;
+        // a client's row is locked + follows the host's synced value). Reuses the FfCheckboxField/FfIsLockedField
+        // reflection accessors below (they are generic OptionsScreenOption fields, not FF-specific).
+        private static SulfurTextHandle   _slSessionHandle;
+        private static PerfectRandom.Sulfur.Core.OptionsScreenOption _slToggleOption;
+        private static bool _slLockApplied;
+
         private static readonly System.Reflection.FieldInfo FfCheckboxField =
             typeof(PerfectRandom.Sulfur.Core.OptionsScreenOption).GetField("checkboxToggle",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
@@ -132,6 +140,7 @@ namespace SULFURTogether.UI
                 ApplyHostLanIp();
                 ApplySteamState();
                 ApplySessionFriendlyFireControl();
+                ApplySessionSharedLootControl();
                 ApplyDevVoteControl();
                 RefreshPlayerList();
                 PollJoinClose();
@@ -224,7 +233,14 @@ namespace SULFURTogether.UI
 
             // --- Session settings (host-authoritative; rest deferred §7) --------------------------------
             ctx.AddSection(CoopLoc.Get("connect.section.sessionSettings", "Session settings (host)"));
-            ctx.AddReadonlyText(CoopLoc.Get("connect.label.lootMode", "Loot mode"), CoopLoc.Get("connect.value.lootIndependent", "Independent (Shared coming soon)"));
+            // SL-4: shared world loot as a host-authoritative session setting (same lock/mirror shape as FF below).
+            _slToggleOption = ctx.AddToggle(
+                CoopLoc.Get("session.sharedLoot.label", "Shared loot"),
+                CoopLoc.Get("connect.desc.sharedLoot", "Enemy, crate and chest loot is shared: the host rolls it and the first player to grab each item takes it. Off = each player gets their own loot. The host's setting applies to the whole session."),
+                ReadBool(() => Plugin.Cfg.ShareAllLoot.Value, false),
+                OnSharedLootToggled);
+            _slSessionHandle = ctx.AddTextRow("");
+            _slSessionHandle.SetVisible(false);
             ctx.AddReadonlyText(CoopLoc.Get("connect.label.clientMayStart", "Client may start next level"), CoopLoc.Get("connect.value.comingSoon", "Coming soon"));
             // FF-1: the toggle edits this machine's own setting (= the session setting when it hosts). While
             // connected as a CLIENT the row is locked and mirrors the host's synced session value instead (FF-1b,
@@ -268,6 +284,7 @@ namespace SULFURTogether.UI
             ApplyHostLanIp();
             ApplySteamState();
             ApplySessionFriendlyFireControl();
+            ApplySessionSharedLootControl();
             ApplyDevVoteControl();
             RefreshPlayerList();
         }
@@ -616,6 +633,9 @@ namespace SULFURTogether.UI
             _ffSessionHandle          = null;
             _ffToggleOption           = null;
             _ffLockApplied            = false;
+            _slSessionHandle          = null;
+            _slToggleOption           = null;
+            _slLockApplied            = false;
             _devVoteStatusHandle      = null;
             _devVoteButton            = null;
         }
@@ -651,6 +671,34 @@ namespace SULFURTogether.UI
                 }
             }
             catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] friendly-fire broadcast failed: {e.Message}"); }
+        }
+
+        // SL-4: shared-loot toggle — same host-authoritative shape as FF. A client can't change it (the row is locked and
+        // mirrors the host's value); the host edits its ShareAllLoot config, broadcasts the session settings, and toasts.
+        private static void OnSharedLootToggled(bool value)
+        {
+            if (CoopConnection.CurrentMode == NetMode.Client)
+            {
+                ApplySessionSharedLootControl();
+                return;
+            }
+            bool changed = false;
+            try
+            {
+                changed = Plugin.Cfg.ShareAllLoot.Value != value;
+                Plugin.Cfg.ShareAllLoot.Value = value;
+            }
+            catch { }
+            try
+            {
+                if (CoopConnection.CurrentMode == NetMode.Host)
+                {
+                    CoopConnection.Service?.BroadcastSessionSettings("ui-toggle");
+                    if (changed)
+                        CoopToasts.NotifySessionSetting(CoopLoc.Get("session.sharedLoot.label", "Shared loot"), value);
+                }
+            }
+            catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] shared-loot broadcast failed: {e.Message}"); }
         }
 
         // VOTE-1: the local player proposes the dev-mode vote. Host starts it locally; a client asks the host, which
@@ -733,6 +781,51 @@ namespace SULFURTogether.UI
             if (_ffToggleOption == null) return;
             try { FfIsLockedField?.SetValue(_ffToggleOption, locked); } catch { }
             var go = _ffToggleOption.gameObject;
+            var cg = go.GetComponent<CanvasGroup>();
+            if (cg == null) cg = go.AddComponent<CanvasGroup>();
+            cg.alpha = locked ? 0.45f : 1f;
+            cg.interactable = !locked;
+            cg.blocksRaycasts = !locked;
+        }
+
+        // SL-4: keep the shared-loot row role-correct each tick — identical logic to ApplySessionFriendlyFireControl.
+        private static void ApplySessionSharedLootControl()
+        {
+            bool isClient = CoopConnection.CurrentMode == NetMode.Client;
+
+            if (_slToggleOption != null)
+            {
+                var checkbox = FfCheckboxField?.GetValue(_slToggleOption) as UnityEngine.UI.Toggle;
+                if (isClient != _slLockApplied)
+                {
+                    ApplySharedLootRowLock(isClient);
+                    _slLockApplied = isClient;
+                }
+                bool desired = isClient ? NetSessionSettings.SharedLootEnabled
+                                        : ReadBool(() => Plugin.Cfg.ShareAllLoot.Value, false);
+                if (checkbox != null && checkbox.isOn != desired)
+                    checkbox.SetIsOnWithoutNotify(desired);
+            }
+
+            if (_slSessionHandle == null) return;
+            if (isClient)
+            {
+                _slSessionHandle.SetText(CoopLoc.Format("connect.slSession", "Session shared loot: {state} (set by host)",
+                    ("state", NetSessionSettings.SharedLootEnabled ? CoopLoc.Get("common.onUpper", "ON") : CoopLoc.Get("common.offUpper", "OFF"))));
+                _slSessionHandle.SetColor(NeutralColor);
+                _slSessionHandle.SetVisible(true);
+            }
+            else
+            {
+                _slSessionHandle.SetVisible(false);
+            }
+        }
+
+        private static void ApplySharedLootRowLock(bool locked)
+        {
+            if (_slToggleOption == null) return;
+            try { FfIsLockedField?.SetValue(_slToggleOption, locked); } catch { }
+            var go = _slToggleOption.gameObject;
             var cg = go.GetComponent<CanvasGroup>();
             if (cg == null) cg = go.AddComponent<CanvasGroup>();
             cg.alpha = locked ? 0.45f : 1f;

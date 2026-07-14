@@ -73,7 +73,7 @@ namespace SULFURTogether.Networking.Gameplay
         private static bool Qualifies(Pickup p)
         {
             if (p == null || p.ItemSO == null) return false;
-            if (Plugin.Cfg.ShareAllLoot.Value) return true;   // future Shared-loot mode: every pickup
+            if (NetSessionSettings.SharedLootEnabled) return true;   // SL-4 Shared-loot mode (host-authoritative): every pickup
             return p.inventoryData != null;                   // Independent mode: only player drops (Pickup.DroppedByPlayer)
         }
 
