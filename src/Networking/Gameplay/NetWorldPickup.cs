@@ -81,6 +81,23 @@ namespace SULFURTogether.Networking.Gameplay
     }
 
     /// <summary>
+    /// Owner → All (via Host relay): "this world pickup came to rest here." World-pickup positions are not
+    /// deterministic across peers — each peer runs the drop's physics independently, and co-op's no-pause bag dumps let
+    /// items collide and scatter locally — so once the owning peer's pickup settles it broadcasts the authoritative rest
+    /// position and every mirror snaps its instance there. One-shot per drop (re-sent only if the item is later
+    /// disturbed and re-settles); a settle for an unknown/already-taken key is simply ignored.
+    /// </summary>
+    internal sealed class NetWorldPickupSettle
+    {
+        public string  OwnerPeerId { get; set; } = ""; // the dropping peer (also the only valid sender for its keys)
+        public ushort  Seq         { get; set; }
+        public Vector3 Position    { get; set; }
+        public float   SentAt      { get; set; }
+
+        public string Key => OwnerPeerId + "#" + Seq;
+    }
+
+    /// <summary>
     /// Host → All: "this world pickup was taken (or removed)." Every peer removes its local instance; the
     /// <see cref="TakenByPeerId"/> peer adds the item to its inventory (using the InventoryData it already holds from the
     /// spawn). Empty <see cref="TakenByPeerId"/> = removed without anyone taking it (reserved).

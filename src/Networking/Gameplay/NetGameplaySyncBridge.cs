@@ -144,6 +144,12 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.SendWorldPickupTakeRequest(ownerPeerId, seq);
         }
 
+        // WID-2: owner reports its dropped pickup's authoritative rest position (owner→Host→relay).
+        public static void ReportLocalWorldPickupSettle(NetWorldPickupSettle msg)
+        {
+            _service?.BroadcastLocalWorldPickupSettle(msg);
+        }
+
         public static void BroadcastWorldPickupRemoved(NetWorldPickupRemoved msg)
         {
             _service?.BroadcastWorldPickupRemoved(msg);

@@ -6,7 +6,8 @@ namespace SULFURTogether.Networking
     {
         public const string ProtocolMagic    = "SULFUR_TOGETHER";
         // 2: FF-1 added PlayerFriendlyFireHit (69) + SessionSettings (70) — older builds don't know either message.
-        public const int    ProtocolVersion  = 2;
+        // 3: WID-2 added WorldPickupSettle (75) — world-drop rest-position sync; peers must agree on the wire set.
+        public const int    ProtocolVersion  = 3;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

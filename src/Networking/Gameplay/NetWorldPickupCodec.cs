@@ -142,6 +142,32 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return false; }
         }
 
+        // ---------------------------------------------------------------- Settle
+
+        public static void WriteSettle(NetDataWriter w, NetWorldPickupSettle m)
+        {
+            w.Put(Version);
+            w.Put(m.OwnerPeerId ?? "");
+            w.Put(m.Seq);
+            w.Put(m.Position.x); w.Put(m.Position.y); w.Put(m.Position.z);
+            w.Put(m.SentAt);
+        }
+
+        public static bool TryReadSettle(NetDataReader r, out NetWorldPickupSettle m)
+        {
+            m = new NetWorldPickupSettle();
+            try
+            {
+                if (r.GetByte() != Version) return false;
+                m.OwnerPeerId = r.GetString();
+                m.Seq = r.GetUShort();
+                m.Position = new UnityEngine.Vector3(r.GetFloat(), r.GetFloat(), r.GetFloat());
+                m.SentAt = r.GetFloat();
+                return true;
+            }
+            catch { return false; }
+        }
+
         // ---------------------------------------------------------------- helpers
 
         private static void PutUShortList(NetDataWriter w, ushort[] list)

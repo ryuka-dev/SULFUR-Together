@@ -2079,6 +2079,83 @@ namespace SULFURTogether.Networking
             Gameplay.WorldPickupManager.ApplyRemoved(msg.Key, msg.TakenByPeerId);
         }
 
+        // WID-2: the owning peer's pickup came to rest — broadcast its authoritative position (same owner→Host→relay
+        // shape as the spawn). Only the pickup's owner sends this for its own keys.
+        internal void BroadcastLocalWorldPickupSettle(Gameplay.NetWorldPickupSettle msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
+
+            msg.OwnerPeerId = _runStates.LocalState.PeerId;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendWorldPickupSettle(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendWorldPickupSettle(_hostPeer, msg);
+            }
+        }
+
+        private void SendWorldPickupSettle(NetPeer peer, Gameplay.NetWorldPickupSettle msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.WorldPickupSettle);
+                Gameplay.NetWorldPickupCodec.WriteSettle(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[WorldPickup] settle send failed: {ex.Message}");
+            }
+        }
+
+        private void HandleWorldPickupSettle(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
+            if (!Gameplay.NetWorldPickupCodec.TryReadSettle(reader, out var msg))
+            {
+                NetLogger.Warn("[WorldPickup] malformed WorldPickupSettle packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId))
+                {
+                    if (Plugin.Cfg.EnableDebugLog.Value)
+                        NetLogger.Debug($"[WorldPickup] settle from unregistered peer {peer.Address}");
+                    return;
+                }
+                if (msg.OwnerPeerId != peerId) return;     // a peer may only settle the pickups it dropped
+
+                Gameplay.WorldPickupManager.ApplySettle(msg.Key, msg.Position);
+                RelayWorldPickupSettleToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.OwnerPeerId == _runStates.LocalState.PeerId) return; // never re-apply my own settle
+                Gameplay.WorldPickupManager.ApplySettle(msg.Key, msg.Position);
+            }
+        }
+
+        private void RelayWorldPickupSettleToOtherClients(NetPeer sourcePeer, Gameplay.NetWorldPickupSettle msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendWorldPickupSettle(client, msg);
+            }
+        }
+
         // ----------------------------------------------------------------- Phase 5.6-WS-2 remote held weapon model
 
         internal void BroadcastLocalHeldWeapon(Gameplay.NetPlayerHeldWeapon msg)
@@ -3267,6 +3344,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.WorldPickupTakeRequest:
                         HandleWorldPickupTakeRequest(peer, reader);
+                        break;
+
+                    case NetMessageType.WorldPickupSettle:
+                        HandleWorldPickupSettle(peer, reader);
                         break;
 
                     case NetMessageType.WorldPickupRemoved:

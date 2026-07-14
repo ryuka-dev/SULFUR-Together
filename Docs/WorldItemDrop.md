@@ -46,17 +46,39 @@ Removed:        every peer enqueues; next NetService Tick → taker AddItem(data
 `MatchesScene` (chapter|level|seed) gates cross-level spawns; `_deadKeys` drops out-of-order spawns for an
 already-taken pickup; registry cleared on `GoToLevel`/`ClearLevel` (alongside the Breakable registry).
 
+## Rest-position sync + separation (WID-2)
+
+Spawn only carries the *initial* drop position; from there each peer runs the pickup's `Rigidbody` physics
+independently, and co-op's no-pause bag dumps let drops collide and scatter locally — so the same item can rest a
+short distance apart on each screen (the binding/take stayed correct, but the visible position desynced). Two
+additions, both cheap:
+
+- **Owner-authoritative settle (one-shot).** The dropping peer already owns the `{peer,seq}` id and runs the
+  authoritative body. `WorldPickupManager.Tick` watches its own drops; once a body comes to rest — the game's own
+  criterion, `linearVelocity² < ~0.0025` held `0.4 s`, plus an `8 s` hard cap — it broadcasts `WorldPickupSettle`
+  **once** (`owner → Host → relay`, `ReliableOrdered`). Mirrors snap their instance to that position and freeze it
+  (`isKinematic`, matching what the game does to a landed pickup), so it can no longer drift. Re-sent only if a
+  settled drop is later shoved > `0.3 m` (explosion / a later drop landing on it) and re-settles. One tiny message
+  per drop — no streaming.
+- **Anti-tower separation.** Because the vanilla pause-then-fling behaviour is gone in co-op, rapid drops stack into
+  one indistinguishable tower. On each real local spawn (drops + own loot; mirrors are excluded — they get the
+  owner's settled position), a drop that lands amid other recent drops gets a gentle horizontal shove away from them
+  (golden-angle fan when perfectly stacked), so a bag dump fans out on the ground. Local + cosmetic; for a synced
+  drop the owner's settle re-syncs the resulting rest position so all peers still converge. **Single-player is
+  untouched** (gated on an active co-op session — the game pauses there and drops behave).
+
 ## Files
 
 | File | Role |
 |------|------|
-| `NetMessageType` `48/49/50` | `WorldPickupSpawn` / `WorldPickupTakeRequest` / `WorldPickupRemoved` |
-| `Gameplay/NetWorldPickup.cs` | 3 DTOs (spawn payload + take + removed) |
+| `NetMessageType` `48/49/50/75` | `WorldPickupSpawn` / `WorldPickupTakeRequest` / `WorldPickupRemoved` / `WorldPickupSettle` |
+| `Gameplay/NetWorldPickup.cs` | 4 DTOs (spawn payload + take + removed + settle) |
 | `Gameplay/NetWorldPickupCodec.cs` | wire codecs (manual) |
-| `Gameplay/WorldPickupManager.cs` | registry, capture/mirror, take arbitration, deferred removal, `Tick`, `Clear` |
-| `Patches/PickupPatches.cs` | `InteractionManager.SpawnPickup` postfix / `ExecutePickup` prefix / `RemovePickup` prefix |
+| `Gameplay/WorldPickupManager.cs` | registry, capture/mirror, take arbitration, deferred removal, settle tracking + `ApplySettle`, spawn separation, `Tick`, `Clear` |
+| `Patches/PickupPatches.cs` | `InteractionManager.SpawnPickup` postfix (capture + separation) / `ExecutePickup` prefix / `RemovePickup` prefix |
 | `NetService.cs` | broadcast/send/handle/relay + dispatch + `Tick` drain + `LocalPeerId` |
 | `NetGameplaySyncBridge` | `IsHost` / `LocalPeerId` / report methods |
+| `NetHandshake` | `ProtocolVersion 3` (WID-2 added `WorldPickupSettle`) |
 | `CoopConfig` `[WorldItems]` | `EnableWorldItemDropSync`, `LogWorldItemDropSync` (on), `ShareAllLoot` (off) |
 
 ## Known boundaries (v1)

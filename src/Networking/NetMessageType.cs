@@ -351,5 +351,11 @@ namespace SULFURTogether.Networking
         // companion mod run its own host-authoritative protocol without ST learning its message ids. The sender
         // peer id is stamped from the authenticated connection, not read from the wire.
         ExternalModPayload = 74,
+
+        // WID-2 (owner → Host → relay, ReliableOrdered): a synced world pickup came to rest on its owning peer.
+        // Carries the pickup key + authoritative settled position so mirror peers snap their local instance there
+        // (their independent physics — plus inter-item collisions in co-op's no-pause drops — otherwise diverge).
+        // One-shot per drop (re-sent only if the item is later disturbed and re-settles). See WorldPickupManager.
+        WorldPickupSettle = 75,
     }
 }

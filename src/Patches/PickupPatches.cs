@@ -63,6 +63,9 @@ namespace SULFURTogether.Patches
         {
             if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
             if (__result == null) return;
+            // Anti-tower separation for real local spawns (drops + own loot); mirrors get the owner's settled position.
+            if (!WorldPickupManager.IsApplyingMirror)
+                WorldPickupManager.ApplySpawnSeparation(__result);
             WorldPickupManager.CaptureLocalSpawn(__result);
         }
 

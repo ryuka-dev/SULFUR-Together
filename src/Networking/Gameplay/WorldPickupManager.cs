@@ -35,6 +35,14 @@ namespace SULFURTogether.Networking.Gameplay
             public ItemDefinition ItemSO;
             public InventoryData Data;   // game InventoryData (null for loot)
             public bool Rotated;
+
+            // WID-2 rest-position sync (owner side only). We authoritatively settle our own drops and broadcast the
+            // rest position once so mirrors — whose independent physics + co-op no-pause collisions diverge — snap to it.
+            public bool    IsLocalOwner;
+            public float   SpawnTime;
+            public float   RestSince = -1f;   // when the body last began resting (-1 = moving)
+            public bool    SettleSent;
+            public Vector3 LastSettlePos;
         }
 
         // Live synced pickups, both directions of lookup.
@@ -208,9 +216,12 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
         /// <summary>Main-thread drain — applies queued removals (AddItem for the taker + remove-from-world) safely
-        /// outside any game-loop iteration. Called each frame from NetService.</summary>
+        /// outside any game-loop iteration, and drives the owner-side rest-position sync. Called each frame from
+        /// NetService.</summary>
         public static void Tick()
         {
+            UpdateSettleTracking();
+
             if (_pendingRemovals.Count == 0) return;
             // Snapshot + clear first so a re-entrant enqueue (shouldn't happen) doesn't loop.
             PendingRemoval[] batch = _pendingRemovals.ToArray();
@@ -252,6 +263,152 @@ namespace SULFURTogether.Networking.Gameplay
             UnregisterPickup(p);
         }
 
+        // ----------------------------------------------------------------- rest-position sync (WID-2)
+
+        private const float RestVelSqr      = 0.0025f; // ~0.05 m/s — treat below this as "at rest" (game freezes at 0.001)
+        private const float RestDebounce    = 0.4f;    // must stay at rest this long before we trust the position
+        private const float SettleTimeout   = 8f;      // hard cap: broadcast a position even if it never fully settles
+        private const float ResettleMoveSqr = 0.09f;   // 0.3 m — if a settled drop is later shoved this far, re-sync it
+
+        /// <summary>Owner side: watch each pickup we dropped, and once it comes to rest broadcast its authoritative
+        /// position so every mirror snaps to the same spot (their independent physics otherwise diverge — the more so in
+        /// co-op's no-pause bag dumps where drops collide and scatter locally).</summary>
+        private static void UpdateSettleTracking()
+        {
+            if (_byPickup.Count == 0) return;
+            if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
+            if (!NetGameplaySyncBridge.IsSessionActive) return;
+
+            float now = Time.time;
+            foreach (var kv in _byPickup)
+            {
+                Pickup p = kv.Key; Entry e = kv.Value;
+                if (!e.IsLocalOwner || p == null) continue;
+
+                var body = p.body;
+                Vector3 pos = p.transform.position;
+                bool atRest = body == null || body.isKinematic || body.linearVelocity.sqrMagnitude < RestVelSqr;
+
+                if (!e.SettleSent)
+                {
+                    if (atRest) { if (e.RestSince < 0f) e.RestSince = now; }
+                    else        { e.RestSince = -1f; }
+
+                    bool settledLongEnough = e.RestSince >= 0f && now - e.RestSince >= RestDebounce;
+                    bool timedOut          = now - e.SpawnTime >= SettleTimeout;
+                    if (settledLongEnough || timedOut)
+                    {
+                        SendSettle(e, pos);
+                        e.SettleSent = true;
+                        e.LastSettlePos = pos;
+                        e.RestSince = -1f;
+                    }
+                }
+                else if ((pos - e.LastSettlePos).sqrMagnitude > ResettleMoveSqr)
+                {
+                    // Disturbed after settling (explosion / kicked by a later drop) — let it re-settle and re-sync.
+                    e.SettleSent = false;
+                    e.RestSince = -1f;
+                }
+            }
+        }
+
+        private static void SendSettle(Entry e, Vector3 pos)
+        {
+            NetGameplaySyncBridge.ReportLocalWorldPickupSettle(
+                new NetWorldPickupSettle { OwnerPeerId = e.OwnerPeerId, Seq = e.Seq, Position = pos });
+            if (Plugin.Cfg.LogWorldItemDropSync.Value)
+                NetLogger.Info($"[WorldPickup] settle key={e.Key} pos={pos}");
+        }
+
+        /// <summary>Mirror side: place a synced pickup at the owner's authoritative rest position and freeze it (matching
+        /// what the game itself does to a landed pickup), so it can no longer drift from the owner's copy.</summary>
+        public static void ApplySettle(string key, Vector3 pos)
+        {
+            try
+            {
+                if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
+                if (!_byKey.TryGetValue(key, out var p) || p == null) return; // unknown / already taken → ignore
+                if (_byPickup.TryGetValue(p, out var e) && e.IsLocalOwner) return; // never move our own authoritative drop
+
+                var body = p.body;
+                if (body != null)
+                {
+                    body.linearVelocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                    body.isKinematic = true;
+                    body.detectCollisions = false;
+                    body.position = pos;
+                }
+                p.transform.position = pos;
+
+                if (Plugin.Cfg.LogWorldItemDropSync.Value)
+                    NetLogger.Info($"[WorldPickup] mirror settle key={key} pos={pos}");
+            }
+            catch (Exception ex) { NetLogger.Warn($"[WorldPickup] settle apply failed: {ex.Message}"); }
+        }
+
+        // ----------------------------------------------------------------- spawn separation (WID-2, anti-tower)
+
+        private struct RecentSpawn { public Vector3 Pos; public float Time; }
+        private static readonly List<RecentSpawn> _recentSpawns = new List<RecentSpawn>();
+        private static int _separationFan;
+
+        private const float SeparationRadiusSqr = 0.25f; // 0.5 m — only nudge a drop that lands amid recent ones
+        private const float SeparationWindow    = 1.5f;  // how long a recent spawn still counts as a neighbour
+        private const float SeparationImpulse   = 0.7f;  // gentle horizontal push (m/s, VelocityChange like the vanilla throw)
+
+        /// <summary>Give a drop that lands amid other recent drops a small horizontal shove away from them, so co-op
+        /// bag dumps fan out on the ground instead of stacking into one indistinguishable tower. Local + cosmetic:
+        /// for a synced player drop the owner's <see cref="UpdateSettleTracking"/> re-syncs the resulting rest position,
+        /// so all peers still converge. Left untouched in single-player (the game pauses there and drops behave).</summary>
+        public static void ApplySpawnSeparation(Pickup p)
+        {
+            try
+            {
+                if (p == null || !NetGameplaySyncBridge.IsSessionActive) return;
+                var body = p.body;
+                if (body == null || body.isKinematic) return; // container / animating pickups don't scatter
+                if (p.spawnedIn != null) return;
+
+                Vector3 pos = p.transform.position;
+                float now = Time.time;
+
+                for (int i = _recentSpawns.Count - 1; i >= 0; i--)
+                    if (now - _recentSpawns[i].Time > SeparationWindow) _recentSpawns.RemoveAt(i);
+
+                Vector3 away = Vector3.zero;
+                int crowd = 0;
+                foreach (var r in _recentSpawns)
+                {
+                    Vector3 d = pos - r.Pos; d.y = 0f;
+                    if (d.sqrMagnitude <= SeparationRadiusSqr)
+                    {
+                        crowd++;
+                        if (d.sqrMagnitude > 1e-4f) away += d.normalized;
+                    }
+                }
+
+                _recentSpawns.Add(new RecentSpawn { Pos = pos, Time = now });
+                if (crowd == 0) return; // lone drop — leave vanilla motion untouched
+
+                Vector3 dir;
+                if (away.sqrMagnitude > 1e-4f)
+                {
+                    dir = away.normalized;
+                }
+                else // perfectly stacked — fan successive drops out by the golden angle (deterministic, no RNG divergence)
+                {
+                    float ang = _separationFan++ * 2.399963f; // ~137.5° in radians
+                    dir = new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang));
+                }
+
+                float mag = SeparationImpulse * Mathf.Min(crowd, 3);
+                body.AddForce(dir * mag + Vector3.up * 0.3f, ForceMode.VelocityChange);
+            }
+            catch { /* separation is purely cosmetic — never let it break a spawn */ }
+        }
+
         // ----------------------------------------------------------------- registry / lifecycle
 
         private static void Register(Pickup p, string owner, ushort seq, ItemDefinition item, InventoryData data, bool rotated)
@@ -259,7 +416,12 @@ namespace SULFURTogether.Networking.Gameplay
             string key = owner + "#" + seq;
             // A pooled Pickup instance may be reused for a different item — drop any stale binding first.
             UnregisterPickup(p);
-            var e = new Entry { OwnerPeerId = owner, Seq = seq, Key = key, ItemSO = item, Data = data, Rotated = rotated };
+            var e = new Entry
+            {
+                OwnerPeerId = owner, Seq = seq, Key = key, ItemSO = item, Data = data, Rotated = rotated,
+                IsLocalOwner = owner == NetGameplaySyncBridge.LocalPeerId,
+                SpawnTime = Time.time,
+            };
             _byPickup[p] = e;
             _byKey[key] = p;
         }
@@ -297,6 +459,8 @@ namespace SULFURTogether.Networking.Gameplay
             _deadKeys.Clear();
             _requestCooldown.Clear();
             _pendingRemovals.Clear();
+            _recentSpawns.Clear();
+            _separationFan = 0;
             _seq = 0;
         }
 
