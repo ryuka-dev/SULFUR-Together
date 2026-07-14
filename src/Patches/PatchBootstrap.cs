@@ -21,6 +21,7 @@ namespace SULFURTogether.Patches
             PickupPatches.Apply(harmony);
             PauseControlPatches.Apply(harmony);
             HazardProbePatches.Apply(harmony);
+            GhostPlayerPatches.Apply(harmony);
             Plugin.Log.Info("[PatchBootstrap] Done.");
         }
     }

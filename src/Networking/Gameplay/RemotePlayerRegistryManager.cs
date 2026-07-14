@@ -50,6 +50,18 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return false; }
         }
 
+        /// <summary>True when this Player component belongs to one of our ghosts. Used by callers that must not run
+        /// real per-player logic on a headless stand-in; see <see cref="Patches.GhostPlayerPatches"/>.</summary>
+        public static bool IsGhostPlayer(object? player)
+        {
+            try
+            {
+                return player is Component c && c != null
+                    && _ghostGoIds.Contains(c.transform.root.gameObject.GetInstanceID());
+            }
+            catch { return false; }
+        }
+
         // ---- remote-player positions published for the activation postfix (host-only, main thread) ----
         private static readonly List<Vector3> _remotePositions = new List<Vector3>();
         private static int _activateCursor;
