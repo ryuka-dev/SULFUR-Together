@@ -117,6 +117,12 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalTriggerDoors(msg);
         }
 
+        // Phase DB-1 — inter-chunk hold-to-open door (DoorBlocker) channel. Same routing as GateState.
+        public static void ReportLocalDoorBlockerOpen(NetDoorBlockerOpen msg)
+        {
+            _service?.BroadcastLocalDoorBlockerOpen(msg);
+        }
+
         // Phase LD-2a — arena lockdown membership + run-state queries (host membership/timer; see ArenaLockdownManager).
         public static void SendClientArenaEnter(NetClientArenaEnter msg) => _service?.SendClientArenaEnter(msg);
 

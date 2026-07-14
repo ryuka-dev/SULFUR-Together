@@ -1751,6 +1751,93 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- Phase DB-1 inter-chunk door (DoorBlocker) sync
+        // Same topology as GateState: the peer that opened a door reports it; the Host stamps the PeerId, mirrors it
+        // locally (same scene) and relays to all other clients. The opening peer never mirrors its own.
+
+        internal void BroadcastLocalDoorBlockerOpen(Gameplay.NetDoorBlockerOpen msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnableDoorBlockerSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendDoorBlockerOpen(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendDoorBlockerOpen(_hostPeer, msg);
+            }
+        }
+
+        private void SendDoorBlockerOpen(NetPeer peer, Gameplay.NetDoorBlockerOpen msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.DoorBlockerOpen);
+                Gameplay.NetDoorBlockerOpenCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[ChunkDoor] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleDoorBlockerOpen(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableDoorBlockerSync.Value) return;
+            if (!Gameplay.NetDoorBlockerOpenCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[ChunkDoor] malformed DoorBlockerOpen packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId))
+                {
+                    if (Plugin.Cfg.EnableDebugLog.Value)
+                        NetLogger.Debug($"[ChunkDoor] ignoring door from unregistered peer {peer.Address}");
+                    return;
+                }
+                msg.PeerId = peerId;
+
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.DoorBlockerSyncManager.ApplyRemoteOpen(msg);
+
+                RelayDoorBlockerOpenToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.PeerId == _runStates.LocalState.PeerId) return; // never mirror my own open
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.DoorBlockerSyncManager.ApplyRemoteOpen(msg);
+            }
+        }
+
+        private void RelayDoorBlockerOpenToOtherClients(NetPeer sourcePeer, Gameplay.NetDoorBlockerOpen msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendDoorBlockerOpen(client, msg);
+            }
+        }
+
         // ---------------------------------------------------------------- Phase LD-1b combat-room door (SetActive) sync
 
         internal void BroadcastLocalTriggerDoors(Gameplay.NetTriggerDoors msg)
@@ -3392,6 +3479,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.PlayerHeldWeapon:
                         HandlePlayerHeldWeapon(peer, reader);
+                        break;
+
+                    case NetMessageType.DoorBlockerOpen:
+                        HandleDoorBlockerOpen(peer, reader);
                         break;
 
                     case NetMessageType.GateState:

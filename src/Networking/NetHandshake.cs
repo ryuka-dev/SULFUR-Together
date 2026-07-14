@@ -8,7 +8,8 @@ namespace SULFURTogether.Networking
         // 2: FF-1 added PlayerFriendlyFireHit (69) + SessionSettings (70) — older builds don't know either message.
         // 3: WID-2 added WorldPickupSettle (75) — world-drop rest-position sync; peers must agree on the wire set.
         // 4: DEV-1 added the dev-entitlement handshake field + DeveloperMode in the session-settings snapshot.
-        public const int    ProtocolVersion  = 4;
+        // 5: DB-1 added DoorBlockerOpen (79) — the 0.18 inter-chunk door sync; peers must agree on the wire set.
+        public const int    ProtocolVersion  = 5;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

@@ -368,5 +368,11 @@ namespace SULFURTogether.Networking
         // every participant's choice. Monotonic revision so clients drop reordered re-sends. Host owns the tally and
         // the clock; clients only display and forward casts.
         HostVoteState = 78,
+
+        // DB-1: a level-gen DoorBlocker (the 0.18 inter-chunk hold-to-open door) was opened by a player. Peer →
+        // everyone else, keyed by the door's deterministic world position. Opening is a one-way, irreversible
+        // transition, so the mirror is idempotent and needs no arbitration. Only doors that start closed are
+        // carried here; the trap doors' slam-shut is deliberately NOT synced.
+        DoorBlockerOpen = 79,
     }
 }

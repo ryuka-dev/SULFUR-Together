@@ -239,6 +239,9 @@ namespace SULFURTogether.Config
         // ----- Phase LD-1b combat-room door sync, GameObject.SetActive variant (Lucia etc.) -----
         public Fixed<bool>         EnableTriggerDoorSync { get; } // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogTriggerDoorSync { get; }
+        // ----- Phase DB-1 inter-chunk hold-to-open door (DoorBlocker) sync -----
+        public Fixed<bool>         EnableDoorBlockerSync { get; } // functional: always on (release-hardcoded)
+        public ConfigEntry<bool>   LogDoorBlockerSync { get; }
         // ----- Phase LD-2 FF14-style arena lockdown (release-hardcoded) -----
         public Fixed<bool>         EnableArenaLockdown { get; }
         public ConfigEntry<bool>   LogArenaLockdown { get; }
@@ -845,6 +848,14 @@ namespace SULFURTogether.Config
             EnableTriggerDoorSync = new Fixed<bool>(true); // Phase LD-1b SetActive door sync (Lucia) — functional, always on.
             LogTriggerDoorSync = cfg.Bind("Destructibles", "LogTriggerDoorSync", true,
                 "Phase LD-1b: verbose log for trigger-door sync (capture / broadcast / mirror match).");
+
+            // Phase DB-1: SULFUR 0.18 places hold-to-open doors between chunks (level gen, seeded — so both ends own
+            // the same doors at the same positions). The hold is driven by the local player's interaction only, so a
+            // door one player opens stays shut, and physically impassable, for everyone else. Mirror the open by
+            // position; the trap doors' slam-shut stays per-end (out of scope).
+            EnableDoorBlockerSync = new Fixed<bool>(true); // Phase DB-1 inter-chunk door sync — functional, always on.
+            LogDoorBlockerSync = cfg.Bind("Destructibles", "LogDoorBlockerSync", true,
+                "Phase DB-1: verbose log for inter-chunk door sync (capture / broadcast / mirror match).");
 
             // Phase LD-2: FF14-style arena lockdown. A player crossing a combat-room seal trigger is "in-room"; the first
             // cross anchors a timer; after 5s the non-in-room players in that level are force-sealed with an invisible
