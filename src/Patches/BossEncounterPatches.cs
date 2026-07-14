@@ -995,8 +995,14 @@ namespace SULFURTogether.Patches
 
                 // Invariant: keep the boss invulnerable until the fight commits — DoneAppearing (rise-anim end) clears the
                 // boss's invuln; re-assert it pre-commit.
-                var done = cousin == null ? null : AccessTools.Method(cousin, "DoneAppearing", Type.EmptyTypes);
+                // Bind by name only. This asked for the parameterless overload, which the game replaced with
+                // DoneAppearing(int disableInvulnerable) — the method was never removed, so AccessTools just returned
+                // null and the invuln-hold silently stopped applying. CousinHelper declares exactly one DoneAppearing,
+                // and the postfix takes only __instance, so the parameter list is not ours to pin down.
+                // (HellShrewDigga.DoneAppearing() is still parameterless — a different type, easy to confuse.)
+                var done = cousin == null ? null : AccessTools.Method(cousin, "DoneAppearing");
                 if (done != null) harmony.Patch(done, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(BossDoneAppearing_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                else Log.Error("[BossDialogCutscene] CousinHelper.DoneAppearing not found — the boss's pre-commit invulnerability will not be re-asserted");
                 Log.Info($"[BossDialogCutscene] patched CousinHelper.DoneAppearing invuln-hold ({done != null})");
 
                 var gm = FindType("GameManager", "PerfectRandom.Sulfur.Core.GameManager");

@@ -925,14 +925,24 @@ namespace SULFURTogether.Patches
         private static bool _bnrResolved;
         private static int  _bnrSweepLogCount;
 
+        // The per-frame driver is ManualUpdate, not Update: the game's manual-update refactor moved BatchedNPCRaycasts
+        // (with EffectsManager, InteractionManager and every Player) off Unity's Update message onto direct calls from
+        // ProjectileSystem.Update, which runs them while its Burst job is in flight. Same position in the frame, so the
+        // sweep still lands before the LOS/ground job is scheduled — only the entry point moved.
         private static void ApplyBatchedRaycastSweepPatches(Harmony harmony)
         {
             var t = FindType("PerfectRandom.Sulfur.Core.BatchedNPCRaycasts");
             if (t == null) return;
-            var upd = AccessTools.Method(t, "Update");
-            if (upd == null) { Log.Warn("[NpcListSweep] BatchedNPCRaycasts.Update not found"); return; }
-            try { harmony.Patch(upd, prefix: Pre(nameof(BatchedNPCRaycasts_Update_Pre))); }
-            catch (Exception ex) { Log.Warn($"[NpcListSweep] patch failed: {ex.Message}"); }
+            var upd = AccessTools.Method(t, "ManualUpdate");
+            if (upd == null)
+                Log.Error("[NpcListSweep] BatchedNPCRaycasts.ManualUpdate not found — destroyed units are no longer swept from GameManager.units/aliveNpcs");
+            else
+            {
+                try { harmony.Patch(upd, prefix: Pre(nameof(BatchedNPCRaycasts_Update_Pre))); }
+                catch (Exception ex) { Log.Warn($"[NpcListSweep] patch failed: {ex.Message}"); }
+            }
+            // Deliberately not an early return above: the LateUpdate finalizer below is a separate protection and must
+            // still be installed if the sweep target ever goes missing. It silently was not, once Update was renamed.
 
             // Phase 5.7-DS2: BatchedNPCRaycasts.LateUpdate consumes the Burst LOS/ground job's results indexed by
             // unitMapping/npcMapping count and decodes player indices from the LOD result bytes (players[255-b]). When the
