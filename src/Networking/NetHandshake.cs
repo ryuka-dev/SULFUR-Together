@@ -9,7 +9,8 @@ namespace SULFURTogether.Networking
         // 3: WID-2 added WorldPickupSettle (75) — world-drop rest-position sync; peers must agree on the wire set.
         // 4: DEV-1 added the dev-entitlement handshake field + DeveloperMode in the session-settings snapshot.
         // 5: DB-1 added DoorBlockerOpen (79) — the 0.18 inter-chunk door sync; peers must agree on the wire set.
-        public const int    ProtocolVersion  = 5;
+        // 6: K-1 added ThrowableProjectile (80) — ThrowingKnives flight visual sync; peers must agree on the wire set.
+        public const int    ProtocolVersion  = 6;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

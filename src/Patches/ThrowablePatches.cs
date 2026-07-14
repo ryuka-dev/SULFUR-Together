@@ -3,8 +3,10 @@ using System.Collections;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
+using PerfectRandom.Sulfur.Core;
 using PerfectRandom.Sulfur.Core.Units;
 using PerfectRandom.Sulfur.Core.Items;
+using PerfectRandom.Sulfur.Core.Weapons;
 using SULFURTogether.Networking.Gameplay;
 using SULFURTogether.Networking.Gameplay.Boss;
 
@@ -38,6 +40,18 @@ namespace SULFURTogether.Patches
                 else
                     Plugin.Log.Warn("[ThrowableEffect] ThrowableWeapon.Throw not found — throwable-effect sync disabled.");
 
+                // K-1 (issue #10): capture the projectile-path throwable (ThrowingKnives) at its canonical source. The
+                // Custom projectile is built + dispatched inside Throw via ProjectileSystem.StartProjectile; a prefix
+                // gated by _inThrow snapshots that exact ray (no throw-math reconstruction). Cheap: one bool for every
+                // other projectile (bullets, replays), real work only during a throw.
+                var projSysType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.ProjectileSystem");
+                var startProjectile = projSysType != null ? AccessTools.Method(projSysType, "StartProjectile") : null;
+                if (startProjectile != null)
+                    harmony.Patch(startProjectile, prefix: new HarmonyMethod(
+                        typeof(ThrowablePatches).GetMethod(nameof(StartProjectile_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                else
+                    Plugin.Log.Warn("[ThrowableProjectile] ProjectileSystem.StartProjectile not found — knife flight sync disabled.");
+
                 // Unit.Spawn (virtual) is called synchronously inside Throw on the thrown Breakable; tag it there.
                 // (SetOwner — the more obvious hook — is a tiny non-virtual method that gets inlined into Throw, so its
                 // patch never fires; 397 confirmed the Throw ran Breakable-path but no SetOwner postfix hit.)
@@ -66,6 +80,14 @@ namespace SULFURTogether.Patches
         }
 
         private static void Throw_Fin()  { _inThrow = false; _pendingItemId = 0; }
+
+        // K-1 (issue #10): only the projectile-path throwable reaches StartProjectile inside Throw (the Breakable branch
+        // never calls it), so _inThrow isolates exactly the ThrowingKnives dispatch. Snapshot the real ray + broadcast.
+        private static void StartProjectile_Pre(ProjectileRay projState, ProjectileData projData)
+        {
+            if (!_inThrow) return;
+            ThrowableProjectileManager.CaptureLocalThrow(projState, projData);
+        }
 
         private static void Spawn_Post(Unit __instance)
         {

@@ -374,5 +374,12 @@ namespace SULFURTogether.Networking
         // transition, so the mirror is idempotent and needs no arbitration. Only doors that start closed are
         // carried here; the trap doors' slam-shut is deliberately NOT synced.
         DoorBlockerOpen = 79,
+
+        // K-1 (issue #10): a projectile-path throwable (ThrowingKnives — ThrowableWeapon.Throw's prefabToThrow==null
+        // branch, a real Custom ProjectileSystem projectile, not a Breakable). The throwing peer broadcasts the weapon
+        // ItemId + the exact launch ray; receivers replay one damage-stripped Custom projectile with the resolved
+        // customVisuals so the knife's flight + stick appear on every screen. Visual only — same topology as
+        // PlayerWeaponFire (thrower never replays its own; Client→Host→relay; receivers skip their own PeerId).
+        ThrowableProjectile = 80,
     }
 }

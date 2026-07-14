@@ -226,6 +226,9 @@ namespace SULFURTogether.Config
         // ----- Phase 5.6-WS player weapon bullet sync (visual-only barrage replay) -----
         public Fixed<bool>         EnablePlayerWeaponSync { get; }   // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogPlayerWeaponSync { get; }
+        // K-1 (issue #10): projectile-path throwable (ThrowingKnives) flight visual sync. Functional, always on.
+        public Fixed<bool>         EnablePlayerThrowableProjectileSync { get; }
+        public ConfigEntry<bool>   LogPlayerThrowableProjectileSync { get; }
         public Fixed<int>          PlayerWeaponSyncMaxProjectilesPerShot { get; } // safety clamp (release-hardcoded)
 
         // ----- Phase 5.7-BR in-scene destructible (Breakable) sync -----
@@ -819,6 +822,9 @@ namespace SULFURTogether.Config
             // game's real ProjectileSystem with damage stripped (empty damageComps + explicitDamage=0 → zero damage,
             // verified safe). Damage stays host-authoritative via the existing ClientHitRequest pipeline.
             EnablePlayerWeaponSync = new Fixed<bool>(true); // Phase 5.6-WS player weapon visual sync — functional, always on.
+            EnablePlayerThrowableProjectileSync = new Fixed<bool>(true); // K-1 (issue #10) ThrowingKnives flight — functional, always on.
+            LogPlayerThrowableProjectileSync = cfg.Bind("PlayerWeapon", "LogPlayerThrowableProjectileSync", true,
+                "K-1 (issue #10): verbose log for projectile-path throwable (ThrowingKnives) flight sync (capture / replay). PURE LOG.");
             LogPlayerWeaponSync = cfg.Bind("PlayerWeapon", "LogPlayerWeaponSync", true,
                 "Phase 5.6-WS: verbose log for player weapon sync (capture / broadcast / replay).");
             PlayerWeaponSyncMaxProjectilesPerShot = new Fixed<int>(256); // safety clamp on replayed visual projectiles.

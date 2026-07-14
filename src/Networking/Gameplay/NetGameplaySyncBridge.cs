@@ -103,6 +103,13 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalThrowableFlight(msg);
         }
 
+        // K-1 (issue #10) — projectile-path throwable (ThrowingKnives) flight visual. The throwing peer reports it;
+        // NetService stamps PeerId + scene context and routes it (Client→Host→relay; throwing peer never replays its own).
+        public static void ReportLocalThrowableProjectile(NetThrowableProjectile msg)
+        {
+            _service?.BroadcastLocalThrowableProjectile(msg);
+        }
+
         // Phase LD-1 — generic combat-room gate (MetalGate) open/close channel. The peer that changed a gate reports it;
         // NetService stamps PeerId + scene context and routes it (Client→Host→relay to other Clients; firing peer never
         // mirrors its own). See GateSyncManager.

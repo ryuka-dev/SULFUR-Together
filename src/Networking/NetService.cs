@@ -1664,6 +1664,86 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- K-1 projectile-path throwable (ThrowingKnives)
+        // Same topology as PlayerWeaponFire / ThrowableFlight: throwing peer never replays its own; Client→Host→relay.
+        internal void BroadcastLocalThrowableProjectile(Gameplay.NetThrowableProjectile msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnablePlayerThrowableProjectileSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendThrowableProjectile(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendThrowableProjectile(_hostPeer, msg);
+            }
+        }
+
+        private void SendThrowableProjectile(NetPeer peer, Gameplay.NetThrowableProjectile msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ThrowableProjectile);
+                Gameplay.NetThrowableProjectileCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[ThrowableProjectile] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleThrowableProjectile(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnablePlayerThrowableProjectileSync.Value) return;
+            if (!Gameplay.NetThrowableProjectileCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[ThrowableProjectile] malformed ThrowableProjectile packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId)) return;
+                msg.PeerId = peerId;
+
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableProjectileManager.ApplyRemoteThrow(msg);
+
+                RelayThrowableProjectileToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.PeerId == _runStates.LocalState.PeerId) return; // never replay my own knife
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableProjectileManager.ApplyRemoteThrow(msg);
+            }
+        }
+
+        private void RelayThrowableProjectileToOtherClients(NetPeer sourcePeer, Gameplay.NetThrowableProjectile msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendThrowableProjectile(client, msg);
+            }
+        }
+
         // ---------------------------------------------------------------- Phase LD-1 combat-room gate (MetalGate) sync
         // Same topology as BreakableBreak: the peer that opened/closed a gate reports it; the Host stamps the PeerId,
         // mirrors it locally (same scene) and relays to all other clients. The firing peer never mirrors its own.
@@ -3505,6 +3585,9 @@ namespace SULFURTogether.Networking
                         HandleThrowableEffect(peer, reader);
                         break;
 
+                    case NetMessageType.ThrowableProjectile:
+                        HandleThrowableProjectile(peer, reader);
+                        break;
                     case NetMessageType.ThrowableFlight:
                         HandleThrowableFlight(peer, reader);
                         break;
