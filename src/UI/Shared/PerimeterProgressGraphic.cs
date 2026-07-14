@@ -1,25 +1,28 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace SULFURTogether.UI.DownedRescueOverlay
+namespace SULFURTogether.UI.Shared
 {
     /// <summary>
-    /// DR-3: a custom-mesh border stroke that traces the panel's rectangular perimeter clockwise starting at the
-    /// top-center (12 o'clock), per the design spec — not a fill bar, not a circular radial. Two instances stack
-    /// on the panel: a static dim base (Progress=1, always drawn, low alpha) and a bright progress stroke
-    /// (Progress=t, the rescue's live value). Sharp corners (no rounding) — deliberately, a grittier/plainer
-    /// stroke reads more SULFUR-house than a smooth vector-rounded rect.
+    /// A custom-mesh border stroke that traces its RectTransform's rectangular perimeter starting at the top-center
+    /// (12 o'clock), filling to <see cref="SetProgress"/>. Not a fill bar, not a circular radial. Sharp corners (a
+    /// grittier/plainer stroke reads more SULFUR-house than a smooth vector-rounded rect).
     ///
-    /// Path order: top-center → top-right corner → right edge → bottom-right corner → bottom edge → bottom-left
-    /// corner → left edge → top-left corner → back to top-center. Corner squares plug the gap a plain axis-
-    /// aligned quad strip would otherwise leave at each 90° turn.
+    /// Originally DR-3's <c>DownedRescueBorderProgress</c>; promoted to a shared widget (issue #8 vote overlay reuses
+    /// it) with a <see cref="Clockwise"/> option so a second stroke can trace the opposite way (the majority-vote
+    /// red "decline" arc grows counter-clockwise while the yellow "agree" arc grows clockwise).
+    ///
+    /// Clockwise path: top-center → top-right → right edge → bottom-right → bottom edge → bottom-left → left edge →
+    /// top-left → back to top-center. Counter-clockwise mirrors it to the left first. Corner squares plug the gap a
+    /// plain axis-aligned quad strip would otherwise leave at each 90° turn.
     /// </summary>
-    internal sealed class DownedRescueBorderProgress : MaskableGraphic
+    internal sealed class PerimeterProgressGraphic : MaskableGraphic
     {
         public float Thickness = 4f;
-        // Shrinks the rect this stroke traces relative to the panel's own RectTransform, so the dim base and the
-        // bright progress stroke (or the panel body edge) can stack without fighting for the exact same pixels.
+        // Shrinks the traced rect relative to the RectTransform so stacked strokes don't fight for the same pixels.
         public float Inset = 0f;
+        // Trace direction from the top-center start. True = clockwise (the default / DR behavior).
+        public bool Clockwise = true;
 
         private float _progress01 = 1f;
         private readonly Vector2[] _corners = new Vector2[6];
@@ -33,6 +36,13 @@ namespace SULFURTogether.UI.DownedRescueOverlay
             SetVerticesDirty();
         }
 
+        public void SetClockwise(bool clockwise)
+        {
+            if (Clockwise == clockwise) return;
+            Clockwise = clockwise;
+            SetVerticesDirty();
+        }
+
         protected override void OnPopulateMesh(VertexHelper vh)
         {
             vh.Clear();
@@ -42,11 +52,12 @@ namespace SULFURTogether.UI.DownedRescueOverlay
             float hh = r.height * 0.5f - Inset;
             if (hw <= 0f || hh <= 0f) return;
 
+            float sx = Clockwise ? 1f : -1f; // mirror the horizontal turn direction for counter-clockwise
             _corners[0] = new Vector2(0f, hh);
-            _corners[1] = new Vector2(hw, hh);
-            _corners[2] = new Vector2(hw, -hh);
-            _corners[3] = new Vector2(-hw, -hh);
-            _corners[4] = new Vector2(-hw, hh);
+            _corners[1] = new Vector2(sx * hw, hh);
+            _corners[2] = new Vector2(sx * hw, -hh);
+            _corners[3] = new Vector2(-sx * hw, -hh);
+            _corners[4] = new Vector2(-sx * hw, hh);
             _corners[5] = new Vector2(0f, hh);
 
             _segLen[0] = hw;

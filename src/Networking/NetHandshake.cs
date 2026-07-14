@@ -7,7 +7,8 @@ namespace SULFURTogether.Networking
         public const string ProtocolMagic    = "SULFUR_TOGETHER";
         // 2: FF-1 added PlayerFriendlyFireHit (69) + SessionSettings (70) — older builds don't know either message.
         // 3: WID-2 added WorldPickupSettle (75) — world-drop rest-position sync; peers must agree on the wire set.
-        public const int    ProtocolVersion  = 3;
+        // 4: DEV-1 added the dev-entitlement handshake field + DeveloperMode in the session-settings snapshot.
+        public const int    ProtocolVersion  = 4;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)
@@ -17,6 +18,7 @@ namespace SULFURTogether.Networking
             w.Put(ModInfo.Version);
             w.Put(playerName);
             w.Put(Plugin.Cfg.ConnectionKey.Value);
+            w.Put(CoopDevEntitlement.Local); // DEV-1: does this client have developer access (-dev true / DevToolsEnabled)?
         }
 
         // Host reads from incoming HandshakeRequest payload.
@@ -30,6 +32,7 @@ namespace SULFURTogether.Networking
                 data.ModVersion      = r.GetString();
                 data.PlayerName      = r.GetString();
                 data.ConnectionKey   = r.GetString();
+                data.DevEntitlement  = r.GetBool();
                 return true;
             }
             catch { return false; }
@@ -77,6 +80,7 @@ namespace SULFURTogether.Networking
         public string ModVersion      = "";
         public string PlayerName      = "";
         public string ConnectionKey   = "";
+        public bool   DevEntitlement;   // DEV-1: client launched with developer access
     }
 
     internal class HandshakeAcceptedData

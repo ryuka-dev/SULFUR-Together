@@ -90,6 +90,7 @@ namespace SULFURTogether.Networking
             _manualFollowKeyWarningShown = false;
             NetLoadBarrier.Reset();
             NetClientJoinFlow.Reset();
+            Vote.CoopVoteManager.Reset(); // VOTE-1: no stale vote carries into a fresh session
             NetLinkState.InitFromConfig();
             Gameplay.Boss.NetBossEncounterManager.Reset();
             Gameplay.Boss.BossDynamicSpawnManifest.Reset();
@@ -106,6 +107,7 @@ namespace SULFURTogether.Networking
             {
                 _sessions.RegisterLocalHost(Plugin.Cfg.PlayerName.Value, ModInfo.Version, Now());
                 _runStates.SetLocalIdentity("host", Plugin.Cfg.PlayerName.Value);
+                CoopDevAuthority.OnHostStarted(); // DEV-1: mod owns dev mode from room creation
                 _net.Start(Plugin.Cfg.HostPort.Value);
                 NetLogger.Info($"[Net] Host started on port {Plugin.Cfg.HostPort.Value}");
                 NetLogger.Info($"[Session] Host session ready: {_sessions.FormatStatus()}");
@@ -229,6 +231,8 @@ namespace SULFURTogether.Networking
             _receivedEnemyDeathEvents.Clear();
             _receivedClientEnemyDeathClaims.Clear();
             NetSessionSettings.ResetSession();
+            Vote.CoopVoteManager.Reset(); // VOTE-1: clear any in-flight vote
+            CoopDevAuthority.OnSessionEnded("networking stopped"); // DEV-1: back to solo → follow local entitlement
             _ffHitProxies.Clear();
             _sessionSettingsRevision = 0;
         }
@@ -237,6 +241,9 @@ namespace SULFURTogether.Networking
         public void Tick()
         {
             _net?.PollEvents();
+            CoopDevAuthority.TickReassert(Now()); // DEV-1: keep GameManager.DeveloperMode pinned to the session decision
+            Vote.CoopVoteManager.HostTick(Now());  // VOTE-1: drive the tally clock (host) ...
+            Vote.CoopVoteManager.TickInput(Now()); // ... and read Y/N casts (both roles)
             NetClientLoadGate.UpdateNetState(_mode, _hostPeer != null);
             NetClientLoadGate.Tick();
             HandleClientLoadGateRequestTimer();
@@ -2359,6 +2366,7 @@ namespace SULFURTogether.Networking
             {
                 Revision = ++_sessionSettingsRevision,
                 FriendlyFire = Plugin.Cfg.FriendlyFire.Value,
+                DeveloperMode = CoopDevAuthority.HostSessionDevEnabled,
             };
         }
 
@@ -2401,9 +2409,81 @@ namespace SULFURTogether.Networking
                 NetLogger.Warn("[FF] malformed SessionSettings packet");
                 return;
             }
-            // SS-Toast: a live host-side change (not the join-time sync) is announced to this player too.
-            if (NetSessionSettings.ApplyReceived(state))
+            // SS-Toast: a live host-side change (not the join-time sync) is announced to this player too — per field.
+            var change = NetSessionSettings.ApplyReceived(state);
+            if (change.FriendlyFire)
                 UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.friendlyFire.label", "Friendly fire"), state.FriendlyFire);
+            if (change.DeveloperMode)
+                UI.CoopToasts.NotifyDeveloperMode(state.DeveloperMode);
+            // DEV-1: re-assert the local GameManager.DeveloperMode flag to the received session value. Runs even on
+            // the silent join-time sync (change flags are false there) so the first snapshot takes effect at once.
+            CoopDevAuthority.OnClientSessionSettingsApplied();
+        }
+
+        // ------------------------------------------------------------------------ VOTE-1 session votes (msg 76-78)
+        // Client→Host: propose a vote / cast. Host→all: the authoritative vote snapshot. The host owns the tally and
+        // the clock (CoopVoteManager); clients only display and forward. See Docs (issue #8) for the design.
+
+        internal void SendVoteStart(Vote.VoteKind kind)
+        {
+            if (_mode != NetMode.Client || _hostPeer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientVoteStart);
+                Vote.NetVoteCodec.WriteStart(w, kind);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { if (Plugin.Cfg.EnableDebugLog.Value) NetLogger.Debug($"[Vote] send start failed: {ex.Message}"); }
+        }
+
+        internal void SendVoteCast(Vote.VoteKind kind, Vote.VoteChoice choice)
+        {
+            if (_mode != NetMode.Client || _hostPeer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientVoteCast);
+                Vote.NetVoteCodec.WriteCast(w, kind, choice);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { if (Plugin.Cfg.EnableDebugLog.Value) NetLogger.Debug($"[Vote] send cast failed: {ex.Message}"); }
+        }
+
+        internal void BroadcastVoteState(Vote.VoteStateSnapshot snap)
+        {
+            if (_net == null || _mode != NetMode.Host || snap == null) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostVoteState);
+                    Vote.NetVoteCodec.WriteState(w, snap);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { if (Plugin.Cfg.EnableDebugLog.Value) NetLogger.Debug($"[Vote] broadcast failed: {ex.Message}"); }
+            }
+        }
+
+        private void HandleClientVoteStart(NetPeer peer, NetPacketReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Vote.NetVoteCodec.TryReadStart(reader, out var kind)) { NetLogger.Warn("[Vote] malformed ClientVoteStart"); return; }
+            if (!_peerIds.TryGetValue(peer, out var peerId)) return; // stamp the initiator from the authenticated connection
+            Vote.CoopVoteManager.HostHandleClientStart(peerId, kind, Now());
+        }
+
+        private void HandleClientVoteCast(NetPeer peer, NetPacketReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Vote.NetVoteCodec.TryReadCast(reader, out var kind, out var choice)) { NetLogger.Warn("[Vote] malformed ClientVoteCast"); return; }
+            if (!_peerIds.TryGetValue(peer, out var peerId)) return; // never trust a wire-supplied voter id
+            Vote.CoopVoteManager.HostHandleCast(peerId, kind, choice, Now());
+        }
+
+        private void HandleHostVoteState(NetPeer peer, NetPacketReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Vote.NetVoteCodec.TryReadState(reader, out var snap)) { NetLogger.Warn("[Vote] malformed HostVoteState"); return; }
+            Vote.CoopVoteManager.ClientApplySnapshot(snap);
         }
 
         // ------------------------------------------------------------------- FF-1 friendly-fire hit (msg 69)
@@ -3373,6 +3453,15 @@ namespace SULFURTogether.Networking
                     case NetMessageType.SessionSettings:
                         HandleSessionSettings(peer, reader);
                         break;
+                    case NetMessageType.ClientVoteStart:
+                        HandleClientVoteStart(peer, reader);
+                        break;
+                    case NetMessageType.ClientVoteCast:
+                        HandleClientVoteCast(peer, reader);
+                        break;
+                    case NetMessageType.HostVoteState:
+                        HandleHostVoteState(peer, reader);
+                        break;
 
                     case NetMessageType.Disconnect:
                         string disconnMsg = reader.GetString();
@@ -3434,8 +3523,12 @@ namespace SULFURTogether.Networking
                 Plugin.Cfg.MaxPlayers.Value,
                 now);
             _peerIds[peer] = session.PeerId;
+            session.DevEntitlement = data.DevEntitlement;
+            // DEV-1: fold the newcomer's dev entitlement into the session decision (may auto-enable/fail-closed).
+            CoopDevAuthority.HostPeerJoined(session.PeerId, data.DevEntitlement);
+            Vote.CoopVoteManager.HostOnMembershipChanged(Now()); // VOTE-1: a live vote's consensus is now void
 
-            NetLogger.Info($"[Net] Handshake OK — player='{session.PlayerName}' v={data.ModVersion}");
+            NetLogger.Info($"[Net] Handshake OK — player='{session.PlayerName}' v={data.ModVersion} devAccess={data.DevEntitlement}");
             NetLogger.Info($"[Session] Peer joined: id={session.PeerId} slot={session.Slot} name='{session.PlayerName}' endpoint={session.EndPoint}");
             UI.CoopToasts.Notify(UI.CoopLoc.Format("toast.playerJoined", "{name} joined", ("name", session.PlayerName)));
 
@@ -3499,6 +3592,8 @@ namespace SULFURTogether.Networking
                 NetConnectFeedback.ReportConnected();
                 SendRunState(peer, _runStates.LocalState);
             }
+            // DEV-1: mod now owns dev mode for this client; the host will push the session value right after.
+            CoopDevAuthority.OnClientConnected();
         }
 
         private void HandleRunStateUpdate(NetPeer peer, NetPacketReader reader)
@@ -4806,7 +4901,11 @@ namespace SULFURTogether.Networking
             {
                 string leftName = _sessions.Sessions.FirstOrDefault(s => s.PeerId == peerId)?.PlayerName ?? peerId;
                 if (_mode == NetMode.Host)
+                {
                     _sessions.Remove(peerId);
+                    CoopDevAuthority.HostPeerLeft(peerId); // DEV-1: recompute (may fail-closed dev off + toast)
+                    Vote.CoopVoteManager.HostOnMembershipChanged(Now()); // VOTE-1: void any live vote
+                }
                 else
                     _sessions.MarkDisconnected(peerId);
                 _runStates.RemoveRemote(peerId);
@@ -4827,6 +4926,7 @@ namespace SULFURTogether.Networking
                 {
                     _hostPeer = null;
                     NetClientJoinFlow.LeaveSession("disconnect");
+                    CoopDevAuthority.OnSessionEnded("host connection lost"); // DEV-1: revert to local entitlement while disconnected
                     NetLogger.Info("[Session] Host connection lost");
                 }
 

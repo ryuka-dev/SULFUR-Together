@@ -106,6 +106,23 @@
     { "key": "connect.status.notConnected", "value": "Not connected" },
     { "key": "connect.status.connecting", "value": "Connecting…" },
     { "key": "connect.gateHint", "value": "Load a save first — co-op is hosted / joined from inside the game." },
-    { "key": "connect.lanAddress", "value": "Your LAN address: {ip}:{port}  (others on your network join with this)" }
+    { "key": "connect.lanAddress", "value": "Your LAN address: {ip}:{port}  (others on your network join with this)" },
+    { "key": "session.devmode.enabled", "value": "Developer mode enabled" },
+    { "key": "session.devmode.disabled", "value": "Developer mode disabled — not all players have dev access" },
+    { "key": "connect.section.sessionEvents", "value": "Session events (need everyone's agreement)" },
+    { "key": "connect.button.proposeDevMode", "value": "Propose: enable developer mode" },
+    { "key": "connect.devVote.solo", "value": "Developer mode follows your launch setting while solo." },
+    { "key": "connect.devVote.on", "value": "Developer mode: On (this session)." },
+    { "key": "connect.devVote.active", "value": "Vote in progress — {agree}/{total} agreed, {secs}s left. Press Y / N in game." },
+    { "key": "connect.devVote.off", "value": "Developer mode: Off — propose a vote to enable it for everyone." },
+    { "key": "vote.prompt", "value": "[Y] Agree   [N] Decline — {agree}/{total} agreed, {secs}s" },
+    { "key": "vote.title.devMode", "value": "Enable developer mode?" },
+    { "key": "vote.title.generic", "value": "Vote" },
+    { "key": "vote.result.devEnabled", "value": "Developer mode enabled" },
+    { "key": "vote.result.tally", "value": "{agree}/{total} agreed" },
+    { "key": "vote.result.failed", "value": "Vote failed" },
+    { "key": "vote.result.devStaysOff", "value": "Developer mode stays off" },
+    { "key": "vote.result.cancelled", "value": "Vote cancelled" },
+    { "key": "vote.result.cancelledSub", "value": "Players changed" }
   ]
 }

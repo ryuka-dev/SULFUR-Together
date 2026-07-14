@@ -1,21 +1,24 @@
 using UnityEngine;
 using SULFURTogether.UI.RunStatsOverlay;
 
-namespace SULFURTogether.UI.DownedRescueOverlay
+namespace SULFURTogether.UI.Shared
 {
     /// <summary>
-    /// DR-4: derives a single continuous "vitality" value from rescue progress and drives every animated
-    /// property from it — float height/speed, breathing scale, tilt, and (via DownedRescuePanelView.SetVitality)
-    /// color/alpha. Never a discrete phase switch (design spec §6 explicitly forbids stage jump-cuts); vitality
-    /// rises smoothly with progress via a smoothstep ease, with a small idle floor so the panel is never fully
-    /// inert at 0%. Reuses RunStatsSpring (the existing underdamped-oscillator primitive) rather than inventing a
-    /// second spring type. Runs on unscaledDeltaTime, matching the project's no-pause-invariant convention.
+    /// Derives a single continuous "vitality" value from a 0..1 progress/energy input and drives every animated
+    /// property from it — float height/speed, breathing scale, tilt, and (via <see cref="IVitalityPanel.SetVitality"/>)
+    /// the panel's colour/alpha. Never a discrete phase switch: vitality rises smoothly via a smoothstep ease with a
+    /// small idle floor so the panel is never fully inert at 0%. Reuses <see cref="RunStatsSpring"/> (the existing
+    /// underdamped-oscillator primitive) rather than inventing a second spring type, and runs on unscaledDeltaTime
+    /// (the project's no-pause-invariant convention).
+    ///
+    /// Originally DR-4's <c>DownedRescueVitalityAnimator</c>; promoted to a shared widget (the issue #8 vote overlay
+    /// reuses it) by targeting <see cref="IVitalityPanel"/> instead of the concrete rescue panel.
     /// </summary>
-    internal sealed class DownedRescueVitalityAnimator
+    internal sealed class VitalityAnimator
     {
         private const float IdleFloor = 0.05f;
 
-        private readonly DownedRescuePanelView _panel;
+        private readonly IVitalityPanel _panel;
         private readonly Vector2 _basePosition;
 
         private RunStatsSpring _floatSpring;
@@ -23,7 +26,7 @@ namespace SULFURTogether.UI.DownedRescueOverlay
         private RunStatsSpring _tiltSpring;
         private float _phase;
 
-        public DownedRescueVitalityAnimator(DownedRescuePanelView panel)
+        public VitalityAnimator(IVitalityPanel panel)
         {
             _panel = panel;
             _basePosition = panel.Rect.anchoredPosition;

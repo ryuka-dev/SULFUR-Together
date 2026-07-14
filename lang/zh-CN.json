@@ -106,6 +106,23 @@
     { "key": "connect.status.notConnected", "value": "未连接" },
     { "key": "connect.status.connecting", "value": "正在连接…" },
     { "key": "connect.gateHint", "value": "请先载入存档——联机需在游戏内主持或加入。" },
-    { "key": "connect.lanAddress", "value": "你的局域网地址：{ip}:{port}  （同一网络下的其他人用它加入）" }
+    { "key": "connect.lanAddress", "value": "你的局域网地址：{ip}:{port}  （同一网络下的其他人用它加入）" },
+    { "key": "session.devmode.enabled", "value": "开发者模式已开启" },
+    { "key": "session.devmode.disabled", "value": "开发者模式已关闭——并非所有玩家都拥有开发权限" },
+    { "key": "connect.section.sessionEvents", "value": "会话事件（需全员同意）" },
+    { "key": "connect.button.proposeDevMode", "value": "发起投票：开启开发者模式" },
+    { "key": "connect.devVote.solo", "value": "单人时开发者模式跟随你的启动设置。" },
+    { "key": "connect.devVote.on", "value": "开发者模式：本会话已开启。" },
+    { "key": "connect.devVote.active", "value": "投票进行中——{agree}/{total} 已同意，剩 {secs} 秒。请在游戏中按 Y / N。" },
+    { "key": "connect.devVote.off", "value": "开发者模式：关闭——发起投票即可为全员开启。" },
+    { "key": "vote.prompt", "value": "[Y] 同意   [N] 拒绝 — {agree}/{total} 已同意，剩 {secs} 秒" },
+    { "key": "vote.title.devMode", "value": "开启开发者模式？" },
+    { "key": "vote.title.generic", "value": "投票" },
+    { "key": "vote.result.devEnabled", "value": "开发者模式已开启" },
+    { "key": "vote.result.tally", "value": "{agree}/{total} 已同意" },
+    { "key": "vote.result.failed", "value": "投票未通过" },
+    { "key": "vote.result.devStaysOff", "value": "开发者模式保持关闭" },
+    { "key": "vote.result.cancelled", "value": "投票已取消" },
+    { "key": "vote.result.cancelledSub", "value": "玩家人数变动" }
   ]
 }

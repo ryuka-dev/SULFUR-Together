@@ -357,5 +357,16 @@ namespace SULFURTogether.Networking
         // (their independent physics — plus inter-item collisions in co-op's no-pause drops — otherwise diverge).
         // One-shot per drop (re-sent only if the item is later disturbed and re-settles). See WorldPickupManager.
         WorldPickupSettle = 75,
+
+        // VOTE-1: generic host-authoritative session-vote subsystem (first consumer: EnableDevMode, issue #8).
+        // Client → Host: request to start a vote of a given kind. The host validates (no current vote, cooldown,
+        // in-session) and starts it; the host's own "propose" is a local call, not this message.
+        ClientVoteStart = 76,
+        // Client → Host: this client's cast (Agree / Decline) for the current vote of a given kind.
+        ClientVoteCast = 77,
+        // Host → all (ReliableOrdered): the authoritative vote snapshot — kind, rule, phase, outcome, countdown and
+        // every participant's choice. Monotonic revision so clients drop reordered re-sends. Host owns the tally and
+        // the clock; clients only display and forward casts.
+        HostVoteState = 78,
     }
 }

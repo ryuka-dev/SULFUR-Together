@@ -106,6 +106,23 @@
     { "key": "connect.status.notConnected", "value": "未接続" },
     { "key": "connect.status.connecting", "value": "接続中…" },
     { "key": "connect.gateHint", "value": "先にセーブを読み込んでください——協力プレイはゲーム内でホスト/参加します。" },
-    { "key": "connect.lanAddress", "value": "あなたの LAN アドレス：{ip}:{port}  （同じネットワークの人はこれで参加）" }
+    { "key": "connect.lanAddress", "value": "あなたの LAN アドレス：{ip}:{port}  （同じネットワークの人はこれで参加）" },
+    { "key": "session.devmode.enabled", "value": "開発者モードが有効になりました" },
+    { "key": "session.devmode.disabled", "value": "開発者モードが無効になりました——全員が開発者権限を持っていません" },
+    { "key": "connect.section.sessionEvents", "value": "セッションイベント（全員の同意が必要）" },
+    { "key": "connect.button.proposeDevMode", "value": "投票を提案：開発者モードを有効化" },
+    { "key": "connect.devVote.solo", "value": "ソロ時は開発者モードは起動設定に従います。" },
+    { "key": "connect.devVote.on", "value": "開発者モード：このセッションで有効。" },
+    { "key": "connect.devVote.active", "value": "投票中——{agree}/{total} が同意、残り {secs} 秒。ゲーム内で Y / N を押してください。" },
+    { "key": "connect.devVote.off", "value": "開発者モード：無効——投票を提案すると全員に有効化できます。" },
+    { "key": "vote.prompt", "value": "[Y] 同意   [N] 拒否 — {agree}/{total} が同意、残り {secs} 秒" },
+    { "key": "vote.title.devMode", "value": "開発者モードを有効にしますか？" },
+    { "key": "vote.title.generic", "value": "投票" },
+    { "key": "vote.result.devEnabled", "value": "開発者モードが有効になりました" },
+    { "key": "vote.result.tally", "value": "{agree}/{total} が同意" },
+    { "key": "vote.result.failed", "value": "投票は否決されました" },
+    { "key": "vote.result.devStaysOff", "value": "開発者モードは無効のままです" },
+    { "key": "vote.result.cancelled", "value": "投票がキャンセルされました" },
+    { "key": "vote.result.cancelledSub", "value": "プレイヤー構成が変わりました" }
   ]
 }

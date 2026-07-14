@@ -1,18 +1,19 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using SULFURTogether.UI.Shared;
 
 namespace SULFURTogether.UI.DownedRescueOverlay
 {
     /// <summary>
     /// DR-2/DR-3: the downed/rescue panel body. Same layered-primitive technique as RunStatsCardView (this mod's
     /// only precedent for a hand-built "SULFUR house style" panel — no native texture extraction exists anywhere
-    /// in this codebase): drop shadow → charcoal body → inner tint panel → two stacked DownedRescueBorderProgress
+    /// in this codebase): drop shadow → charcoal body → inner tint panel → two stacked PerimeterProgressGraphic
     /// strokes (dim complete base + bright live progress) → main/sub TMP text. A "dim/dread → warm/alive" palette
     /// rather than RunStatsCardView's "fire lake" card look, reusing its ember/gold accents rather than inventing
     /// a new hue (DR-4 lerps toward these as the rescue's vitality rises).
     /// </summary>
-    internal sealed class DownedRescuePanelView
+    internal sealed class DownedRescuePanelView : IVitalityPanel
     {
         // Dread/vitality palette. Deliberately desaturated/cold at rest, warming toward the reused RunStatsCardView
         // ember/gold accents as vitality rises — never a hue this panel invents on its own.
@@ -32,12 +33,12 @@ namespace SULFURTogether.UI.DownedRescueOverlay
         private readonly RectTransform _rect;
         private readonly CanvasGroup _canvasGroup;
         private readonly Image _innerTint;
-        private readonly DownedRescueBorderProgress _progressStroke;
+        private readonly PerimeterProgressGraphic _progressStroke;
         private readonly TextMeshProUGUI _mainText;
         private readonly TextMeshProUGUI _subText;
 
         private DownedRescuePanelView(GameObject root, CanvasGroup canvasGroup, Image innerTint,
-            DownedRescueBorderProgress progressStroke, TextMeshProUGUI mainText, TextMeshProUGUI subText)
+            PerimeterProgressGraphic progressStroke, TextMeshProUGUI mainText, TextMeshProUGUI subText)
         {
             _root = root;
             _rect = (RectTransform)root.transform;
@@ -115,16 +116,16 @@ namespace SULFURTogether.UI.DownedRescueOverlay
             return image;
         }
 
-        private static DownedRescueBorderProgress CreateBorderStroke(Transform parent, string name, Color color, float thickness, float inset)
+        private static PerimeterProgressGraphic CreateBorderStroke(Transform parent, string name, Color color, float thickness, float inset)
         {
-            var go = new GameObject(name, typeof(RectTransform), typeof(DownedRescueBorderProgress));
+            var go = new GameObject(name, typeof(RectTransform), typeof(PerimeterProgressGraphic));
             go.transform.SetParent(parent, false);
             var rect = (RectTransform)go.transform;
             rect.anchorMin = Vector2.zero;
             rect.anchorMax = Vector2.one;
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
-            var stroke = go.GetComponent<DownedRescueBorderProgress>();
+            var stroke = go.GetComponent<PerimeterProgressGraphic>();
             stroke.color = color;
             stroke.Thickness = thickness;
             stroke.Inset = inset;

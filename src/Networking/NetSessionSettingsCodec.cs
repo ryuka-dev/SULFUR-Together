@@ -8,6 +8,7 @@ namespace SULFURTogether.Networking
         {
             w.Put(s.Revision);
             w.Put(s.FriendlyFire);
+            w.Put(s.DeveloperMode);
         }
 
         public static bool TryRead(NetDataReader r, out NetSessionSettingsState result)
@@ -16,8 +17,9 @@ namespace SULFURTogether.Networking
             try
             {
                 var s = new NetSessionSettingsState();
-                s.Revision     = r.GetInt();
-                s.FriendlyFire = r.GetBool();
+                s.Revision      = r.GetInt();
+                s.FriendlyFire  = r.GetBool();
+                s.DeveloperMode = r.GetBool();
                 result = s;
                 return true;
             }

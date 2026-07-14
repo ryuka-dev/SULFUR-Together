@@ -119,6 +119,12 @@ All strings below are looked up by the listed **key(s)** from `lang/*.json`; the
 | 23 | `Rescuing {name}` / `Hold [{key}]` | `rescue.rescuer.active`, `rescue.hold` | `DownedRescueOverlayManager` (DR-2) | Rescuer's prompt (main/sub text) while actively holding the revive key near a downed teammate. |
 | 24 | `Rescue {name}` / `Hold [{key}]` | `rescue.rescuer.idle`, `rescue.hold` | `DownedRescueOverlayManager` (DR-2) | Rescuer's idle hint — shown when near a downed teammate but not yet holding the key (progress 0, a local-only proximity check, not network state). |
 | 25 | `Rescue complete` / `Restored` | `rescue.complete.rescuer`, `rescue.complete.restored` | `DownedRescueOverlayManager` (DR-5) | Brief completion text — first form shown to the rescuer, second to the just-revived player — held ~0.6s before the panel fades out. Never shown on a cancelled rescue (that just fades, no text change). |
+| 26 | Developer-mode session toast — `Developer mode enabled` / `Developer mode disabled — not all players have dev access` | `session.devmode.enabled`, `session.devmode.disabled` | `CoopToasts.NotifyDeveloperMode` (DEV-1) | Fired on host + every client when the session dev-mode flag flips (vote passed / all players entitled / a non-dev player joined). Dev-specific wording so a disabled state explains *why*. |
+| 27 | Connect-page "Session events" section — heading, propose button, and the four dev-vote status lines | `connect.section.sessionEvents`, `connect.button.proposeDevMode`, `connect.devVote.solo`, `connect.devVote.on`, `connect.devVote.active`, `connect.devVote.off` | `CoopConnectPage.cs` (VOTE-1) | The propose surface + live status for the dev-mode vote. `{agree}`/`{total}`/`{secs}` tokens on the active line. |
+| 28 | Vote overlay — title, prompt, and result lines | `vote.title.devMode`, `vote.title.generic`, `vote.prompt`, `vote.result.devEnabled`, `vote.result.tally`, `vote.result.failed`, `vote.result.devStaysOff`, `vote.result.cancelled`, `vote.result.cancelledSub` | `VoteOverlayManager` (UI-VOTE) | The in-world vote HUD. `{agree}`/`{total}`/`{secs}` tokens. Result lines shown during the 5s residual before the panel fades. |
+
+> Rows 26–28 added to `en.json` (canonical) + hand-translated `zh-CN.json` / `ja.json`; the other 11
+> language files fall back to English via the `current → base → en` chain until synced.
 
 ### Planned, not yet written (register here when added)
 

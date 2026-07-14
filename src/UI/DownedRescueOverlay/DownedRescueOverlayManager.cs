@@ -1,6 +1,7 @@
 using UnityEngine;
 using SULFURTogether.Networking;
 using SULFURTogether.Networking.Gameplay;
+using SULFURTogether.UI.Shared;
 
 namespace SULFURTogether.UI.DownedRescueOverlay
 {
@@ -24,7 +25,7 @@ namespace SULFURTogether.UI.DownedRescueOverlay
 
         private static GameObject? _root;
         private static DownedRescuePanelView? _panel;
-        private static DownedRescueVitalityAnimator? _animator;
+        private static VitalityAnimator? _animator;
 
         private static bool _shownLastTick;
         private static EndFadePhase _endPhase = EndFadePhase.None;
@@ -233,7 +234,7 @@ namespace SULFURTogether.UI.DownedRescueOverlay
             if (_root != null) return;
             _root = DownedRescueCanvasBuilder.BuildRoot(out var panelRect);
             _panel = DownedRescuePanelView.Create(panelRect, NativeFontSampler.ResolveNativeFont());
-            _animator = new DownedRescueVitalityAnimator(_panel);
+            _animator = new VitalityAnimator(_panel);
             Object.DontDestroyOnLoad(_root);
             _root.SetActive(false);
         }

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Ryuka.Sulfur.NativeUI;
 using Steamworks;
 using SULFURTogether.Networking;
+using SULFURTogether.Networking.Vote;
 using TMPro;
 using UnityEngine;
 
@@ -55,6 +56,10 @@ namespace SULFURTogether.UI
 
         // FF-1: read-only session friendly-fire line (visible only while connected as a client).
         private static SulfurTextHandle   _ffSessionHandle;
+
+        // VOTE-1 (issue #8): the "Session events" section — a status line + the "propose dev mode vote" button.
+        private static SulfurTextHandle   _devVoteStatusHandle;
+        private static SulfurButtonHandle _devVoteButton;
 
         // FF-1b/1c: the FF toggle's native row. On a client the whole "Session settings (host)" section must be
         // visibly non-operable: the row is dimmed + input-blocked (see ApplyFfRowLock for why a CanvasGroup, not the
@@ -127,6 +132,7 @@ namespace SULFURTogether.UI
                 ApplyHostLanIp();
                 ApplySteamState();
                 ApplySessionFriendlyFireControl();
+                ApplyDevVoteControl();
                 RefreshPlayerList();
                 PollJoinClose();
             }
@@ -231,6 +237,17 @@ namespace SULFURTogether.UI
             _ffSessionHandle = ctx.AddTextRow("");
             _ffSessionHandle.SetVisible(false);
 
+            // --- Session events (vote-gated; VOTE-1, issue #8) ------------------------------------------
+            // Transient, everyone-must-agree events kept separate from the persistent local prefs / host settings
+            // above. Developer mode is the first: any player can propose it, and it needs a unanimous vote (or every
+            // player launching with dev access) — a single -dev player can no longer grief the others.
+            ctx.AddSection(CoopLoc.Get("connect.section.sessionEvents", "Session events (need everyone's agreement)"));
+            _devVoteStatusHandle = ctx.AddTextRow("");
+            IReadOnlyList<SulfurButtonHandle> devVoteRow = ctx.AddButtonRow(
+                new SulfurButton(CoopLoc.Get("connect.button.proposeDevMode", "Propose: enable developer mode"),
+                    OnProposeDevModeVote, 320f));
+            _devVoteButton = Handle(devVoteRow, 0);
+
             // --- About ----------------------------------------------------------------------------------
             ctx.AddSection(CoopLoc.Get("connect.section.about", "About"));
             ctx.AddReadonlyText(CoopLoc.Get("connect.label.version", "Version"), ModInfo.Version);
@@ -251,6 +268,7 @@ namespace SULFURTogether.UI
             ApplyHostLanIp();
             ApplySteamState();
             ApplySessionFriendlyFireControl();
+            ApplyDevVoteControl();
             RefreshPlayerList();
         }
 
@@ -598,6 +616,8 @@ namespace SULFURTogether.UI
             _ffSessionHandle          = null;
             _ffToggleOption           = null;
             _ffLockApplied            = false;
+            _devVoteStatusHandle      = null;
+            _devVoteButton            = null;
         }
 
         // FF-1: persist the toggle (coop.json, via Setting<T>) and, when currently hosting, broadcast the new
@@ -631,6 +651,37 @@ namespace SULFURTogether.UI
                 }
             }
             catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] friendly-fire broadcast failed: {e.Message}"); }
+        }
+
+        // VOTE-1: the local player proposes the dev-mode vote. Host starts it locally; a client asks the host, which
+        // validates and starts. The proposer implicitly agrees (CoopVoteManager).
+        private static void OnProposeDevModeVote()
+            => CoopVoteManager.ProposeDevModeVote(Time.realtimeSinceStartup);
+
+        // VOTE-1: refresh the "Session events" status line + propose-button enabled state each tick.
+        private static void ApplyDevVoteControl()
+        {
+            if (_devVoteStatusHandle == null || _devVoteButton == null) return;
+            var mode = CoopConnection.CurrentMode;
+            string text;
+            if (mode == NetMode.Off)
+                text = CoopLoc.Get("connect.devVote.solo", "Developer mode follows your launch setting while solo.");
+            else if (NetSessionSettings.DeveloperModeEnabled)
+                text = CoopLoc.Get("connect.devVote.on", "Developer mode: On (this session).");
+            else
+            {
+                var vote = CoopVoteManager.Current;
+                if (vote != null && vote.HasVote && vote.Phase == VotePhase.Active && vote.Kind == VoteKind.EnableDevMode)
+                    text = CoopLoc.Format("connect.devVote.active",
+                        "Vote in progress — {agree}/{total} agreed, {secs}s left. Press Y / N in game.",
+                        ("agree", vote.AgreeCount.ToString()),
+                        ("total", vote.Total.ToString()),
+                        ("secs", Mathf.CeilToInt(vote.SecondsRemaining).ToString()));
+                else
+                    text = CoopLoc.Get("connect.devVote.off", "Developer mode: Off — propose a vote to enable it for everyone.");
+            }
+            _devVoteStatusHandle.SetText(text);
+            _devVoteButton.SetInteractable(CoopVoteManager.CanProposeDevModeVote());
         }
 
         // FF-1b: keep the FF row role-correct each tick. Client: locked (label + checkbox greyed, mouse/keyboard

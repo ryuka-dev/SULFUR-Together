@@ -16,6 +16,7 @@ namespace SULFURTogether.Networking
         public float              JoinedAt        { get; set; }
         public float              LastSeen        { get; set; }
         public bool               IsLocal         { get; set; }
+        public bool               DevEntitlement  { get; set; }   // DEV-1: reported at handshake (developer access)
 
         public bool IsConnected => State == NetConnectionState.Connected;
 

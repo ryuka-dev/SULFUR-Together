@@ -40,6 +40,18 @@ namespace SULFURTogether.UI
                 respectPreference: false);
 
         /// <summary>
+        /// DEV-1: dev-mode session-state announcement, same intent as <see cref="NotifySessionSetting"/> but with
+        /// its own wording so a disabled state can explain <i>why</i> (a player without dev access is present) —
+        /// otherwise a player whose F3 tools stop working has no idea a non-dev peer caused it. Also bypasses the
+        /// local join/leave preference (a session-wide gameplay change every player must be told about).
+        /// </summary>
+        public static void NotifyDeveloperMode(bool enabled)
+            => Notify(null, enabled
+                ? CoopLoc.Get("session.devmode.enabled", "Developer mode enabled")
+                : CoopLoc.Get("session.devmode.disabled", "Developer mode disabled — not all players have dev access"),
+                respectPreference: false);
+
+        /// <summary>
         /// Show a co-op toast (and always log the event). No-op when <c>EnableCoopToasts</c> is off.
         /// Safe to call when the UI Lib is absent — the event is logged only.
         /// </summary>

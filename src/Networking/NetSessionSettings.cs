@@ -9,6 +9,16 @@ namespace SULFURTogether.Networking
     {
         public int  Revision;
         public bool FriendlyFire;
+        public bool DeveloperMode;   // DEV-1: host-authoritative session developer mode (vote/entitlement gated, transient)
+    }
+
+    /// <summary>DEV-1: which session-setting fields changed in a live (non-initial) apply, so the caller toasts
+    /// exactly the ones that moved (each with its own message).</summary>
+    public struct SessionSettingsChange
+    {
+        public bool FriendlyFire;
+        public bool DeveloperMode;
+        public bool Any => FriendlyFire || DeveloperMode;
     }
 
     /// <summary>
@@ -22,6 +32,7 @@ namespace SULFURTogether.Networking
     public static class NetSessionSettings
     {
         private static bool _receivedFriendlyFire;
+        private static bool _receivedDeveloperMode;
         private static int  _lastAppliedRevision = -1;
 
         /// <summary>The effective friendly-fire setting for the local end, whatever its role.</summary>
@@ -38,6 +49,22 @@ namespace SULFURTogether.Networking
             }
         }
 
+        /// <summary>DEV-1: the effective session developer-mode flag for the local end. The host's truth is the
+        /// <see cref="CoopDevAuthority"/> decision (vote/entitlement), not a saved config value; a client mirrors
+        /// what the host broadcast and defaults OFF until told otherwise.</summary>
+        public static bool DeveloperModeEnabled
+        {
+            get
+            {
+                switch (NetConfig.GetMode())
+                {
+                    case NetMode.Host:   return CoopDevAuthority.HostSessionDevEnabled;
+                    case NetMode.Client: return _receivedDeveloperMode;
+                    default:             return false;
+                }
+            }
+        }
+
         private static bool ReadHostConfig()
         {
             try { return Plugin.Cfg.FriendlyFire.Value; }
@@ -45,25 +72,35 @@ namespace SULFURTogether.Networking
         }
 
         /// <summary>Client: apply a received host snapshot. Stale revisions (reordered re-sends) are dropped.
-        /// Returns true only for a live change — a value that differs from the previous snapshot AND is not the
-        /// initial join-time sync — so the caller can notify the player (SS-Toast) without toasting on join.</summary>
-        public static bool ApplyReceived(NetSessionSettingsState state)
+        /// Returns the set of fields that changed in a live (non-initial) apply — a value that differs from the
+        /// previous snapshot AND is not the initial join-time sync — so the caller can notify the player
+        /// (SS-Toast) per field without toasting on join.</summary>
+        public static SessionSettingsChange ApplyReceived(NetSessionSettingsState state)
         {
-            if (state == null) return false;
-            if (state.Revision <= _lastAppliedRevision) return false;
+            var change = new SessionSettingsChange();
+            if (state == null) return change;
+            if (state.Revision <= _lastAppliedRevision) return change;
             bool initial = _lastAppliedRevision < 0;
             _lastAppliedRevision = state.Revision;
-            bool changed = _receivedFriendlyFire != state.FriendlyFire;
-            _receivedFriendlyFire = state.FriendlyFire;
-            if (changed && Plugin.Cfg.LogFriendlyFire.Value)
-                Plugin.Log.Info($"[FF] session settings applied: friendlyFire={state.FriendlyFire} rev={state.Revision}");
-            return changed && !initial;
+
+            bool ffChanged  = _receivedFriendlyFire  != state.FriendlyFire;
+            bool devChanged = _receivedDeveloperMode != state.DeveloperMode;
+            _receivedFriendlyFire  = state.FriendlyFire;
+            _receivedDeveloperMode = state.DeveloperMode;
+
+            if ((ffChanged || devChanged) && Plugin.Cfg.LogFriendlyFire.Value)
+                Plugin.Log.Info($"[SessionSettings] applied: friendlyFire={state.FriendlyFire} developerMode={state.DeveloperMode} rev={state.Revision}");
+
+            change.FriendlyFire  = ffChanged  && !initial;
+            change.DeveloperMode = devChanged && !initial;
+            return change;
         }
 
         /// <summary>Reset on session teardown so a later session starts from the safe default (OFF).</summary>
         public static void ResetSession()
         {
-            _receivedFriendlyFire = false;
+            _receivedFriendlyFire  = false;
+            _receivedDeveloperMode = false;
             _lastAppliedRevision = -1;
         }
     }
