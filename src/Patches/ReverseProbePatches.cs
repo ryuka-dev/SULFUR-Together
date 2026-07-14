@@ -63,10 +63,45 @@ namespace SULFURTogether.Patches
         private static string V(Vector3 v)        => ReverseProbeFormatter.FormatVector3(v);
         private static string ItemName(object? o) => ReverseProbeFormatter.FormatItemName(o);
 
+        // The damage source travels as a boxed DamageSourceData struct — argument index 1 of the real ReceiveDamage
+        // overload (see ApplyDamageForwardPatches). Both readers below cache their FieldInfo keyed on the concrete
+        // type name, so a shape change re-resolves rather than returning a stale field.
+        private const int DamageSourceArgIndex = 1;
+
+        private static object? DamageSourceOf(object[]? args) =>
+            (args != null && args.Length > DamageSourceArgIndex) ? args[DamageSourceArgIndex] : null;
+
+        // The real overload carries no DamageTypes parameter — DamageSourceData.damageType holds it (the wrapper
+        // stamps it there). Returns the boxed enum so callers can Convert.ToInt32 it, or null when unreadable.
+        private static string? _dsdTypeField_typeName;
+        private static System.Reflection.FieldInfo? _dsdTypeField;
+        private static object? ReadDamageType(object? source)
+        {
+            if (source == null) return null;
+            try
+            {
+                var t = source.GetType();
+                if (_dsdTypeField == null || _dsdTypeField_typeName != t.FullName)
+                {
+                    _dsdTypeField = t.GetField("damageType",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    _dsdTypeField_typeName = t.FullName;
+                }
+                return _dsdTypeField?.GetValue(source);
+            }
+            catch { return null; }
+        }
+
+        private static int ReadDamageTypeInt(object? source)
+        {
+            try { var v = ReadDamageType(source); return v == null ? 0 : Convert.ToInt32(v); }
+            catch { return 0; }
+        }
+
         // Issue #2: true when a ReceiveDamage source is a periodic damage-over-time tick. The game's AttributeEffect
         // stamps DamageSourceData.name = "PeriodicModifier" on every poison/fire/bleed tick (DamageSourceData is a
-        // struct, so this arrives boxed via __args[2]). Used to keep enemy DoT client-local instead of double-counting
-        // it through the host→proxy damage-forward channel.
+        // struct, so this arrives boxed). Used to keep enemy DoT client-local instead of double-counting it through
+        // the host→proxy damage-forward channel.
         private static string? _dsdNameField_typeName;
         private static System.Reflection.FieldInfo? _dsdNameField;
         private static bool IsPeriodicDotSource(object? source)
@@ -151,12 +186,29 @@ namespace SULFURTogether.Patches
         //    client combat — TryClientBossHit / puppet damage authority / TrySendClientHitRequest.
         // Both were previously buried under [Probe] switches (EnableDamageProbe / EnableNpcProbe) that read like logs.
         // The high-frequency per-hit log lines inside both prefixes are separately gated by LogUnitReceiveDamage.
+        //
+        // Bind ONLY the real implementation — the overload taking DamageSourceData — never the convenience wrapper.
+        // Unit declares two: `(float, DamageTypes, IDamager, Hitmesh.Data, Vector3?)` only validates its arguments and
+        // builds a DamageSourceData before calling `(float, DamageSourceData, Hitmesh.Data, Vector3?)`, which is where
+        // onHitRecieved, the Stats deduction and onDamageRecieved actually happen; Npc overrides just the latter.
+        // Binding the real one alone gets every hit exactly once (patching both would run the prefix twice for
+        // wrapper-routed damage), still catches callers that build their own DamageSourceData and skip the wrapper,
+        // and leaves __args with a single known shape so the prefixes need no overload discrimination.
+        private static MethodInfo? FindRealReceiveDamage(Type t) =>
+            AccessTools.GetDeclaredMethods(t).FirstOrDefault(m =>
+                m.Name == "ReceiveDamage"
+                && m.GetParameters().Length >= 2
+                && m.GetParameters()[1].ParameterType.Name == "DamageSourceData");
+
         private static void ApplyDamageForwardPatches(Harmony harmony)
         {
             var unitT = FindType("PerfectRandom.Sulfur.Core.Units.Unit");
             if (unitT != null)
             {
-                foreach (var m in AccessTools.GetDeclaredMethods(unitT).Where(m => m.Name == "ReceiveDamage"))
+                var m = FindRealReceiveDamage(unitT);
+                if (m == null)
+                    Log.Error("[DamageForward] Unit.ReceiveDamage(DamageSourceData) not found — damage suppression and host→client forwarding are INACTIVE");
+                else
                 {
                     try { harmony.Patch(m, prefix: Pre(nameof(Unit_ReceiveDamage_Pre)), postfix: Post(nameof(Unit_ReceiveDamage_Post))); }
                     catch (Exception ex) { Log.Error($"[DamageForward] Unit.ReceiveDamage patch failed: {ex.Message}"); }
@@ -165,7 +217,10 @@ namespace SULFURTogether.Patches
             var npcT = FindType("PerfectRandom.Sulfur.Core.Units.Npc");
             if (npcT != null)
             {
-                foreach (var m in AccessTools.GetDeclaredMethods(npcT).Where(m => m.Name == "ReceiveDamage"))
+                var m = FindRealReceiveDamage(npcT);
+                if (m == null)
+                    Log.Error("[DamageForward] Npc.ReceiveDamage(DamageSourceData) not found — client→host hit forwarding is INACTIVE");
+                else
                 {
                     try { harmony.Patch(m, prefix: Pre(nameof(Npc_ReceiveDamage_Pre))); }
                     catch (Exception ex) { Log.Error($"[DamageForward] Npc.ReceiveDamage patch failed: {ex.Message}"); }
@@ -1037,11 +1092,12 @@ namespace SULFURTogether.Patches
             }
             catch { }
         }
-        // __args: full argument list of whichever ReceiveDamage overload fired. Both native overloads carry the
-        // damage source at index 2 (IDamager `source` / DamageSourceData `sourceData` — different name AND type, so
-        // a named parameter binding would fail to patch one of them, and an index binding (`__2`) would break the
-        // whole functional prefix on any shorter overload). `__args` binds on every signature.
-        private static bool Unit_ReceiveDamage_Pre(object __instance, float damage, object damageType, object[] __args)
+        // __args: full argument list of the real ReceiveDamage overload, the only one we bind (see
+        // ApplyDamageForwardPatches) — `(float damage, DamageSourceData sourceData, Hitmesh.Data hitbox,
+        // Vector3? hitPosition)`. The damage source is therefore always DamageSourceArgIndex, and the DamageTypes
+        // value lives inside it rather than in a parameter of its own; read both through the helpers so this prefix
+        // never depends on the parameter *names*, which differ between Unit (`sourceData`) and Npc (`source`).
+        private static bool Unit_ReceiveDamage_Pre(object __instance, float damage, object[] __args)
         {
             try
             {
@@ -1054,7 +1110,7 @@ namespace SULFURTogether.Patches
                 if (damage > 0f && NetConfig.GetMode() == NetMode.Host
                     && SULFURTogether.Networking.RemotePlayerTargetProxyManager.TryGetProxyPeer(__instance, out var proxyPeer))
                 {
-                    object? ffSource = (__args != null && __args.Length > 2) ? __args[2] : null;
+                    object? ffSource = DamageSourceOf(__args);
 
                     // Issue #2: a periodic damage-over-time tick (poison/fire/bleed — AttributeEffect stamps
                     // DamageSourceData.name = "PeriodicModifier") on the ghost proxy must NOT be forwarded. The owning
@@ -1076,9 +1132,8 @@ namespace SULFURTogether.Patches
                     }
                     Vector3 hitPos = (__instance is Component pcx && pcx != null) ? pcx.transform.position : UnityEngine.Vector3.zero;
                     // Forward the real DamageTypes value (enum) so the client applies the correct type instead of None(0),
-                    // which Unit.ReceiveDamage rejects. The synthetic ranged-hit path has no real type and passes 0.
-                    int damageTypeInt = 0;
-                    try { if (damageType != null) damageTypeInt = Convert.ToInt32(damageType); } catch { }
+                    // which the wrapper rejects outright. The synthetic ranged-hit path has no real type and passes 0.
+                    int damageTypeInt = ReadDamageTypeInt(ffSource);
                     NetPlayerLifeManager.ReportHostAuthoritativeEnemyDamage(proxyPeer, damage,
                         fromLocalPlayer ? "player friendly fire" : "enemy via target proxy", hitPos, damageTypeInt);
                     return false; // suppress local proxy damage
@@ -1093,15 +1148,13 @@ namespace SULFURTogether.Patches
                 {
                     if (damage > 0f && SULFURTogether.Networking.NetSessionSettings.FriendlyFireEnabled)
                     {
-                        object? ffSource = (__args != null && __args.Length > 2) ? __args[2] : null;
+                        object? ffSource = DamageSourceOf(__args);
                         bool fromLocalPlayer = FriendlyFireClassifier.IsFromLocalPlayer(ffSource);
                         FriendlyFireClassifier.LogClassification("client proxy hit", ffSource, damage, fromLocalPlayer);
                         if (fromLocalPlayer)
                         {
                             Vector3 ffHitPos = (__instance is Component fcx && fcx != null) ? fcx.transform.position : UnityEngine.Vector3.zero;
-                            int ffDamageTypeInt = 0;
-                            try { if (damageType != null) ffDamageTypeInt = Convert.ToInt32(damageType); } catch { }
-                            NetFriendlyFireManager.SendLocalPlayerHit(ffVictimPeer, damage, ffDamageTypeInt, ffHitPos);
+                            NetFriendlyFireManager.SendLocalPlayerHit(ffVictimPeer, damage, ReadDamageTypeInt(ffSource), ffHitPos);
                         }
                     }
                     return false; // the hit proxy never takes local damage
@@ -1129,7 +1182,7 @@ namespace SULFURTogether.Patches
                 string category = GetUnitCategory(__instance);
                 ReverseProbeSummary.IncrementDamage(category);
                 ReverseProbeKnownObjects.RegisterDamage(ID(__instance));
-                NetGameplayProbeManager.ReportDamage(__instance, "Unit.ReceiveDamage", category, damage, damageType);
+                NetGameplayProbeManager.ReportDamage(__instance, "Unit.ReceiveDamage", category, damage, ReadDamageType(DamageSourceOf(__args)));
 
                 // RS-1: the Host's own local player taking damage natively (no target proxy involved — that path
                 // above already handles remote players). Cache "before" HP here (prefix runs before the real
@@ -1145,7 +1198,7 @@ namespace SULFURTogether.Patches
                 }
 
                 if (Cfg.LogUnitReceiveDamage.Value)   // high-frequency per-hit line — separately gated so the functional patch can stay always-on
-                    Log.Info($"[Unit] ReceiveDamage << {F(__instance)} dmg={damage} type={damageType}");
+                    Log.Info($"[Unit] ReceiveDamage << {F(__instance)} dmg={damage} type={ReadDamageType(DamageSourceOf(__args))}");
             }
             catch (Exception ex) { Log.Error($"[Unit.ReceiveDamage] {ex.Message}"); }
             return true;
@@ -1509,9 +1562,11 @@ namespace SULFURTogether.Patches
         }
 
         // Phase 5.3-B: returns bool so we can suppress local damage when client redirects to host.
-        // 'source' binds to the DamageSourceData parameter of Npc.ReceiveDamage(float, DamageTypes, DamageSourceData
-        // source, Hitmesh.Data, Vector3?) — its sole overload. Used to tell a real player hit from physics/environment.
-        private static bool Npc_ReceiveDamage_Pre(object __instance, float damage, object damageType, object source)
+        // 'source' binds to the DamageSourceData parameter of Npc.ReceiveDamage(float, DamageSourceData source,
+        // Hitmesh.Data, Vector3?) — its sole override, and the real damage implementation (Unit's wrapper overload is
+        // deliberately not patched). Used to tell a real player hit from physics/environment, and it carries the
+        // DamageTypes value the signature no longer passes separately.
+        private static bool Npc_ReceiveDamage_Pre(object __instance, float damage, object source)
         {
             try
             {
@@ -1520,7 +1575,7 @@ namespace SULFURTogether.Patches
                 // ordinary path ran first it would claim the hit and the boss never sees it (no main-health drop).
                 // TryClientBossHit only claims a hit on a REGISTERED boss's current target (Witch phase1/3/4/5/6 witchUnit
                 // + main, Lucia, Cousin); ordinary enemies, Witch egg and adds are NOT matched and fall through below.
-                int damageTypeInt = 0; try { if (damageType != null) damageTypeInt = System.Convert.ToInt32(damageType); } catch { }
+                int damageTypeInt = ReadDamageTypeInt(source);
                 if (SULFURTogether.Networking.Gameplay.Boss.NetBossEncounterManager.TryClientBossHit(__instance, damage, damageTypeInt))
                     return false;
 
@@ -1545,12 +1600,12 @@ namespace SULFURTogether.Patches
                 // Phase 5.3-B: intercept client player → puppet NPC damage and redirect to Host.
                 // If TrySendClientHitRequest returns true, the host will apply authoritative damage;
                 // suppress local application to avoid divergence.
-                if (NetGameplayProbeManager.TrySendClientHitRequest(__instance, damage, damageType))
+                if (NetGameplayProbeManager.TrySendClientHitRequest(__instance, damage, ReadDamageType(source)))
                     return false;
 
                 ReverseProbeSummary.IncrementDamage("Npc");
                 ReverseProbeKnownObjects.RegisterDamage(ID(__instance));
-                NetGameplayProbeManager.ReportDamage(__instance, "Npc.ReceiveDamage", "Npc", damage, damageType);
+                NetGameplayProbeManager.ReportDamage(__instance, "Npc.ReceiveDamage", "Npc", damage, ReadDamageType(source));
                 // Phase 5.2: damage event (amount only) sent here; health is read in
                 // Unit_ReceiveDamage_Post after the actual Stats deduction in Unit.ReceiveDamage.
                 NetGameplayProbeManager.ReportHostNpcDamageForSync(__instance, damage);
@@ -1567,7 +1622,7 @@ namespace SULFURTogether.Patches
                 }
 
                 if (Cfg.LogUnitReceiveDamage.Value)   // high-frequency per-hit line — separately gated so the functional patch stays always-on
-                    Log.Info($"[Npc] ReceiveDamage << {F(__instance)} dmg={damage} type={damageType}");
+                    Log.Info($"[Npc] ReceiveDamage << {F(__instance)} dmg={damage} type={ReadDamageType(source)}");
             }
             catch (Exception ex) { Log.Error($"[Npc.ReceiveDamage] {ex.Message}"); }
             return true;
