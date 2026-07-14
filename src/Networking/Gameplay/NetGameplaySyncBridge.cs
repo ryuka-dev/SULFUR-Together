@@ -122,6 +122,18 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastChestOpened(msg);
         }
 
+        // SL-2b — shared-loot LootableObject (food/material/register). A client asks the host to trigger its copy.
+        public static void ReportLootableRequest(NetChestOpen msg)
+        {
+            _service?.SendLootableRequest(msg);
+        }
+
+        // SL-2b — the host broadcasts a LootableObject it triggered so every peer replays the animation.
+        public static void ReportLootableTriggered(NetChestOpen msg)
+        {
+            _service?.BroadcastLootableTriggered(msg);
+        }
+
         // Phase LD-1 — generic combat-room gate (MetalGate) open/close channel. The peer that changed a gate reports it;
         // NetService stamps PeerId + scene context and routes it (Client→Host→relay to other Clients; firing peer never
         // mirrors its own). See GateSyncManager.

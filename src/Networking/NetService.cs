@@ -1822,6 +1822,59 @@ namespace SULFURTogether.Networking
                 Gameplay.ChestSyncManager.ApplyRemoteOpened(msg);
         }
 
+        // ---------------------------------------------------------------- SL-2b LootableObject (food/material/register)
+        internal void SendLootableRequest(Gameplay.NetChestOpen msg)
+        {
+            if (_net == null || msg == null) return;
+            if (_mode != NetMode.Client || _hostPeer == null) return; // only a client requests
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId; msg.ChapterName = local.ChapterName; msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed; msg.LevelSeed = local.LevelSeed; msg.SentAt = Now();
+
+            SendChest(_hostPeer, NetMessageType.LootableTriggerRequest, msg);
+        }
+
+        internal void BroadcastLootableTriggered(Gameplay.NetChestOpen msg)
+        {
+            if (_net == null || msg == null) return;
+            if (_mode != NetMode.Host) return; // only the host broadcasts
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId; msg.ChapterName = local.ChapterName; msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed; msg.LevelSeed = local.LevelSeed; msg.SentAt = Now();
+
+            foreach (var peer in _clients.ToArray())
+                SendChest(peer, NetMessageType.LootableTriggered, msg);
+        }
+
+        private void HandleLootableRequest(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Gameplay.NetChestOpenCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[LootableSync] malformed LootableTriggerRequest packet");
+                return;
+            }
+            if (!_peerIds.TryGetValue(peer, out var peerId)) return;
+            msg.PeerId = peerId;
+            if (msg.MatchesScene(_runStates.LocalState))
+                Gameplay.LootableSyncManager.HandleRequest(msg);
+        }
+
+        private void HandleLootableTriggered(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Gameplay.NetChestOpenCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[LootableSync] malformed LootableTriggered packet");
+                return;
+            }
+            if (msg.PeerId == _runStates.LocalState.PeerId) return;
+            if (msg.MatchesScene(_runStates.LocalState))
+                Gameplay.LootableSyncManager.ApplyTriggered(msg);
+        }
+
         // ---------------------------------------------------------------- Phase LD-1 combat-room gate (MetalGate) sync
         // Same topology as BreakableBreak: the peer that opened/closed a gate reports it; the Host stamps the PeerId,
         // mirrors it locally (same scene) and relays to all other clients. The firing peer never mirrors its own.
@@ -3674,6 +3727,12 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.ChestOpened:
                         HandleChestOpened(peer, reader);
+                        break;
+                    case NetMessageType.LootableTriggerRequest:
+                        HandleLootableRequest(peer, reader);
+                        break;
+                    case NetMessageType.LootableTriggered:
+                        HandleLootableTriggered(peer, reader);
                         break;
                     case NetMessageType.ThrowableFlight:
                         HandleThrowableFlight(peer, reader);

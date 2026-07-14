@@ -12,7 +12,8 @@ namespace SULFURTogether.Networking
         // 6: K-1 added ThrowableProjectile (80) — ThrowingKnives flight visual sync; peers must agree on the wire set.
         // 7: SL-2 added ChestOpenRequest (81) + ChestOpened (82) — shared-loot chest sync; peers must agree on the wire set.
         // 8: SL-4 added a SharedLoot field to the SessionSettings (70) snapshot — peers must agree on its wire shape.
-        public const int    ProtocolVersion  = 8;
+        // 9: SL-2b added LootableTriggerRequest (83) + LootableTriggered (84) — food/material/register loot sync.
+        public const int    ProtocolVersion  = 9;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

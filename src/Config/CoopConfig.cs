@@ -249,6 +249,9 @@ namespace SULFURTogether.Config
         // takes effect while shared loot is enabled — ShareAllLoot).
         public Fixed<bool>         EnableChestSync { get; }
         public ConfigEntry<bool>   LogChestSync { get; }
+        // SL-2b (Shared-loot): host-authoritative LootableObject (food/material/register) sync. Runtime-gated by ShareAllLoot.
+        public Fixed<bool>         EnableLootableSync { get; }
+        public ConfigEntry<bool>   LogLootableSync { get; }
         // ----- Phase LD-2 FF14-style arena lockdown (release-hardcoded) -----
         public Fixed<bool>         EnableArenaLockdown { get; }
         public ConfigEntry<bool>   LogArenaLockdown { get; }
@@ -870,6 +873,10 @@ namespace SULFURTogether.Config
             EnableChestSync = new Fixed<bool>(true); // SL-2 shared-loot chest sync — functional, gated at runtime by ShareAllLoot.
             LogChestSync = cfg.Bind("WorldItems", "LogChestSync", true,
                 "SL-2: verbose log for shared-loot chest (Container) sync (request / host open / broadcast / mirror).");
+
+            EnableLootableSync = new Fixed<bool>(true); // SL-2b shared-loot LootableObject sync — gated at runtime by ShareAllLoot.
+            LogLootableSync = cfg.Bind("WorldItems", "LogLootableSync", true,
+                "SL-2b: verbose log for shared-loot LootableObject (food/material/scavenge hatbox + cash register) sync.");
 
             // Phase LD-2: FF14-style arena lockdown. A player crossing a combat-room seal trigger is "in-room"; the first
             // cross anchors a timer; after 5s the non-in-room players in that level are force-sealed with an invisible

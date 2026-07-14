@@ -388,5 +388,13 @@ namespace SULFURTogether.Networking
         // and broadcasts ChestOpened (host→all) so every peer plays the open animation + marks it looted (visual only).
         ChestOpenRequest = 81,
         ChestOpened      = 82,
+
+        // SL-2b (Shared-loot): LootableObject sync (food/material/scavenge hatboxes + cash register — a non-Container
+        // loot class triggered via Interactable → LootableObject.Trigger). Same host-authoritative request/broadcast
+        // shape + wire DTO (NetChestOpen) as the chest channel: a client asks the host to trigger its matching object
+        // (LootableTriggerRequest, client→host, position-keyed) and the host broadcasts the trigger so every peer
+        // replays the animation (LootableTriggered, host→all); the items themselves mirror via the world-drop channel.
+        LootableTriggerRequest = 83,
+        LootableTriggered      = 84,
     }
 }
