@@ -302,6 +302,15 @@ namespace SULFURTogether.Networking.Gameplay
 
         // ----------------------------------------------------------------- helpers
 
+        /// <summary>
+        /// Would <c>ItemGrid.AddItem(item, isPickup:true, …)</c> actually accept this item right now? Mirrors the game's
+        /// real success predicate — a conservative approximation is unsafe here: <see cref="TryBeginTake"/> blocks the
+        /// vanilla pickup for a synced item and, when this returns false, issues NO take request/grant, so the drop is
+        /// left in the world with no resolution path. A false negative therefore makes the item permanently
+        /// un-collectable on that peer (and on everyone, if both bags are in that state) — issue #11. AddItem succeeds
+        /// when the item is auto-consumed, fits in <b>either</b> orientation, or a free equipment slot of its type exists;
+        /// checking only the default grid orientation missed rotatable / equippable / consumable drops.
+        /// </summary>
         private static bool HasRoomFor(ItemDefinition item)
         {
             try
@@ -310,10 +319,30 @@ namespace SULFURTogether.Networking.Gameplay
                 ItemGrid grid = StaticInstance<UIManager>.Instance != null
                     ? StaticInstance<UIManager>.Instance.PlayerBackpackGrid : null;
                 if (grid == null) return false;
-                Vector2Int space = grid.GetPossibleSpace(item);
-                return space.x >= 0 && space.y >= 0;
+
+                // Auto-consumed items are accepted directly (never need grid/slot space).
+                if (item.automaticConsume && grid.IsOwnedByPlayer) return true;
+
+                // Fits in the grid in either orientation (AddItem tries both).
+                if (FitsAnyOrientation(grid, item.inventorySize)) return true;
+
+                // Or drops straight into a free equipment slot of its type (weapon / gadget / armor / …).
+                var player = StaticInstance<GameManager>.Instance != null
+                    ? StaticInstance<GameManager>.Instance.PlayerScript : null;
+                EquipmentManager em = player != null ? player.equipmentManager : null;
+                if (em != null && em.GetFreeSlotOfType(item.slotType) != InventorySlot.None) return true;
+
+                return false;
             }
             catch { return false; }
+        }
+
+        private static bool FitsAnyOrientation(ItemGrid grid, Vector2Int size)
+        {
+            Vector2Int a = grid.GetPossibleSpace(size, true, true);
+            if (a.x >= 0 && a.y >= 0) return true;
+            Vector2Int b = grid.GetPossibleSpace(new Vector2Int(size.y, size.x), true, true);
+            return b.x >= 0 && b.y >= 0;
         }
 
         private static NetWorldPickupSpawn BuildSpawnMessage(Pickup p, string owner, ushort seq)

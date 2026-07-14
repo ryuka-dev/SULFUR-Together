@@ -63,8 +63,15 @@ already-taken pickup; registry cleared on `GoToLevel`/`ClearLevel` (alongside th
 
 - **Loot stays per-peer** (`ShareAllLoot=false`). Flipping `ShareAllLoot=true` only widens the filter to all
   pickups; true shared loot also needs **host-authoritative loot rolling** (suppress client rolls) — not yet done.
-- **Bag full on grant:** the taker pre-checks room before requesting; if its bag fills between request and grant,
-  `AddItem` fails on grant and the item is lost (logged). Rare; refine with a reservation later.
+- **Room pre-check must mirror `AddItem`:** the taker's block-vs-request decision (`TryBeginTake` →
+  `HasRoomFor`) faithfully replicates `ItemGrid.AddItem(isPickup:true)`'s real success predicate — accepts if the
+  item is auto-consumed, fits in **either** orientation, or a free equipment slot of its type exists. A conservative
+  check (default grid orientation only) was a false-negative for rotatable / equippable / consumable drops: since a
+  synced pickup's vanilla take is blocked and a `false` here issues no take request, the drop was left permanently
+  un-collectable on every affected peer (**issue #11**, fixed).
+- **Bag full on grant:** the taker pre-checks room before requesting; if its bag fills in the (small) window
+  between request and grant, `AddItem` fails on grant and the item is lost (logged), not orphaned. Rare; refine with
+  a reservation later.
 - **Physics divergence:** mirror pickups settle with their own physics. Player drops have no random throw force, so
   they land near-identically; acceptable (loot already diverges).
 - **Take latency for clients:** one host round-trip before a client receives a contested/dropped item (host picks
