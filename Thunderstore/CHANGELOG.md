@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.1.0 — SULFUR 0.18.3 support, shared loot, and fixes
+
+This update makes SULFUR Together compatible with **SULFUR 0.18.3 (Qiosk's Plenty)**,
+adds optional **shared world loot**, and fixes several multiplayer problems.
+All players must update to the same version before joining the same session.
+
+**New:**
+- **Shared world loot (optional, chosen by the host).** Turn on *Shared loot* on the
+  connect page and enemy, crate, chest, and hatbox/register loot is shared — the host rolls
+  it and the first player to grab each item takes it. Off by default (each player keeps
+  their own loot, as before).
+- **Developer mode is now host-gated.** It is a session setting that only turns on when
+  every player has dev access or a session vote passes, so a single player can no longer
+  force it on for everyone. — https://github.com/ryuka-dev/SULFUR-Together/issues/8
+- **Inter-chunk doors are synced.** The hold-to-open doors added in SULFUR 0.18 now open
+  for everyone when one player opens them.
+- **Thrown knives are visible to other players** — you can see the knife fly and stick. —
+  https://github.com/ryuka-dev/SULFUR-Together/issues/10
+- **External mod channel.** A public API so other mods can send data over the co-op session
+  and read basic session info.
+
+**Fixed:**
+- **Updated for SULFUR 0.18.3 (Qiosk's Plenty).** Re-bound the damage/hit chain, fixed a
+  host-side enemy-AI freeze, and reconnected hooks the update renamed — combat, enemy
+  deaths, and the client→host hit path work again on the new game version.
+- **Dropped items could become permanently un-collectable for everyone** — fixed. —
+  https://github.com/ryuka-dev/SULFUR-Together/issues/11
+- **Dropped items now rest in the same place for everyone** and no longer pile into an
+  indistinguishable tower.
+
+**Known issues:**
+- With shared loot on, the food/material hatbox and cash-register *open animations* do not
+  replay on other players' screens (the loot itself is correct and shared). —
+  https://github.com/ryuka-dev/SULFUR-Together/issues/14
+- The 1.0.0 beta known issues below still apply (occasional enemy snapping, boss desyncs
+  when a client loads ahead, unsynced blood/particles/sounds, 4+ players untested).
+
 ## 1.0.1 - Bugfix update
 
 This update fixes several multiplayer sync problems found in the first public beta.
