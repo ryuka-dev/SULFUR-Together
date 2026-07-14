@@ -20,6 +20,7 @@ namespace SULFURTogether.Patches
             MetalGatePatches.Apply(harmony);
             DoorBlockerPatches.Apply(harmony);
             PickupPatches.Apply(harmony);
+            LootRollSuppressionPatches.Apply(harmony);
             PauseControlPatches.Apply(harmony);
             HazardProbePatches.Apply(harmony);
             GhostPlayerPatches.Apply(harmony);
