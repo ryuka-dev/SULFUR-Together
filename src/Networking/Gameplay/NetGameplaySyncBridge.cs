@@ -134,6 +134,14 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLootableTriggered(msg);
         }
 
+        // TD-1 — shared target-dummy damage numbers. The peer that hit the dummy reports a coalesced batch; NetService
+        // stamps PeerId + scene context and routes it (Client→Host→relay to other Clients; the hitting peer never
+        // replays its own — it already showed the numbers locally).
+        public static void ReportLocalTargetDummyDamage(NetTargetDummyDamage msg)
+        {
+            _service?.BroadcastLocalTargetDummyDamage(msg);
+        }
+
         // Phase LD-1 — generic combat-room gate (MetalGate) open/close channel. The peer that changed a gate reports it;
         // NetService stamps PeerId + scene context and routes it (Client→Host→relay to other Clients; firing peer never
         // mirrors its own). See GateSyncManager.

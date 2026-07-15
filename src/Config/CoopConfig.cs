@@ -252,6 +252,10 @@ namespace SULFURTogether.Config
         // SL-2b (Shared-loot): host-authoritative LootableObject (food/material/register) sync. Runtime-gated by ShareAllLoot.
         public Fixed<bool>         EnableLootableSync { get; }
         public ConfigEntry<bool>   LogLootableSync { get; }
+        // TD-1: shared damage numbers on the unlockable target dummy (DamageTracker). Functional, always on; independent
+        // of the loot mode. Self-gates on an active session and on the local player having the dummy unlocked.
+        public Fixed<bool>         EnableTargetDummySync { get; }
+        public ConfigEntry<bool>   LogTargetDummySync { get; }
         // ----- Phase LD-2 FF14-style arena lockdown (release-hardcoded) -----
         public Fixed<bool>         EnableArenaLockdown { get; }
         public ConfigEntry<bool>   LogArenaLockdown { get; }
@@ -877,6 +881,10 @@ namespace SULFURTogether.Config
             EnableLootableSync = new Fixed<bool>(true); // SL-2b shared-loot LootableObject sync — gated at runtime by ShareAllLoot.
             LogLootableSync = cfg.Bind("WorldItems", "LogLootableSync", true,
                 "SL-2b: verbose log for shared-loot LootableObject (food/material/scavenge hatbox + cash register) sync.");
+
+            EnableTargetDummySync = new Fixed<bool>(true); // TD-1 shared target-dummy damage numbers — functional, always on.
+            LogTargetDummySync = cfg.Bind("TargetDummy", "LogTargetDummySync", false,
+                "TD-1: verbose log for shared target-dummy damage numbers (coalesced broadcast / relay apply). High volume while shooting the dummy.");
 
             // Phase LD-2: FF14-style arena lockdown. A player crossing a combat-room seal trigger is "in-room"; the first
             // cross anchors a timer; after 5s the non-in-room players in that level are force-sealed with an invisible

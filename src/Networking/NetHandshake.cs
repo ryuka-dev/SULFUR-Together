@@ -13,7 +13,8 @@ namespace SULFURTogether.Networking
         // 7: SL-2 added ChestOpenRequest (81) + ChestOpened (82) — shared-loot chest sync; peers must agree on the wire set.
         // 8: SL-4 added a SharedLoot field to the SessionSettings (70) snapshot — peers must agree on its wire shape.
         // 9: SL-2b added LootableTriggerRequest (83) + LootableTriggered (84) — food/material/register loot sync.
-        public const int    ProtocolVersion  = 9;
+        // 10: TD-1 added TargetDummyDamage (85) — shared target-dummy damage numbers; peers must agree on the wire set.
+        public const int    ProtocolVersion  = 10;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

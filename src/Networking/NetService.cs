@@ -287,6 +287,11 @@ namespace SULFURTogether.Networking
             if (_mode != NetMode.Off)
                 Gameplay.WorldPickupManager.Tick();
 
+            // TD-1: ship each target dummy's coalesced damage batch once its window elapses (bounds the rate under
+            // high fire-rate weapons).
+            if (_mode != NetMode.Off)
+                Gameplay.TargetDummySyncManager.Tick();
+
             // WS-3: give remote proxies a billboard body (visual only). Priest sprite body takes priority; NPC-prefab body
             // is the fallback (only used if the sprite body is disabled/unavailable).
             if (_mode != NetMode.Off)
@@ -1873,6 +1878,94 @@ namespace SULFURTogether.Networking
             if (msg.PeerId == _runStates.LocalState.PeerId) return;
             if (msg.MatchesScene(_runStates.LocalState))
                 Gameplay.LootableSyncManager.ApplyTriggered(msg);
+        }
+
+        // ---------------------------------------------------------------- TD-1 shared target-dummy damage numbers
+        // Same topology as BreakableBreak: the peer that hit the dummy reports a coalesced batch; the Host stamps the
+        // PeerId, mirrors it locally (same scene) and relays to all other clients. The hitting peer never mirrors its
+        // own — it already showed the numbers per-hit locally.
+
+        internal void BroadcastLocalTargetDummyDamage(Gameplay.NetTargetDummyDamage msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnableTargetDummySync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendTargetDummyDamage(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendTargetDummyDamage(_hostPeer, msg);
+            }
+        }
+
+        private void SendTargetDummyDamage(NetPeer peer, Gameplay.NetTargetDummyDamage msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.TargetDummyDamage);
+                Gameplay.NetTargetDummyDamageCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[TargetDummy] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleTargetDummyDamage(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableTargetDummySync.Value) return;
+            if (!Gameplay.NetTargetDummyDamageCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[TargetDummy] malformed TargetDummyDamage packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId))
+                {
+                    if (Plugin.Cfg.EnableDebugLog.Value)
+                        NetLogger.Debug($"[TargetDummy] ignoring hit from unregistered peer {peer.Address}");
+                    return;
+                }
+                msg.PeerId = peerId;
+
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.TargetDummySyncManager.ApplyRemote(msg);
+
+                RelayTargetDummyDamageToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.PeerId == _runStates.LocalState.PeerId) return; // never replay my own hit
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.TargetDummySyncManager.ApplyRemote(msg);
+            }
+        }
+
+        private void RelayTargetDummyDamageToOtherClients(NetPeer sourcePeer, Gameplay.NetTargetDummyDamage msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendTargetDummyDamage(client, msg);
+            }
         }
 
         // ---------------------------------------------------------------- Phase LD-1 combat-room gate (MetalGate) sync
@@ -3733,6 +3826,9 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.LootableTriggered:
                         HandleLootableTriggered(peer, reader);
+                        break;
+                    case NetMessageType.TargetDummyDamage:
+                        HandleTargetDummyDamage(peer, reader);
                         break;
                     case NetMessageType.ThrowableFlight:
                         HandleThrowableFlight(peer, reader);

@@ -396,5 +396,12 @@ namespace SULFURTogether.Networking
         // replays the animation (LootableTriggered, host→all); the items themselves mirror via the world-drop channel.
         LootableTriggerRequest = 83,
         LootableTriggered      = 84,
+
+        // TD-1 (peer → Host → relay, ReliableOrdered): a coalesced batch of damage a peer dealt to a shared target
+        // dummy (the 0.18 unlockable practice dummy's DamageTracker). Every peer that has the dummy unlocked replays
+        // the display EFFECT only (flying head number + foot total), so all players share one combined total. The
+        // dummy's real health is never touched by this — each shooter already damages its own local copy. A peer that
+        // hasn't unlocked the dummy has no registered tracker and ignores it. See TargetDummySyncManager.
+        TargetDummyDamage = 85,
     }
 }
