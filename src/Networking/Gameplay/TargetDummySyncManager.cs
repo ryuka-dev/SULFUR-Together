@@ -59,6 +59,13 @@ namespace SULFURTogether.Networking.Gameplay
         private static MethodInfo? _showDamage;
         private static bool _showDamageResolved;
 
+        // Host side: cache each hit Unit → its DamageTracker child (or null). The client-hit apply path calls
+        // GetTrackerOnUnit for every enemy hit; only a target dummy has a tracker, so this is a no-op cache miss for
+        // ordinary enemies. Keyed by Unity instance id; dropped on Clear (level change).
+        private static Type? _trackerType;
+        private static bool _trackerTypeResolved;
+        private static readonly Dictionary<int, Component?> _trackerByUnit = new Dictionary<int, Component?>();
+
         private static bool Active
         {
             get { try { return Plugin.Cfg.EnableTargetDummySync.Value && NetGameplaySyncBridge.IsSessionActive; } catch { return false; } }
@@ -167,6 +174,45 @@ namespace SULFURTogether.Networking.Gameplay
             catch (Exception ex) { NetLogger.Warn($"[TargetDummy] relay apply failed: {ex.Message}"); }
         }
 
+        // ----------------------------------------------------------------- host side: number for a client-dealt hit
+
+        /// <summary>Host: a client's hit on the dummy is applied via the health-only <c>SetStatus</c> path (like every
+        /// enemy), which bypasses <c>onDamageRecieved</c> so the dummy's <c>DamageTracker</c> shows no number for it.
+        /// Drive the number directly on the host's own dummy — NOT under the mirror guard, so the <c>ShowDamage</c>
+        /// postfix captures it and broadcasts to every peer (the shooter included), exactly as the host's OWN hits do.
+        /// A no-op for any unit without a tracker (ordinary enemies) and while the feature/session is off.</summary>
+        public static void ShowHostNumberForClientHit(object? unit, int amount, byte damageType, bool crit, Vector3? hitPoint)
+        {
+            try
+            {
+                if (!Active || amount <= 0) return;
+                Component? tracker = GetTrackerOnUnit(unit);
+                if (tracker == null) return;
+                if (!ResolveShowDamage()) return;
+
+                var sd = default(DamageSourceData);
+                sd.damageType = (DamageTypes)damageType;
+                sd.isCritical = crit;
+                // Deliberately NOT guarded by _applyingMirror: we want the postfix to capture + broadcast this.
+                _showDamage!.Invoke(tracker, new object?[] { null, (float)amount, sd, (Vector3?)hitPoint });
+            }
+            catch (Exception ex) { NetLogger.Warn($"[TargetDummy] host show-for-client-hit failed: {ex.Message}"); }
+        }
+
+        private static Component? GetTrackerOnUnit(object? unit)
+        {
+            if (unit is not Component c || c == null) return null;
+            int id = c.GetInstanceID();
+            if (_trackerByUnit.TryGetValue(id, out var cached)) return (cached != null) ? cached : null;
+
+            if (!_trackerTypeResolved) { _trackerTypeResolved = true; _trackerType = AccessTools.TypeByName("PerfectRandom.Sulfur.Gameplay.DamageTracker"); }
+            Component? found = null;
+            try { if (_trackerType != null) found = c.GetComponentInChildren(_trackerType, true) as Component; }
+            catch { }
+            _trackerByUnit[id] = found;
+            return found;
+        }
+
         // ----------------------------------------------------------------- helpers
 
         private static bool ResolveShowDamage()
@@ -202,6 +248,7 @@ namespace SULFURTogether.Networking.Gameplay
         {
             _registry.Clear();
             _pending.Clear();
+            _trackerByUnit.Clear();
         }
     }
 }

@@ -93,6 +93,49 @@ Reflection-only against `DamageTracker` (Gameplay assembly, not referenced); `Da
   `Start`. If the dummy ever lives in an area that is *never* reloaded, its `Start` would not re-run after a clear —
   not observed, but the thing to check first if numbers stop sharing after changing level.
 - The dummy's **health/flash remain per-peer local** (unchanged, by design) — only the numbers are shared.
-- **A client cannot damage the dummy at all** — a pre-existing gap, not introduced here (the client→host number
-  direction is therefore still unverified: a client never produces a hit to capture). Under investigation; once a
-  client's hit lands, TD-1's capture/broadcast path is symmetric and should carry it with no further work.
+
+## Client-dealt hits (TD-1b)
+
+The dummy is an `Npc` in the host roster, so a client's hit IS routed to the host — but the host applies it (like every
+enemy) through the health-only `EntityStats.SetStatus` write, which **bypasses `onDamageRecieved`**, so `ShowDamage`
+never fires for a client's hit and no number appeared on any screen (the dummy's ~1,000,000 HP just ticked down
+invisibly; the white flash still showed because it rides a separate `HostHitVisual` channel). The client's own
+`ReceiveDamage` is suppressed when the hit is routed to the host, so it produced no local number either.
+
+Fix: right after the host applies a client hit (`TryApplyHostHitDamage`), it drives the number on its **own** dummy via
+`TargetDummySyncManager.ShowHostNumberForClientHit(unit, actualApplied, …)` — a direct `ShowDamage` call, **not**
+mirror-guarded, so the same TD-1 postfix captures it and broadcasts to every peer (the shooter included), exactly as the
+host's own hits already sync. It is a no-op for any unit without a `DamageTracker` (every ordinary enemy) — gated by a
+cached `GetComponentInChildren` lookup — and only fires for client-originated hits (the host's own hits never go through
+`TryApplyHostHitDamage`), so each hit yields exactly one host-side `ShowDamage` and there is no double-count. The host is
+the single origin of the number for a client's hit; the shooter sees it after one round-trip via the verified
+host→client path.
+
+**Known limitation**: `NetClientHitRequest` carries no damage type, so a client-dealt number uses `Normal`(7) colour on
+every screen (the total and value are exact; only the colour of a client's numbers is generic). Adding the type to that
+message is a wider change to the shared hit path (codec + protocol) — deferred.
+
+## Base-game issue: two overlapping dummies per station (NOT this mod)
+
+The ChurchHub spawns **two target dummies at each station**, at identical world positions. This is base-game
+behaviour, **not** caused by this mod or by the damage-number sync. Evidence:
+
+- It reproduces in **vanilla single-player with the mod fully uninstalled** (two foot-totals under the dummy).
+- With the mod loaded but no client connected (solo host), the level generates **six** dummy `Npc` instances for the
+  three stations (distinct instance ids), before any remote player / ghost stand-in is registered — so it is not the
+  per-player logic and not the roster sync. The mod patches nothing on the spawn/pool path.
+- The redundant copy is the same variant as its twin, so on the host they overlap into what looks like one dummy per
+  station (three visible). A joining client can see them separated because the roster position-binding of two
+  identical-position units is ambiguous, which is why the doubling is more obvious client-side.
+
+Consequences visible through this feature, all downstream of the base-game double-spawn:
+
+- **Two foot-totals** can appear at a station — each overlapping dummy carries its own `DamageTracker`, so each keeps
+  its own total. Which tracker a shot feeds depends on which collider the ray hits; the position-keyed relay
+  (epsilon 1 m) may resolve to the other twin, so a station can show two running totals.
+- **The client can see up to six dummies** rather than three.
+
+No workaround is applied — this is left to the base game to fix. A mod-side mitigation (collapsing the redundant twin
+via the `DamageTracker.Start` hook) was considered and **declined**: the dummy is a host-roster `Npc` whose client-hit
+routing binds by roster spawn index, and disabling a different twin on each peer (spawn order differs) risks breaking
+that binding — not worth it for a cosmetic base-game artifact.

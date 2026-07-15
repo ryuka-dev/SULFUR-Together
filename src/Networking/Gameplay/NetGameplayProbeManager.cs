@@ -9360,6 +9360,13 @@ namespace SULFURTogether.Networking.Gameplay
             ReportHostNpcHealthAfterDamage(runtimeObj, damage);
             _hostHitResultHealthStateSent++;
 
+            // TD-1: this SetStatus write bypasses onDamageRecieved, so a target dummy hit by a CLIENT would show no
+            // damage number anywhere (the client's own ReceiveDamage was suppressed when the hit was routed here). Drive
+            // the number on the host's dummy — the ShowDamage postfix captures it and broadcasts to every peer (the
+            // shooter included), matching how the host's OWN hits already sync. No-op for units without a DamageTracker.
+            // The wire request carries no damage type, so client-dealt numbers use Normal(7) colour (cosmetic).
+            TargetDummySyncManager.ShowHostNumberForClientHit(runtimeObj, (int)actualApplied, 7, false, null);
+
             // Phase 5.3-G: play the white flash on the host's OWN real NPC for EVERY landed hit,
             // including the fatal one, so client attacks always produce host-visible feedback.
             // (The death animation still runs afterwards via the Die() call below.)
