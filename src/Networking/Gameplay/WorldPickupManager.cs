@@ -43,6 +43,14 @@ namespace SULFURTogether.Networking.Gameplay
             public float   RestSince = -1f;   // when the body last began resting (-1 = moving)
             public bool    SettleSent;
             public Vector3 LastSettlePos;
+
+            // Mirror side only: local cosmetic glide to the owner's authoritative rest position instead of snapping there.
+            public bool    Animating;
+            public Vector3 AnimFrom;
+            public Vector3 AnimTo;
+            public float   AnimStart;
+            public float   AnimDuration;
+            public float   AnimArc;
         }
 
         // Live synced pickups, both directions of lookup.
@@ -221,6 +229,7 @@ namespace SULFURTogether.Networking.Gameplay
         public static void Tick()
         {
             UpdateSettleTracking();
+            AdvanceSettleAnimations();
 
             if (_pendingRemovals.Count == 0) return;
             // Snapshot + clear first so a re-entrant enqueue (shouldn't happen) doesn't loop.
@@ -321,16 +330,31 @@ namespace SULFURTogether.Networking.Gameplay
                 NetLogger.Info($"[WorldPickup] settle key={e.Key} pos={pos}");
         }
 
-        /// <summary>Mirror side: place a synced pickup at the owner's authoritative rest position and freeze it (matching
-        /// what the game itself does to a landed pickup), so it can no longer drift from the owner's copy.</summary>
+        // Mirror-side settle glide (WID-3): the correction from the mirror's independently-simulated rest spot to the
+        // owner's authoritative one used to snap instantly (a visible teleport). Instead we ease the pickup there over a
+        // short, distance-scaled window with a small hop arc — cosmetic, local, driven from Tick. Not uniform/linear.
+        private const float SettleAnimMinDistance = 0.05f; // below this a glide is imperceptible → snap (and skip the work)
+        private const float SettleAnimSpeed       = 6f;    // reference glide speed (m/s) → duration = distance / speed
+        private const float SettleAnimMinDuration = 0.12f;
+        private const float SettleAnimMaxDuration = 0.5f;  // cap so a large correction never crawls
+        private const float SettleAnimArcRatio    = 0.25f; // hop height as a fraction of glide distance
+        private const float SettleAnimMaxArc      = 0.4f;  // cap the hop so it never launches oddly far on a big correction
+
+        /// <summary>Mirror side: move a synced pickup to the owner's authoritative rest position and freeze it (matching
+        /// what the game itself does to a landed pickup), so it can no longer drift from the owner's copy. The move is a
+        /// short local glide (see <see cref="AdvanceSettleAnimations"/>) rather than a snap; the body is frozen up front
+        /// so physics can't fight the glide, and we drive the transform until it reaches the target.</summary>
         public static void ApplySettle(string key, Vector3 pos)
         {
             try
             {
                 if (!Plugin.Cfg.EnableWorldItemDropSync.Value) return;
                 if (!_byKey.TryGetValue(key, out var p) || p == null) return; // unknown / already taken → ignore
-                if (_byPickup.TryGetValue(p, out var e) && e.IsLocalOwner) return; // never move our own authoritative drop
+                if (!_byPickup.TryGetValue(p, out var e)) { SetPickupPosition(p, pos); return; }
+                if (e.IsLocalOwner) return; // never move our own authoritative drop
 
+                // Freeze now (kinematic, no collisions) — the same end-state the game gives a landed pickup — so the
+                // remaining physics can't drag against the glide. We then own the transform until it reaches pos.
                 var body = p.body;
                 if (body != null)
                 {
@@ -338,14 +362,72 @@ namespace SULFURTogether.Networking.Gameplay
                     body.angularVelocity = Vector3.zero;
                     body.isKinematic = true;
                     body.detectCollisions = false;
-                    body.position = pos;
                 }
-                p.transform.position = pos;
+
+                Vector3 from = p.transform.position;
+                float dist = Vector3.Distance(from, pos);
+                if (dist < SettleAnimMinDistance)
+                {
+                    e.Animating = false;
+                    SetPickupPosition(p, pos); // negligible correction — snap
+                }
+                else
+                {
+                    e.Animating    = true;
+                    e.AnimFrom     = from;
+                    e.AnimTo       = pos;
+                    e.AnimStart    = Time.time;
+                    e.AnimDuration = Mathf.Clamp(dist / SettleAnimSpeed, SettleAnimMinDuration, SettleAnimMaxDuration);
+                    e.AnimArc      = Mathf.Min(dist * SettleAnimArcRatio, SettleAnimMaxArc);
+                }
 
                 if (Plugin.Cfg.LogWorldItemDropSync.Value)
-                    NetLogger.Info($"[WorldPickup] mirror settle key={key} pos={pos}");
+                    NetLogger.Info($"[WorldPickup] mirror settle key={key} pos={pos} dist={dist:0.00} anim={e.Animating}");
             }
             catch (Exception ex) { NetLogger.Warn($"[WorldPickup] settle apply failed: {ex.Message}"); }
+        }
+
+        /// <summary>Advance any in-flight mirror settle glides (main-thread, from <see cref="Tick"/>). Ease-out on the
+        /// horizontal path with a small sine hop that peaks mid-glide and returns to zero at the target, so the item
+        /// reads as gliding into place rather than teleporting. Purely cosmetic; no structural change to the registry,
+        /// so iterating it here is safe.</summary>
+        private static void AdvanceSettleAnimations()
+        {
+            if (_byPickup.Count == 0) return;
+            float now = Time.time;
+            foreach (var kv in _byPickup)
+            {
+                Entry e = kv.Value;
+                if (!e.Animating) continue;
+                Pickup p = kv.Key;
+                if (p == null) { e.Animating = false; continue; }
+
+                float t = e.AnimDuration <= 0f ? 1f : Mathf.Clamp01((now - e.AnimStart) / e.AnimDuration);
+                float eased = EaseOutCubic(t);
+                Vector3 pos = Vector3.Lerp(e.AnimFrom, e.AnimTo, eased);
+                pos.y += e.AnimArc * Mathf.Sin(Mathf.PI * t); // hop: 0 at start, peak at mid, back to 0 at the target
+                SetPickupPosition(p, pos);
+
+                if (t >= 1f)
+                {
+                    SetPickupPosition(p, e.AnimTo);
+                    e.Animating = false;
+                }
+            }
+        }
+
+        private static void SetPickupPosition(Pickup p, Vector3 pos)
+        {
+            if (p == null) return;
+            var body = p.body;
+            if (body != null) body.position = pos;
+            p.transform.position = pos;
+        }
+
+        private static float EaseOutCubic(float t)
+        {
+            float u = 1f - t;
+            return 1f - u * u * u;
         }
 
         // ----------------------------------------------------------------- spawn separation (WID-2, anti-tower)

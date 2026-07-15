@@ -67,6 +67,19 @@ additions, both cheap:
   drop the owner's settle re-syncs the resulting rest position so all peers still converge. **Single-player is
   untouched** (gated on an active co-op session — the game pauses there and drops behave).
 
+## Mirror settle glide (WID-3)
+
+`ApplySettle` used to *snap* a mirror pickup from wherever its own physics rested it to the owner's authoritative
+position — a visible teleport, more noticeable for host-rolled shared loot whose mirror falls straight down from the
+initial spawn point while the host's copy was flung. It now plays a short **local** glide instead: the body is frozen
+up front (kinematic, no collisions — the same end-state the game gives a landed pickup, so physics can't fight the
+move) and `WorldPickupManager.Tick` drives the transform to the target over a distance-scaled window
+(`distance / 6 m/s`, clamped `0.12–0.5 s`) with an **ease-out** horizontal path plus a small sine **hop** (peaks
+mid-glide, back to zero at the target — capped at `0.4 m`). Deliberately not uniform/linear. A correction under
+`5 cm` still snaps (imperceptible, skips the work). Purely cosmetic and local — no protocol, authority, or wire change
+(the owner still settles the one authoritative position); a re-settle simply retargets the glide from the current
+spot. Single-player is untouched (no session → no settle messages → no glides).
+
 ## Files
 
 | File | Role |
