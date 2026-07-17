@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.1.1 — Co-op fixes and polish
+
+A small update with multiplayer fixes and quality-of-life improvements.
+All players must update to the same version before joining the same session.
+
+**Fixed:**
+- **Players now stay together in non-standard levels.** When the host loaded a level
+  that isn't one of the normal story chapters — such as a developer/debug level opened
+  from the dev menu — other players could be left behind on a different map. The
+  follow-the-host logic now covers these levels too.
+- **Reviving a downed teammate is more forgiving.** The *Hold [E]* prompt now appears as
+  soon as you are in range (from a slightly larger distance), and briefly releasing the
+  key — or tapping it — no longer resets the progress to zero, so the revive fills up
+  reliably.
+
+**New:**
+- **Shared damage numbers on the practice target dummy.** Damage dealt to the ChurchHub
+  target dummy now shows its flying numbers and running total to every player, including
+  hits dealt by other players.
+
+**Polish:**
+- Dropped items now glide smoothly into their resting spot for other players instead of
+  snapping into place.
+
 ## 1.1.0 — SULFUR 0.18.3 support, shared loot, and fixes
 
 This update makes SULFUR Together compatible with **SULFUR 0.18.3 (Qiosk's Plenty)**,
