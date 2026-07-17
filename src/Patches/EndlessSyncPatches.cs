@@ -97,6 +97,15 @@ namespace SULFURTogether.Patches
                         typeof(EndlessSyncPatches).GetMethod(nameof(CardSpinComplete_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 else Plugin.Log.Info("[Endless] EndlessModeManager.CardSpinComplete not found — EM-5 invuln clear disabled.");
 
+                // Bug-2 (enemies ignore the client): Endless enemies use overridetargets (RefreshTargets) which only lists
+                // the host player, so the client is never a candidate. Re-add the client ghost units after each refresh.
+                ResolveTargetingReflection(emType);
+                var refreshTargets = AccessTools.DeclaredMethod(emType, "RefreshTargets");
+                if (refreshTargets != null)
+                    harmony.Patch(refreshTargets, postfix: new HarmonyMethod(
+                        typeof(EndlessSyncPatches).GetMethod(nameof(RefreshTargets_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                else Plugin.Log.Info("[Endless] EndlessModeManager.RefreshTargets not found — client targeting fix disabled.");
+
                 Plugin.Log.Info($"[Endless] EM-1/EM-5 client slave + progression patched ({patched} core). EM-2 mirror via RuntimeSpawnManager.ClassifyOwner(Endless).");
             }
             catch (Exception ex) { Plugin.Log.Error($"[Endless] EM-1 Apply failed: {ex.Message}"); }
@@ -197,6 +206,94 @@ namespace SULFURTogether.Patches
             }
             catch { }
             return false;
+        }
+
+        // ---- Bug-2: add the client ghost units to Endless enemies' overridetargets ----
+        private static FieldInfo? _fAllSpawned, _fSpawnedBoss;   // EndlessModeManager enemy lists
+        private static MemberInfo? _npcAiAgent;                  // Npc.AiAgent (property or field)
+        private static FieldInfo? _aiOverrideTargets;            // AiAgent.overridetargets
+        private static MethodInfo? _otAddUnits;                  // OverrideTarget.AddUnits(List<Unit>, TargetType)
+        private static Type? _otUnitListType;                    // List<Unit>
+        private static object? _otTargetTypeClosest;             // TargetType.Closest
+        private static bool _targetingResolved;
+
+        private static void ResolveTargetingReflection(Type emType)
+        {
+            if (_targetingResolved) return;
+            _targetingResolved = true;
+            try
+            {
+                const BindingFlags bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+                _fAllSpawned  = emType.GetField("allSpawnedUnits", bf);
+                _fSpawnedBoss = emType.GetField("spawnedBossUnits", bf);
+
+                var npcType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.Npc") ?? AccessTools.TypeByName("Npc");
+                _npcAiAgent = (MemberInfo?)npcType?.GetProperty("AiAgent", bf) ?? npcType?.GetField("AiAgent", bf);
+
+                var aiType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.AiAgent") ?? AccessTools.TypeByName("AiAgent");
+                _aiOverrideTargets = aiType?.GetField("overridetargets", bf);
+                var otType = _aiOverrideTargets?.FieldType;
+                if (otType != null)
+                {
+                    foreach (var m in otType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                    {
+                        if (m.Name != "AddUnits") continue;
+                        var ps = m.GetParameters();
+                        if (ps.Length != 2) continue;
+                        _otAddUnits = m; _otUnitListType = ps[0].ParameterType;
+                        try { _otTargetTypeClosest = Enum.Parse(ps[1].ParameterType, "Closest"); } catch { _otTargetTypeClosest = Enum.ToObject(ps[1].ParameterType, 0); }
+                        break;
+                    }
+                }
+                Plugin.Log.Info($"[Endless] bug-2 targeting resolved allSpawned={_fAllSpawned != null} aiAgent={_npcAiAgent != null} overrideTargets={_aiOverrideTargets != null} addUnits={_otAddUnits != null}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ResolveTargetingReflection failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // HOST: after RefreshTargets rebuilt each Endless enemy's (host-only) overridetargets, add the client ghost units
+        // so GrabHostileUnit can pick whichever player is nearest (enemies far from the host now aggro the client).
+        private static void RefreshTargets_Post(object __instance)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                if (_otAddUnits == null || _otUnitListType == null || _aiOverrideTargets == null || _npcAiAgent == null) return;
+
+                object[] ghosts;
+                lock (RemotePlayerRegistryManager.GhostUnitsByPeer)
+                {
+                    if (RemotePlayerRegistryManager.GhostUnitsByPeer.Count == 0) return;
+                    ghosts = new object[RemotePlayerRegistryManager.GhostUnitsByPeer.Count];
+                    RemotePlayerRegistryManager.GhostUnitsByPeer.Values.CopyTo(ghosts, 0);
+                }
+
+                var ghostList = (IList)Activator.CreateInstance(_otUnitListType)!;
+                foreach (var g in ghosts) if (g is UnityEngine.Object go && go != null) ghostList.Add(g);
+                if (ghostList.Count == 0) return;
+
+                AddGhostsToEnemies(_fAllSpawned?.GetValue(__instance) as IEnumerable, ghostList);
+                AddGhostsToEnemies(_fSpawnedBoss?.GetValue(__instance) as IEnumerable, ghostList);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] RefreshTargets_Post failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static void AddGhostsToEnemies(IEnumerable? enemies, IList ghostList)
+        {
+            if (enemies == null) return;
+            foreach (var npc in enemies)
+            {
+                if (npc is not UnityEngine.Object no || no == null) continue;
+                object? ai = _npcAiAgent switch
+                {
+                    PropertyInfo p => p.GetValue(npc),
+                    FieldInfo f => f.GetValue(npc),
+                    _ => null,
+                };
+                if (ai is not UnityEngine.Object aio || aio == null) continue;
+                object? ot = _aiOverrideTargets!.GetValue(ai);
+                if (ot == null) continue;
+                try { _otAddUnits!.Invoke(ot, new object[] { ghostList, _otTargetTypeClosest! }); } catch { }
+            }
         }
 
         // Skip the per-wave burst spawn coroutine on a linked client; hand StartCoroutine a valid (empty) enumerator so

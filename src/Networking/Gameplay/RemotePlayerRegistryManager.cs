@@ -38,6 +38,10 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
         private readonly Dictionary<string, Ghost> _ghosts = new Dictionary<string, Ghost>();
+
+        /// <summary>HOST: the live ghost-player target Units by peer id (static so other host systems — e.g. Endless
+        /// targeting, whose enemies use overridetargets instead of the hostilesInLOS scan — can add them as targets).</summary>
+        internal static readonly Dictionary<string, object> GhostUnitsByPeer = new Dictionary<string, object>();
         private readonly HashSet<string> _seenThisTick = new HashSet<string>();
         private readonly List<string> _removeScratch = new List<string>();
 
@@ -243,6 +247,7 @@ namespace SULFURTogether.Networking.Gameplay
                 RefreshBatchedRaycasts();
 
                 _ghosts[peerId] = new Ghost { Go = go, Player = player, Unit = unit, LastUpdatedAt = now };
+                if (unit != null) GhostUnitsByPeer[peerId] = unit;
                 _ghostGoIds.Add(go.GetInstanceID());
                 Plugin.Log.Info($"[PlayerRegistry] registered ghost player peer={peerId} pos={pos:F1} players={playersList.Count} unitSO={(playerUnitSO == null ? "null" : "ok")}");
             }
@@ -253,6 +258,7 @@ namespace SULFURTogether.Networking.Gameplay
         {
             if (!_ghosts.TryGetValue(peerId, out var g)) return;
             _ghosts.Remove(peerId);
+            GhostUnitsByPeer.Remove(peerId);
             try { if (g.Go != null) _ghostGoIds.Remove(g.Go.GetInstanceID()); } catch { }
             bool removedFromPlayers = false;
             try
