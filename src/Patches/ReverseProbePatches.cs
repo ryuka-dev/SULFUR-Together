@@ -355,6 +355,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
                 SULFURTogether.Networking.Gameplay.TriggerSpawnSyncManager.Clear(); // Issue #5 drop prev level's fired-trigger set
                 SULFURTogether.Networking.Gameplay.EndlessSyncManager.Reset();      // EM-3 drop prev Endless run's wave-state baseline
+                SULFURTogether.Networking.Gameplay.EndlessCardManager.Reset();      // EM-6b drop prev run's card-manifest event state
                 string chapterName = chapterSO?.ToString() ?? "<unknown>";
                 string loadingModeName = loadingMode?.ToString() ?? "";
                 string spawn = spawnIdentifier ?? "";
@@ -603,6 +604,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
                 SULFURTogether.Networking.Gameplay.TriggerSpawnSyncManager.Clear(); // Issue #5 drop prev level's fired-trigger set
                 SULFURTogether.Networking.Gameplay.EndlessSyncManager.Reset();      // EM-3 drop prev Endless run's wave-state baseline
+                SULFURTogether.Networking.Gameplay.EndlessCardManager.Reset();      // EM-6b drop prev run's card-manifest event state
                 NetRunStateBridge.ReportClearLevel();
                 Log.Info("[GM] ClearLevel <<");
             }

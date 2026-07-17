@@ -294,7 +294,10 @@ namespace SULFURTogether.Networking
 
             // EM-3: host broadcasts the Endless wave/XP/stage state (self-gates to Host + an active Endless run).
             if (_mode != NetMode.Off)
+            {
                 Gameplay.EndlessSyncManager.HostTick();
+                Gameplay.EndlessCardManager.HostTick(); // EM-6b: broadcast the host-rolled shared card set when the panel opens
+            }
 
             // EM-5b: detect the local player reaching a shared XP pickup and request its collection (both roles).
             if (_mode != NetMode.Off)
@@ -1462,6 +1465,34 @@ namespace SULFURTogether.Networking
             }
             string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
             Gameplay.EndlessSyncManager.SetPeerCardSelectInvuln(peerId, msg.Selecting);
+        }
+
+        // EM-6b: host → all, the N cards the host rolled for one shared card-select event.
+        internal void BroadcastHostEndlessCardManifest(Gameplay.NetEndlessCardManifest msg)
+        {
+            if (_mode != NetMode.Host || _net == null) return;
+            if (msg == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.EndlessCardManifest);
+                    Gameplay.NetEndlessCardManifestCodec.Write(w, msg);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[Endless] failed to broadcast card manifest: {ex.Message}"); }
+            }
+        }
+
+        private void HandleEndlessCardManifest(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Gameplay.NetEndlessCardManifestCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[Endless] malformed EndlessCardManifest packet");
+                return;
+            }
+            Gameplay.EndlessCardManager.ApplyManifest(msg);
         }
 
         // ----------------------------------------------------------------- Phase 5.6-WS player weapon bullet sync
@@ -3938,6 +3969,9 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.EndlessCardSelect:
                         HandleEndlessCardSelect(peer, reader);
+                        break;
+                    case NetMessageType.EndlessCardManifest:
+                        HandleEndlessCardManifest(peer, reader);
                         break;
                     case NetMessageType.EndlessXpCollected:
                         HandleEndlessXpCollected(peer, reader);

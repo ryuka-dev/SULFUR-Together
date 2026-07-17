@@ -378,6 +378,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static void SendEndlessCardSelect(bool selecting)
             => _service?.SendEndlessCardSelect(selecting);
 
+        // EM-6b: Host → all, the N cards the host rolled for one shared card-select event.
+        public static void BroadcastHostEndlessCardManifest(SULFURTogether.Networking.Gameplay.NetEndlessCardManifest msg)
+            => _service?.BroadcastHostEndlessCardManifest(msg);
+
         // FF-1: Client → Host friendly-fire hit report.
         public static void SendFriendlyFireHit(NetFriendlyFireHit msg)
             => _service?.SendFriendlyFireHit(msg);

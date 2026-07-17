@@ -421,5 +421,9 @@ namespace SULFURTogether.Networking
         // EM req 2 (client→host): a client entered/left Independent-mode card selection. The host marks that client's ghost
         // unit invulnerable so Endless enemies stop targeting the selecting player (mirrors the local invuln bubble).
         EndlessCardSelect       = 90,
+
+        // EM-6b (host→all, Shared mode): the N cards the host rolled for one shared card-select event, so the client shows
+        // and votes on the same options (the client's card RNG is diverged and cannot reproduce them).
+        EndlessCardManifest     = 91,
     }
 }

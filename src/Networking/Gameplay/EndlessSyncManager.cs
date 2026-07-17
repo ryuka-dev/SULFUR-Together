@@ -788,6 +788,10 @@ namespace SULFURTogether.Networking.Gameplay
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] EM-3 EnsureResolved failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
+        /// <summary>Shared access to the live EndlessModeManager instance (null if not in an Endless arena). Used by
+        /// <see cref="EndlessCardManager"/> so the two managers resolve the same singleton without duplicating reflection.</summary>
+        public static object? ResolveEndlessInstance() { EnsureResolved(); return ResolveInstance(); }
+
         private static object? ResolveInstance()
         {
             try
