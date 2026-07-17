@@ -382,6 +382,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastHostEndlessCardManifest(SULFURTogether.Networking.Gameplay.NetEndlessCardManifest msg)
             => _service?.BroadcastHostEndlessCardManifest(msg);
 
+        // EM-6b-2: Host → all, the pre-roll card RNG + selection state so the client reproduces identical 3D cards.
+        public static void BroadcastHostEndlessCardRoll(SULFURTogether.Networking.Gameplay.NetEndlessCardRoll msg)
+            => _service?.BroadcastHostEndlessCardRoll(msg);
+
         // FF-1: Client → Host friendly-fire hit report.
         public static void SendFriendlyFireHit(NetFriendlyFireHit msg)
             => _service?.SendFriendlyFireHit(msg);

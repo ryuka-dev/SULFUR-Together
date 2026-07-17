@@ -115,6 +115,33 @@ namespace SULFURTogether.Patches
                         typeof(EndlessSyncPatches).GetMethod(nameof(RefreshTargets_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 else Plugin.Log.Info("[Endless] EndlessModeManager.RefreshTargets not found — client targeting fix disabled.");
 
+                // EM-6b-2 (Shared mode 3D card mirror via roll-state replay):
+                //  - host captures the pre-roll RNG + selection state (FloatingCardManager.SpawnCards prefix);
+                //  - client forces ChoiceDrawAmount to the host's value so the card count matches (getter postfix);
+                //  - client blocks its own card pick while replaying a shared roll (the pick becomes a vote in EM-6b-3).
+                var fcmType = AccessTools.TypeByName("FloatingCardManager") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.FloatingCardManager");
+                if (fcmType != null)
+                {
+                    var spawnCards = AccessTools.Method(fcmType, "SpawnCards", Type.EmptyTypes);
+                    if (spawnCards != null)
+                        harmony.Patch(spawnCards, prefix: new HarmonyMethod(
+                            typeof(EndlessSyncPatches).GetMethod(nameof(SpawnCards_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+
+                    foreach (var pickName in new[] { "OnPlayerFired", "OnPlayerInteracted" })
+                    {
+                        var pick = AccessTools.Method(fcmType, pickName);
+                        if (pick != null)
+                            harmony.Patch(pick, prefix: new HarmonyMethod(
+                                typeof(EndlessSyncPatches).GetMethod(nameof(CardPick_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                    }
+                }
+                else Plugin.Log.Info("[Endless] FloatingCardManager not found — EM-6b shared card mirror disabled.");
+
+                var choiceDraw = AccessTools.PropertyGetter(emType, "ChoiceDrawAmount");
+                if (choiceDraw != null)
+                    harmony.Patch(choiceDraw, postfix: new HarmonyMethod(
+                        typeof(EndlessSyncPatches).GetMethod(nameof(ChoiceDrawAmount_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+
                 Plugin.Log.Info($"[Endless] EM-1/EM-5 client slave + progression patched ({patched} core). EM-2 mirror via RuntimeSpawnManager.ClassifyOwner(Endless).");
             }
             catch (Exception ex) { Plugin.Log.Error($"[Endless] EM-1 Apply failed: {ex.Message}"); }
@@ -206,6 +233,32 @@ namespace SULFURTogether.Patches
             }
             catch { }
             return true;
+        }
+
+        // EM-6b-2 HOST: capture the card RNG + selection state before the vanilla roll consumes it (Shared mode only; the
+        // manager self-gates). The client's own driven SpawnCards also hits this, but HostCaptureRoll no-ops off Host role.
+        private static void SpawnCards_Pre(object __instance)
+        {
+            try { if (Enabled && NetGameplaySyncBridge.BossMode == NetMode.Host) EndlessSyncManager_HostCaptureRoll(__instance); }
+            catch { }
+        }
+
+        private static void EndlessSyncManager_HostCaptureRoll(object fcm) => EndlessCardManager.HostCaptureRoll(fcm);
+
+        // EM-6b-2 CLIENT: force ChoiceDrawAmount to the host's value while replaying a driven roll so the card count matches.
+        // Host + single-player are untouched (ClientRollActive is only ever set on a client mid-replay).
+        private static void ChoiceDrawAmount_Post(ref int __result)
+        {
+            try { if (EndlessCardManager.ClientRollActive) __result = EndlessCardManager.ClientChoiceDrawOverride; }
+            catch { }
+        }
+
+        // EM-6b-2 CLIENT: block the client's own card pick while a shared replayed panel is up (the pick becomes a group
+        // vote in EM-6b-3). Host picks normally; the client's cards are display + vote only.
+        private static bool CardPick_Pre()
+        {
+            try { return !(NetGameplaySyncBridge.BossMode == NetMode.Client && EndlessCardManager.ClientRollActive); }
+            catch { return true; }
         }
 
         private static int ReadInt(object obj, string member)

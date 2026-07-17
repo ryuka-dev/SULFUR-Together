@@ -627,7 +627,11 @@ namespace SULFURTogether.Networking.Gameplay
             bool nowSelecting = transition == TransitionCardSelection;
             _clientPauseTransition = transition;
             if (nowSelecting && !wasSelecting) SetClientTimeScale(0f);      // host opened the shared card panel → pause with it
-            else if (!nowSelecting && wasSelecting) SetClientTimeScale(1f); // host left card selection → resume
+            else if (!nowSelecting && wasSelecting)
+            {
+                SetClientTimeScale(1f);              // host left card selection → resume
+                EndlessCardManager.TeardownClientCards(); // EM-6b-2: close the replayed 3D card panel when the host's ends
+            }
         }
 
         private static void SetClientTimeScale(float scale)

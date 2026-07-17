@@ -425,5 +425,9 @@ namespace SULFURTogether.Networking
         // EM-6b (host→all, Shared mode): the N cards the host rolled for one shared card-select event, so the client shows
         // and votes on the same options (the client's card RNG is diverged and cannot reproduce them).
         EndlessCardManifest     = 91,
+
+        // EM-6b-2 (host→all, Shared mode): the host's card RNG + card-manager selection state captured just before the roll,
+        // so the client sets the same state and runs the vanilla roll to reproduce byte-identical 3D cards.
+        EndlessCardRoll         = 92,
     }
 }

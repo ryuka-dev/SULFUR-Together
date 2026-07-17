@@ -16,7 +16,8 @@ namespace SULFURTogether.Networking
         // 10: TD-1 added TargetDummyDamage (85) — shared target-dummy damage numbers; peers must agree on the wire set.
         // 16: EM req 2 added EndlessCardSelect (90) — client→host card-select target suppression; peers must agree on the wire set.
         // 17: EM-6b added EndlessCardManifest (91) — host→all shared card set; peers must agree on the wire set.
-        public const int    ProtocolVersion  = 17;
+        // 18: EM-6b-2 added EndlessCardRoll (92) — host→all pre-roll card RNG+state; peers must agree on the wire set.
+        public const int    ProtocolVersion  = 18;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)
