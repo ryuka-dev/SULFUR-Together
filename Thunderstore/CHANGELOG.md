@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+Work in progress toward the next release. All players must update to the same version
+before joining the same session.
+
+**New:**
+- **Endless Mode co-op — Independent progression.** Endless Mode now stays in sync between
+  players: everyone shares the same arena, waves, and enemies (the host runs the world), while
+  each player keeps their own XP, level, and card picks. Experience is awarded to whoever killed
+  an enemy — the reward orb flies straight to the killer, even on a long-range shot — and the host
+  can choose whether the kill credit goes to the player who dealt the *first* hit or the *last* hit
+  (default: last hit). Leveling up no longer freezes the game for the other player: the world keeps
+  running while you pick your card, and you stand safely still (invulnerable, and enemies stop
+  targeting you) until you choose. Enemies also pick their target by distance now, so they no longer
+  all pile onto the host.
+  *(Shared progression — one pool with a group card vote — is still in development.)*
+
 ## 1.1.1 — Co-op fixes and polish
 
 A small update with multiplayer fixes and quality-of-life improvements.

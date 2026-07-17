@@ -374,6 +374,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastHostEndlessXpCollected(SULFURTogether.Networking.Gameplay.NetEndlessXpCollect msg)
             => _service?.BroadcastHostEndlessXpCollected(msg);
 
+        // EM req 2: Client → Host, "I entered/left Independent-mode card selection" (host suppresses my ghost as a target).
+        public static void SendEndlessCardSelect(bool selecting)
+            => _service?.SendEndlessCardSelect(selecting);
+
         // FF-1: Client → Host friendly-fire hit report.
         public static void SendFriendlyFireHit(NetFriendlyFireHit msg)
             => _service?.SendFriendlyFireHit(msg);

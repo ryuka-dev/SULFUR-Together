@@ -195,6 +195,59 @@ Each player has their own `currentXP`, `currentCardLevel`, card picks, and perso
   spawns + broadcasts via §4.5); the reward is "owned" by the requesting player for targeting but exists
   once in the shared world.
 
+### 5.1 As-built (shipped & verified — Independent mode)
+
+The shipped implementation refines the §5 plan in three ways: XP is credited **deterministically to the
+killer** (not by each end's pickup radius), the card panel locks movement only, and Endless enemy targeting
+is fully distance-based and card-select-aware. All of the following is **host-authoritative** and gated on a
+live Endless run; single-player and the host in non-Endless levels are untouched.
+
+**XP — deterministic kill attribution (EM-5c).** The per-end orb idea in §5 was dropped: duplicating orbs
+made total XP depend on differing pickup radii, and orbs visibly flying toward players who did not earn them
+was confusing. Instead the host tracks, per Endless enemy, **who first-damaged it and who last-hit it**:
+
+- Host hits are recorded from the `Npc.ReceiveDamage` host hook; client hits are recorded in
+  `ProcessClientHitRequest` (the forwarded damage is attributed to the sending peer via a
+  `HostApplyingHitPeer` flag so the same `ReceiveDamage` hook credits the client, not the host).
+- On death (`OnEnemyDied`), the host resolves the attributed peer per the **`EndlessXpFirstDamage`** session
+  setting (host-authoritative, connect-page toggle, **default = last-hit**) and broadcasts an award
+  (`NetEndlessXpDrop` with `AwardPeerId`). The host's own vanilla orb spawn inside `OnEnemyDied` is
+  suppressed so this is the single XP source.
+- **Only the awardee's screen** spawns the real-value orbs; every other screen shows nothing (no
+  "orbs-fly-to-me-then-vanish" illusion). The orbs are **force-collected**: once each orb finishes its
+  vanilla spawn-burst (reaches the Idle state) it is flipped to the vanilla `Collecting` state regardless of
+  distance, so it bursts at the death point then flies to the killer even on a long-range snipe. XP is
+  credited by vanilla **as each orb is absorbed** (not instantly). Force-collect stamps `collectStartTime`
+  with **`Time.time`** — the clock vanilla's attract-speed ramp (`Time.time - collectStartTime`) measures
+  against; a `realtimeSinceStartup` stamp makes that term large-negative and the orb accelerates *backwards*.
+- **bug1 (downed soft-lock):** a downed player's XP no longer opens the card panel — a `CheckXPThreshold`
+  prefix skips while the local player is downed; the held XP fires normally on revive.
+
+**Card selection — non-freezing, movement-only lock (EM-5 / EM-5c-fix).** The vanilla global
+`SetTimeScale(0)` is undone immediately (the shared world keeps running for the other player). The selecting
+player instead gets a brief local **invulnerability** bubble plus a **movement-only** lock
+(`AddLock(PlayerLocks.PlayerMovement)`, which zeroes locomotion in `CalculateMovementDirection`). It must
+**not** use `ModifyControllerLock`/any padlock — those route through `LockPlayerController`, which also locks
+Camera + Weapon + Interaction and `InputReader.LockInput`, and card selection needs look (to hover a card) +
+Fire/Interact (to confirm), so a padlock soft-locks the pick. Cleared on `CardSpinComplete` (plus safety
+clears on leaving CardSelection / level change).
+
+**Enemy targeting — distance-based + card-select-aware (EM-Target).** Endless enemies acquire targets from
+`AiAgent.overridetargets` (host-only list rebuilt every `RefreshTargets`); a host postfix re-adds every
+client's ghost unit so all players are candidates. Two refinements make the split fair:
+
+- Vanilla `GetTarget` has a hardcoded **10 m host bias** (any override-target enemy within 10 m of the
+  host's local `PlayerUnit` is forced onto the host). A host-only `GetTarget` **prefix**, scoped to a live
+  Endless run, bypasses the bias and returns the game's own distance pick `OverrideTarget.GrabHostileUnit`
+  (`Closest`) directly — nearest player, host & client symmetric. The generic `BalanceCoopEnemyTargeting`
+  hostilesInLOS re-pick is skipped for Endless (it does not exclude invulnerable players).
+- A **card-selecting player leaves every enemy's aggro.** `GrabHostileUnit` already excludes invulnerable
+  units, and the selector is invulnerable during the pick, so the **host** selector drops off for free (its
+  sticky Closest cache is invalidated when the cached target is now-invuln so enemies redirect to another
+  player instead of freezing). For a **client** selector — whose ghost lives on the host — the client sends
+  `EndlessCardSelect` (client→host) on entering/leaving the pick, and the host marks that client's ghost
+  invulnerable, so the same exclusion applies.
+
 ---
 
 ## 6. Progression layer — Shared mode (default)
@@ -267,8 +320,10 @@ the critical path; EM-5 can trail.
 - ~~Shared card resolution rule~~ **Decided:** Independent mode = each player picks their own card. Shared
   mode = majority wins; tie → host randomly picks one of the tied indices (host-authoritative roll,
   broadcasts the resolved index). See Part 7.
-- **XP fairness in Independent mode:** duplicating orbs per-end means total XP earned differs from
-  single-player pacing only if pickup radii differ — acceptable? Or credit XP directly on kill?
+- ~~**XP fairness in Independent mode:** duplicating orbs per-end means total XP earned differs from
+  single-player pacing only if pickup radii differ — acceptable? Or credit XP directly on kill?~~
+  **Decided & shipped:** deterministic kill attribution — XP goes to the first-damager or last-hitter (host
+  toggle, default last-hit); the orb flies to the killer and credits on absorption. See §5.1 (EM-5c).
 - **Non-unit interactables** (loot stations, hidden chests from cards) — mirror now or defer? They do not
   go through `UnitSO.SpawnUnit`, so they need a separate spawn-mirror or a deferral decision.
 - **Bosses in Endless** (`spawnedBossUnits`, `AttachBossToUI`) reuse the existing boss puppet/health path;

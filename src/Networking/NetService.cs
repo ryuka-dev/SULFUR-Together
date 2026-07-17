@@ -1439,6 +1439,31 @@ namespace SULFURTogether.Networking
             Gameplay.EndlessSyncManager.ApplyCollected(msg);
         }
 
+        // EM req 2: client → host, "I entered/left Independent-mode card selection" (host suppresses my ghost as a target).
+        internal void SendEndlessCardSelect(bool selecting)
+        {
+            if (_mode != NetMode.Client || _hostPeer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.EndlessCardSelect);
+                Gameplay.NetEndlessCardSelectCodec.Write(w, new Gameplay.NetEndlessCardSelect { Selecting = selecting });
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[Endless] failed to send card-select state: {ex.Message}"); }
+        }
+
+        private void HandleEndlessCardSelect(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Gameplay.NetEndlessCardSelectCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[Endless] malformed EndlessCardSelect packet");
+                return;
+            }
+            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            Gameplay.EndlessSyncManager.SetPeerCardSelectInvuln(peerId, msg.Selecting);
+        }
+
         // ----------------------------------------------------------------- Phase 5.6-WS player weapon bullet sync
 
         // Called on the FIRING peer (via NetGameplaySyncBridge). Stamps identity + scene context, then routes the event
@@ -3910,6 +3935,9 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.EndlessXpCollectRequest:
                         HandleEndlessXpCollectRequest(peer, reader);
+                        break;
+                    case NetMessageType.EndlessCardSelect:
+                        HandleEndlessCardSelect(peer, reader);
                         break;
                     case NetMessageType.EndlessXpCollected:
                         HandleEndlessXpCollected(peer, reader);

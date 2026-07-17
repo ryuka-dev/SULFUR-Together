@@ -793,7 +793,82 @@ namespace SULFURTogether.Patches
         {
             var t = FindType("PerfectRandom.Sulfur.Core.Units.AI.AiAgent");
             if (t == null) return;
-            TryPatch(harmony, t, "GetTarget", null, Post(nameof(AiAgent_GetTarget_HideDowned_Post)));
+            TryPatch(harmony, t, "GetTarget", Pre(nameof(AiAgent_GetTarget_Endless_Pre)), Post(nameof(AiAgent_GetTarget_HideDowned_Post)));
+        }
+
+        // EM (host, Endless only): vanilla GetTarget for override-target enemies has a hardcoded 10m HOST bias — any
+        // Endless enemy within 10m of the host's local PlayerUnit is forced onto the host, ignoring the override list
+        // (which we populate with every player's ghost in RefreshTargets_Post). In co-op that unfairly glues near enemies
+        // to the host regardless of who is actually closer. Bypass the bias for Endless enemies and use the game's own
+        // distance-based override pick (OverrideTarget.GrabHostileUnit, TargetType.Closest) directly — nearest player,
+        // and it already excludes invulnerable units, which is how a card-selecting player drops off aggro (req 2):
+        //   * host selecting  → host's own PlayerUnit is invulnerable → excluded here.
+        //   * client selecting → its ghost is marked invulnerable on the host (EndlessCardSelect msg) → excluded here.
+        // GrabHostileUnit's Closest result is sticky-cached, so if the currently-cached target just became invulnerable we
+        // clear the cache and re-pick so the enemy redirects to another player instead of freezing on the invuln one.
+        private static bool AiAgent_GetTarget_Endless_Pre(object __instance, ref object __result)
+        {
+            try
+            {
+                if (NetGameplaySyncBridge.BossMode != NetMode.Host) return true;      // host owns Endless targeting; SP/client untouched
+                if (!EndlessSyncManager.EndlessActive) return true;          // scope strictly to a live Endless run
+                if (!EnsureEndlessTargetingResolved(__instance)) return true;
+
+                object? ot = _aiOverrideTargetsField!.GetValue(__instance);
+                if (ot == null) return true;
+                if (_otHasTargetsProp!.GetValue(ot, null) is bool has && !has) return true; // no override list → let vanilla run
+                object? owner = _aiOwnerProp!.GetValue(__instance, null);
+                if (owner == null) return true;
+
+                object? picked = _otGrabHostile!.Invoke(ot, new[] { owner });
+                if (picked != null && IsUnitInvulnerable(picked))
+                {
+                    try { _otCachedTargetField?.SetValue(ot, null); } catch { } // drop stale stickiness on a now-invuln target
+                    picked = _otGrabHostile.Invoke(ot, new[] { owner });        // re-pick excludes the invulnerable player
+                }
+                __result = picked;
+                return false; // bypass vanilla GetTarget (and its 10m host bias)
+            }
+            catch { return true; }
+        }
+
+        // ---- Endless override-target reflection cache ----
+        private static bool _endlessTgtResolved;
+        private static FieldInfo? _aiOverrideTargetsField;   // AiAgent.overridetargets
+        private static MethodInfo? _otGrabHostile;           // OverrideTarget.GrabHostileUnit(Unit)
+        private static PropertyInfo? _otHasTargetsProp;      // OverrideTarget.HasTargets
+        private static FieldInfo? _otCachedTargetField;      // OverrideTarget.cachedTarget
+        private static FieldInfo? _unitIsInvulnerableField;  // Unit.isInvulnerable
+
+        private static bool EnsureEndlessTargetingResolved(object aiAgent)
+        {
+            if (_endlessTgtResolved) return _aiOverrideTargetsField != null && _otGrabHostile != null && _aiOwnerProp != null && _otHasTargetsProp != null;
+            _endlessTgtResolved = true;
+            try
+            {
+                var ai = aiAgent.GetType();
+                _aiOwnerProp ??= AccessTools.Property(ai, "Owner");
+                _aiOverrideTargetsField = AccessTools.Field(ai, "overridetargets");
+                var otType = _aiOverrideTargetsField?.FieldType;
+                if (otType != null)
+                {
+                    _otGrabHostile     = AccessTools.Method(otType, "GrabHostileUnit");
+                    _otHasTargetsProp  = AccessTools.Property(otType, "HasTargets");
+                    _otCachedTargetField = AccessTools.Field(otType, "cachedTarget");
+                }
+                var unitType = FindType("PerfectRandom.Sulfur.Core.Units.Unit");
+                _unitIsInvulnerableField = unitType != null ? AccessTools.Field(unitType, "isInvulnerable") : null;
+                if (_aiOverrideTargetsField == null || _otGrabHostile == null || _aiOwnerProp == null || _otHasTargetsProp == null)
+                    Log.Warn($"[Endless] GetTarget host-bias bypass incomplete (ot={_aiOverrideTargetsField != null} grab={_otGrabHostile != null} owner={_aiOwnerProp != null} hasTargets={_otHasTargetsProp != null}) — falling back to vanilla targeting");
+            }
+            catch (Exception ex) { Log.Warn($"[Endless] GetTarget bias-bypass resolve failed: {ex.Message}"); }
+            return _aiOverrideTargetsField != null && _otGrabHostile != null && _aiOwnerProp != null && _otHasTargetsProp != null;
+        }
+
+        private static bool IsUnitInvulnerable(object unit)
+        {
+            try { return _unitIsInvulnerableField?.GetValue(unit) is bool b && b; }
+            catch { return false; }
         }
 
         private static void AiAgent_GetTarget_HideDowned_Post(object __instance, ref object __result)
@@ -808,7 +883,11 @@ namespace SULFURTogether.Patches
                 // whenever both players are in LOS, structurally ignoring the host (the "敌人只打客机" bug). Re-pick the
                 // NEAREST living player participant so host & client are symmetric. Only acts when the chosen target is a
                 // player participant (host's real player or a ghost proxy) — NPC-vs-NPC targeting is left untouched.
-                if (Cfg.BalanceCoopEnemyTargeting.Value)
+                // Endless enemies are already balanced authoritatively by AiAgent_GetTarget_Endless_Pre (override-list
+                // nearest player, invuln excluded). Skip the hostilesInLOS re-pick here — it does NOT exclude invulnerable
+                // players and would re-glue a card-selecting (invuln) player back on as the nearest target.
+                if (Cfg.BalanceCoopEnemyTargeting.Value
+                    && !(NetGameplaySyncBridge.BossMode == NetMode.Host && EndlessSyncManager.EndlessActive))
                 {
                     object? balanced = TryPickNearestPlayerHostile(__instance, __result);
                     if (balanced != null) __result = balanced;

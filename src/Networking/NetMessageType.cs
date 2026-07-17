@@ -417,5 +417,9 @@ namespace SULFURTogether.Networking
         EndlessXpDrop           = 87,
         EndlessXpCollectRequest = 88,
         EndlessXpCollected      = 89,
+
+        // EM req 2 (client→host): a client entered/left Independent-mode card selection. The host marks that client's ghost
+        // unit invulnerable so Endless enemies stop targeting the selecting player (mirrors the local invuln bubble).
+        EndlessCardSelect       = 90,
     }
 }

@@ -36,6 +36,13 @@ namespace SULFURTogether.Networking.Gameplay
         private static bool SharedMode { get { try { return NetSessionSettings.SharedEndlessProgressEnabled; } catch { return true; } } }
         public static bool IsIndependentMode => !SharedMode;
 
+        /// <summary>True while an Endless run is live (manager present + active). Scopes the host's Endless targeting
+        /// override (AiAgent.GetTarget 10m host-bias bypass) strictly to Endless enemies.</summary>
+        public static bool EndlessActive
+        {
+            get { try { if (!Enabled) return false; EnsureResolved(); object? m = ResolveInstance(); return m != null && ReadBool(_fActive, m); } catch { return false; } }
+        }
+
         // ---- cached reflection ----
         private static bool _resolved;
         private static Type? _emType;
@@ -52,8 +59,8 @@ namespace SULFURTogether.Networking.Gameplay
         private static MethodInfo? _spawnOrb;         // XPOrbManager.SpawnOrb(Vector3, int)
         private static MethodInfo? _setInvulnerable;  // Unit.SetInvulnerable(bool)
         private static MethodInfo? _setTimeScale;     // GameManager.SetTimeScale(float, float)
-        private static MethodInfo? _modifyControllerLock; // GameManager.ModifyControllerLock(LockStatePadlock, bool)
-        private static object? _padlockCinematic;     // LockStatePadlock.Cinematic (input lock during the card pick)
+        private static MethodInfo? _addLock;          // GameManager.AddLock(PlayerLocks, bool)
+        private static object? _playerMovementLock;   // GameManager.PlayerLocks.PlayerMovement (movement only — keeps look + card pick)
         private static PropertyInfo? _gmPlayerUnitProp; // GameManager.PlayerUnit
 
         // ---- host throttle / dedup ----
@@ -388,11 +395,13 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 bool any; lock (_forcePulls) any = _forcePulls.Count > 0;
                 if (!any) return;
+                EnsureResolved();
                 object? orbMgr = ResolveOrbManager();
-                if (orbMgr == null || _fActiveOrbs == null || _orbStateField == null) return;
+                if (orbMgr == null || _fActiveOrbs == null || _orbStateField == null || _orbStateEnumType == null) return;
                 if (_fActiveOrbs.GetValue(orbMgr) is not System.Collections.IList list) return;
 
-                float now = Time.realtimeSinceStartup;
+                float now = Time.realtimeSinceStartup; // pull deadline clock (matches RegisterForceCollect)
+                float gameNow = Time.time;             // vanilla's Collecting math measures collectStartTime against Time.time
                 lock (_forcePulls)
                 {
                     for (int p = _forcePulls.Count - 1; p >= 0; p--)
@@ -403,10 +412,17 @@ namespace SULFURTogether.Networking.Gameplay
                         {
                             if (list[i] is not Component c || c == null) continue;
                             int state = 0; try { state = Convert.ToInt32(_orbStateField.GetValue(list[i])); } catch { }
-                            if (state == 2) continue; // already Collecting
+                            // Only pull orbs that have finished their spawn burst (Idle=1); leave Spawning(0) orbs to play
+                            // the vanilla scatter-arc first (so far kills show the same "burst then fly" as near ones), and
+                            // skip Collecting(2) orbs already flying. Near kills never reach here — vanilla collects them
+                            // during Spawning while the player is in pickup range.
+                            if (state != 1) continue;
                             if ((c.transform.position - pull.Pos).sqrMagnitude > rSq) continue;
                             try { _orbStateField.SetValue(list[i], Enum.ToObject(_orbStateEnumType!, 2)); } catch { }
-                            try { _orbCollectStartField?.SetValue(list[i], now); } catch { }
+                            // collectStartTime MUST be Time.time (not realtimeSinceStartup): vanilla's attract-speed ramp
+                            // is `Time.time - collectStartTime`; a realtime stamp makes that term huge-negative → the orb
+                            // accelerates backwards, shrinks into the distance, and is never captured/credited.
+                            try { _orbCollectStartField?.SetValue(list[i], gameNow); } catch { }
                             pull.Remaining--;
                         }
                         if (pull.Remaining <= 0 || now > pull.Deadline) _forcePulls.RemoveAt(p);
@@ -570,8 +586,8 @@ namespace SULFURTogether.Networking.Gameplay
             try
             {
                 object? gm = RuntimeSpawnManager.GameManagerInstance();
-                if (gm == null || _modifyControllerLock == null || _padlockCinematic == null) return;
-                _modifyControllerLock.Invoke(gm, new object[] { _padlockCinematic, locked });
+                if (gm == null || _addLock == null || _playerMovementLock == null) return;
+                _addLock.Invoke(gm, new object[] { _playerMovementLock, locked }); // movement only — look + card pick stay free
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] card movement lock failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -599,8 +615,11 @@ namespace SULFURTogether.Networking.Gameplay
                 object? player = ResolveLocalPlayerUnit();
                 if (player == null || _setInvulnerable == null) return;
                 _setInvulnerable.Invoke(player, new object[] { true });
-                SetCardSelectMovementLock(true); // lock movement/look while the (non-freezing) card panel is up; mouse still picks
+                SetCardSelectMovementLock(true); // lock movement only; look + card-pick input stay free
                 _cardInvulnActive = true;
+                // A selecting client tells the host to mark its ghost invulnerable so enemies drop it as a target (req 2).
+                // The host's own selecting player is excluded directly by the GetTarget bias-bypass (its PlayerUnit is invuln).
+                if (NetGameplaySyncBridge.BossMode == NetMode.Client) NetGameplaySyncBridge.SendEndlessCardSelect(true);
                 if (LogOn) Plugin.Log.Info("[Endless] EM-5 independent card select — local invuln + movement lock ON (no world freeze)");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] card-invuln on failed: {ex.GetType().Name}: {ex.Message}"); }
@@ -617,9 +636,30 @@ namespace SULFURTogether.Networking.Gameplay
                     _setInvulnerable.Invoke(player, new object[] { false });
                 SetCardSelectMovementLock(false);
                 _cardInvulnActive = false;
+                if (NetGameplaySyncBridge.BossMode == NetMode.Client) NetGameplaySyncBridge.SendEndlessCardSelect(false); // release ghost aggro on the host
                 if (LogOn) Plugin.Log.Info("[Endless] EM-5 independent card select — local invuln + movement lock OFF");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] card-invuln off failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>HOST: a client entered/left Independent-mode card selection — mark/unmark its ghost unit invulnerable so
+        /// Endless enemies drop it as a target while it picks (req 2). GrabHostileUnit (used by the GetTarget bias-bypass)
+        /// already excludes invulnerable units, so this is the single lever needed. Idempotent; a disconnect destroys the
+        /// ghost anyway.</summary>
+        public static void SetPeerCardSelectInvuln(string peerId, bool selecting)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || string.IsNullOrEmpty(peerId)) return;
+                EnsureResolved();
+                object? ghost;
+                lock (RemotePlayerRegistryManager.GhostUnitsByPeer)
+                    RemotePlayerRegistryManager.GhostUnitsByPeer.TryGetValue(peerId, out ghost);
+                if (ghost is UnityEngine.Object uo && uo == null) ghost = null;
+                if (ghost != null && _setInvulnerable != null) _setInvulnerable.Invoke(ghost, new object[] { selecting });
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-5c peer card-select ghost invuln {peerId}={selecting} (ghost={(ghost != null)})");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] SetPeerCardSelectInvuln failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         /// <summary>Safety: clear the invuln bubble if the manager is no longer in CardSelection (card flow ended without a
@@ -685,17 +725,21 @@ namespace SULFURTogether.Networking.Gameplay
                 _gmPlayerUnitProp = gmType?.GetProperty("PlayerUnit", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 _setTimeScale = gmType?.GetMethod("SetTimeScale", BindingFlags.Public | BindingFlags.Instance, null,
                     new[] { typeof(float), typeof(float) }, null);
-                var padlockType = AccessTools.TypeByName("LockStatePadlock") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.LockStatePadlock");
-                if (padlockType != null && gmType != null)
+                // Card-select movement lock: PlayerLocks.PlayerMovement zeroes locomotion (CalculateMovementDirection) while
+                // leaving Camera/look and Weapon (card-pick Fire) free — unlike ModifyControllerLock, which locks everything
+                // including look + input and soft-locks the card pick.
+                var playerLocksType = gmType?.GetNestedType("PlayerLocks", BindingFlags.Public | BindingFlags.NonPublic);
+                if (playerLocksType != null && gmType != null)
                 {
-                    _modifyControllerLock = gmType.GetMethod("ModifyControllerLock", BindingFlags.Public | BindingFlags.Instance, null,
-                        new[] { padlockType, typeof(bool) }, null);
-                    try { _padlockCinematic = Enum.Parse(padlockType, "Cinematic"); } catch { }
+                    _addLock = gmType.GetMethod("AddLock", BindingFlags.Public | BindingFlags.Instance, null,
+                        new[] { playerLocksType, typeof(bool) }, null);
+                    try { _playerMovementLock = Enum.Parse(playerLocksType, "PlayerMovement"); } catch { }
                 }
 
                 Plugin.Log.Info($"[Endless] EM-3 resolved fields stage={_fStage != null} wave={_fWave != null} xp={_fXP != null} " +
                                 $"trans={_fTransition != null} updateUI={_updateUI != null} instance={_instanceProp != null} " +
-                                $"orbMgr={_fXpOrbManager != null} spawnOrb={_spawnOrb != null} setInvuln={_setInvulnerable != null}");
+                                $"orbMgr={_fXpOrbManager != null} spawnOrb={_spawnOrb != null} setInvuln={_setInvulnerable != null} " +
+                                $"activeOrbs={_fActiveOrbs != null} orbState={_orbStateField != null} orbEnum={_orbStateEnumType != null} collectStart={_orbCollectStartField != null}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] EM-3 EnsureResolved failed: {ex.GetType().Name}: {ex.Message}"); }
         }
