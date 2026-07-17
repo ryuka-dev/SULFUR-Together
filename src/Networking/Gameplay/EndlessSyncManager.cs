@@ -85,6 +85,7 @@ namespace SULFURTogether.Networking.Gameplay
             ClearPendingDrops(); // drop the previous run's XP pickups
             ClearDamagerTracking(); // EM-5c: drop the previous run's damager attribution + force-pulls
             ClearCardSelectInvuln(); // never carry a card-select invuln bubble across a level change
+            ClearSharedPause(); // EM-6a: never carry a shared-mode client pause across a run boundary
         }
 
         // ================================================================== host
@@ -191,6 +192,7 @@ namespace SULFURTogether.Networking.Gameplay
                     SetTransition(mgr, msg.TransitionState);
                     SetFloat(_fXP, mgr, msg.CurrentXP);
                     SetFloat(_fThreshold, mgr, msg.NextCardThresholdXP);
+                    ApplySharedPauseEdge(msg.TransitionState); // EM-6a: freeze/resume with the host's shared card-select window
                 }
 
                 ClientStateApplied++;
@@ -603,6 +605,48 @@ namespace SULFURTogether.Networking.Gameplay
                 _setTimeScale.Invoke(gm, new object[] { 1f, 0.1f });
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] UndoCardSelectFreeze failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // ================================================================== EM-6a shared-mode pause window (client mirror)
+        //
+        // In Shared mode the host keeps the vanilla card-select freeze (SetTimeScale 0). The host's transitionState is
+        // already synced to the client every wave-state snapshot (discrete changes send immediately), so the client freezes
+        // and resumes off that single authoritative signal — no extra message. This is compatible with Phase 5.7-NP: NP
+        // only blocks pause *padlocks* (Inventory/Paused/DevTools/Dialog); the card-select freeze is a SetTimeScale change
+        // (gameState stays Running), which NP never touches. The 1s wave-state keepalive re-asserts the current transition,
+        // so a dropped snapshot self-heals and the client can never get stuck frozen.
+
+        private const int TransitionCardSelection = 2; // TransitionState.CardSelection
+        private static int _clientPauseTransition = -1;
+
+        /// <summary>CLIENT (Shared mode): freeze/resume in lock-step with the host's card-select transition edge.</summary>
+        private static void ApplySharedPauseEdge(int transition)
+        {
+            if (transition == _clientPauseTransition) return;
+            bool wasSelecting = _clientPauseTransition == TransitionCardSelection;
+            bool nowSelecting = transition == TransitionCardSelection;
+            _clientPauseTransition = transition;
+            if (nowSelecting && !wasSelecting) SetClientTimeScale(0f);      // host opened the shared card panel → pause with it
+            else if (!nowSelecting && wasSelecting) SetClientTimeScale(1f); // host left card selection → resume
+        }
+
+        private static void SetClientTimeScale(float scale)
+        {
+            try
+            {
+                object? gm = RuntimeSpawnManager.GameManagerInstance();
+                if (gm == null || _setTimeScale == null) return;
+                _setTimeScale.Invoke(gm, new object[] { scale, scale <= 0f ? 0.5f : 1.5f }); // mirror vanilla's freeze/resume lerps
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-6a shared pause client timeScale→{scale:F0}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] SetClientTimeScale failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Safety: never carry a client pause across a run boundary — resume if mid-freeze, then reset the edge.</summary>
+        private static void ClearSharedPause()
+        {
+            if (_clientPauseTransition == TransitionCardSelection) SetClientTimeScale(1f);
+            _clientPauseTransition = -1;
         }
 
         /// <summary>Independent-mode card selection must not freeze the shared world, so the selecting player instead gets
