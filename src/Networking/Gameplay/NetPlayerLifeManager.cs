@@ -119,10 +119,19 @@ namespace SULFURTogether.Networking.Gameplay
             public string TargetPeerId = "";
             public float StartedAt;
             public float LastBroadcastAt;
+            // DR-1b release grace: when the rescuer momentarily releases the hold (a tap, or a one-frame input gap),
+            // the record is not cancelled immediately — it is marked released and its progress FREEZES for
+            // RescueReleaseGraceSeconds. A re-hold by the same rescuer within the window resumes from the frozen
+            // progress (StartedAt is rebased so the paused time isn't counted); if the window lapses it cancels for
+            // real. This is what lets rapid tapping / a brief drop accumulate instead of resetting to zero.
+            public bool Released;
+            public float ReleasedAt;
         }
         private static readonly Dictionary<string, ActiveRescueRecord> _hostActiveRescues = new Dictionary<string, ActiveRescueRecord>();
         private static readonly List<string> _rescueTickScratch = new List<string>();
         private const float RescueProgressBroadcastIntervalSeconds = 0.12f;
+        // DR-1b: how long a released hold survives (frozen) before it really cancels. Bridges taps and one-frame gaps.
+        private const float RescueReleaseGraceSeconds = 0.3f;
 
         public static void ClearLevelScoped(string source)
         {
@@ -623,6 +632,14 @@ namespace SULFURTogether.Networking.Gameplay
 
         // ----- Host-authoritative rescue clock (DR-1) -----
 
+        // DR-1b: the rescue engage radius, shared by the client's "can I start a hold / show the prompt" proximity
+        // check (TryFindNearestDownedPeer) and the host's per-tick validation. Previously the client used the bare
+        // PlayerReviveDistance (2.5 m) while the host validated at +1 m (3.5 m) — so a rescuer standing 2.5–3.5 m from
+        // the downed body got NO prompt and NO hold-start (a genuine hold read as "nothing happened"), even though the
+        // host would have accepted it. One radius for both removes that dead band.
+        private static float ReviveEngageRadius()
+            => Math.Max(0.5f, Plugin.Cfg.PlayerReviveDistance.Value + 1.0f);
+
         private static bool TryValidateRescueEligibility(string rescuerPeerId, string targetPeerId, out string reason)
         {
             reason = "";
@@ -647,7 +664,7 @@ namespace SULFURTogether.Networking.Gameplay
                 }
 
                 float distance = Vector3.Distance(rescuerPos, targetPos);
-                float radius = Math.Max(0.5f, Plugin.Cfg.PlayerReviveDistance.Value + 1.0f);
+                float radius = ReviveEngageRadius();
                 if (distance > radius)
                 {
                     reason = $"too far ({distance:F2}m > {radius:F2}m)";
@@ -668,8 +685,21 @@ namespace SULFURTogether.Networking.Gameplay
                 return;
             }
 
-            if (_hostActiveRescues.ContainsKey(targetPeerId))
-                return; // another rescuer already holds this target's slot — first-come-wins (WorldPickupTakeRequest rule)
+            float now = Time.realtimeSinceStartup;
+
+            if (_hostActiveRescues.TryGetValue(targetPeerId, out var existing))
+            {
+                // DR-1b: a re-hold by the same rescuer during the release grace RESUMES from the frozen progress
+                // rather than restarting — rebase StartedAt by the paused span so the grace time isn't counted.
+                if (existing.Released && existing.RescuerPeerId == rescuerPeerId)
+                {
+                    existing.StartedAt += now - existing.ReleasedAt;
+                    existing.Released = false;
+                    if (Plugin.Cfg.LogPlayerLifeSync.Value)
+                        NetLogger.Info($"[PlayerLife] Rescue resumed rescuer={rescuerPeerId} target={targetPeerId}");
+                }
+                return; // active (or a different rescuer while this one's slot is still held) — first-come-wins
+            }
 
             if (!TryValidateRescueEligibility(rescuerPeerId, targetPeerId, out string reason))
             {
@@ -678,7 +708,6 @@ namespace SULFURTogether.Networking.Gameplay
                 return;
             }
 
-            float now = Time.realtimeSinceStartup;
             var record = new ActiveRescueRecord { RescuerPeerId = rescuerPeerId, TargetPeerId = targetPeerId, StartedAt = now, LastBroadcastAt = now };
             _hostActiveRescues[targetPeerId] = record;
             BroadcastRescueProgress(record, 0f);
@@ -691,7 +720,14 @@ namespace SULFURTogether.Networking.Gameplay
         {
             if (!_hostActiveRescues.TryGetValue(request.TargetPeerId, out var record)) return;
             if (record.RescuerPeerId != request.SourcePeerId) return; // stale stop from a rescuer that already lost the slot
-            CancelHostActiveRescue(record, "rescuer released hold");
+            // DR-1b: don't cancel immediately — freeze progress and start the release grace. TickHostActiveRescues
+            // cancels for real if the rescuer doesn't re-hold within RescueReleaseGraceSeconds. Progress is held (not
+            // reset), so a tap or a one-frame input gap no longer throws away the accumulated hold.
+            if (!record.Released)
+            {
+                record.Released = true;
+                record.ReleasedAt = Time.realtimeSinceStartup;
+            }
         }
 
         private static void TickHostActiveRescues()
@@ -707,6 +743,15 @@ namespace SULFURTogether.Networking.Gameplay
             foreach (string targetPeerId in _rescueTickScratch)
             {
                 if (!_hostActiveRescues.TryGetValue(targetPeerId, out var record)) continue;
+
+                // DR-1b: a released hold is frozen — its progress does not advance or complete. Cancel for real only
+                // once the grace window lapses without a re-hold; within it, hold the last progress and wait.
+                if (record.Released)
+                {
+                    if (now - record.ReleasedAt >= RescueReleaseGraceSeconds)
+                        CancelHostActiveRescue(record, "rescuer released hold");
+                    continue;
+                }
 
                 // Re-validated every tick (not just at hold-start) — this is what gives "rescuer leaves range /
                 // dies / target stops being downed" auto-cancel, matching the design spec's interruption rules.
@@ -1190,7 +1235,7 @@ namespace SULFURTogether.Networking.Gameplay
             if (_localTransform == null) return false;
 
             string localPeerId = GetLocalPeerId();
-            float radius = Math.Max(0.5f, Plugin.Cfg.PlayerReviveDistance.Value);
+            float radius = ReviveEngageRadius(); // DR-1b: same radius the host validates at (no near-but-too-far dead band)
             Vector3 localPos = _localTransform.position;
 
             foreach (var peer in PeerStates.Values)
