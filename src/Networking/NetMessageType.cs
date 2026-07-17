@@ -408,5 +408,10 @@ namespace SULFURTogether.Networking
         // state. The client's EndlessModeManager is a slave (EM-1) — it applies this to render the vanilla Endless HUD
         // (XP bar, stage/wave/level labels) in agreement with the host. See EndlessSyncManager.
         EndlessWaveState = 86,
+
+        // Phase EM-5 (host → all clients, ReliableOrdered): an Endless enemy died and dropped XP. The host fires the
+        // canonical OnEnemyDied event and broadcasts the drop (position + orb count); in Independent mode each client
+        // spawns its own XP orbs at that position and collects them into its own local pool. See EndlessSyncManager.
+        EndlessXpDrop = 87,
     }
 }

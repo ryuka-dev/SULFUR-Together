@@ -28,6 +28,13 @@ namespace SULFURTogether.Networking.Gameplay
 
         public static int HostStateBroadcast;
         public static int ClientStateApplied;
+        public static int HostXpDropBroadcast;
+        public static int ClientXpOrbsSpawned;
+
+        /// <summary>EM-4/EM-5: the effective Endless progression mode. Shared = host-driven single pool (EM-3/EM-6);
+        /// Independent = each player runs its own XP/cards (EM-5).</summary>
+        private static bool SharedMode { get { try { return NetSessionSettings.SharedEndlessProgressEnabled; } catch { return true; } } }
+        public static bool IsIndependentMode => !SharedMode;
 
         // ---- cached reflection ----
         private static bool _resolved;
@@ -35,7 +42,12 @@ namespace SULFURTogether.Networking.Gameplay
         private static Type? _transitionEnumType;
         private static PropertyInfo? _instanceProp;   // static EndlessModeManager.Instance
         private static FieldInfo? _fStage, _fWave, _fBurst, _fLoop, _fTransition, _fXP, _fThreshold, _fCardLevel, _fActive;
+        private static FieldInfo? _fXpOrbManager;     // EndlessModeManager.xpOrbManager : XPOrbManager
         private static MethodInfo? _updateUI;         // private void UpdateUI()
+        private static MethodInfo? _spawnOrb;         // XPOrbManager.SpawnOrb(Vector3, int)
+        private static MethodInfo? _setInvulnerable;  // Unit.SetInvulnerable(bool)
+        private static MethodInfo? _setTimeScale;     // GameManager.SetTimeScale(float, float)
+        private static PropertyInfo? _gmPlayerUnitProp; // GameManager.PlayerUnit
 
         // ---- host throttle / dedup ----
         private const float XpThrottleSeconds   = 0.15f; // continuous XP changes: at most ~6-7 Hz
@@ -56,6 +68,7 @@ namespace SULFURTogether.Networking.Gameplay
             _lStage = int.MinValue; _lWave = _lBurst = _lLoop = _lCardLevel = _lTransition = 0;
             _lXP = float.NaN; _lThreshold = float.NaN;
             _clientRunKey = ""; _clientLastRevision = -1;
+            ClearCardSelectInvuln(); // never carry a card-select invuln bubble across a level change
         }
 
         // ================================================================== host
@@ -68,8 +81,12 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
                 EnsureResolved();
                 object? mgr = ResolveInstance();
-                if (mgr == null) { _hadInstance = false; return; }
+                if (mgr == null) { _hadInstance = false; ClearCardSelectInvuln(); return; }
                 if (!_hadInstance) { _hadInstance = true; ResetHostBaseline(); } // fresh run → force first send
+
+                // Safety (host): the card-select invuln bubble is normally dropped by CardSpinComplete; also clear it here
+                // the moment the host leaves CardSelection, so a host can never get stuck invulnerable.
+                EnsureInvulnClearedIfNotSelecting(mgr);
 
                 int stage = ReadInt(_fStage, mgr), wave = ReadInt(_fWave, mgr), burst = ReadInt(_fBurst, mgr);
                 int loop = ReadInt(_fLoop, mgr), cardLevel = ReadInt(_fCardLevel, mgr);
@@ -143,15 +160,22 @@ namespace SULFURTogether.Networking.Gameplay
                 object? mgr = ResolveInstance();
                 if (mgr == null) return; // client not in the Endless arena yet
 
+                // World layer (both modes): the stage/wave/burst/loop the shared host-authoritative world is on.
                 SetInt(_fStage, mgr, msg.CurrentStage);
                 SetInt(_fWave, mgr, msg.CurrentWave);
                 SetInt(_fBurst, mgr, msg.CurrentBurstIndex);
                 SetInt(_fLoop, mgr, msg.LoopCount);
-                SetInt(_fCardLevel, mgr, msg.CurrentCardLevel);
-                SetTransition(mgr, msg.TransitionState);
-                SetFloat(_fXP, mgr, msg.CurrentXP);
-                SetFloat(_fThreshold, mgr, msg.NextCardThresholdXP);
                 SetBool(_fActive, mgr, true); // ensure the UpdateUI guard passes even before the client's StartEndlessMode ran
+
+                // Progression layer: Shared mode mirrors the host's single pool (EM-3). Independent mode leaves the
+                // client's own currentXP / level / card flow untouched (EM-5) — those are driven locally.
+                if (SharedMode)
+                {
+                    SetInt(_fCardLevel, mgr, msg.CurrentCardLevel);
+                    SetTransition(mgr, msg.TransitionState);
+                    SetFloat(_fXP, mgr, msg.CurrentXP);
+                    SetFloat(_fThreshold, mgr, msg.NextCardThresholdXP);
+                }
 
                 ClientStateApplied++;
             }
@@ -174,6 +198,114 @@ namespace SULFURTogether.Networking.Gameplay
                 _updateUI.Invoke(manager, null);
             }
             catch { /* never break the client frame on a render probe */ }
+        }
+
+        // ================================================================== EM-5 per-player XP drops
+
+        /// <summary>HOST: an Endless enemy died (canonical <c>OnEnemyDied</c>) — broadcast its XP drop so each client can
+        /// spawn its own orbs. <paramref name="count"/> = orbs (ExperienceOnKill, doubled on a melee-bonus kill).</summary>
+        public static void HostBroadcastXpDrop(Vector3 position, int xpValue, int count)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                if (count <= 0 || xpValue <= 0) return;
+                if (!NetBossEncounterManager.TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed))
+                { chap = ""; lvl = -1; hasSeed = false; seed = 0; }
+
+                var msg = new NetEndlessXpDrop
+                {
+                    ChapterName = chap, LevelIndex = lvl, HasLevelSeed = hasSeed, LevelSeed = seed,
+                    Position = position, XpValue = xpValue, Count = count,
+                };
+                HostXpDropBroadcast++;
+                NetGameplaySyncBridge.BroadcastHostEndlessXpDrop(msg);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostBroadcastXpDrop failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>CLIENT: spawn our own XP orbs for a host enemy's death. Only in Independent mode (in Shared mode XP is
+        /// the host's single pool — EM-3; per-player orbs + pool reporting come in EM-6). The local XPOrbManager collects
+        /// them toward our camera into our own currentXP with no further wire traffic.</summary>
+        public static void ApplyXpDrop(NetEndlessXpDrop msg)
+        {
+            try
+            {
+                if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
+                if (SharedMode) return; // EM-5: independent only
+
+                if (NetBossEncounterManager.TryGetRunContext(out string chap, out int lvl, out _, out _)
+                    && (!string.Equals(chap, msg.ChapterName, StringComparison.Ordinal) || lvl != msg.LevelIndex))
+                    return; // different level
+
+                EnsureResolved();
+                object? mgr = ResolveInstance();
+                if (mgr == null || _fXpOrbManager == null || _spawnOrb == null) return;
+                object? orbMgr = _fXpOrbManager.GetValue(mgr);
+                if (orbMgr == null) return;
+
+                int count = Mathf.Clamp(msg.Count, 0, 256);
+                for (int i = 0; i < count; i++)
+                    _spawnOrb.Invoke(orbMgr, new object[] { msg.Position, msg.XpValue });
+                ClientXpOrbsSpawned += count;
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ApplyXpDrop failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // ================================================================== EM-5 no-freeze card-select invuln bubble
+
+        private static bool _cardInvulnActive;
+
+        /// <summary>Override the vanilla card-selection freeze (SetTimeScale 0) straight back to normal speed so the shared
+        /// co-op world keeps running. A tiny lerp cleanly supersedes the freeze's in-progress lerp target.</summary>
+        public static void UndoCardSelectFreeze()
+        {
+            try
+            {
+                object? gm = RuntimeSpawnManager.GameManagerInstance();
+                if (gm == null || _setTimeScale == null) return;
+                _setTimeScale.Invoke(gm, new object[] { 1f, 0.1f });
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] UndoCardSelectFreeze failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Independent-mode card selection must not freeze the shared world, so the selecting player instead gets
+        /// a brief local invulnerability bubble while the (non-freezing) card panel is up. Set when card selection opens.</summary>
+        public static void OnIndependentCardSelectOpened()
+        {
+            try
+            {
+                if (_cardInvulnActive) return;
+                object? player = ResolveLocalPlayerUnit();
+                if (player == null || _setInvulnerable == null) return;
+                _setInvulnerable.Invoke(player, new object[] { true });
+                _cardInvulnActive = true;
+                if (LogOn) Plugin.Log.Info("[Endless] EM-5 independent card select — local invuln bubble ON (no world freeze)");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] card-invuln on failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Clear the card-selection invuln bubble (card picked / flow ended). Idempotent.</summary>
+        public static void ClearCardSelectInvuln()
+        {
+            try
+            {
+                if (!_cardInvulnActive) return;
+                object? player = ResolveLocalPlayerUnit();
+                if (player != null && _setInvulnerable != null)
+                    _setInvulnerable.Invoke(player, new object[] { false });
+                _cardInvulnActive = false;
+                if (LogOn) Plugin.Log.Info("[Endless] EM-5 independent card select — local invuln bubble OFF");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] card-invuln off failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Safety: clear the invuln bubble if the manager is no longer in CardSelection (card flow ended without a
+        /// CardSpinComplete). Cheap; called each frame from the client Update path.</summary>
+        public static void EnsureInvulnClearedIfNotSelecting(object manager)
+        {
+            if (!_cardInvulnActive) return;
+            try { if (ReadTransition(manager) != 2) ClearCardSelectInvuln(); } catch { }
         }
 
         // ================================================================== reflection
@@ -203,10 +335,27 @@ namespace SULFURTogether.Networking.Gameplay
                 _fThreshold  = _emType.GetField("nextCardThresholdXP", bf);
                 _fCardLevel  = _emType.GetField("currentCardLevel", bf);
                 _fActive     = _emType.GetField("endlessModeActive", bf);
+                _fXpOrbManager = _emType.GetField("xpOrbManager", bf);
                 _updateUI    = _emType.GetMethod("UpdateUI", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
 
+                var orbType = AccessTools.TypeByName("XPOrbManager") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.XPOrbManager");
+                if (orbType != null)
+                    _spawnOrb = orbType.GetMethod("SpawnOrb", BindingFlags.Public | BindingFlags.Instance, null,
+                        new[] { typeof(Vector3), typeof(int) }, null);
+
+                var unitType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.Unit") ?? AccessTools.TypeByName("Unit");
+                if (unitType != null)
+                    _setInvulnerable = unitType.GetMethod("SetInvulnerable", BindingFlags.Public | BindingFlags.Instance, null,
+                        new[] { typeof(bool) }, null);
+
+                var gmType = BossReflect.FindType("GameManager", "PerfectRandom.Sulfur.Core.GameManager", "PerfectRandom.Sulfur.Gameplay.GameManager");
+                _gmPlayerUnitProp = gmType?.GetProperty("PlayerUnit", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                _setTimeScale = gmType?.GetMethod("SetTimeScale", BindingFlags.Public | BindingFlags.Instance, null,
+                    new[] { typeof(float), typeof(float) }, null);
+
                 Plugin.Log.Info($"[Endless] EM-3 resolved fields stage={_fStage != null} wave={_fWave != null} xp={_fXP != null} " +
-                                $"trans={_fTransition != null} updateUI={_updateUI != null} instance={_instanceProp != null}");
+                                $"trans={_fTransition != null} updateUI={_updateUI != null} instance={_instanceProp != null} " +
+                                $"orbMgr={_fXpOrbManager != null} spawnOrb={_spawnOrb != null} setInvuln={_setInvulnerable != null}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] EM-3 EnsureResolved failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -220,6 +369,19 @@ namespace SULFURTogether.Networking.Gameplay
                 // Unity-null check: a destroyed manager compares == null.
                 if (v is UnityEngine.Object uo && uo == null) return null;
                 return v;
+            }
+            catch { return null; }
+        }
+
+        private static object? ResolveLocalPlayerUnit()
+        {
+            try
+            {
+                object? gm = RuntimeSpawnManager.GameManagerInstance();
+                if (gm == null || _gmPlayerUnitProp == null) return null;
+                object? pu = _gmPlayerUnitProp.GetValue(gm);
+                if (pu is UnityEngine.Object uo && uo == null) return null;
+                return pu;
             }
             catch { return null; }
         }

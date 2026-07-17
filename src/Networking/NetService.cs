@@ -1351,6 +1351,34 @@ namespace SULFURTogether.Networking
             Gameplay.EndlessSyncManager.ApplyHostWaveState(msg);
         }
 
+        // Phase EM-5: Endless XP drop (host → all clients).
+        internal void BroadcastHostEndlessXpDrop(Gameplay.NetEndlessXpDrop msg)
+        {
+            if (_mode != NetMode.Host || _net == null) return;
+            if (msg == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.EndlessXpDrop);
+                    Gameplay.NetEndlessXpDropCodec.Write(w, msg);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[Endless] failed to broadcast xp drop: {ex.Message}"); }
+            }
+        }
+
+        private void HandleHostEndlessXpDrop(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Gameplay.NetEndlessXpDropCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[Endless] malformed EndlessXpDrop packet");
+                return;
+            }
+            Gameplay.EndlessSyncManager.ApplyXpDrop(msg);
+        }
+
         // ----------------------------------------------------------------- Phase 5.6-WS player weapon bullet sync
 
         // Called on the FIRING peer (via NetGameplaySyncBridge). Stamps identity + scene context, then routes the event
@@ -3813,6 +3841,9 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.EndlessWaveState:
                         HandleHostEndlessWaveState(peer, reader);
+                        break;
+                    case NetMessageType.EndlessXpDrop:
+                        HandleHostEndlessXpDrop(peer, reader);
                         break;
                     case NetMessageType.HostRuntimeSpawn:
                         HandleHostRuntimeSpawn(peer, reader);
