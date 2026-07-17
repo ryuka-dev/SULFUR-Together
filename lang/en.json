@@ -26,6 +26,11 @@
     { "key": "session.sharedEndless.label", "value": "Shared endless progress" },
     { "key": "connect.desc.sharedEndless", "value": "In Endless mode, XP and cards are shared: one pool, one level, and everyone votes on each card. Off = each player levels and picks cards independently. The host's setting applies to the whole session." },
     { "key": "connect.epSession", "value": "Session endless progress: {state} (set by host)" },
+    { "key": "common.firstDamage", "value": "First-damage" },
+    { "key": "common.lastHit", "value": "Last-hit" },
+    { "key": "session.xpFirstDamage.label", "value": "Endless XP: first-damage (Independent mode)" },
+    { "key": "connect.desc.xpFirstDamage", "value": "In Independent Endless mode, XP for a kill goes to whoever damaged the enemy first. Off = it goes to whoever lands the killing blow. No effect in Shared mode. The host's setting applies to the whole session." },
+    { "key": "connect.fdSession", "value": "Session XP attribution: {state} (set by host)" },
 
     { "key": "arena.toast.title", "value": "Arena Lockdown" },
     { "key": "arena.toast.teammateEntered", "value": "A teammate entered the arena — head in now to join them!" },

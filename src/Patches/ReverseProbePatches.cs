@@ -1630,6 +1630,10 @@ namespace SULFURTogether.Patches
                 // Unit_ReceiveDamage_Post after the actual Stats deduction in Unit.ReceiveDamage.
                 NetGameplayProbeManager.ReportHostNpcDamageForSync(__instance, damage);
 
+                // EM-5c: record who damaged this enemy for Independent-mode Endless XP attribution. HostApplyingHitPeer
+                // (set around the client-hit apply) attributes client-forwarded damage to that client; otherwise = host.
+                if (damage > 0f) SULFURTogether.Networking.Gameplay.EndlessSyncManager.RecordHostSideDamager(__instance);
+
                 // RS-1: reaching this fallthrough (past all client-redirect / boss-claim checks above) on the HOST
                 // means this is the Host's own local hit on a regular enemy. Cache "before" HP (prefix runs before
                 // the real deduction) so Unit_ReceiveDamage_Post can report the actual delta once the hit is

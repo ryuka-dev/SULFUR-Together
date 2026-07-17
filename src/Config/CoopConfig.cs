@@ -273,6 +273,11 @@ namespace SULFURTogether.Config
         // Shared (default) = one shared XP pool + card level; Independent = each player has their own. See EM-5/EM-6.
         public Setting<bool>       SharedEndlessProgress { get; }
 
+        // ----- EM-5c Independent-mode XP attribution (host-authoritative session setting; connect-page toggle, coop.json).
+        // Only meaningful in Independent mode: XP goes to whoever first-damaged the enemy (true) or landed the killing
+        // blow (false, default = last-hit).
+        public Setting<bool>       EndlessXpFirstDamage { get; }
+
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
         public Fixed<bool>         EnableWorldItemDropSync { get; }
         public ConfigEntry<bool>   LogWorldItemDropSync { get; }
@@ -546,6 +551,7 @@ namespace SULFURTogether.Config
             LastSteamIdToJoin     = new Setting<string>(() => store.Values.lastSteamIdToJoin,      v => { store.Values.lastSteamIdToJoin = v ?? ""; store.Save(); });
             FriendlyFire          = new Setting<bool>  (() => store.Values.friendlyFire,           v => { store.Values.friendlyFire = v; store.Save(); });
             SharedEndlessProgress = new Setting<bool>  (() => store.Values.sharedEndlessProgress,  v => { store.Values.sharedEndlessProgress = v; store.Save(); });
+            EndlessXpFirstDamage  = new Setting<bool>  (() => store.Values.endlessXpFirstDamage,   v => { store.Values.endlessXpFirstDamage = v; store.Save(); });
 
             // master
             EnableDebugLog     = cfg.Bind("Debug", "EnableDebugLog",     false, "Verbose debug output.");

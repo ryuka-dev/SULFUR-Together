@@ -45,6 +45,9 @@ namespace SULFURTogether.Networking.Gameplay
         private static FieldInfo? _fXpOrbManager;     // EndlessModeManager.xpOrbManager : XPOrbManager
         private static FieldInfo? _fPickupRadius;     // XPOrbManager.pickupRadius : float
         private static FieldInfo? _fActiveOrbs;       // XPOrbManager.activeOrbs : List<XPOrb>
+        private static FieldInfo? _orbStateField;     // XPOrb.state : OrbState
+        private static FieldInfo? _orbCollectStartField; // XPOrb.collectStartTime : float
+        private static Type?      _orbStateEnumType;  // OrbState (Collecting = 2)
         private static MethodInfo? _updateUI;         // private void UpdateUI()
         private static MethodInfo? _spawnOrb;         // XPOrbManager.SpawnOrb(Vector3, int)
         private static MethodInfo? _setInvulnerable;  // Unit.SetInvulnerable(bool)
@@ -73,6 +76,7 @@ namespace SULFURTogether.Networking.Gameplay
             _lXP = float.NaN; _lThreshold = float.NaN;
             _clientRunKey = ""; _clientLastRevision = -1;
             ClearPendingDrops(); // drop the previous run's XP pickups
+            ClearDamagerTracking(); // EM-5c: drop the previous run's damager attribution + force-pulls
             ClearCardSelectInvuln(); // never carry a card-select invuln bubble across a level change
         }
 
@@ -242,7 +246,9 @@ namespace SULFURTogether.Networking.Gameplay
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostOnEnemyKilled failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        /// <summary>BOTH ENDS: spawn the pickup's cosmetic orbs (worth 0) and register the pending pickup.</summary>
+        /// <summary>BOTH ENDS: apply an XP drop. Shared-mode drop (empty AwardPeerId) = spawn cosmetic orbs + register a
+        /// pending pickup. Independent-mode award (AwardPeerId set) = only the awardee spawns real orbs that fly straight
+        /// to them (force-collected), and vanilla credits the XP as each is absorbed.</summary>
         public static void ApplyDrop(NetEndlessXpDrop msg)
         {
             try
@@ -254,6 +260,24 @@ namespace SULFURTogether.Networking.Gameplay
                     return; // different level
 
                 EnsureResolved();
+
+                // Independent-mode award: only the awardee spawns (real-value) orbs that fly straight to them.
+                if (!string.IsNullOrEmpty(msg.AwardPeerId))
+                {
+                    if (!string.Equals(msg.AwardPeerId, NetGameplaySyncBridge.LocalPeerId, StringComparison.Ordinal)) return;
+                    object? orbMgr2 = ResolveOrbManager();
+                    if (orbMgr2 != null && _spawnOrb != null)
+                    {
+                        int cnt = Mathf.Clamp(msg.OrbCount, 0, 256);
+                        for (int i = 0; i < cnt; i++)
+                            _spawnOrb.Invoke(orbMgr2, new object[] { msg.Position, 1 }); // real value → vanilla credits on absorption
+                        RegisterForceCollect(msg.Position, cnt); // fly straight to me regardless of distance (snipes included)
+                        ClientXpOrbsSpawned += cnt;
+                    }
+                    return;
+                }
+
+                // Shared-mode pickup: cosmetic orbs (0) + a pending pickup collected via first-wins.
                 object? orbMgr = ResolveOrbManager();
                 if (orbMgr != null && _spawnOrb != null)
                 {
@@ -269,6 +293,133 @@ namespace SULFURTogether.Networking.Gameplay
                 }
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] ApplyDrop failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // ---------------------------------------------------------------- EM-5c: first-damage/last-hit attribution + award
+
+        // Per-enemy damager tracking (host, Independent mode). first = first peer to damage it; last = most recent.
+        private static readonly System.Collections.Generic.Dictionary<int, string> _firstDamager = new System.Collections.Generic.Dictionary<int, string>();
+        private static readonly System.Collections.Generic.Dictionary<int, string> _lastDamager  = new System.Collections.Generic.Dictionary<int, string>();
+
+        /// <summary>Set by the client-hit handler while it applies a client's forwarded damage, so the host-side damage
+        /// hook attributes that damage to the client peer rather than the host.</summary>
+        public static string? HostApplyingHitPeer;
+
+        /// <summary>HOST: record who damaged an Endless enemy (from the ReceiveDamage host hook). Only tracks in Independent
+        /// mode (Shared uses the pickup path). <see cref="HostApplyingHitPeer"/> attributes client-forwarded damage.</summary>
+        public static void RecordHostSideDamager(object npc)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || SharedMode) return;
+                int idx = NetGameplayProbeManager.GetSpawnIndexForObject(npc);
+                RecordEnemyDamager(idx, HostApplyingHitPeer ?? NetGameplaySyncBridge.LocalPeerId);
+            }
+            catch { }
+        }
+
+        /// <summary>HOST: record (spawnIndex → peer) as first (if absent) + last (always). Called for host hits (from the
+        /// ReceiveDamage hook) and directly for client hits (from the client-hit handler, robust to whether the forwarded
+        /// damage re-enters the ReceiveDamage hook).</summary>
+        public static void RecordEnemyDamager(int spawnIndex, string peer)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || SharedMode) return;
+                if (spawnIndex <= 0 || string.IsNullOrEmpty(peer)) return;
+                if (!_firstDamager.ContainsKey(spawnIndex)) _firstDamager[spawnIndex] = peer; // first-wins
+                _lastDamager[spawnIndex] = peer;                                              // last-hit overwrites
+            }
+            catch { }
+        }
+
+        /// <summary>HOST: an Endless enemy died in Independent mode — resolve its attributed peer (first-damage or last-hit
+        /// per the session setting) and broadcast the award. Suppresses nothing here; the vanilla host orb spawn is already
+        /// swallowed (EndlessSyncPatches).</summary>
+        public static void HostAwardXpForKill(object npc, Vector3 position, int totalXp)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || totalXp <= 0) return;
+                int idx = NetGameplayProbeManager.GetSpawnIndexForObject(npc);
+                string peer = "";
+                if (idx > 0)
+                {
+                    bool firstDamage = false;
+                    try { firstDamage = NetSessionSettings.EndlessXpFirstDamageEnabled; } catch { }
+                    var map = firstDamage ? _firstDamager : _lastDamager;
+                    map.TryGetValue(idx, out peer);
+                    _firstDamager.Remove(idx); _lastDamager.Remove(idx);
+                }
+                if (string.IsNullOrEmpty(peer)) peer = NetGameplaySyncBridge.LocalPeerId; // no recorded damager → host
+
+                if (!NetBossEncounterManager.TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed))
+                { chap = ""; lvl = -1; hasSeed = false; seed = 0; }
+
+                var msg = new NetEndlessXpDrop
+                {
+                    ChapterName = chap, LevelIndex = lvl, HasLevelSeed = hasSeed, LevelSeed = seed,
+                    DropId = ++_nextDropId, Position = position, TotalXp = totalXp, OrbCount = Mathf.Clamp(totalXp, 0, 256),
+                    AwardPeerId = peer,
+                };
+                HostXpDropBroadcast++;
+                NetGameplaySyncBridge.BroadcastHostEndlessXpDrop(msg);
+                ApplyDrop(msg); // host applies it too (spawns+force-collects if the host is the awardee)
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-5c award kill idx={idx} -> peer={peer} xp={totalXp} ({(NetSessionSettings.EndlessXpFirstDamageEnabled ? "first" : "last")})");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostAwardXpForKill failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // ---- force-collect: make freshly-spawned award orbs fly straight to the local player from any distance ----
+        private sealed class ForcePull { public Vector3 Pos; public int Remaining; public float Deadline; }
+        private static readonly System.Collections.Generic.List<ForcePull> _forcePulls = new System.Collections.Generic.List<ForcePull>();
+
+        private static void RegisterForceCollect(Vector3 pos, int count)
+        {
+            if (count <= 0) return;
+            lock (_forcePulls) _forcePulls.Add(new ForcePull { Pos = pos, Remaining = count, Deadline = Time.realtimeSinceStartup + 3f });
+        }
+
+        /// <summary>Each frame (service tick): flip freshly-spawned award orbs near a pending pull into the Collecting state
+        /// so they home to the local player regardless of distance. Runs until the expected count is pulled or it times out.</summary>
+        public static void ForceCollectTick()
+        {
+            try
+            {
+                bool any; lock (_forcePulls) any = _forcePulls.Count > 0;
+                if (!any) return;
+                object? orbMgr = ResolveOrbManager();
+                if (orbMgr == null || _fActiveOrbs == null || _orbStateField == null) return;
+                if (_fActiveOrbs.GetValue(orbMgr) is not System.Collections.IList list) return;
+
+                float now = Time.realtimeSinceStartup;
+                lock (_forcePulls)
+                {
+                    for (int p = _forcePulls.Count - 1; p >= 0; p--)
+                    {
+                        var pull = _forcePulls[p];
+                        float rSq = OrbRemoveRadius * OrbRemoveRadius;
+                        for (int i = 0; i < list.Count && pull.Remaining > 0; i++)
+                        {
+                            if (list[i] is not Component c || c == null) continue;
+                            int state = 0; try { state = Convert.ToInt32(_orbStateField.GetValue(list[i])); } catch { }
+                            if (state == 2) continue; // already Collecting
+                            if ((c.transform.position - pull.Pos).sqrMagnitude > rSq) continue;
+                            try { _orbStateField.SetValue(list[i], Enum.ToObject(_orbStateEnumType!, 2)); } catch { }
+                            try { _orbCollectStartField?.SetValue(list[i], now); } catch { }
+                            pull.Remaining--;
+                        }
+                        if (pull.Remaining <= 0 || now > pull.Deadline) _forcePulls.RemoveAt(p);
+                    }
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ForceCollectTick failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        public static void ClearDamagerTracking()
+        {
+            _firstDamager.Clear(); _lastDamager.Clear(); HostApplyingHitPeer = null;
+            lock (_forcePulls) _forcePulls.Clear();
         }
 
         /// <summary>BOTH ENDS: when the local player reaches a pending pickup, ask the host to award it (first-wins). The
@@ -516,6 +667,13 @@ namespace SULFURTogether.Networking.Gameplay
                         new[] { typeof(Vector3), typeof(int) }, null);
                     _fPickupRadius = orbType.GetField("pickupRadius", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                     _fActiveOrbs   = orbType.GetField("activeOrbs", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                }
+                var xpOrbType = AccessTools.TypeByName("XPOrb") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.XPOrb");
+                if (xpOrbType != null)
+                {
+                    _orbStateField        = xpOrbType.GetField("state", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    _orbCollectStartField = xpOrbType.GetField("collectStartTime", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    _orbStateEnumType     = _orbStateField?.FieldType;
                 }
 
                 var unitType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.Unit") ?? AccessTools.TypeByName("Unit");

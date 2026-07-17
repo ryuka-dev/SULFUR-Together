@@ -97,6 +97,15 @@ namespace SULFURTogether.Patches
                         typeof(EndlessSyncPatches).GetMethod(nameof(CardSpinComplete_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 else Plugin.Log.Info("[Endless] EndlessModeManager.CardSpinComplete not found — EM-5 invuln clear disabled.");
 
+                // bug1: defer the XP-threshold card selection while the local player is downed (absorbing XP while downed
+                // must not open the card panel — it soft-locks controls through/after revive). Held XP is not reset, so it
+                // fires normally once revived.
+                var checkXp = AccessTools.DeclaredMethod(emType, "CheckXPThreshold");
+                if (checkXp != null)
+                    harmony.Patch(checkXp, prefix: new HarmonyMethod(
+                        typeof(EndlessSyncPatches).GetMethod(nameof(CheckXPThreshold_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                else Plugin.Log.Info("[Endless] EndlessModeManager.CheckXPThreshold not found — bug1 downed guard disabled.");
+
                 // Bug-2 (enemies ignore the client): Endless enemies use overridetargets (RefreshTargets) which only lists
                 // the host player, so the client is never a candidate. Re-add the client ghost units after each refresh.
                 ResolveTargetingReflection(emType);
@@ -152,7 +161,10 @@ namespace SULFURTogether.Patches
                 if (xpOnKill <= 0) return;
                 if (!TryReadCorpsePosition(npc, out UnityEngine.Vector3 pos)) return;
                 // totalXp + orb count = base ExperienceOnKill (the melee-XP-bonus card is host-personal and not shared).
-                EndlessSyncManager.HostOnEnemyKilled(pos, xpOnKill, xpOnKill);
+                if (EndlessSyncManager.IsIndependentMode)
+                    EndlessSyncManager.HostAwardXpForKill(npc, pos, xpOnKill); // EM-5c: award to first-damager / last-hit
+                else
+                    EndlessSyncManager.HostOnEnemyKilled(pos, xpOnKill, xpOnKill); // Shared: pickup
             }
             catch (Exception ex) { SuppressVanillaOrbSpawn = false; Plugin.Log.Warn($"[Endless] OnEnemyDied_Post failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -181,6 +193,19 @@ namespace SULFURTogether.Patches
         private static void CardSpinComplete_Post()
         {
             try { EndlessSyncManager.ClearCardSelectInvuln(); } catch { }
+        }
+
+        // bug1: while the local player is downed, skip the XP-threshold check so card selection can't open (which would
+        // soft-lock controls through revive). currentXP is untouched, so it opens normally once the player is revived.
+        private static bool CheckXPThreshold_Pre()
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode == NetMode.Off) return true;
+                if (NetPlayerLifeManager.IsPeerDowned(NetGameplaySyncBridge.LocalPeerId)) return false;
+            }
+            catch { }
+            return true;
         }
 
         private static int ReadInt(object obj, string member)

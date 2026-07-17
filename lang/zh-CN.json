@@ -26,6 +26,11 @@
     { "key": "session.sharedEndless.label", "value": "共享无尽进度" },
     { "key": "connect.desc.sharedEndless", "value": "无尽模式中，经验和卡牌共享：共用一个经验池、一个等级，每张卡由全体投票决定。关闭＝每名玩家各自升级、各自选卡。房主的设置对整个会话生效。" },
     { "key": "connect.epSession", "value": "会话无尽进度：{state}（由房主设置）" },
+    { "key": "common.firstDamage", "value": "首次伤害" },
+    { "key": "common.lastHit", "value": "补刀" },
+    { "key": "session.xpFirstDamage.label", "value": "无尽经验：首伤归属（独立模式）" },
+    { "key": "connect.desc.xpFirstDamage", "value": "独立无尽模式下，击杀经验归给最先伤害该敌人的人。关闭＝归给补刀（击杀）的人。共享模式下无效。房主的设置对整个会话生效。" },
+    { "key": "connect.fdSession", "value": "会话经验归属：{state}（由房主设置）" },
 
     { "key": "arena.toast.title", "value": "竞技场封锁" },
     { "key": "arena.toast.teammateEntered", "value": "有队友进入了竞技场——快进来一起战斗！" },

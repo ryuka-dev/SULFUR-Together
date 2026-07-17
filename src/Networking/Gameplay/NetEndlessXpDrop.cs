@@ -22,5 +22,9 @@ namespace SULFURTogether.Networking.Gameplay
         public Vector3 Position { get; set; }
         public int     TotalXp  { get; set; }  // total XP the pickup is worth (ExperienceOnKill)
         public int     OrbCount { get; set; }  // number of visual orbs to spawn (cosmetic)
+
+        // EM-5c: empty = Shared-mode pickup (walk-over, host pool). Non-empty = Independent-mode award: the orbs are
+        // spawned only on this peer's screen (real value) and fly straight to them regardless of distance.
+        public string  AwardPeerId { get; set; } = "";
     }
 }

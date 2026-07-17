@@ -26,6 +26,11 @@
     { "key": "session.sharedEndless.label", "value": "エンドレス進行度を共有" },
     { "key": "connect.desc.sharedEndless", "value": "エンドレスモードで経験値とカードを共有します：共通の経験プール・共通のレベルで、各カードは全員の投票で決定します。オフ＝各プレイヤーが個別にレベルアップしカードを選びます。ホストの設定がセッション全体に適用されます。" },
     { "key": "connect.epSession", "value": "セッションのエンドレス進行度：{state}（ホストが設定）" },
+    { "key": "common.firstDamage", "value": "初撃" },
+    { "key": "common.lastHit", "value": "とどめ" },
+    { "key": "session.xpFirstDamage.label", "value": "エンドレスXP：初撃者に付与（個別モード）" },
+    { "key": "connect.desc.xpFirstDamage", "value": "個別エンドレスモードでは、撃破の経験値は最初にダメージを与えた者に入ります。オフ＝とどめを刺した者に入ります。共有モードでは無効。ホストの設定がセッション全体に適用されます。" },
+    { "key": "connect.fdSession", "value": "セッションのXP付与：{state}（ホストが設定）" },
 
     { "key": "arena.toast.title", "value": "アリーナロックダウン" },
     { "key": "arena.toast.teammateEntered", "value": "仲間がアリーナに入りました——今すぐ合流しましょう！" },

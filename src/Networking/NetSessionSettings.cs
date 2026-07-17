@@ -12,6 +12,7 @@ namespace SULFURTogether.Networking
         public bool DeveloperMode;   // DEV-1: host-authoritative session developer mode (vote/entitlement gated, transient)
         public bool SharedLoot;      // SL-4: host-authoritative shared world loot (Model A rolling); the host's ShareAllLoot
         public bool SharedEndlessProgress; // EM-4: host-authoritative Endless progression mode (Shared vs Independent)
+        public bool EndlessXpFirstDamage;  // EM-5c: Independent-mode XP attribution (first-damage vs last-hit)
     }
 
     /// <summary>DEV-1: which session-setting fields changed in a live (non-initial) apply, so the caller toasts
@@ -22,7 +23,8 @@ namespace SULFURTogether.Networking
         public bool DeveloperMode;
         public bool SharedLoot;
         public bool SharedEndlessProgress;
-        public bool Any => FriendlyFire || DeveloperMode || SharedLoot || SharedEndlessProgress;
+        public bool EndlessXpFirstDamage;
+        public bool Any => FriendlyFire || DeveloperMode || SharedLoot || SharedEndlessProgress || EndlessXpFirstDamage;
     }
 
     /// <summary>
@@ -39,6 +41,7 @@ namespace SULFURTogether.Networking
         private static bool _receivedDeveloperMode;
         private static bool _receivedSharedLoot;
         private static bool _receivedSharedEndlessProgress = true; // EM-4: default Shared until the host's snapshot arrives
+        private static bool _receivedEndlessXpFirstDamage;         // EM-5c: default last-hit until the host's snapshot arrives
         private static int  _lastAppliedRevision = -1;
 
         /// <summary>The effective friendly-fire setting for the local end, whatever its role.</summary>
@@ -118,6 +121,21 @@ namespace SULFURTogether.Networking
             catch { return true; }
         }
 
+        /// <summary>EM-5c: Independent-mode XP attribution — first-damage (true) vs last-hit (false). Host reads its config;
+        /// a client mirrors the host's broadcast (default last-hit until told).</summary>
+        public static bool EndlessXpFirstDamageEnabled
+        {
+            get
+            {
+                switch (NetConfig.GetMode())
+                {
+                    case NetMode.Host:   try { return Plugin.Cfg.EndlessXpFirstDamage.Value; } catch { return false; }
+                    case NetMode.Client: return _receivedEndlessXpFirstDamage;
+                    default:             try { return Plugin.Cfg.EndlessXpFirstDamage.Value; } catch { return false; }
+                }
+            }
+        }
+
         private static bool ReadHostSharedLootConfig()
         {
             try { return Plugin.Cfg.ShareAllLoot.Value; }
@@ -140,18 +158,21 @@ namespace SULFURTogether.Networking
             bool devChanged = _receivedDeveloperMode != state.DeveloperMode;
             bool slChanged  = _receivedSharedLoot    != state.SharedLoot;
             bool epChanged  = _receivedSharedEndlessProgress != state.SharedEndlessProgress;
+            bool fdChanged  = _receivedEndlessXpFirstDamage  != state.EndlessXpFirstDamage;
             _receivedFriendlyFire  = state.FriendlyFire;
             _receivedDeveloperMode = state.DeveloperMode;
             _receivedSharedLoot    = state.SharedLoot;
             _receivedSharedEndlessProgress = state.SharedEndlessProgress;
+            _receivedEndlessXpFirstDamage  = state.EndlessXpFirstDamage;
 
-            if ((ffChanged || devChanged || slChanged || epChanged) && Plugin.Cfg.LogFriendlyFire.Value)
-                Plugin.Log.Info($"[SessionSettings] applied: friendlyFire={state.FriendlyFire} developerMode={state.DeveloperMode} sharedLoot={state.SharedLoot} sharedEndless={state.SharedEndlessProgress} rev={state.Revision}");
+            if ((ffChanged || devChanged || slChanged || epChanged || fdChanged) && Plugin.Cfg.LogFriendlyFire.Value)
+                Plugin.Log.Info($"[SessionSettings] applied: friendlyFire={state.FriendlyFire} developerMode={state.DeveloperMode} sharedLoot={state.SharedLoot} sharedEndless={state.SharedEndlessProgress} xpFirstDamage={state.EndlessXpFirstDamage} rev={state.Revision}");
 
             change.FriendlyFire  = ffChanged  && !initial;
             change.DeveloperMode = devChanged && !initial;
             change.SharedLoot    = slChanged  && !initial;
             change.SharedEndlessProgress = epChanged && !initial;
+            change.EndlessXpFirstDamage  = fdChanged && !initial;
             return change;
         }
 
@@ -162,6 +183,7 @@ namespace SULFURTogether.Networking
             _receivedDeveloperMode = false;
             _receivedSharedLoot    = false;
             _receivedSharedEndlessProgress = true; // EM-4: back to the Shared default
+            _receivedEndlessXpFirstDamage  = false; // EM-5c: back to the last-hit default
             _lastAppliedRevision = -1;
         }
     }

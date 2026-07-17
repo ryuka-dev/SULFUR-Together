@@ -34,6 +34,7 @@ namespace SULFURTogether.Config
             public string lastSteamIdToJoin     = ""; // STEAM-2: last SteamID64 pasted into "Steam ID to join"
             public bool   friendlyFire          = false; // FF-1: host-authoritative session setting; OFF by default
             public bool   sharedEndlessProgress = true;  // EM-4: host-authoritative Endless progression mode; Shared by default
+            public bool   endlessXpFirstDamage  = false; // EM-5c: Independent-mode XP goes to first-damager (true) or last-hit killer (false, default)
         }
 
         // BepInEx keys that no longer exist as bound entries: the connection/UI settings that moved into this store,

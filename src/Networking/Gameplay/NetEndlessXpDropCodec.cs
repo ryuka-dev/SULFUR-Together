@@ -4,7 +4,7 @@ namespace SULFURTogether.Networking.Gameplay
 {
     internal static class NetEndlessXpDropCodec
     {
-        private const byte Version = 2;
+        private const byte Version = 3;
 
         public static void Write(NetDataWriter w, NetEndlessXpDrop m)
         {
@@ -17,6 +17,7 @@ namespace SULFURTogether.Networking.Gameplay
             w.Put(m.Position.x); w.Put(m.Position.y); w.Put(m.Position.z);
             w.Put(m.TotalXp);
             w.Put(m.OrbCount);
+            w.Put(m.AwardPeerId ?? "");
         }
 
         public static bool TryRead(NetDataReader r, out NetEndlessXpDrop m)
@@ -35,6 +36,7 @@ namespace SULFURTogether.Networking.Gameplay
                 m.Position = new UnityEngine.Vector3(r.GetFloat(), r.GetFloat(), r.GetFloat());
                 m.TotalXp  = r.GetInt();
                 m.OrbCount = r.GetInt();
+                m.AwardPeerId = r.GetString();
                 return true;
             }
             catch { return false; }

@@ -298,7 +298,10 @@ namespace SULFURTogether.Networking
 
             // EM-5b: detect the local player reaching a shared XP pickup and request its collection (both roles).
             if (_mode != NetMode.Off)
+            {
                 Gameplay.EndlessSyncManager.PickupTick();
+                Gameplay.EndlessSyncManager.ForceCollectTick(); // EM-5c: home Independent-mode award orbs to the local player
+            }
 
             // WS-3: give remote proxies a billboard body (visual only). Priest sprite body takes priority; NPC-prefab body
             // is the fallback (only used if the sprite body is disabled/unavailable).
@@ -2877,6 +2880,7 @@ namespace SULFURTogether.Networking
                 DeveloperMode = CoopDevAuthority.HostSessionDevEnabled,
                 SharedLoot = Plugin.Cfg.ShareAllLoot.Value,
                 SharedEndlessProgress = Plugin.Cfg.SharedEndlessProgress.Value,
+                EndlessXpFirstDamage = Plugin.Cfg.EndlessXpFirstDamage.Value,
             };
         }
 
@@ -2927,6 +2931,8 @@ namespace SULFURTogether.Networking
                 UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.sharedLoot.label", "Shared loot"), state.SharedLoot);
             if (change.SharedEndlessProgress)
                 UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.sharedEndless.label", "Shared endless progress"), state.SharedEndlessProgress);
+            if (change.EndlessXpFirstDamage)
+                UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.xpFirstDamage.label", "Endless XP: first-damage"), state.EndlessXpFirstDamage);
             if (change.DeveloperMode)
                 UI.CoopToasts.NotifyDeveloperMode(state.DeveloperMode);
             // DEV-1: re-assert the local GameManager.DeveloperMode flag to the received session value. Runs even on

@@ -9293,8 +9293,16 @@ namespace SULFURTogether.Networking.Gameplay
                 if (Plugin.Cfg.LogClientHitRequests.Value)
                     NetLogger.Info($"[ClientHit] ACCEPT peer={peerId} seq={request.RequestSeq} hostIdx={request.TargetHostSpawnIndex} unit={hostUnitId} dmg={applyDamage:F1}{(pendingExtra > 0f ? $" (+{pendingExtra:F1} coalesced)" : "")}");
 
+                // EM-5c: record this client as a damager of the enemy (for Independent-mode Endless XP attribution), and
+                // flag the apply so the ReceiveDamage host hook attributes the forwarded damage to this client too.
+                EndlessSyncManager.RecordEnemyDamager(request.TargetHostSpawnIndex, peerId);
+                EndlessSyncManager.HostApplyingHitPeer = peerId;
+                bool __applied;
+                string applyResult; bool fatal; float actualApplied;
+                try { __applied = TryApplyHostHitDamage(targetSnapshot, applyDamage, out applyResult, out fatal, out actualApplied); }
+                finally { EndlessSyncManager.HostApplyingHitPeer = null; }
                 // Apply damage to the real host-side NPC.
-                if (TryApplyHostHitDamage(targetSnapshot, applyDamage, out string applyResult, out bool fatal, out float actualApplied))
+                if (__applied)
                 {
                     _hostHitRequestsDamageApplied++;
                     // RS-1: attribute the real, post-mitigation damage (and folded-in coalesced tail) to this peer.

@@ -80,6 +80,11 @@ namespace SULFURTogether.UI
         private static PerfectRandom.Sulfur.Core.OptionsScreenOption _epToggleOption;
         private static bool _epLockApplied;
 
+        // EM-5c: the "Endless XP: first-damage" toggle (only meaningful in Independent mode).
+        private static SulfurTextHandle   _fdSessionHandle;
+        private static PerfectRandom.Sulfur.Core.OptionsScreenOption _fdToggleOption;
+        private static bool _fdLockApplied;
+
         private static readonly System.Reflection.FieldInfo FfCheckboxField =
             typeof(PerfectRandom.Sulfur.Core.OptionsScreenOption).GetField("checkboxToggle",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
@@ -255,6 +260,14 @@ namespace SULFURTogether.UI
                 OnSharedEndlessProgressToggled);
             _epSessionHandle = ctx.AddTextRow("");
             _epSessionHandle.SetVisible(false);
+            // EM-5c: Independent-mode XP attribution (first-damage vs last-hit). Same host-authoritative shape.
+            _fdToggleOption = ctx.AddToggle(
+                CoopLoc.Get("session.xpFirstDamage.label", "Endless XP: first-damage (Independent mode)"),
+                CoopLoc.Get("connect.desc.xpFirstDamage", "In Independent Endless mode, XP for a kill goes to whoever damaged the enemy first. Off = it goes to whoever lands the killing blow. No effect in Shared mode. The host's setting applies to the whole session."),
+                ReadBool(() => Plugin.Cfg.EndlessXpFirstDamage.Value, false),
+                OnEndlessXpFirstDamageToggled);
+            _fdSessionHandle = ctx.AddTextRow("");
+            _fdSessionHandle.SetVisible(false);
             ctx.AddReadonlyText(CoopLoc.Get("connect.label.clientMayStart", "Client may start next level"), CoopLoc.Get("connect.value.comingSoon", "Coming soon"));
             // FF-1: the toggle edits this machine's own setting (= the session setting when it hosts). While
             // connected as a CLIENT the row is locked and mirrors the host's synced session value instead (FF-1b,
@@ -300,6 +313,7 @@ namespace SULFURTogether.UI
             ApplySessionFriendlyFireControl();
             ApplySessionSharedLootControl();
             ApplySessionEndlessProgressControl();
+            ApplySessionXpFirstDamageControl();
             ApplyDevVoteControl();
             RefreshPlayerList();
         }
@@ -654,6 +668,9 @@ namespace SULFURTogether.UI
             _epSessionHandle          = null;
             _epToggleOption           = null;
             _epLockApplied            = false;
+            _fdSessionHandle          = null;
+            _fdToggleOption           = null;
+            _fdLockApplied            = false;
             _devVoteStatusHandle      = null;
             _devVoteButton            = null;
         }
@@ -746,6 +763,33 @@ namespace SULFURTogether.UI
                 }
             }
             catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] shared-endless broadcast failed: {e.Message}"); }
+        }
+
+        // EM-5c: first-damage-vs-last-hit toggle — same host-authoritative shape.
+        private static void OnEndlessXpFirstDamageToggled(bool value)
+        {
+            if (CoopConnection.CurrentMode == NetMode.Client)
+            {
+                ApplySessionXpFirstDamageControl();
+                return;
+            }
+            bool changed = false;
+            try
+            {
+                changed = Plugin.Cfg.EndlessXpFirstDamage.Value != value;
+                Plugin.Cfg.EndlessXpFirstDamage.Value = value;
+            }
+            catch { }
+            try
+            {
+                if (CoopConnection.CurrentMode == NetMode.Host)
+                {
+                    CoopConnection.Service?.BroadcastSessionSettings("ui-toggle");
+                    if (changed)
+                        CoopToasts.NotifySessionSetting(CoopLoc.Get("session.xpFirstDamage.label", "Endless XP: first-damage"), value);
+                }
+            }
+            catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] xp-first-damage broadcast failed: {e.Message}"); }
         }
 
         // VOTE-1: the local player proposes the dev-mode vote. Host starts it locally; a client asks the host, which
@@ -918,6 +962,51 @@ namespace SULFURTogether.UI
             if (_epToggleOption == null) return;
             try { FfIsLockedField?.SetValue(_epToggleOption, locked); } catch { }
             var go = _epToggleOption.gameObject;
+            var cg = go.GetComponent<CanvasGroup>();
+            if (cg == null) cg = go.AddComponent<CanvasGroup>();
+            cg.alpha = locked ? 0.45f : 1f;
+            cg.interactable = !locked;
+            cg.blocksRaycasts = !locked;
+        }
+
+        // EM-5c: keep the XP-attribution row role-correct each tick — identical logic to the other session toggles.
+        private static void ApplySessionXpFirstDamageControl()
+        {
+            bool isClient = CoopConnection.CurrentMode == NetMode.Client;
+
+            if (_fdToggleOption != null)
+            {
+                var checkbox = FfCheckboxField?.GetValue(_fdToggleOption) as UnityEngine.UI.Toggle;
+                if (isClient != _fdLockApplied)
+                {
+                    ApplyXpFirstDamageRowLock(isClient);
+                    _fdLockApplied = isClient;
+                }
+                bool desired = isClient ? NetSessionSettings.EndlessXpFirstDamageEnabled
+                                        : ReadBool(() => Plugin.Cfg.EndlessXpFirstDamage.Value, false);
+                if (checkbox != null && checkbox.isOn != desired)
+                    checkbox.SetIsOnWithoutNotify(desired);
+            }
+
+            if (_fdSessionHandle == null) return;
+            if (isClient)
+            {
+                _fdSessionHandle.SetText(CoopLoc.Format("connect.fdSession", "Session XP attribution: {state} (set by host)",
+                    ("state", NetSessionSettings.EndlessXpFirstDamageEnabled ? CoopLoc.Get("common.firstDamage", "First-damage") : CoopLoc.Get("common.lastHit", "Last-hit"))));
+                _fdSessionHandle.SetColor(NeutralColor);
+                _fdSessionHandle.SetVisible(true);
+            }
+            else
+            {
+                _fdSessionHandle.SetVisible(false);
+            }
+        }
+
+        private static void ApplyXpFirstDamageRowLock(bool locked)
+        {
+            if (_fdToggleOption == null) return;
+            try { FfIsLockedField?.SetValue(_fdToggleOption, locked); } catch { }
+            var go = _fdToggleOption.gameObject;
             var cg = go.GetComponent<CanvasGroup>();
             if (cg == null) cg = go.AddComponent<CanvasGroup>();
             cg.alpha = locked ? 0.45f : 1f;

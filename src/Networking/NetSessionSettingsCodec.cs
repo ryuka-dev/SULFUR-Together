@@ -11,6 +11,7 @@ namespace SULFURTogether.Networking
             w.Put(s.DeveloperMode);
             w.Put(s.SharedLoot);
             w.Put(s.SharedEndlessProgress);
+            w.Put(s.EndlessXpFirstDamage);
         }
 
         public static bool TryRead(NetDataReader r, out NetSessionSettingsState result)
@@ -24,6 +25,7 @@ namespace SULFURTogether.Networking
                 s.DeveloperMode = r.GetBool();
                 s.SharedLoot    = r.GetBool();
                 s.SharedEndlessProgress = r.GetBool();
+                s.EndlessXpFirstDamage = r.GetBool();
                 result = s;
                 return true;
             }
