@@ -368,6 +368,12 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastHostEndlessXpDrop(SULFURTogether.Networking.Gameplay.NetEndlessXpDrop msg)
             => _service?.BroadcastHostEndlessXpDrop(msg);
 
+        public static void SendEndlessXpCollectRequest(int dropId)
+            => _service?.SendEndlessXpCollectRequest(dropId);
+
+        public static void BroadcastHostEndlessXpCollected(SULFURTogether.Networking.Gameplay.NetEndlessXpCollect msg)
+            => _service?.BroadcastHostEndlessXpCollected(msg);
+
         // FF-1: Client → Host friendly-fire hit report.
         public static void SendFriendlyFireHit(NetFriendlyFireHit msg)
             => _service?.SendFriendlyFireHit(msg);

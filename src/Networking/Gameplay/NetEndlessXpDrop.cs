@@ -3,12 +3,13 @@ using UnityEngine;
 namespace SULFURTogether.Networking.Gameplay
 {
     /// <summary>
-    /// Phase EM-5: an Endless enemy died and dropped XP (host → all clients, ReliableOrdered). The host fires the
-    /// canonical <c>EndlessModeManager.OnEnemyDied</c> and broadcasts the drop; in Independent mode each client spawns
-    /// its own XP orbs at <see cref="Position"/> (count = <see cref="Count"/>, each worth <see cref="XpValue"/>) via its
-    /// local <c>XPOrbManager</c>, which collects them toward the local camera into that client's own <c>currentXP</c> —
-    /// so XP stays fully personal with no per-orb wire traffic. Carries the run context so a client in a different level
-    /// ignores it.
+    /// Phase EM-5b: a host-authoritative Endless XP pickup (host → all clients, ReliableOrdered). When an enemy dies the
+    /// host assigns a <see cref="DropId"/> and broadcasts the drop; both ends spawn the same visual orbs (cosmetic,
+    /// worth 0 so vanilla collection never credits) and register a pending pickup at <see cref="Position"/>. When a
+    /// player walks within pickup range they ask the host to collect it (first-collector-wins), the host confirms with
+    /// <see cref="NetEndlessXpCollect"/>, and both ends remove the orbs. The reward differs by mode: Independent = only
+    /// the collector's local pool gains <see cref="TotalXp"/>; Shared = the host's single pool gains it (mirrored to all
+    /// via the wave-state snapshot). Carries the run context so a client in a different level ignores it.
     /// </summary>
     internal sealed class NetEndlessXpDrop
     {
@@ -17,8 +18,9 @@ namespace SULFURTogether.Networking.Gameplay
         public bool    HasLevelSeed { get; set; }
         public int     LevelSeed    { get; set; }
 
+        public int     DropId   { get; set; }  // host-authoritative unique id for this pickup
         public Vector3 Position { get; set; }
-        public int     XpValue  { get; set; }  // per-orb value (vanilla spawns 1-value orbs)
-        public int     Count    { get; set; }  // number of orbs (ExperienceOnKill, doubled on a melee-bonus kill)
+        public int     TotalXp  { get; set; }  // total XP the pickup is worth (ExperienceOnKill)
+        public int     OrbCount { get; set; }  // number of visual orbs to spawn (cosmetic)
     }
 }

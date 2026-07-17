@@ -296,6 +296,10 @@ namespace SULFURTogether.Networking
             if (_mode != NetMode.Off)
                 Gameplay.EndlessSyncManager.HostTick();
 
+            // EM-5b: detect the local player reaching a shared XP pickup and request its collection (both roles).
+            if (_mode != NetMode.Off)
+                Gameplay.EndlessSyncManager.PickupTick();
+
             // WS-3: give remote proxies a billboard body (visual only). Priest sprite body takes priority; NPC-prefab body
             // is the fallback (only used if the sprite body is disabled/unavailable).
             if (_mode != NetMode.Off)
@@ -1376,7 +1380,60 @@ namespace SULFURTogether.Networking
                 NetLogger.Warn("[Endless] malformed EndlessXpDrop packet");
                 return;
             }
-            Gameplay.EndlessSyncManager.ApplyXpDrop(msg);
+            Gameplay.EndlessSyncManager.ApplyDrop(msg);
+        }
+
+        // EM-5b: client → host, "my player reached pickup DropId — award it" (first-collector-wins).
+        internal void SendEndlessXpCollectRequest(int dropId)
+        {
+            if (_mode != NetMode.Client || _hostPeer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.EndlessXpCollectRequest);
+                Gameplay.NetEndlessXpCollectCodec.Write(w, new Gameplay.NetEndlessXpCollect { DropId = dropId });
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[Endless] failed to send xp collect request: {ex.Message}"); }
+        }
+
+        private void HandleEndlessXpCollectRequest(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Gameplay.NetEndlessXpCollectCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[Endless] malformed EndlessXpCollectRequest packet");
+                return;
+            }
+            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            Gameplay.EndlessSyncManager.HostHandleCollectRequest(msg.DropId, peerId);
+        }
+
+        // EM-5b: host → all, "pickup DropId was collected by CollectorPeerId" (remove orbs + apply reward).
+        internal void BroadcastHostEndlessXpCollected(Gameplay.NetEndlessXpCollect msg)
+        {
+            if (_mode != NetMode.Host || _net == null) return;
+            if (msg == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.EndlessXpCollected);
+                    Gameplay.NetEndlessXpCollectCodec.Write(w, msg);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[Endless] failed to broadcast xp collected: {ex.Message}"); }
+            }
+        }
+
+        private void HandleEndlessXpCollected(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Gameplay.NetEndlessXpCollectCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[Endless] malformed EndlessXpCollected packet");
+                return;
+            }
+            Gameplay.EndlessSyncManager.ApplyCollected(msg);
         }
 
         // ----------------------------------------------------------------- Phase 5.6-WS player weapon bullet sync
@@ -3844,6 +3901,12 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.EndlessXpDrop:
                         HandleHostEndlessXpDrop(peer, reader);
+                        break;
+                    case NetMessageType.EndlessXpCollectRequest:
+                        HandleEndlessXpCollectRequest(peer, reader);
+                        break;
+                    case NetMessageType.EndlessXpCollected:
+                        HandleEndlessXpCollected(peer, reader);
                         break;
                     case NetMessageType.HostRuntimeSpawn:
                         HandleHostRuntimeSpawn(peer, reader);

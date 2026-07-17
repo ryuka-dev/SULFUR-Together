@@ -409,9 +409,13 @@ namespace SULFURTogether.Networking
         // (XP bar, stage/wave/level labels) in agreement with the host. See EndlessSyncManager.
         EndlessWaveState = 86,
 
-        // Phase EM-5 (host → all clients, ReliableOrdered): an Endless enemy died and dropped XP. The host fires the
-        // canonical OnEnemyDied event and broadcasts the drop (position + orb count); in Independent mode each client
-        // spawns its own XP orbs at that position and collects them into its own local pool. See EndlessSyncManager.
-        EndlessXpDrop = 87,
+        // Phase EM-5b host-authoritative Endless XP pickups (like WID for XP):
+        //   EndlessXpDrop (host→all): an enemy died; spawn the shared visual orbs + register a pending pickup.
+        //   EndlessXpCollectRequest (client→host): a client's player reached the pickup — ask the host to award it.
+        //   EndlessXpCollected (host→all): first-collector-wins resolved; remove the orbs everywhere + apply the reward
+        //     (Independent = collector's pool; Shared = host pool, mirrored via the wave-state snapshot).
+        EndlessXpDrop           = 87,
+        EndlessXpCollectRequest = 88,
+        EndlessXpCollected      = 89,
     }
 }

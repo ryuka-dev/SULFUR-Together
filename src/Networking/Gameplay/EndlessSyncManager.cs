@@ -43,6 +43,8 @@ namespace SULFURTogether.Networking.Gameplay
         private static PropertyInfo? _instanceProp;   // static EndlessModeManager.Instance
         private static FieldInfo? _fStage, _fWave, _fBurst, _fLoop, _fTransition, _fXP, _fThreshold, _fCardLevel, _fActive;
         private static FieldInfo? _fXpOrbManager;     // EndlessModeManager.xpOrbManager : XPOrbManager
+        private static FieldInfo? _fPickupRadius;     // XPOrbManager.pickupRadius : float
+        private static FieldInfo? _fActiveOrbs;       // XPOrbManager.activeOrbs : List<XPOrb>
         private static MethodInfo? _updateUI;         // private void UpdateUI()
         private static MethodInfo? _spawnOrb;         // XPOrbManager.SpawnOrb(Vector3, int)
         private static MethodInfo? _setInvulnerable;  // Unit.SetInvulnerable(bool)
@@ -70,6 +72,7 @@ namespace SULFURTogether.Networking.Gameplay
             _lStage = int.MinValue; _lWave = _lBurst = _lLoop = _lCardLevel = _lTransition = 0;
             _lXP = float.NaN; _lThreshold = float.NaN;
             _clientRunKey = ""; _clientLastRevision = -1;
+            ClearPendingDrops(); // drop the previous run's XP pickups
             ClearCardSelectInvuln(); // never carry a card-select invuln bubble across a level change
         }
 
@@ -202,56 +205,209 @@ namespace SULFURTogether.Networking.Gameplay
             catch { /* never break the client frame on a render probe */ }
         }
 
-        // ================================================================== EM-5 per-player XP drops
+        // ================================================================== EM-5b host-authoritative XP pickups
+        //
+        // XP orbs are shared world objects (like WID drops), not per-player: the host assigns a DropId per enemy death
+        // and broadcasts it; both ends spawn the same cosmetic orbs (worth 0 — vanilla collection never credits) and
+        // register a pending pickup. When a player walks within range, that end asks the host to collect it; the host
+        // resolves first-collector-wins and broadcasts the result; both ends remove the orbs together. Only the reward
+        // differs by mode — Independent: the collector's local pool; Shared: the host's single pool (mirrored via EM-3).
 
-        /// <summary>HOST: an Endless enemy died (canonical <c>OnEnemyDied</c>) — broadcast its XP drop so each client can
-        /// spawn its own orbs. <paramref name="count"/> = orbs (ExperienceOnKill, doubled on a melee-bonus kill).</summary>
-        public static void HostBroadcastXpDrop(Vector3 position, int xpValue, int count)
+        private sealed class PendingDrop { public int Id; public Vector3 Pos; public int TotalXp; public bool Requested; }
+        private static readonly System.Collections.Generic.List<PendingDrop> _pendingDrops = new System.Collections.Generic.List<PendingDrop>();
+        private static int _nextDropId;
+        private static readonly System.Collections.Generic.HashSet<int> _hostCollected = new System.Collections.Generic.HashSet<int>();
+
+        /// <summary>HOST: an Endless enemy died (canonical <c>OnEnemyDied</c>) — mint a pickup, broadcast it, and register
+        /// it locally so the host sees the same orbs. Vanilla's own orb spawn is suppressed (EndlessSyncPatches) so this
+        /// is the single XP source.</summary>
+        public static void HostOnEnemyKilled(Vector3 position, int totalXp, int orbCount)
         {
             try
             {
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
-                if (count <= 0 || xpValue <= 0) return;
+                if (totalXp <= 0) return;
                 if (!NetBossEncounterManager.TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed))
                 { chap = ""; lvl = -1; hasSeed = false; seed = 0; }
 
                 var msg = new NetEndlessXpDrop
                 {
                     ChapterName = chap, LevelIndex = lvl, HasLevelSeed = hasSeed, LevelSeed = seed,
-                    Position = position, XpValue = xpValue, Count = count,
+                    DropId = ++_nextDropId, Position = position, TotalXp = totalXp, OrbCount = Mathf.Clamp(orbCount, 0, 256),
                 };
                 HostXpDropBroadcast++;
                 NetGameplaySyncBridge.BroadcastHostEndlessXpDrop(msg);
+                ApplyDrop(msg); // host spawns its own orbs + registers the pending pickup too
             }
-            catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostBroadcastXpDrop failed: {ex.GetType().Name}: {ex.Message}"); }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostOnEnemyKilled failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        /// <summary>CLIENT: spawn our own XP orbs for a host enemy's death. Only in Independent mode (in Shared mode XP is
-        /// the host's single pool — EM-3; per-player orbs + pool reporting come in EM-6). The local XPOrbManager collects
-        /// them toward our camera into our own currentXP with no further wire traffic.</summary>
-        public static void ApplyXpDrop(NetEndlessXpDrop msg)
+        /// <summary>BOTH ENDS: spawn the pickup's cosmetic orbs (worth 0) and register the pending pickup.</summary>
+        public static void ApplyDrop(NetEndlessXpDrop msg)
         {
             try
             {
-                if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
-                if (SharedMode) return; // EM-5: independent only
-
-                if (NetBossEncounterManager.TryGetRunContext(out string chap, out int lvl, out _, out _)
+                if (!Enabled || msg == null) return;
+                if (NetGameplaySyncBridge.BossMode == NetMode.Client
+                    && NetBossEncounterManager.TryGetRunContext(out string chap, out int lvl, out _, out _)
                     && (!string.Equals(chap, msg.ChapterName, StringComparison.Ordinal) || lvl != msg.LevelIndex))
                     return; // different level
 
                 EnsureResolved();
-                object? mgr = ResolveInstance();
-                if (mgr == null || _fXpOrbManager == null || _spawnOrb == null) return;
-                object? orbMgr = _fXpOrbManager.GetValue(mgr);
-                if (orbMgr == null) return;
-
-                int count = Mathf.Clamp(msg.Count, 0, 256);
-                for (int i = 0; i < count; i++)
-                    _spawnOrb.Invoke(orbMgr, new object[] { msg.Position, msg.XpValue });
-                ClientXpOrbsSpawned += count;
+                object? orbMgr = ResolveOrbManager();
+                if (orbMgr != null && _spawnOrb != null)
+                {
+                    int count = Mathf.Clamp(msg.OrbCount, 0, 256);
+                    for (int i = 0; i < count; i++)
+                        _spawnOrb.Invoke(orbMgr, new object[] { msg.Position, 0 }); // xpValue 0 → purely visual
+                    ClientXpOrbsSpawned += count;
+                }
+                lock (_pendingDrops)
+                {
+                    for (int i = 0; i < _pendingDrops.Count; i++) if (_pendingDrops[i].Id == msg.DropId) return; // dup
+                    _pendingDrops.Add(new PendingDrop { Id = msg.DropId, Pos = msg.Position, TotalXp = msg.TotalXp });
+                }
             }
-            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ApplyXpDrop failed: {ex.GetType().Name}: {ex.Message}"); }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ApplyDrop failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>BOTH ENDS: when the local player reaches a pending pickup, ask the host to award it (first-wins). The
+        /// host handles its own reach directly. Called each frame from the service tick.</summary>
+        public static void PickupTick()
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode == NetMode.Off) return;
+                bool any; lock (_pendingDrops) any = _pendingDrops.Count > 0;
+                if (!any) return;
+
+                object? player = ResolveLocalPlayerUnit();
+                if (player is not Component pc || pc == null) return;
+                Vector3 pp = pc.transform.position;
+                float reach = ReadPickupRadius() + 1.5f; // orbs scatter ~1.5m around the drop centre
+                float reachSq = reach * reach;
+
+                string me = NetGameplaySyncBridge.LocalPeerId;
+                PendingDrop[] snapshot; lock (_pendingDrops) snapshot = _pendingDrops.ToArray();
+                foreach (var d in snapshot)
+                {
+                    if (d.Requested) continue;
+                    if ((d.Pos - pp).sqrMagnitude > reachSq) continue;
+                    d.Requested = true;
+                    if (NetGameplaySyncBridge.BossMode == NetMode.Host) HostHandleCollectRequest(d.Id, me);
+                    else NetGameplaySyncBridge.SendEndlessXpCollectRequest(d.Id);
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] PickupTick failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>HOST: resolve a collection request (from a client or the host itself), first-collector-wins. Applies
+        /// the Shared-mode pool add here, then broadcasts + applies the result everywhere.</summary>
+        public static void HostHandleCollectRequest(int dropId, string collectorPeerId)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                if (!_hostCollected.Add(dropId)) return; // already collected by someone — ignore the loser
+
+                int totalXp = 0;
+                lock (_pendingDrops) { foreach (var d in _pendingDrops) if (d.Id == dropId) { totalXp = d.TotalXp; break; } }
+
+                // Shared mode: the host's single pool gains it (EM-3 mirrors currentXP to everyone).
+                if (SharedMode) AddToHostPool(totalXp);
+
+                var msg = new NetEndlessXpCollect { DropId = dropId, CollectorPeerId = collectorPeerId ?? "", TotalXp = totalXp };
+                NetGameplaySyncBridge.BroadcastHostEndlessXpCollected(msg);
+                ApplyCollected(msg);
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-5b host collected drop={dropId} by={collectorPeerId} xp={totalXp} mode={(SharedMode ? "shared" : "indep")}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostHandleCollectRequest failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>BOTH ENDS: a pickup was collected — remove it + its orbs everywhere; in Independent mode the collector
+        /// gains the XP locally.</summary>
+        public static void ApplyCollected(NetEndlessXpCollect msg)
+        {
+            try
+            {
+                if (!Enabled || msg == null) return;
+                Vector3 pos = default; bool found = false;
+                lock (_pendingDrops)
+                {
+                    for (int i = _pendingDrops.Count - 1; i >= 0; i--)
+                        if (_pendingDrops[i].Id == msg.DropId) { pos = _pendingDrops[i].Pos; found = true; _pendingDrops.RemoveAt(i); break; }
+                }
+                if (!found) return; // unknown / already handled
+
+                RemoveOrbsNear(pos); // sync removal — the orbs vanish on every end
+
+                // Independent mode: only the collector's own pool gains it. (Shared mode was applied on the host pool.)
+                if (IsIndependentMode && string.Equals(msg.CollectorPeerId, NetGameplaySyncBridge.LocalPeerId, StringComparison.Ordinal))
+                    AddToLocalXp(msg.TotalXp);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ApplyCollected failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static void AddToLocalXp(int amount)
+        {
+            try
+            {
+                object? mgr = ResolveInstance();
+                if (mgr == null || _fXP == null || amount <= 0) return;
+                float cur = ReadFloat(_fXP, mgr);
+                SetFloat(_fXP, mgr, cur + amount);
+            }
+            catch { }
+        }
+
+        private static void AddToHostPool(int amount) => AddToLocalXp(amount); // on the host, currentXP IS the shared pool
+
+        private static void ClearPendingDrops() { lock (_pendingDrops) _pendingDrops.Clear(); _hostCollected.Clear(); _nextDropId = 0; }
+
+        private const float OrbRemoveRadius = 3.5f; // idle orbs scatter ~2m around the drop centre; comfortably covers them
+
+        private static object? ResolveOrbManager()
+        {
+            try
+            {
+                object? mgr = ResolveInstance();
+                if (mgr == null || _fXpOrbManager == null) return null;
+                object? orb = _fXpOrbManager.GetValue(mgr);
+                if (orb is UnityEngine.Object uo && uo == null) return null;
+                return orb;
+            }
+            catch { return null; }
+        }
+
+        private static float ReadPickupRadius()
+        {
+            try { object? orb = ResolveOrbManager(); if (orb != null && _fPickupRadius != null) return Convert.ToSingle(_fPickupRadius.GetValue(orb)); }
+            catch { }
+            return 3f;
+        }
+
+        /// <summary>Deactivate + drop any active XP orbs clustered around a collected pickup's position, so the orbs vanish
+        /// on every end when the pickup is taken (on the collector's end they usually already flew in via vanilla).</summary>
+        private static void RemoveOrbsNear(Vector3 pos)
+        {
+            try
+            {
+                object? orb = ResolveOrbManager();
+                if (orb == null || _fActiveOrbs == null) return;
+                if (_fActiveOrbs.GetValue(orb) is System.Collections.IList list)
+                {
+                    float rSq = OrbRemoveRadius * OrbRemoveRadius;
+                    for (int i = list.Count - 1; i >= 0; i--)
+                    {
+                        if (list[i] is Component c && c != null && (c.transform.position - pos).sqrMagnitude <= rSq)
+                        {
+                            try { c.gameObject.SetActive(false); } catch { }
+                            list.RemoveAt(i);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] RemoveOrbsNear failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         // ================================================================== EM-5 no-freeze card-select invuln bubble
@@ -355,8 +511,12 @@ namespace SULFURTogether.Networking.Gameplay
 
                 var orbType = AccessTools.TypeByName("XPOrbManager") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.XPOrbManager");
                 if (orbType != null)
+                {
                     _spawnOrb = orbType.GetMethod("SpawnOrb", BindingFlags.Public | BindingFlags.Instance, null,
                         new[] { typeof(Vector3), typeof(int) }, null);
+                    _fPickupRadius = orbType.GetField("pickupRadius", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    _fActiveOrbs   = orbType.GetField("activeOrbs", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                }
 
                 var unitType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.Unit") ?? AccessTools.TypeByName("Unit");
                 if (unitType != null)

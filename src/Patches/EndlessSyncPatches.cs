@@ -69,12 +69,21 @@ namespace SULFURTogether.Patches
                 }
                 else Plugin.Log.Info("[Endless] EndlessModeManager.StartEnemySpawning not found — spawn suppression disabled.");
 
-                // EM-5: per-player XP (host broadcasts each enemy's XP drop) + non-freezing Independent-mode card select.
+                // EM-5b: host-authoritative shared XP pickups (suppress vanilla host orbs, mint one broadcast pickup) +
+                // non-freezing Independent-mode card select.
                 var onEnemyDied = AccessTools.DeclaredMethod(emType, "OnEnemyDied");
                 if (onEnemyDied != null)
-                    harmony.Patch(onEnemyDied, postfix: new HarmonyMethod(
-                        typeof(EndlessSyncPatches).GetMethod(nameof(OnEnemyDied_Post), BindingFlags.Static | BindingFlags.NonPublic)));
-                else Plugin.Log.Info("[Endless] EndlessModeManager.OnEnemyDied not found — EM-5 XP drop broadcast disabled.");
+                    harmony.Patch(onEnemyDied,
+                        prefix:  new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(OnEnemyDied_Pre),  BindingFlags.Static | BindingFlags.NonPublic)),
+                        postfix: new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(OnEnemyDied_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                else Plugin.Log.Info("[Endless] EndlessModeManager.OnEnemyDied not found — EM-5b XP pickup disabled.");
+
+                var orbType = AccessTools.TypeByName("XPOrbManager") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.XPOrbManager");
+                var spawnOrb = orbType != null ? AccessTools.Method(orbType, "SpawnOrb", new[] { typeof(UnityEngine.Vector3), typeof(int) }) : null;
+                if (spawnOrb != null)
+                    harmony.Patch(spawnOrb, prefix: new HarmonyMethod(
+                        typeof(EndlessSyncPatches).GetMethod(nameof(SpawnOrb_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                else Plugin.Log.Info("[Endless] XPOrbManager.SpawnOrb not found — vanilla orb suppression disabled.");
 
                 var startTransition = AccessTools.DeclaredMethod(emType, "StartTransition");
                 if (startTransition != null)
@@ -113,22 +122,35 @@ namespace SULFURTogether.Patches
             return false;
         }
 
-        // EM-5 (HOST): the canonical Endless XP source. When an enemy dies, broadcast its BASE XP drop
-        // (unitSO.ExperienceOnKill orbs) at the corpse so each client can spawn its own (Independent mode). The melee-XP-
-        // bonus doubling is deliberately NOT applied here — it is the host's personal endless card and must not leak to
-        // clients; the host's own orbs (vanilla OnEnemyDied, still running) keep the host's bonus.
+        // EM-5b (HOST): the canonical Endless XP source. XP is a host-authoritative shared pickup (not per-player), so
+        // the host's own vanilla orb spawn is suppressed (see SuppressVanillaOrbSpawn / SpawnOrb_Pre) and replaced by one
+        // broadcast pickup that both ends spawn + collect together. The prefix arms the suppression around the vanilla
+        // OnEnemyDied body (which spawns the orbs); the postfix disarms it and mints the pickup.
+        internal static bool SuppressVanillaOrbSpawn;
+
+        private static void OnEnemyDied_Pre()
+        {
+            if (Enabled && NetGameplaySyncBridge.BossMode == NetMode.Host) SuppressVanillaOrbSpawn = true;
+        }
+
         private static void OnEnemyDied_Post(object __instance, object npc, object unitSO)
         {
             try
             {
+                SuppressVanillaOrbSpawn = false;
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
                 int xpOnKill = ReadInt(unitSO, "ExperienceOnKill");
                 if (xpOnKill <= 0) return;
                 if (!TryReadCorpsePosition(npc, out UnityEngine.Vector3 pos)) return;
-                EndlessSyncManager.HostBroadcastXpDrop(pos, 1, xpOnKill);
+                // totalXp + orb count = base ExperienceOnKill (the melee-XP-bonus card is host-personal and not shared).
+                EndlessSyncManager.HostOnEnemyKilled(pos, xpOnKill, xpOnKill);
             }
-            catch (Exception ex) { Plugin.Log.Warn($"[Endless] OnEnemyDied_Post failed: {ex.GetType().Name}: {ex.Message}"); }
+            catch (Exception ex) { SuppressVanillaOrbSpawn = false; Plugin.Log.Warn($"[Endless] OnEnemyDied_Post failed: {ex.GetType().Name}: {ex.Message}"); }
         }
+
+        // Swallow the vanilla host-local orb spawn inside OnEnemyDied (they are replaced by the shared pickup). Only fires
+        // while the OnEnemyDied bracket is armed on the host; our own visual-orb spawns (xpValue 0) run outside it.
+        private static bool SpawnOrb_Pre() => !SuppressVanillaOrbSpawn;
 
         // EM-5 (BOTH ENDS, Independent mode): the vanilla card-selection freezes the whole game (SetTimeScale 0), which
         // in co-op freezes the shared world for the other player too. In Independent mode the world must keep running, so
