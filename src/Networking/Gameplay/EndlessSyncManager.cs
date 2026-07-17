@@ -47,6 +47,8 @@ namespace SULFURTogether.Networking.Gameplay
         private static MethodInfo? _spawnOrb;         // XPOrbManager.SpawnOrb(Vector3, int)
         private static MethodInfo? _setInvulnerable;  // Unit.SetInvulnerable(bool)
         private static MethodInfo? _setTimeScale;     // GameManager.SetTimeScale(float, float)
+        private static MethodInfo? _modifyControllerLock; // GameManager.ModifyControllerLock(LockStatePadlock, bool)
+        private static object? _padlockCinematic;     // LockStatePadlock.Cinematic (input lock during the card pick)
         private static PropertyInfo? _gmPlayerUnitProp; // GameManager.PlayerUnit
 
         // ---- host throttle / dedup ----
@@ -256,6 +258,17 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static bool _cardInvulnActive;
 
+        private static void SetCardSelectMovementLock(bool locked)
+        {
+            try
+            {
+                object? gm = RuntimeSpawnManager.GameManagerInstance();
+                if (gm == null || _modifyControllerLock == null || _padlockCinematic == null) return;
+                _modifyControllerLock.Invoke(gm, new object[] { _padlockCinematic, locked });
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] card movement lock failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
         /// <summary>Override the vanilla card-selection freeze (SetTimeScale 0) straight back to normal speed so the shared
         /// co-op world keeps running. A tiny lerp cleanly supersedes the freeze's in-progress lerp target.</summary>
         public static void UndoCardSelectFreeze()
@@ -279,8 +292,9 @@ namespace SULFURTogether.Networking.Gameplay
                 object? player = ResolveLocalPlayerUnit();
                 if (player == null || _setInvulnerable == null) return;
                 _setInvulnerable.Invoke(player, new object[] { true });
+                SetCardSelectMovementLock(true); // lock movement/look while the (non-freezing) card panel is up; mouse still picks
                 _cardInvulnActive = true;
-                if (LogOn) Plugin.Log.Info("[Endless] EM-5 independent card select — local invuln bubble ON (no world freeze)");
+                if (LogOn) Plugin.Log.Info("[Endless] EM-5 independent card select — local invuln + movement lock ON (no world freeze)");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] card-invuln on failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -294,8 +308,9 @@ namespace SULFURTogether.Networking.Gameplay
                 object? player = ResolveLocalPlayerUnit();
                 if (player != null && _setInvulnerable != null)
                     _setInvulnerable.Invoke(player, new object[] { false });
+                SetCardSelectMovementLock(false);
                 _cardInvulnActive = false;
-                if (LogOn) Plugin.Log.Info("[Endless] EM-5 independent card select — local invuln bubble OFF");
+                if (LogOn) Plugin.Log.Info("[Endless] EM-5 independent card select — local invuln + movement lock OFF");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] card-invuln off failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -352,6 +367,13 @@ namespace SULFURTogether.Networking.Gameplay
                 _gmPlayerUnitProp = gmType?.GetProperty("PlayerUnit", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 _setTimeScale = gmType?.GetMethod("SetTimeScale", BindingFlags.Public | BindingFlags.Instance, null,
                     new[] { typeof(float), typeof(float) }, null);
+                var padlockType = AccessTools.TypeByName("LockStatePadlock") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.LockStatePadlock");
+                if (padlockType != null && gmType != null)
+                {
+                    _modifyControllerLock = gmType.GetMethod("ModifyControllerLock", BindingFlags.Public | BindingFlags.Instance, null,
+                        new[] { padlockType, typeof(bool) }, null);
+                    try { _padlockCinematic = Enum.Parse(padlockType, "Cinematic"); } catch { }
+                }
 
                 Plugin.Log.Info($"[Endless] EM-3 resolved fields stage={_fStage != null} wave={_fWave != null} xp={_fXP != null} " +
                                 $"trans={_fTransition != null} updateUI={_updateUI != null} instance={_instanceProp != null} " +
