@@ -195,6 +195,14 @@ namespace SULFURTogether.Networking.Gameplay
             // Issue #5: a one-shot TriggerSpawner (Caves maze skeleton ambush, ...) is host-authoritative — the client's
             // local spawn is suppressed (see TriggerSpawnSyncManager), so the host's is one-sided and safe to mirror.
             if (tn == "TriggerSpawner") return "TriggerSpawn";
+            // Phase EM-2: Endless Mode wave enemies are spawned by EndlessModeManager.SetEnemy(SpawnUnitAsync(this,…)).
+            // The host is authoritative for the Endless world; a linked client suppresses its own wave driver
+            // (EndlessSyncPatches), so the host's spawns are one-sided and safe to mirror as puppets.
+            if (tn == "EndlessModeManager")
+            {
+                try { if (!Plugin.Cfg.EnableEndlessSync.Value) return null; } catch { return null; }
+                return "Endless";
+            }
             return null;
         }
 

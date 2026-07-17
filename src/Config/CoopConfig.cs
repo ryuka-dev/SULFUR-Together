@@ -274,6 +274,15 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LogWorldItemDropSync { get; }
         public ConfigEntry<bool>   ShareAllLoot { get; }
 
+        // ----- Phase EM Endless Mode co-op sync -----
+        // EM-0 seed-parity probe (diagnostic): confirms GameManager.currentSeed + the chosen arena match on both ends at
+        // Endless entry — the arena/burst-RNG parity the host-authoritative plan depends on. Log-only, no behavior change.
+        public ConfigEntry<bool>   LogEndlessSync { get; }
+        // EM-1/EM-2 world layer (functional): the host is authoritative for the Endless arena's wave enemies; a linked
+        // client suppresses its own local wave driver/spawns and mirrors the host's enemies through the runtime-spawn
+        // pipeline. Release-hardcoded (always on), reversible.
+        public Fixed<bool>         EnableEndlessSync { get; }
+
         // ----- Phase 5.6-WS-2 remote held weapon model (with attachments) -----
         public Fixed<bool>         EnableRemoteWeaponModel { get; } // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogRemoteWeaponModel { get; }
@@ -885,6 +894,18 @@ namespace SULFURTogether.Config
             EnableTargetDummySync = new Fixed<bool>(true); // TD-1 shared target-dummy damage numbers — functional, always on.
             LogTargetDummySync = cfg.Bind("TargetDummy", "LogTargetDummySync", false,
                 "TD-1: verbose log for shared target-dummy damage numbers (coalesced broadcast / relay apply). High volume while shooting the dummy.");
+
+            // Phase EM-0: Endless Mode seed-parity probe. Logs GameManager.currentSeed + the chosen arena (name/index) and
+            // net role when the Endless arena loads, so host and client entries can be compared. Diagnostic only — the
+            // Endless sync itself is not implemented yet. Default ON while the parity assumption is being confirmed.
+            LogEndlessSync = cfg.Bind("EndlessMode", "LogEndlessSync", true,
+                "Phase EM-0: log the Endless-mode seed + chosen arena + net role at arena entry (seed-parity probe). Diagnostic only.");
+
+            // Phase EM-1/EM-2: host-authoritative Endless world layer. On a linked client the local EndlessModeManager
+            // becomes a slave — it keeps the (seed-identical) arena it built but does not drive its own waves or spawn its
+            // own enemies; the host's wave enemies are mirrored via the runtime-spawn pipeline (EndlessModeManager added to
+            // RuntimeSpawnManager.ClassifyOwner). Functional, always on.
+            EnableEndlessSync = new Fixed<bool>(true);
 
             // Phase LD-2: FF14-style arena lockdown. A player crossing a combat-room seal trigger is "in-room"; the first
             // cross anchors a timer; after 5s the non-in-room players in that level are force-sealed with an invisible
