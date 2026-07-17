@@ -292,6 +292,10 @@ namespace SULFURTogether.Networking
             if (_mode != NetMode.Off)
                 Gameplay.TargetDummySyncManager.Tick();
 
+            // EM-3: host broadcasts the Endless wave/XP/stage state (self-gates to Host + an active Endless run).
+            if (_mode != NetMode.Off)
+                Gameplay.EndlessSyncManager.HostTick();
+
             // WS-3: give remote proxies a billboard body (visual only). Priest sprite body takes priority; NPC-prefab body
             // is the fallback (only used if the sprite body is disabled/unavailable).
             if (_mode != NetMode.Off)
@@ -1317,6 +1321,34 @@ namespace SULFURTogether.Networking
                 return;
             }
             Gameplay.RuntimeSpawnManager.HandleHostRuntimeSpawn(msg);
+        }
+
+        // Phase EM-3: Endless wave/XP/stage state sync (host → all clients).
+        internal void BroadcastHostEndlessWaveState(Gameplay.NetEndlessWaveState msg)
+        {
+            if (_mode != NetMode.Host || _net == null) return;
+            if (msg == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.EndlessWaveState);
+                    Gameplay.NetEndlessWaveStateCodec.Write(w, msg);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[Endless] failed to broadcast wave state: {ex.Message}"); }
+            }
+        }
+
+        private void HandleHostEndlessWaveState(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Gameplay.NetEndlessWaveStateCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[Endless] malformed EndlessWaveState packet");
+                return;
+            }
+            Gameplay.EndlessSyncManager.ApplyHostWaveState(msg);
         }
 
         // ----------------------------------------------------------------- Phase 5.6-WS player weapon bullet sync
@@ -3776,6 +3808,9 @@ namespace SULFURTogether.Networking
                         HandleHostWitchP2Result(peer, reader);
                         break;
 
+                    case NetMessageType.EndlessWaveState:
+                        HandleHostEndlessWaveState(peer, reader);
+                        break;
                     case NetMessageType.HostRuntimeSpawn:
                         HandleHostRuntimeSpawn(peer, reader);
                         break;

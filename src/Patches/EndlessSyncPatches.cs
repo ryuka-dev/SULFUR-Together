@@ -74,11 +74,14 @@ namespace SULFURTogether.Patches
             catch (Exception ex) { Plugin.Log.Error($"[Endless] EM-1 Apply failed: {ex.Message}"); }
         }
 
-        // Skip the whole wave state machine on a linked client (host-authoritative). Return false = original not run.
-        private static bool Update_Pre()
+        // Driven slave: on a linked client skip the vanilla wave state machine + XP-threshold/card-selection triggers
+        // (all host-authoritative), but still render the Endless HUD from the host-synced fields (EM-3). Return false =
+        // original Update not run.
+        private static bool Update_Pre(object __instance)
         {
             if (!Enabled || !IsLinkedClient) return true;
             ClientWaveDriverSkipped++;
+            EndlessSyncManager.ClientRenderUI(__instance); // EM-3: host-driven HUD; no-op until state resolves
             return false;
         }
 

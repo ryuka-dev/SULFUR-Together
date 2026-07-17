@@ -362,6 +362,9 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastHostRuntimeSpawn(SULFURTogether.Networking.Gameplay.NetRuntimeSpawn msg)
             => _service?.BroadcastHostRuntimeSpawn(msg);
 
+        public static void BroadcastHostEndlessWaveState(SULFURTogether.Networking.Gameplay.NetEndlessWaveState msg)
+            => _service?.BroadcastHostEndlessWaveState(msg);
+
         // FF-1: Client → Host friendly-fire hit report.
         public static void SendFriendlyFireHit(NetFriendlyFireHit msg)
             => _service?.SendFriendlyFireHit(msg);

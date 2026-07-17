@@ -403,5 +403,10 @@ namespace SULFURTogether.Networking
         // dummy's real health is never touched by this — each shooter already damages its own local copy. A peer that
         // hasn't unlocked the dummy has no registered tracker and ignores it. See TargetDummySyncManager.
         TargetDummyDamage = 85,
+
+        // Phase EM-3 (host → all clients, ReliableOrdered): host-authoritative snapshot of the Endless run's wave/stage/XP
+        // state. The client's EndlessModeManager is a slave (EM-1) — it applies this to render the vanilla Endless HUD
+        // (XP bar, stage/wave/level labels) in agreement with the host. See EndlessSyncManager.
+        EndlessWaveState = 86,
     }
 }
