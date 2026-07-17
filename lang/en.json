@@ -21,6 +21,11 @@
     { "key": "session.sharedLoot.label", "value": "Shared loot" },
     { "key": "connect.desc.sharedLoot", "value": "Enemy, crate and chest loot is shared: the host rolls it and the first player to grab each item takes it. Off = each player gets their own loot. The host's setting applies to the whole session." },
     { "key": "connect.slSession", "value": "Session shared loot: {state} (set by host)" },
+    { "key": "common.shared", "value": "Shared" },
+    { "key": "common.independent", "value": "Independent" },
+    { "key": "session.sharedEndless.label", "value": "Shared endless progress" },
+    { "key": "connect.desc.sharedEndless", "value": "In Endless mode, XP and cards are shared: one pool, one level, and everyone votes on each card. Off = each player levels and picks cards independently. The host's setting applies to the whole session." },
+    { "key": "connect.epSession", "value": "Session endless progress: {state} (set by host)" },
 
     { "key": "arena.toast.title", "value": "Arena Lockdown" },
     { "key": "arena.toast.teammateEntered", "value": "A teammate entered the arena — head in now to join them!" },

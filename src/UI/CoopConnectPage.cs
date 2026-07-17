@@ -75,6 +75,11 @@ namespace SULFURTogether.UI
         private static PerfectRandom.Sulfur.Core.OptionsScreenOption _slToggleOption;
         private static bool _slLockApplied;
 
+        // EM-4: the "Shared endless progress" toggle — identical host-authoritative session-setting shape as SL/FF.
+        private static SulfurTextHandle   _epSessionHandle;
+        private static PerfectRandom.Sulfur.Core.OptionsScreenOption _epToggleOption;
+        private static bool _epLockApplied;
+
         private static readonly System.Reflection.FieldInfo FfCheckboxField =
             typeof(PerfectRandom.Sulfur.Core.OptionsScreenOption).GetField("checkboxToggle",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
@@ -141,6 +146,7 @@ namespace SULFURTogether.UI
                 ApplySteamState();
                 ApplySessionFriendlyFireControl();
                 ApplySessionSharedLootControl();
+                ApplySessionEndlessProgressControl();
                 ApplyDevVoteControl();
                 RefreshPlayerList();
                 PollJoinClose();
@@ -241,6 +247,14 @@ namespace SULFURTogether.UI
                 OnSharedLootToggled);
             _slSessionHandle = ctx.AddTextRow("");
             _slSessionHandle.SetVisible(false);
+            // EM-4: Endless progression mode as a host-authoritative session setting (same lock/mirror shape as SL/FF).
+            _epToggleOption = ctx.AddToggle(
+                CoopLoc.Get("session.sharedEndless.label", "Shared endless progress"),
+                CoopLoc.Get("connect.desc.sharedEndless", "In Endless mode, XP and cards are shared: one pool, one level, and everyone votes on each card. Off = each player levels and picks cards independently. The host's setting applies to the whole session."),
+                ReadBool(() => Plugin.Cfg.SharedEndlessProgress.Value, true),
+                OnSharedEndlessProgressToggled);
+            _epSessionHandle = ctx.AddTextRow("");
+            _epSessionHandle.SetVisible(false);
             ctx.AddReadonlyText(CoopLoc.Get("connect.label.clientMayStart", "Client may start next level"), CoopLoc.Get("connect.value.comingSoon", "Coming soon"));
             // FF-1: the toggle edits this machine's own setting (= the session setting when it hosts). While
             // connected as a CLIENT the row is locked and mirrors the host's synced session value instead (FF-1b,
@@ -285,6 +299,7 @@ namespace SULFURTogether.UI
             ApplySteamState();
             ApplySessionFriendlyFireControl();
             ApplySessionSharedLootControl();
+            ApplySessionEndlessProgressControl();
             ApplyDevVoteControl();
             RefreshPlayerList();
         }
@@ -636,6 +651,9 @@ namespace SULFURTogether.UI
             _slSessionHandle          = null;
             _slToggleOption           = null;
             _slLockApplied            = false;
+            _epSessionHandle          = null;
+            _epToggleOption           = null;
+            _epLockApplied            = false;
             _devVoteStatusHandle      = null;
             _devVoteButton            = null;
         }
@@ -699,6 +717,35 @@ namespace SULFURTogether.UI
                 }
             }
             catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] shared-loot broadcast failed: {e.Message}"); }
+        }
+
+        // EM-4: shared-endless-progress toggle — same host-authoritative shape as SL/FF. A client can't change it (the
+        // row is locked and mirrors the host's value); the host edits its SharedEndlessProgress config, broadcasts the
+        // session settings, and toasts.
+        private static void OnSharedEndlessProgressToggled(bool value)
+        {
+            if (CoopConnection.CurrentMode == NetMode.Client)
+            {
+                ApplySessionEndlessProgressControl();
+                return;
+            }
+            bool changed = false;
+            try
+            {
+                changed = Plugin.Cfg.SharedEndlessProgress.Value != value;
+                Plugin.Cfg.SharedEndlessProgress.Value = value;
+            }
+            catch { }
+            try
+            {
+                if (CoopConnection.CurrentMode == NetMode.Host)
+                {
+                    CoopConnection.Service?.BroadcastSessionSettings("ui-toggle");
+                    if (changed)
+                        CoopToasts.NotifySessionSetting(CoopLoc.Get("session.sharedEndless.label", "Shared endless progress"), value);
+                }
+            }
+            catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] shared-endless broadcast failed: {e.Message}"); }
         }
 
         // VOTE-1: the local player proposes the dev-mode vote. Host starts it locally; a client asks the host, which
@@ -826,6 +873,51 @@ namespace SULFURTogether.UI
             if (_slToggleOption == null) return;
             try { FfIsLockedField?.SetValue(_slToggleOption, locked); } catch { }
             var go = _slToggleOption.gameObject;
+            var cg = go.GetComponent<CanvasGroup>();
+            if (cg == null) cg = go.AddComponent<CanvasGroup>();
+            cg.alpha = locked ? 0.45f : 1f;
+            cg.interactable = !locked;
+            cg.blocksRaycasts = !locked;
+        }
+
+        // EM-4: keep the shared-endless-progress row role-correct each tick — identical logic to the SL/FF controls.
+        private static void ApplySessionEndlessProgressControl()
+        {
+            bool isClient = CoopConnection.CurrentMode == NetMode.Client;
+
+            if (_epToggleOption != null)
+            {
+                var checkbox = FfCheckboxField?.GetValue(_epToggleOption) as UnityEngine.UI.Toggle;
+                if (isClient != _epLockApplied)
+                {
+                    ApplyEndlessProgressRowLock(isClient);
+                    _epLockApplied = isClient;
+                }
+                bool desired = isClient ? NetSessionSettings.SharedEndlessProgressEnabled
+                                        : ReadBool(() => Plugin.Cfg.SharedEndlessProgress.Value, true);
+                if (checkbox != null && checkbox.isOn != desired)
+                    checkbox.SetIsOnWithoutNotify(desired);
+            }
+
+            if (_epSessionHandle == null) return;
+            if (isClient)
+            {
+                _epSessionHandle.SetText(CoopLoc.Format("connect.epSession", "Session endless progress: {state} (set by host)",
+                    ("state", NetSessionSettings.SharedEndlessProgressEnabled ? CoopLoc.Get("common.shared", "Shared") : CoopLoc.Get("common.independent", "Independent"))));
+                _epSessionHandle.SetColor(NeutralColor);
+                _epSessionHandle.SetVisible(true);
+            }
+            else
+            {
+                _epSessionHandle.SetVisible(false);
+            }
+        }
+
+        private static void ApplyEndlessProgressRowLock(bool locked)
+        {
+            if (_epToggleOption == null) return;
+            try { FfIsLockedField?.SetValue(_epToggleOption, locked); } catch { }
+            var go = _epToggleOption.gameObject;
             var cg = go.GetComponent<CanvasGroup>();
             if (cg == null) cg = go.AddComponent<CanvasGroup>();
             cg.alpha = locked ? 0.45f : 1f;

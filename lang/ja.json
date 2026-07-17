@@ -21,6 +21,11 @@
     { "key": "session.sharedLoot.label", "value": "共有戦利品" },
     { "key": "connect.desc.sharedLoot", "value": "敵・木箱・宝箱の戦利品を共有します。ホストが抽選し、最初に拾ったプレイヤーが入手します。オフ＝各プレイヤーが個別の戦利品を得ます。ホストの設定がセッション全体に適用されます。" },
     { "key": "connect.slSession", "value": "セッション共有戦利品：{state}（ホストが設定）" },
+    { "key": "common.shared", "value": "共有" },
+    { "key": "common.independent", "value": "個別" },
+    { "key": "session.sharedEndless.label", "value": "エンドレス進行度を共有" },
+    { "key": "connect.desc.sharedEndless", "value": "エンドレスモードで経験値とカードを共有します：共通の経験プール・共通のレベルで、各カードは全員の投票で決定します。オフ＝各プレイヤーが個別にレベルアップしカードを選びます。ホストの設定がセッション全体に適用されます。" },
+    { "key": "connect.epSession", "value": "セッションのエンドレス進行度：{state}（ホストが設定）" },
 
     { "key": "arena.toast.title", "value": "アリーナロックダウン" },
     { "key": "arena.toast.teammateEntered", "value": "仲間がアリーナに入りました——今すぐ合流しましょう！" },

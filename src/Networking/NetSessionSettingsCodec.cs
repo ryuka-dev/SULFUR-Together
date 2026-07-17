@@ -10,6 +10,7 @@ namespace SULFURTogether.Networking
             w.Put(s.FriendlyFire);
             w.Put(s.DeveloperMode);
             w.Put(s.SharedLoot);
+            w.Put(s.SharedEndlessProgress);
         }
 
         public static bool TryRead(NetDataReader r, out NetSessionSettingsState result)
@@ -22,6 +23,7 @@ namespace SULFURTogether.Networking
                 s.FriendlyFire  = r.GetBool();
                 s.DeveloperMode = r.GetBool();
                 s.SharedLoot    = r.GetBool();
+                s.SharedEndlessProgress = r.GetBool();
                 result = s;
                 return true;
             }

@@ -14,7 +14,7 @@ namespace SULFURTogether.Networking
         // 8: SL-4 added a SharedLoot field to the SessionSettings (70) snapshot — peers must agree on its wire shape.
         // 9: SL-2b added LootableTriggerRequest (83) + LootableTriggered (84) — food/material/register loot sync.
         // 10: TD-1 added TargetDummyDamage (85) — shared target-dummy damage numbers; peers must agree on the wire set.
-        public const int    ProtocolVersion  = 11;
+        public const int    ProtocolVersion  = 12;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

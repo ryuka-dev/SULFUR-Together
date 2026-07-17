@@ -269,6 +269,10 @@ namespace SULFURTogether.Config
         public Setting<bool>       FriendlyFire { get; }
         public ConfigEntry<bool>   LogFriendlyFire { get; }
 
+        // ----- EM-4 Endless progression mode (host-authoritative session setting; connect-page toggle, coop.json).
+        // Shared (default) = one shared XP pool + card level; Independent = each player has their own. See EM-5/EM-6.
+        public Setting<bool>       SharedEndlessProgress { get; }
+
         // ----- World item-drop sync (player-thrown items first; forward-compatible with a Shared-loot toggle) -----
         public Fixed<bool>         EnableWorldItemDropSync { get; }
         public ConfigEntry<bool>   LogWorldItemDropSync { get; }
@@ -541,6 +545,7 @@ namespace SULFURTogether.Config
             EnableCoopToasts      = new Setting<bool>  (() => store.Values.enableCoopToasts,      v => { store.Values.enableCoopToasts = v; store.Save(); });
             LastSteamIdToJoin     = new Setting<string>(() => store.Values.lastSteamIdToJoin,      v => { store.Values.lastSteamIdToJoin = v ?? ""; store.Save(); });
             FriendlyFire          = new Setting<bool>  (() => store.Values.friendlyFire,           v => { store.Values.friendlyFire = v; store.Save(); });
+            SharedEndlessProgress = new Setting<bool>  (() => store.Values.sharedEndlessProgress,  v => { store.Values.sharedEndlessProgress = v; store.Save(); });
 
             // master
             EnableDebugLog     = cfg.Bind("Debug", "EnableDebugLog",     false, "Verbose debug output.");
