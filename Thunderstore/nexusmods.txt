@@ -1,0 +1,540 @@
+[font=Arial Black][color=DarkOrange][size=5][b]SULFUR Together[/b][/size][/color][/font]
+
+Co-op multiplayer for [b]SULFUR[/b].
+
+[b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
+
+> [b]Version 1.1.0 — Public Beta: SULFUR 0.18.3 support, shared loot, and fixes.[/b] It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+
+[line]
+
+[color=RoyalBlue][b]English[/b][/color]
+
+[b]SULFUR Together[/b] lets you play SULFUR co-op. Explore the same procedurally generated levels, fight enemies together, revive downed teammates, see each other's weapons and attacks, break objects in the world, and drop items for each other.
+
+You connect [b]inside the game[/b] now — there is a built-in menu for hosting and joining over [b]Direct IP[/b] or [b]Steam[/b]. No config-file editing.
+
+[color=DodgerBlue][b]⚠️ Public Beta notice[/b][/color]
+
+This is a [b]public test build[/b]. The main loop works from start to finish, but many systems are still being optimized and there is a lot left to refine.
+
+[list]
+[*]Bugs, visual desyncs, and the occasional broken boss or level transition can happen.[/*]
+[*][b]Back up your save files[/b] before playing.[/*]
+[*]Every player must use the [b]same version of SULFUR[/b] and the [b]same version of SULFUR Together[/b].[/*]
+[/list]
+This release is for players who are happy to test unfinished multiplayer and report problems.
+
+[color=DodgerBlue][b]Requirements[/b][/color]
+
+[list]
+[*][b]SULFUR[/b] (Steam)[/*]
+[*][b]BepInEx 5[/b] — installed automatically as a dependency[/*]
+[*][b]SULFUR Native UI Lib 0.10.1[/b] — installed automatically as a dependency. It powers the in-game connect menu, notifications, and translations.[/*]
+[/list]
+You do [b]not[/b] have to install these by hand if you use a mod manager (below).
+
+[color=DodgerBlue][b]How to install (recommended: Gale)[/b][/color]
+
+[b]Gale[/b] is a free, beginner-friendly mod manager. If you have never modded a game before, use this.
+
+[list=1]
+[*]Download [b]Gale[/b] from its official page: [b]https://github.com/Kesomannen/gale[/b] — open the [b]Releases[/b] section and grab the latest installer for your system.[/*]
+[*]Install and open Gale. When it asks which game to manage, choose [b]SULFUR[/b].[/*]
+[*]Open the [b]Browse mods[/b] tab and search for [b]SULFUR Together[/b].[/*]
+[*]Click [b]Install[/b]. Gale automatically pulls in everything it needs (BepInEx and SULFUR Native UI Lib) — you do not need to install those separately.[/*]
+[*]Press the [b]Launch game (modded)[/b] button inside Gale. The first launch takes a little longer while BepInEx sets itself up.[/*]
+[*]Every player who wants to join must do the same steps and install the [b]same version[/b].[/*]
+[/list]
+That's it — you're ready to host or join from inside the game.
+
+<details>
+<summary>Manual install (advanced, without a mod manager)</summary>
+
+[list=1]
+[*]Install [b]BepInEx 5[/b] for SULFUR.[/*]
+[*]Download [b]SULFUR Native UI Lib[/b] and [b]SULFUR Together[/b] from Thunderstore.[/*]
+[*]Put [color=#ffff00]SULFUR Together.dll[/color], [color=#ffff00]LiteNetLib.dll[/color], and the [color=#ffff00]lang[/color] folder into [color=#ffff00]BepInEx/plugins/SULFUR Together/[/color], and install the UI Lib into its own [color=#ffff00]BepInEx/plugins/[/color] folder the same way.[/*]
+[*]Launch the game.[/*]
+[/list]
+</details>
+
+[color=DodgerBlue][b]How to connect[/b][/color]
+
+Co-op is hosted and joined [b]from inside a loaded save[/b] (not from the title screen).
+
+[list=1]
+[*]Load into your game (the hub or any level).[/*]
+[*]Open the [b]Options[/b] menu and go to the [b]SULFUR Together[/b] page.[/*]
+[*]Set your [b]Player name[/b].[/*]
+[*][b]To host:[/b] press [b]Create game[/b]. Then either:[/*]
+[/list]
+[list]
+[*][b]Steam:[/b] press [b]Invite Friends via Steam[/b] — no port forwarding needed; or[/*]
+[*][b]Direct IP:[/b] share the [b]LAN address[/b] shown on the page (and, over the internet, forward the UDP port or use a VPN LAN). Everyone must use the same [b]Connection key[/b].[/*]
+[/list]
+5. [b]To join:[/b]
+[list]
+[*][b]Steam:[/b] accept the invite (it joins automatically once you load a save), or paste the host's [b]Steam ID[/b] and press [b]Join via Steam[/b]; or[/*]
+[*][b]Direct IP:[/b] enter the host's [b]address[/b], [b]port[/b], and [b]connection key[/b], then press [b]Join game[/b].[/*]
+[/list]
+6. Use [b]Close room[/b] (host) or [b]Leave[/b] (client) to end the session.
+
+Your settings save automatically as you type. Quick keys still exist: [b]Page Down[/b] links/follows the host, [b]Page Up[/b] unlinks and returns you to solo play.
+
+[color=DodgerBlue][b]Features[/b][/color]
+
+[list]
+[*]Host-authoritative multiplayer over LiteNetLib[/*]
+[*]Synced procedural level generation, seeds, and level transitions[/*]
+[*]Remote players, held weapons, and player projectiles[/*]
+[*]Enemy movement/combat sync; host-authoritative enemy damage, deaths, and ranged attacks[/*]
+[*]Co-op downed / revive / death flow with an on-screen rescue prompt[/*]
+[*]Boss-encounter sync for several bosses (Cousin, Witch, Lucia, Desert boss, …)[/*]
+[*]Synced destructible objects and player-dropped items[/*]
+[*]Independent per-player character, inventory, equipment, progression, and save[/*]
+[*]Friendly-fire session setting (chosen by the host)[/*]
+[*]Optional shared world loot, and host-gated developer mode (session vote), as host session settings[/*]
+[*]End-of-run stats cards and join/leave notifications[/*]
+[*]14-language interface[/*]
+[/list]
+[color=DodgerBlue][b]Saves, inventory, and loot[/b][/color]
+
+SULFUR Together does [b]not[/b] use a shared character save. Each player keeps their own character, inventory, equipment, progression, personal loot, and save data. Items you deliberately drop into the world can be picked up by others. [b]Optional shared loot[/b] is available too — the host can turn on [i]Shared loot[/i] on the connect page, which shares enemy, crate, chest, and hatbox/register loot (first player to grab each item takes it). It is [b]off by default[/b]; otherwise each player gets their own loot as before.
+
+[color=DodgerBlue][b]No-pause multiplayer[/b][/color]
+
+The world does [b]not pause[/b] while multiplayer is active — opening the inventory, the pause menu, dialogue, or moving the window out of focus does not stop the game. This is intentional, so players don't desync. [b]Get to a safe spot before opening menus.[/b]
+
+[color=DodgerBlue][b]Known issues[/b][/color]
+
+[list]
+[*]A client that loads a boss level ahead of the host can desync (e.g. Cousin "infinite dialogue").[/*]
+[*]Some enemies may briefly snap, teleport, or animate incorrectly.[/*]
+[*]Bosses beyond the tested set may have serious sync problems.[/*]
+[*]Blood, particles, sounds, and some animations are not always synchronized.[/*]
+[*]Player collision is experimental; remote sprites/weapons are still being refined.[/*]
+[*]Sessions with 4+ players are untested — 2 players is the most predictable.[/*]
+[/list]
+This list is not exhaustive.
+
+[color=DodgerBlue][b]Feedback & bug reports[/b][/color]
+
+[b]Thunderstore does not support bug reports or comments[/b], so please report elsewhere:
+
+[list]
+[*][b]GitHub Issues (recommended):[/b] https://github.com/ryuka-dev/SULFUR-Together/issues[/*]
+[*][b]Nexus Mods:[/b] the mod's [b]Bug Reports[/b] section[/*]
+[/list]
+A good report includes: both host [b]and[/b] client [color=#ffff00]LogOutput.log[/color] files, who hosted, where it happened (level/boss), who triggered the event, what each player saw, whether it reproduces, and your other installed mods. Reports with [b]both[/b] logs are far more useful than one side alone.
+
+[color=DodgerBlue][b]Disclaimer[/b][/color]
+
+This is an unofficial, fan-made mod. It is [b]not[/b] affiliated with or endorsed by Perfect Random or the SULFUR developers. SULFUR and its assets are the property of their respective owners.
+
+[line]
+
+[color=RoyalBlue][b]简体中文[/b][/color]
+
+[b]SULFUR Together[/b] 是一个让你和好友[b]联机合作[/b]游玩 SULFUR 的模组。一起探索相同的随机生成关卡、并肩作战、救起倒地的队友、看到彼此的武器和攻击、破坏场景物件，并为对方丢下物品。
+
+现在[b]在游戏内即可联机[/b]——内置菜单支持通过 [b]直连 IP[/b] 或 [b]Steam[/b] 创建/加入房间，[b]无需手动改配置文件[/b]。
+
+[color=DodgerBlue][b]⚠️ 公开测试版说明[/b][/color]
+
+这是一个 [b]公开测试版（Public Beta）[/b]。主体流程已能从头玩到尾，但许多系统仍在优化中，[b]还有大量待打磨的部分[/b]。
+
+[list]
+[*]可能出现 Bug、画面不同步，偶尔会有 Boss 或关卡切换异常。[/*]
+[*]游玩前请[b]备份你的存档[/b]。[/*]
+[*]所有玩家必须使用[b]相同版本的 SULFUR[/b] 和[b]相同版本的 SULFUR Together[/b]。[/*]
+[/list]
+本版本面向愿意测试未完成的联机功能并反馈问题的玩家。
+
+[color=DodgerBlue][b]环境要求[/b][/color]
+
+[list]
+[*][b]SULFUR[/b]（Steam 版）[/*]
+[*][b]BepInEx 5[/b]——作为依赖自动安装[/*]
+[*][b]SULFUR Native UI Lib 0.10.1[/b]——作为依赖自动安装。它提供游戏内联机菜单、通知与多语言翻译。[/*]
+[/list]
+如果使用下面推荐的模组管理器，你[b]无需[/b]手动安装这些依赖。
+
+[color=DodgerBlue][b]安装教程（推荐使用 Gale）[/b][/color]
+
+[b]Gale[/b] 是一个免费、对新手友好的模组管理器。如果你此前从未给游戏装过模组，请使用它。
+
+[list=1]
+[*]从官方页面下载 [b]Gale[/b]：[b]https://github.com/Kesomannen/gale[/b] ——打开 [b]Releases（发行版）[/b] 一栏，下载适合你系统的最新安装包。[/*]
+[*]安装并打开 Gale。当它询问要管理哪个游戏时，选择 [b]SULFUR[/b]。[/*]
+[*]打开 [b]Browse mods（浏览模组）[/b] 标签页，搜索 [b]SULFUR Together[/b]。[/*]
+[*]点击 [b]Install（安装）[/b]。Gale 会自动装好所需的一切（BepInEx 和 SULFUR Native UI Lib），你无需另行安装。[/*]
+[*]在 Gale 内点击 [b]Launch game（启动游戏，已加载模组）[/b] 按钮。首次启动会因为 BepInEx 初始化而稍慢一些。[/*]
+[*]每一位想加入的玩家都要做同样的步骤，并安装[b]相同的版本[/b]。[/*]
+[/list]
+完成后，你就可以在游戏内创建或加入房间了。
+
+<details>
+<summary>手动安装（进阶，不使用模组管理器）</summary>
+
+[list=1]
+[*]为 SULFUR 安装 [b]BepInEx 5[/b]。[/*]
+[*]从 Thunderstore 下载 [b]SULFUR Native UI Lib[/b] 和 [b]SULFUR Together[/b]。[/*]
+[*]把 [color=#ffff00]SULFUR Together.dll[/color]、[color=#ffff00]LiteNetLib.dll[/color] 和 [color=#ffff00]lang[/color] 文件夹放进 [color=#ffff00]BepInEx/plugins/SULFUR Together/[/color]，并用同样方式把 UI Lib 装进它自己的 [color=#ffff00]BepInEx/plugins/[/color] 目录。[/*]
+[*]启动游戏。[/*]
+[/list]
+</details>
+
+[color=DodgerBlue][b]如何联机[/b][/color]
+
+联机需要在[b]已载入的存档中[/b]进行（不能在标题界面）。
+
+[list=1]
+[*]载入你的游戏（大厅或任意关卡）。[/*]
+[*]打开 [b]Options（设置）[/b] 菜单，进入 [b]SULFUR Together[/b] 页面。[/*]
+[*]设置你的 [b]Player name（玩家名）[/b]。[/*]
+[*][b]作为房主：[/b] 点击 [b]Create game（创建游戏）[/b]，然后二选一：[/*]
+[/list]
+[list]
+[*][b]Steam：[/b] 点击 [b]Invite Friends via Steam（通过 Steam 邀请好友）[/b]——无需端口转发；或[/*]
+[*][b]直连 IP：[/b] 把页面上显示的 [b]LAN 地址[/b] 分享给队友（跨公网时需转发 UDP 端口或使用虚拟局域网）。所有人必须使用相同的 [b]Connection key（连接密钥）[/b]。[/*]
+[/list]
+5. [b]作为加入者：[/b]
+[list]
+[*][b]Steam：[/b] 接受邀请（载入存档后会自动加入），或粘贴房主的 [b]Steam ID[/b] 后点击 [b]Join via Steam[/b]；或[/*]
+[*][b]直连 IP：[/b] 填入房主的[b]地址[/b]、[b]端口[/b]和[b]连接密钥[/b]，再点击 [b]Join game（加入游戏）[/b]。[/*]
+[/list]
+6. 用 [b]Close room（关闭房间，房主）[/b] 或 [b]Leave（离开，客机）[/b] 结束会话。
+
+设置会在你输入时自动保存。快捷键依然可用：[b]Page Down[/b] 链接并跟随房主，[b]Page Up[/b] 取消链接、回到单人游玩。
+
+[color=DodgerBlue][b]功能一览[/b][/color]
+
+[list]
+[*]基于 LiteNetLib 的主机权威联机[/*]
+[*]同步的随机关卡生成、种子与关卡切换[/*]
+[*]远程玩家、手持武器与玩家子弹同步[/*]
+[*]敌人移动/战斗同步；主机权威的敌人伤害、死亡与远程攻击[/*]
+[*]合作的倒地/救援/死亡流程，附带屏幕救援提示[/*]
+[*]多个 Boss 的战斗同步（大表哥、女巫、Lucia、沙漠 Boss……）[/*]
+[*]可破坏物件与玩家丢落物品的同步[/*]
+[*]每位玩家独立的角色、背包、装备、进度与存档[/*]
+[*]友军伤害（友伤）会话开关（由房主决定）[/*]
+[*]可选的共享世界掉落，以及需全员授权或投票开启的开发者模式（均为房主会话设置）[/*]
+[*]结算统计卡片与加入/离开通知[/*]
+[*]14 种语言界面[/*]
+[/list]
+[color=DodgerBlue][b]存档、背包与掉落[/b][/color]
+
+SULFUR Together [b]不使用[/b]共享角色存档。每位玩家保留自己的角色、背包、装备、进度、个人掉落与存档数据。你[b]主动[/b]丢到世界里的物品可以被其他人捡起。现在还提供[b]可选的共享掉落[/b]——房主可在连接页开启 [i]Shared loot（共享掉落）[/i]，此时敌人、木箱、宝箱以及帽盒/收银机的战利品都会共享（谁先捡到归谁）。该功能[b]默认关闭[/b]；关闭时每位玩家和以前一样获得各自的掉落。
+
+[color=DodgerBlue][b]联机不暂停[/b][/color]
+
+联机进行时游戏世界[b]不会暂停[/b]——打开背包、暂停菜单、对话或把窗口切到后台都不会让游戏停下。这是[b]有意为之[/b]，以避免玩家之间不同步。[b]打开菜单前请先到安全的位置。[/b]
+
+[color=DodgerBlue][b]已知问题[/b][/color]
+
+[list]
+[*]客机若比房主提前进入 Boss 关，可能不同步（例如表亲“无限对话”）。[/*]
+[*]部分敌人可能出现瞬移、抽动或动画错误。[/*]
+[*]已测试之外的 Boss 可能存在严重同步问题。[/*]
+[*]血液、粒子、音效与部分动画不一定同步。[/*]
+[*]玩家碰撞仍是实验性的；远程贴图/武器仍在打磨中。[/*]
+[*]4 人及以上的会话未经测试——2 人最为稳定。[/*]
+[/list]
+以上并非完整清单。
+
+[color=DodgerBlue][b]反馈与错误报告[/b][/color]
+
+[b]Thunderstore 不支持提交反馈或评论[/b]，因此请通过以下渠道反馈：
+
+[list]
+[*][b]GitHub Issues（推荐）：[/b] https://github.com/ryuka-dev/SULFUR-Together/issues[/*]
+[*][b]Nexus Mods：[/b] 模组页面的 [b]Bug Reports[/b] 栏目[/*]
+[/list]
+一份好的报告应包含：房主与客机[b]双方[/b]的 [color=#ffff00]LogOutput.log[/color] 日志、谁是房主、问题发生在哪里（关卡/Boss）、由谁触发、每位玩家各自看到了什么、能否复现，以及你安装的其他模组。[b]同时[/b]提供双方日志的报告远比只有一方的有用。
+
+[color=DodgerBlue][b]免责声明[/b][/color]
+
+这是一个非官方的粉丝制作模组，[b]并非[/b]由 Perfect Random 或 SULFUR 开发者授权或认可。SULFUR 及其素材归各自的权利人所有。
+
+[line]
+
+[color=RoyalBlue][b]日本語[/b][/color]
+
+[b]SULFUR Together[/b] は、SULFUR を[b]協力プレイ（Co-op）[/b]で遊ぶためのMODです。同じ自動生成ステージを一緒に探索し、敵と共に戦い、倒れた仲間を蘇生し、お互いの武器や攻撃を確認し、オブジェクトを破壊し、アイテムを落として渡し合えます。
+
+接続は[b]ゲーム内で完結[/b]します——[b]ダイレクトIP[/b]または[b]Steam[/b]でホスト／参加できる専用メニューを内蔵。[b]設定ファイルを編集する必要はもうありません。[/b]
+
+[color=DodgerBlue][b]⚠️ パブリックベータについて[/b][/color]
+
+これは[b]公開テスト版（Public Beta）[/b]です。メインの流れは最初から最後まで動作しますが、多くのシステムはまだ調整中で、[b]改善すべき点が数多く残っています[/b]。
+
+[list]
+[*]バグ、表示のずれ、ボスやステージ遷移の不具合が起きることがあります。[/*]
+[*]プレイ前に[b]セーブデータをバックアップ[/b]してください。[/*]
+[*]全プレイヤーが[b]同じバージョンの SULFUR[/b] と[b]同じバージョンの SULFUR Together[/b] を使用する必要があります。[/*]
+[/list]
+本リリースは、未完成のマルチプレイをテストし、問題を報告してくださる方向けです。
+
+[color=DodgerBlue][b]動作環境[/b][/color]
+
+[list]
+[*][b]SULFUR[/b]（Steam版）[/*]
+[*][b]BepInEx 5[/b]——依存関係として自動でインストールされます[/*]
+[*][b]SULFUR Native UI Lib 0.10.1[/b]——依存関係として自動でインストールされます。ゲーム内の接続メニュー・通知・翻訳を担います。[/*]
+[/list]
+下記のMODマネージャーを使えば、これらを手動でインストールする必要は[b]ありません[/b]。
+
+[color=DodgerBlue][b]インストール方法（Gale を推奨）[/b][/color]
+
+[b]Gale[/b] は無料で初心者にも扱いやすいMODマネージャーです。MODを入れるのが初めての方は、これを使ってください。
+
+[list=1]
+[*]公式ページから [b]Gale[/b] をダウンロード：[b]https://github.com/Kesomannen/gale[/b] ——[b]Releases[/b] の項目を開き、お使いの環境向けの最新版を入手します。[/*]
+[*]Gale をインストールして起動します。管理するゲームを尋ねられたら [b]SULFUR[/b] を選びます。[/*]
+[*][b]Browse mods[/b] タブを開き、[b]SULFUR Together[/b] を検索します。[/*]
+[*][b]Install[/b] をクリックします。Gale が必要なもの（BepInEx と SULFUR Native UI Lib）を自動でまとめて導入するので、個別に入れる必要はありません。[/*]
+[*]Gale 内の [b]Launch game（MOD適用で起動）[/b] ボタンを押します。初回起動は BepInEx の初期化のため少し時間がかかります。[/*]
+[*]参加したいプレイヤー全員が同じ手順を行い、[b]同じバージョン[/b]をインストールしてください。[/*]
+[/list]
+これで、ゲーム内からホスト／参加できます。
+
+<details>
+<summary>手動インストール（上級者向け・マネージャーなし）</summary>
+
+[list=1]
+[*]SULFUR に [b]BepInEx 5[/b] をインストールします。[/*]
+[*]Thunderstore から [b]SULFUR Native UI Lib[/b] と [b]SULFUR Together[/b] をダウンロードします。[/*]
+[*][color=#ffff00]SULFUR Together.dll[/color]、[color=#ffff00]LiteNetLib.dll[/color]、[color=#ffff00]lang[/color] フォルダを [color=#ffff00]BepInEx/plugins/SULFUR Together/[/color] に入れ、UI Lib も同様にそれ専用の [color=#ffff00]BepInEx/plugins/[/color] フォルダへ入れます。[/*]
+[*]ゲームを起動します。[/*]
+[/list]
+</details>
+
+[color=DodgerBlue][b]接続方法[/b][/color]
+
+Co-op は[b]セーブをロードした状態[/b]でホスト／参加します（タイトル画面では不可）。
+
+[list=1]
+[*]ゲームをロードします（ハブまたは任意のステージ）。[/*]
+[*][b]Options（設定）[/b] メニューを開き、[b]SULFUR Together[/b] ページへ進みます。[/*]
+[*][b]Player name（プレイヤー名）[/b] を設定します。[/*]
+[*][b]ホストする場合：[/b] [b]Create game（ゲームを作成）[/b] を押し、次のいずれかを選びます：[/*]
+[/list]
+[list]
+[*][b]Steam：[/b] [b]Invite Friends via Steam（Steamでフレンドを招待）[/b] を押す——ポート開放は不要；または[/*]
+[*][b]ダイレクトIP：[/b] ページに表示される [b]LANアドレス[/b] を共有します（インターネット越しの場合はUDPポートの開放、またはVPN LANを使用）。全員が同じ [b]Connection key（接続キー）[/b] を使う必要があります。[/*]
+[/list]
+5. [b]参加する場合：[/b]
+[list]
+[*][b]Steam：[/b] 招待を承認する（セーブをロードすると自動で参加）か、ホストの [b]Steam ID[/b] を貼り付けて [b]Join via Steam[/b] を押す；または[/*]
+[*][b]ダイレクトIP：[/b] ホストの[b]アドレス[/b]・[b]ポート[/b]・[b]接続キー[/b]を入力し、[b]Join game（参加）[/b] を押します。[/*]
+[/list]
+6. [b]Close room（ホスト）[/b] または [b]Leave（クライアント）[/b] でセッションを終了します。
+
+入力した設定は自動保存されます。ショートカットも利用可能です：[b]Page Down[/b] でホストにリンクして追従、[b]Page Up[/b] でリンク解除してソロに戻ります。
+
+[color=DodgerBlue][b]主な機能[/b][/color]
+
+[list]
+[*]LiteNetLib によるホスト権威型マルチプレイ[/*]
+[*]ステージ自動生成・シード・ステージ遷移の同期[/*]
+[*]リモートプレイヤー、手持ち武器、プレイヤーの弾丸の同期[/*]
+[*]敵の移動／戦闘同期、ホスト権威の敵ダメージ・死亡・遠距離攻撃[/*]
+[*]ダウン／蘇生／死亡の協力フロー（画面上の救助プロンプト付き）[/*]
+[*]複数ボスの戦闘同期（カズン、ウィッチ、Lucia、砂漠ボス ほか）[/*]
+[*]破壊可能オブジェクトとプレイヤーが落としたアイテムの同期[/*]
+[*]プレイヤーごとに独立したキャラクター・インベントリ・装備・進行・セーブ[/*]
+[*]フレンドリーファイア（同士討ち）のセッション設定（ホストが決定）[/*]
+[*]任意の共有ワールド戦利品と、全員の権限または投票で有効化する開発者モード（いずれもホストのセッション設定）[/*]
+[*]リザルト統計カードと参加／退出の通知[/*]
+[*]14言語対応のインターフェース[/*]
+[/list]
+[color=DodgerBlue][b]セーブ・インベントリ・戦利品[/b][/color]
+
+SULFUR Together は共有キャラクターセーブを[b]使いません[/b]。各プレイヤーは自分のキャラクター・インベントリ・装備・進行・個人戦利品・セーブデータを保持します。あなたが[b]意図的に[/b]ワールドへ落としたアイテムは他のプレイヤーが拾えます。さらに[b]任意の共有戦利品[/b]も利用できます——ホストが接続ページで [i]Shared loot（共有戦利品）[/i] をオンにすると、敵・木箱・宝箱・帽子箱／レジの戦利品が共有されます（各アイテムを最初に拾った人が入手）。[b]既定ではオフ[/b]で、オフの場合は従来どおり各プレイヤーが自分の戦利品を得ます。
+
+[color=DodgerBlue][b]一時停止しないマルチプレイ[/b][/color]
+
+マルチプレイ中はゲーム世界が[b]停止しません[/b]——インベントリ、ポーズメニュー、会話を開いても、ウィンドウを非アクティブにしてもゲームは止まりません。これはプレイヤー間のずれを防ぐための[b]意図的な仕様[/b]です。[b]メニューを開く前に安全な場所へ移動してください。[/b]
+
+[color=DodgerBlue][b]既知の問題[/b][/color]
+
+[list]
+[*]クライアントがホストより先にボスステージへ入ると同期がずれることがあります（例：カズンの「無限会話」）。[/*]
+[*]一部の敵が瞬間移動・カクつき・アニメーション不正を起こすことがあります。[/*]
+[*]テスト済み以外のボスは深刻な同期問題を抱えている場合があります。[/*]
+[*]血・パーティクル・効果音・一部アニメーションは必ずしも同期しません。[/*]
+[*]プレイヤー同士の当たり判定は実験的で、リモートのスプライト／武器は調整中です。[/*]
+[*]4人以上のセッションは未検証です——2人が最も安定します。[/*]
+[/list]
+これは完全な一覧ではありません。
+
+[color=DodgerBlue][b]フィードバックと不具合報告[/b][/color]
+
+[b]Thunderstore は不具合報告やコメントに対応していません[/b]。以下からご報告ください：
+
+[list]
+[*][b]GitHub Issues（推奨）：[/b] https://github.com/ryuka-dev/SULFUR-Together/issues[/*]
+[*][b]Nexus Mods：[/b] MODページの [b]Bug Reports[/b] セクション[/*]
+[/list]
+良い報告には、ホストとクライアント[b]両方[/b]の [color=#ffff00]LogOutput.log[/color]、誰がホストか、どこで起きたか（ステージ／ボス）、誰が何を起こしたか、各プレイヤーに何が見えたか、再現するか、導入している他のMODが含まれます。[b]両方[/b]のログがある報告は、片方だけよりはるかに有用です。
+
+[color=DodgerBlue][b]免責事項[/b][/color]
+
+これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
+
+[font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.1.1 — Co-op fixes and polish[/b][/color]
+
+A small update with multiplayer fixes and quality-of-life improvements.
+All players must update to the same version before joining the same session.
+
+[b]Fixed:[/b]
+[list]
+[*][b]Players now stay together in the DLC and developer levels.[/b] When the host entered[/*]
+[/list]
+  Robot Heaven (the DLC), Endless / Challenge mode, or a developer debug level, other
+  players could be left behind on a different map. Everyone follows the host into these
+  levels now, just like the base-game chapters.
+[list]
+[*][b]Reviving a downed teammate is more forgiving.[/b] The [i]Hold [E][/i] prompt now appears as[/*]
+[/list]
+  soon as you are in range (from a slightly larger distance), and briefly releasing the
+  key — or tapping it — no longer resets the progress to zero, so the revive fills up
+  reliably.
+
+[b]New:[/b]
+[list]
+[*][b]Shared damage numbers on the practice target dummy.[/b] Damage dealt to the ChurchHub[/*]
+[/list]
+  target dummy now shows its flying numbers and running total to every player, including
+  hits dealt by other players.
+
+[b]Polish:[/b]
+[list]
+[*]Dropped items now glide smoothly into their resting spot for other players instead of[/*]
+[/list]
+  snapping into place.
+
+[color=RoyalBlue][b]1.1.0 — SULFUR 0.18.3 support, shared loot, and fixes[/b][/color]
+
+This update makes SULFUR Together compatible with [b]SULFUR 0.18.3 (Qiosk's Plenty)[/b],
+adds optional [b]shared world loot[/b], and fixes several multiplayer problems.
+All players must update to the same version before joining the same session.
+
+[b]New:[/b]
+[list]
+[*][b]Shared world loot (optional, chosen by the host).[/b] Turn on [i]Shared loot[/i] on the[/*]
+[/list]
+  connect page and enemy, crate, chest, and hatbox/register loot is shared — the host rolls
+  it and the first player to grab each item takes it. Off by default (each player keeps
+  their own loot, as before).
+[list]
+[*][b]Developer mode is now host-gated.[/b] It is a session setting that only turns on when[/*]
+[/list]
+  every player has dev access or a session vote passes, so a single player can no longer
+  force it on for everyone. — https://github.com/ryuka-dev/SULFUR-Together/issues/8
+[list]
+[*][b]Inter-chunk doors are synced.[/b] The hold-to-open doors added in SULFUR 0.18 now open[/*]
+[/list]
+  for everyone when one player opens them.
+[list]
+[*][b]Thrown knives are visible to other players[/b] — you can see the knife fly and stick. —[/*]
+[/list]
+  https://github.com/ryuka-dev/SULFUR-Together/issues/10
+[list]
+[*][b]External mod channel.[/b] A public API so other mods can send data over the co-op session[/*]
+[/list]
+  and read basic session info.
+
+[b]Fixed:[/b]
+[list]
+[*][b]Updated for SULFUR 0.18.3 (Qiosk's Plenty).[/b] Re-bound the damage/hit chain, fixed a[/*]
+[/list]
+  host-side enemy-AI freeze, and reconnected hooks the update renamed — combat, enemy
+  deaths, and the client→host hit path work again on the new game version.
+[list]
+[*][b]Dropped items could become permanently un-collectable for everyone[/b] — fixed. —[/*]
+[/list]
+  https://github.com/ryuka-dev/SULFUR-Together/issues/11
+[list]
+[*][b]Dropped items now rest in the same place for everyone[/b] and no longer pile into an[/*]
+[/list]
+  indistinguishable tower.
+
+[b]Known issues:[/b]
+[list]
+[*]With shared loot on, the food/material hatbox and cash-register [i]open animations[/i] do not[/*]
+[/list]
+  replay on other players' screens (the loot itself is correct and shared). —
+  https://github.com/ryuka-dev/SULFUR-Together/issues/14
+[list]
+[*]The 1.0.0 beta known issues below still apply (occasional enemy snapping, boss desyncs[/*]
+[/list]
+  when a client loads ahead, unsynced blood/particles/sounds, 4+ players untested).
+
+[color=RoyalBlue][b]1.0.1 - Bugfix update[/b][/color]
+
+This update fixes several multiplayer sync problems found in the first public beta.
+All players must update to the same version before joining the same session.
+
+[b]Fixed:[/b]
+[list]
+[*]Fixed client poison/fire ground hazards causing excessive duplicate damage.[/*]
+[*]Synced throwable landing effects such as poison, fire, and explosions across peers.[/*]
+[*]Synced in-flight throwable visuals so other players can see where grenades and flasks are thrown.[/*]
+[*]Fixed client weapon XP not being credited on kills.[/*]
+[*]Fixed one-shot trigger spawns creating separate local encounters for each player.[/*]
+[*]Fixed goblin civilians briefly playing spearman attack animations on clients.[/*]
+[/list]
+[color=RoyalBlue][b]1.0.0 — Version 1.0, Public Beta[/b][/color]
+
+First public [b]Beta[/b] of [b]SULFUR Together[/b], a co-op multiplayer mod for SULFUR.
+
+This is a public test build. The core loop works end-to-end, but many systems are
+still being polished — expect rough edges. Every player must run the [b]same version[/b]
+of SULFUR and of SULFUR Together.
+
+[b]New since the early preview:[/b]
+[list]
+[*][b]In-game connect menu[/b] — set up and join sessions from Options → [i]SULFUR Together[/i].[/*]
+[/list]
+  No more editing config files.
+[list]
+[*][b]Steam connectivity[/b] — invite friends / join by Steam ID, no port forwarding needed[/*]
+[/list]
+  (works alongside Direct IP).
+[list]
+[*][b]Direct IP[/b] — host shows its LAN address; clients join with address + port + key.[/*]
+[*][b]14-language localization[/b] for all on-screen text (via SULFUR Native UI Lib).[/*]
+[*][b]Friendly fire[/b] as a host-authoritative session setting.[/*]
+[*][b]End-of-run stats cards[/b] on the return-to-hub screen.[/*]
+[*][b]Join / leave toasts[/b] and a live player list.[/*]
+[/list]
+[b]Working:[/b]
+[list]
+[*]Host-authoritative networked sessions over LiteNetLib.[/*]
+[*]Synced level generation / seeds and scene transitions.[/*]
+[*]Remote player proxies, held weapons, and projectiles.[/*]
+[*]Enemy state mirroring; host-authoritative enemy damage, deaths, and ranged attacks.[/*]
+[*]Downed / revive / death co-op flow with an on-screen rescue prompt.[/*]
+[*]Boss-encounter authority for several bosses (Cousin, Witch, Lucia, Desert boss, …).[/*]
+[*]Synced destructibles and world item drops.[/*]
+[*]Independent per-player character, inventory, equipment, progression, and save.[/*]
+[*]No-pause multiplayer (the world keeps running while menus are open).[/*]
+[/list]
+[b]Known issues:[/b]
+[list]
+[*]Clients that load a boss level ahead of the host can desync (e.g. Cousin "infinite dialogue").[/*]
+[*]Some enemies may briefly snap, teleport, or animate incorrectly.[/*]
+[*]Bosses beyond the tested set may have gameplay-affecting sync problems.[/*]
+[*]Blood, particles, sounds, and some animations are not always synchronized.[/*]
+[*]Sessions with 4+ players are untested; 2 players is the most predictable.[/*]
+[/list]
+[b]Dependencies:[/b] BepInEx 5, SULFUR Native UI Lib 0.10.1 (both installed automatically
+through Thunderstore / Gale).
+
+> ⚠️ Public Beta — expect bugs. Back up your saves. Report issues on GitHub (not
+> Thunderstore, which has no bug tracker). Host and all clients [b]must run the same mod version[/b].
