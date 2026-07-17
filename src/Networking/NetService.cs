@@ -4309,6 +4309,26 @@ namespace SULFURTogether.Networking
                 bool snapIsHub = snap != null && snap.Finalized && NetSceneClassify.IsHubOrSafeZoneGraph(snap.GraphName);
                 bool deferHubReturn = false;
 
+                // Phase LK-UnknownFollow: several chapter families match no combat keyword and classify as Unknown —
+                // DebugChapter (DevTools), DLC_01_RobotHeaven_* (the DLC), EndlessMode, ChallengeEnvironments,
+                // Onboarding. They are still seeded MakerGraph levels the client must follow the host into, exactly
+                // like combat. Any finalized, seeded, NON-hub target that isn't a menu is therefore treated as a
+                // combat-like target so it reuses the combat seed + used-sets pipeline (fills seed/usedSets from the
+                // finalized snapshot below and gets AutoLoadAllowed). Menus have no generated seed and hubs are
+                // matched first, so neither is captured here.
+                bool menuTarget = request.HasTargetScene && !hubTarget
+                    && NetClientLoadGate.IsHubOrMenuTarget(request.ChapterName, request.LoadingMode, request.LevelIndex);
+                // Require the finalized snapshot to actually describe THIS target scene, so a stale combat snapshot
+                // from a previous level can never hijack an Unknown target's chapter/seed (falls back to request-only).
+                bool snapMatchesTarget = snap != null && snap.Finalized
+                    && NetSceneName.SameScene(snap.Chapter, snap.LevelIndex, request.ChapterName, request.LevelIndex);
+                if (!combatTarget && !hubTarget && !menuTarget
+                    && snapMatchesTarget && !snapIsHub && snap!.HasSeed)
+                {
+                    combatTarget = true;
+                    NetLogger.Info($"[HostSceneRequestBuild] unknown-but-seeded target treated as combat-like target={request.TargetSceneKey()} graph={(string.IsNullOrEmpty(request.GraphName) ? "?" : request.GraphName)}");
+                }
+
                 // Phase 5.6-DL: while the host is dead and respawning back to the hub, do NOT advertise the combat
                 // level it is abandoning. The host's stale autoLoad combat request (sent just before its own
                 // GoToLevel(mode=Death) on an all-players-down) was what dragged the client through a wasteful

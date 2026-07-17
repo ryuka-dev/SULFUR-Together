@@ -416,7 +416,13 @@ namespace SULFURTogether.Networking
             bool hub = IsHubOrMenuTarget(req.ChapterName, req.LoadingMode, req.LevelIndex)
                 || NetSceneClassify.IsHubOrSafeZoneGraph(req.GraphName)
                 || NetSceneClassify.IsHubOrSafeZoneChapter(req.ChapterName);
-            bool combat = !hub && IsCombatTarget(req.ChapterName, req.LoadingMode, req.LevelIndex);
+            // Phase LK-UnknownFollow: an Unknown-but-seeded host target (DebugChapter, DLC_01_RobotHeaven_*,
+            // EndlessMode, ChallengeEnvironments, Onboarding) is a generated level the client must follow just like
+            // combat. The host only marks such a target AutoLoadAllowed + seeded once it has finalized generation, so
+            // gating on the seed here is safe — a real menu carries no seed and hubs are matched above.
+            bool menu = !hub && IsHubOrMenuTarget(req.ChapterName, req.LoadingMode, req.LevelIndex);
+            bool combat = !hub && (IsCombatTarget(req.ChapterName, req.LoadingMode, req.LevelIndex)
+                || (req.HasLevelSeed && !menu));
             bool joined = NetLinkState.ClientLinked; // Phase 5.6-LK: 联机状态 is the authority for following the host
 
             // Phase 5.6-DL P4: the death-respawn GATE (ShouldInterceptGoToLevel -> Waiting(DeathRespawn)) now owns
