@@ -4920,16 +4920,29 @@ namespace SULFURTogether.Networking
             // Phase 5.6-LK: NO same-scene guard anymore. A relay only ever comes from a LINKED client (its gate
             // relays only while 联机状态 is on), and a linked client explicitly leads the host wherever it goes —
             // including F3 jumps, returning to a safe zone, or a scene the host is not currently in. Just note it.
-            if (!NetSceneName.SameScene(host.ChapterName, host.LevelIndex, clientChapter, clientLevel))
+            bool clientInHostScene = NetSceneName.SameScene(host.ChapterName, host.LevelIndex, clientChapter, clientLevel);
+            if (!clientInHostScene)
                 NetLogger.Info($"[TransitionRelay] cross-scene lead from {peerId}: client={clientChapter}:{clientLevel} host={host.ChapterName}:{host.LevelIndex} target={chapter}:{level}");
 
-            // Phase F3-Reload: a same-scene relay from a linked client is an explicit RELOAD-IN-PLACE (F3 to the level
-            // both ends are already in). The client's gate now relays + waits for us to RE-LEAD instead of self-
-            // reloading off our stale "I'm here" request (which diverged into its own fresh instance — Log147). Lead
-            // the reload so BOTH regenerate the level together (resets an in-progress fight, by design — the user's
-            // chosen behaviour). A client merely catching up to our scene follows our existing broadcast and never
-            // relays, so a same-scene relay reaching us is always an explicit reload.
-            bool reloadInPlace = NetSceneName.SameScene(host.ChapterName, host.LevelIndex, chapter, level);
+            bool hostAtTarget = NetSceneName.SameScene(host.ChapterName, host.LevelIndex, chapter, level);
+
+            // A relay targeting the host's CURRENT scene from a client that is NOT in it is a LAGGING client whose
+            // exit trigger fired after the host already made this transition (its CompleteLevel raced the follow).
+            // It is NOT a reload request — re-leading would re-generate, with a fresh seed, the level everyone else
+            // is already playing. Answer with the current finalized scene request so the client follows normally.
+            if (hostAtTarget && !clientInHostScene)
+            {
+                NetLogger.Info($"[TransitionRelay] catch-up from {peerId}: host already at target {chapter}:{level}; resending current scene request");
+                SendCurrentHostSceneRequestToPeer(peer, "relay-catch-up");
+                return;
+            }
+
+            // Phase F3-Reload: a same-scene relay from a linked client IN the host's scene is an explicit
+            // RELOAD-IN-PLACE (F3 to the level both ends are already in). The client's gate now relays + waits for
+            // us to RE-LEAD instead of self-reloading off our stale "I'm here" request (which diverged into its own
+            // fresh instance — Log147). Lead the reload so BOTH regenerate the level together (resets an in-progress
+            // fight, by design — the user's chosen behaviour).
+            bool reloadInPlace = hostAtTarget && clientInHostScene;
             bool reloadInPlaceEnabled; try { reloadInPlaceEnabled = Plugin.Cfg.EnableClientReloadInPlaceRelay.Value; } catch { reloadInPlaceEnabled = false; }
             if (reloadInPlace && !reloadInPlaceEnabled)
             {
@@ -4937,8 +4950,6 @@ namespace SULFURTogether.Networking
                 NetLogger.Info($"[TransitionRelay] ignore from {peerId}: host already at target {chapter}:{level} (reload-in-place off)");
                 return;
             }
-            if (reloadInPlace)
-                NetLogger.Info($"[TransitionRelay] reload-in-place lead from {peerId}: host re-generating current level {chapter}:{level}");
 
             // Host busy loading — let the in-flight transition settle; the client follows it.
             if (!string.IsNullOrEmpty(host.GameState) && host.GameState.ToLowerInvariant().Contains("load"))
@@ -4963,6 +4974,8 @@ namespace SULFURTogether.Networking
             _lastClientTransitionKey = key;
             _lastClientTransitionTime = now;
 
+            if (reloadInPlace)
+                NetLogger.Info($"[TransitionRelay] reload-in-place lead from {peerId}: host re-generating current level {chapter}:{level}");
             NetLogger.Info($"[TransitionRelay] host LEADING client-requested transition target={chapter}:{level} mode={mode} spawn={spawn} requestedBy={peerId} attempt={attempt}");
 
             var req = new NetHostSceneRequest
