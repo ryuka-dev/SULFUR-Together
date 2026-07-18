@@ -57,6 +57,12 @@ namespace SULFURTogether.Networking.Gameplay
         private static MethodInfo? _fcStartSpin;      // FloatingCard.StartSpin() — client reroll visual feedback
         private static FieldInfo? _crEventType;       // CardReward.eventType : CardEventType
         private static object? _ceReroll;             // CardEventType.Reroll (boxed) — identifies the reroll card
+        // EM-6b-3c: banish voting
+        private static object? _ceTravelBackToChurch; // CardEventType.TravelBackToChurch (boxed) — the one non-banishable card
+        private static MethodInfo? _fcmDismissCard;   // FloatingCardManager.DismissCard(int) — host authoritative banish
+        private static MethodInfo? _fcmRemoveCardAfter; // FloatingCardManager.RemoveCardAfterDismissal(int) : IEnumerator
+        private static MethodInfo? _fcStartDismissal; // FloatingCard.StartDismissal()
+        private static MethodInfo? _fcmUpdateBanishText; // FloatingCardManager.UpdateBanishText(FloatingCard, CardReward)
 
         // gameplayRandom (Unity.Mathematics.Random struct) + its inner state
         private static FieldInfo? _emGameplayRandom; // EndlessModeManager.gameplayRandom : Unity.Mathematics.Random
@@ -452,6 +458,125 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return 0; }
         }
 
+        // ---- EM-6b-3c banish voting ----
+
+        /// <summary>Read the card whose <b>banish/dismiss button</b> the local player is aiming at + firing on (a banish
+        /// vote). Returns false unless the aim is a DismissButton on a present, non-static, banishable card — the same gate
+        /// the game itself uses to offer the dismiss button (which is only shown when <c>BanishesRemaining &gt; 0</c>).</summary>
+        public static bool TryReadAimedBanishCard(object fcm, out int index)
+        {
+            index = -1;
+            try
+            {
+                if (fcm == null) return false;
+                int selType = _fcmLastSelType != null ? Convert.ToInt32(_fcmLastSelType.GetValue(fcm)) : 0;
+                if (selType != 3) return false; // CardSelectionType.DismissButton
+                int sel = _fcmCurrentSel?.GetValue(fcm) is int s ? s : -1;
+                if (sel < 0) return false;
+                if (!IsBanishableCard(fcm, sel)) return false;
+                index = sel;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>A card that may be banished: present, non-static (Skip/Reroll never), and not the one-way
+        /// TravelBackToChurch card (vanilla forbids banishing it).</summary>
+        public static bool IsBanishableCard(object fcm, int index)
+        {
+            try
+            {
+                if (_fcmSpawnedCards?.GetValue(fcm) is not Array cards || index < 0 || index >= cards.Length) return false;
+                object? card = cards.GetValue(index);
+                if (card is not UnityEngine.Object uo || uo == null) return false;
+                if (_fcIsStatic?.GetValue(card) is bool st && st) return false; // Skip/Reroll not banishable
+                if (_ceTravelBackToChurch != null && _crEventType != null && _fcmCardRewards?.GetValue(fcm) is Array rewards && index < rewards.Length)
+                {
+                    object? reward = rewards.GetValue(index);
+                    if (reward != null && Equals(_crEventType.GetValue(reward), _ceTravelBackToChurch)) return false;
+                }
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>HOST: the shared banish resources still available (host-authoritative; 0 → the game hides every dismiss
+        /// button and no banish vote can be cast).</summary>
+        public static int HostBanishesRemaining()
+        {
+            try
+            {
+                object? mgr = EndlessSyncManager.ResolveEndlessInstance();
+                return mgr != null && _emBanishesBF?.GetValue(mgr) is int b ? b : 0;
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>HOST: execute an approved banish by running the vanilla <c>DismissCard(index)</c> — it consumes a shared
+        /// banish, updates the available-card pools (mirrored to future rolls via the roll-state replay), and animates the
+        /// card out (slot nulled). Returns true if it was actually dismissed.</summary>
+        public static bool HostBanishCard(int index)
+        {
+            try
+            {
+                EnsureResolved();
+                object? fcm = ResolveCardManager();
+                if (fcm == null || _fcmDismissCard == null) return false;
+                if (!IsBanishableCard(fcm, index)) return false;
+                if (HostBanishesRemaining() <= 0) return false;
+                _fcmDismissCard.Invoke(fcm, new object[] { index });
+                return true;
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostBanishCard failed: {ex.GetType().Name}: {ex.Message}"); return false; }
+        }
+
+        /// <summary>CLIENT: mirror a host banish — animate the same card out (StartDismissal + the vanilla
+        /// RemoveCardAfterDismissal removal) and decrement the local shared-banish count so the client's own dismiss-button
+        /// offer (gated on <c>BanishesRemaining &gt; 0</c>) tracks the host. The available-card pools are host-driven
+        /// (resynced by the next roll), so they are deliberately not touched here. Returns true when handled (removed or the
+        /// card was already gone); false if the panel isn't ready yet, so the caller can retry on the next snapshot.</summary>
+        public static bool ClientMirrorBanish(int index)
+        {
+            try
+            {
+                EnsureResolved();
+                object? fcm = ResolveCardManager();
+                if (fcm == null) return false;
+                if (_fcmSpawnedCards?.GetValue(fcm) is not Array cards || index < 0 || index >= cards.Length) return false;
+                object? card = cards.GetValue(index);
+                if (card is not UnityEngine.Object uo || uo == null) return true; // already gone — nothing to do
+
+                try { _fcStartDismissal?.Invoke(card, null); } catch { }
+                if (_fcmRemoveCardAfter?.Invoke(fcm, new object[] { index }) is IEnumerator e && fcm is MonoBehaviour mb)
+                    mb.StartCoroutine(e);
+
+                object? mgr = EndlessSyncManager.ResolveEndlessInstance();
+                if (mgr != null && _emBanishesBF?.GetValue(mgr) is int b) _emBanishesBF.SetValue(mgr, Mathf.Max(0, b - 1));
+                RefreshBanishText(fcm);
+                return true;
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ClientMirrorBanish failed: {ex.GetType().Name}: {ex.Message}"); return false; }
+        }
+
+        // Refresh every present card's banish label / dismiss-button visibility (hides them once shared banishes hit 0).
+        private static void RefreshBanishText(object fcm)
+        {
+            try
+            {
+                if (_fcmUpdateBanishText == null || _fcmSpawnedCards?.GetValue(fcm) is not Array cards) return;
+                var rewards = _fcmCardRewards?.GetValue(fcm) as Array;
+                for (int i = 0; i < cards.Length; i++)
+                {
+                    object? card = cards.GetValue(i);
+                    if (card is not UnityEngine.Object uo || uo == null) continue;
+                    object? reward = rewards != null && i < rewards.Length ? rewards.GetValue(i) : null;
+                    if (reward == null) continue; // UpdateBanishText dereferences reward.eventType
+                    try { _fcmUpdateBanishText.Invoke(fcm, new[] { card, reward }); } catch { }
+                }
+            }
+            catch { }
+        }
+
         /// <summary>BOTH ROLES: apply the vote-resolved card. For an ordinary or Skip card, run the vanilla
         /// <c>SpinAndDismissCard(index)</c> on both ends — the reward's personal effect lands on each player's own
         /// <c>PlayerUnit</c> (world-card duplication is the known EM-7 gap). For a <b>Reroll</b> (EM-6b-3b) the re-roll is
@@ -801,7 +926,17 @@ namespace SULFURTogether.Networking.Gameplay
                 _fcStartSpin    = fcType?.GetMethod("StartSpin", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
                 _crEventType    = crType?.GetField("eventType", bf);
                 var ceType = _crEventType?.FieldType ?? AccessTools.TypeByName("CardEventType") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.CardEventType");
-                if (ceType != null && ceType.IsEnum) { try { _ceReroll = Enum.Parse(ceType, "Reroll"); } catch { _ceReroll = null; } }
+                if (ceType != null && ceType.IsEnum)
+                {
+                    try { _ceReroll = Enum.Parse(ceType, "Reroll"); } catch { _ceReroll = null; }
+                    try { _ceTravelBackToChurch = Enum.Parse(ceType, "TravelBackToChurch"); } catch { _ceTravelBackToChurch = null; }
+                }
+                // EM-6b-3c: banish voting
+                _fcmDismissCard     = fcmType?.GetMethod("DismissCard", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(int) }, null);
+                _fcmRemoveCardAfter = fcmType?.GetMethod("RemoveCardAfterDismissal", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(int) }, null);
+                _fcStartDismissal   = fcType?.GetMethod("StartDismissal", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                if (crType != null)
+                    _fcmUpdateBanishText = fcmType?.GetMethod("UpdateBanishText", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, new[] { fcType!, crType }, null);
 
                 var tmpType = _fcSubtitle?.FieldType;
                 _tmpText = tmpType?.GetProperty("text", BindingFlags.Public | BindingFlags.Instance);

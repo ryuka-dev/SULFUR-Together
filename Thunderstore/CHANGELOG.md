@@ -22,7 +22,11 @@ before joining the same session.
   the chosen card is applied for everyone. There's no timer until someone casts the first vote, so
   you can take your time discussing. You can also vote to **Skip** or **Reroll** — a Skip gives each
   player their pass reward, and a winning Reroll deals a fresh set of cards for everyone to vote on
-  again (the reroll card is unavailable once your shared rerolls run out).
+  again (the reroll card is unavailable once your shared rerolls run out). You can also **vote to
+  banish** a card you don't want — aim at its dismiss button and fire; it counts as your one vote,
+  competing with everyone's picks. If a banish wins, that card is removed for everyone (spending one
+  shared banish) and you vote again on the rest. You can **change or cancel** your vote at any time
+  by re-selecting, and the countdown only runs once at least one vote has been cast.
   *(One shared XP pool and shared world-card rewards are still in development.)*
 
 ## 1.1.1 — Co-op fixes and polish

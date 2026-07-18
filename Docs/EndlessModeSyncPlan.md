@@ -345,6 +345,44 @@ Resolution branches by the resolved card:
 The status HUD names the Skip/Reroll outcome (`DescribeResolvedCard` → `endless.cardvote.resolved_skip` /
 `…_reroll`) rather than a card number. `ProtocolVersion 19→20` (vote semantics changed; the wire is unchanged).
 
+### 7.3 As-built (EM-6b-3c — per-card banish vote, shipped)
+
+Banishing a card is the third vote action, implemented **inside the Endless card-vote channel** rather than via
+`CoopVoteManager`. That reuse was the original sketch (§6), but a review found `CoopVoteManager` is payload-less
+(votes a `VoteKind` enum only — a banish needs a target card index), casts on **Y/N keyboard** through a separate
+top-center panel (clashing with the aim + Fire card input), is single-vote-at-a-time, and its Majority rule has
+never run in-game; the Endless channel already has a host tally, participants, a realtime clock that survives the
+frozen card-select world, and the on-card overlay. So the banish rides the existing channel.
+
+Per the user's revision the vote is **unified**: every player casts exactly **one** vote — pick a card
+(ordinary/Skip/Reroll) OR banish a card — and any option is a **toggle** (re-cast to retract).
+
+- **Input:** aiming at a card body + firing is a pick; aiming at a card's dismiss button + firing is a banish. The
+  game only shows that button on a non-static, non-`TravelBackToChurch` card while shared banishes remain, so the
+  gate is natural; the host re-validates. One vote per player — a pick clears any banish and vice versa.
+- **Resolution:** count every cast option (a pick of card *i* and a banish of card *i* are distinct options), take
+  the most-voted, break a tie by a single host roll across **all** tied options (so a 4-way pick/Skip/Reroll/banish
+  tie is one uniform draw).
+- **Draw:** the tie-break animation is **host-authoritative and reused for every rolled outcome and every banish** (a
+  clear pick applies at once). The host plays a short draw with the winner hidden — a multi-card sweep, or a
+  single-card blink for a clear banish / a same-card pick-vs-banish tie — broadcasts it via the snapshot's
+  `RaffleActive` flag + `TiedIndices`, and both ends render it. The on-card stamps stay visible through the draw,
+  which is what lets the *last* banish vote's ✕ stamp show before its card leaves. When the host timer elapses it
+  applies the winner.
+- **Apply:** a **pick/Skip/Reroll** winner resolves the panel (both ends run `SpinAndDismissCard`). A **banish**
+  winner runs the vanilla `DismissCard` (consumes one shared banish, updates the pools that feed future rolls via the
+  roll-state replay, animates the card out; each client mirrors via `ClientMirrorBanish` = StartDismissal +
+  `RemoveCardAfterDismissal` + local banish decrement + text refresh, retried if the panel isn't up yet) and
+  **re-opens the same vote on the remaining cards** — all votes cleared (Skip/Reroll are never banishable, so the
+  panel can't empty). The winning card's ✕ stamp is released (not destroyed) so it rides the dismissing card out.
+- **Countdown:** runs only while at least one vote is cast — retracting to zero votes stops it, and the next cast
+  restarts it from full.
+- **Protocol:** `NetEndlessCardVoteCast` gains a `Kind` byte (0 pick / 1 banish); `NetEndlessCardVoteState` gains a
+  per-participant `BanishIndex`, a cumulative `BanishedIndices[]`, and a `RaffleActive` flag (codecs → v3; no new
+  message type).
+- **Feedback:** a violet **✕ NAME** stamp on the card each player is voting to banish (distinct from the gold/red
+  pick stamps). `ProtocolVersion 20→22`.
+
 ---
 
 ## 8. Phasing

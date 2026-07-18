@@ -1555,13 +1555,13 @@ namespace SULFURTogether.Networking
         }
 
         // EM-6b-3a: client → host, "my player cast a vote for this ordinary card index".
-        internal void SendEndlessCardVoteCast(int cardEventId, int votedIndex)
+        internal void SendEndlessCardVoteCast(int cardEventId, int votedIndex, byte kind)
         {
             if (_mode != NetMode.Client || _hostPeer == null) return;
             try
             {
                 var w = NetMessage.For(NetMessageType.EndlessCardVoteCast);
-                Gameplay.NetEndlessCardVoteCastCodec.Write(w, new Gameplay.NetEndlessCardVoteCast { CardEventId = cardEventId, VotedIndex = votedIndex });
+                Gameplay.NetEndlessCardVoteCastCodec.Write(w, new Gameplay.NetEndlessCardVoteCast { CardEventId = cardEventId, VotedIndex = votedIndex, Kind = kind });
                 _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
             }
             catch (Exception ex) { NetLogger.Warn($"[Endless] failed to send card vote cast: {ex.Message}"); }
@@ -1576,7 +1576,10 @@ namespace SULFURTogether.Networking
                 return;
             }
             string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
-            Gameplay.EndlessCardVoteManager.HostHandleCast(peerId, msg.CardEventId, msg.VotedIndex);
+            if (msg.Kind == 1)
+                Gameplay.EndlessCardVoteManager.HostHandleBanishCast(peerId, msg.CardEventId, msg.VotedIndex);
+            else
+                Gameplay.EndlessCardVoteManager.HostHandleCast(peerId, msg.CardEventId, msg.VotedIndex);
         }
 
         // ----------------------------------------------------------------- Phase 5.6-WS player weapon bullet sync

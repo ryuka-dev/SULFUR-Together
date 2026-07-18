@@ -21,9 +21,16 @@ namespace SULFURTogether.Networking.Gameplay
     /// <para>EM-6b-3b: the static <b>Skip</b> and <b>Reroll</b> cards are votable too (the votable set is every
     /// <i>interactable</i> card, so an exhausted 0-reroll card is excluded). A resolved Skip runs its personal reward on
     /// each player; a resolved Reroll is <b>host-authoritative</b> — the host re-rolls (which broadcasts a fresh
-    /// roll/manifest/vote) while the client waits for and mirrors that new panel rather than rolling its own. The per-card
-    /// banish (DismissButton) is still deferred (EM-6b-3c). All state is main-thread (host tick from the service tick,
-    /// client apply from the network dispatch, local casts from the card-pick prefix).</para>
+    /// roll/manifest/vote) while the client waits for and mirrors that new panel rather than rolling its own.</para>
+    ///
+    /// <para>EM-6b-3c: <b>banishing a card is one of the unified vote options</b>, not a separate vote. Every player casts
+    /// exactly one vote — pick a card (ordinary / Skip / Reroll) OR banish a card — and any option is a toggle (re-cast to
+    /// retract). Resolution counts every cast option (a pick and a banish of the same card are distinct), takes the
+    /// most-voted, and breaks a tie by host roll. A pick / Skip / Reroll winner resolves the panel (with the tie-break
+    /// raffle when rolled); a <b>banish</b> winner runs the vanilla <c>DismissCard</c> (consuming a shared banish; clients
+    /// mirror the removal), then re-opens the same vote on the remaining cards. The countdown runs only while at least one
+    /// vote is cast — retracting to zero stops it. All state is main-thread (host tick from the service tick, client apply
+    /// from the network dispatch, local casts from the card-pick prefix).</para>
     /// </summary>
     internal static class EndlessCardVoteManager
     {
@@ -46,7 +53,7 @@ namespace SULFURTogether.Networking.Gameplay
             NetGameplaySyncBridge.BossMode != NetMode.Off && SharedMode && _current != null && _current.CardEventId > 0;
 
         // ---- HOST authoritative state ------------------------------------------------------------------------
-        private sealed class Participant { public string PeerId = ""; public string Name = ""; public int VotedIndex = -1; }
+        private sealed class Participant { public string PeerId = ""; public string Name = ""; public int VotedIndex = -1; public int BanishIndex = -1; }
 
         private static bool   _hostActive;      // a host vote is open (Active or Resolved-pending-teardown)
         private static bool   _hostResolved;
@@ -61,35 +68,62 @@ namespace SULFURTogether.Networking.Gameplay
         private static float  _lastBroadcast;
         private static string _hostChap = ""; private static int _hostLvl; private static bool _hostHasSeed; private static int _hostSeed;
         private static readonly List<Participant> _participants = new List<Participant>();
+        private static readonly List<int> _banishedIndices = new List<int>(); // EM-6b-3c: cards banished this event (broadcast)
         private static int _revision;
 
-        // ---- apply guard + raffle animation (both roles) -----------------------------------------------------
-        private static int   _appliedEvent = -1;
-        private static bool  _raffleActive;
-        private static int   _raffleEvent = -1;
-        private static int   _raffleTarget;
-        private static int[] _raffleTied = System.Array.Empty<int>(); // the cards the sweep cycles through (the tied set)
-        private static float _raffleStart;
+        // ---- CLIENT banish mirror bookkeeping ----------------------------------------------------------------
+        private static int _clientBanishEvent = -1;
+        private static readonly HashSet<int> _clientBanishedMirrored = new HashSet<int>();
 
-        /// <summary>True while the tie/no-vote raffle sweep is playing (both ends) — the overlay pulses the cursor card.</summary>
+        // ---- apply guard (pick) + tie-draw animation ---------------------------------------------------------
+        // The raffle is host-driven: on any tie (pick / Skip / Reroll / banish, incl. a same-card pick-vs-banish tie) the
+        // host plays a short draw before applying, so a rolled outcome is never abrupt and the winner is hidden until it
+        // lands. Both ends animate it from the snapshot's RaffleActive + TiedIndices; the host applies the winner (a pick
+        // resolves the panel; a banish removes the card and re-opens the vote) when its timer elapses.
+        private static int   _appliedEvent = -1;
+        private static bool  _raffleActive;  // local visual flag (host: while raffling; client: mirrors snapshot.RaffleActive)
+        private static int[] _raffleTied = System.Array.Empty<int>(); // the distinct cards the draw cycles through
+        private static float _raffleStart;   // local start time of the current draw (set on the rising edge)
+
+        // HOST raffle authority
+        private static bool  _hostRaffling;
+        private static float _hostRaffleStart;
+        private static int   _hostRaffleWinIdx;
+        private static bool  _hostRaffleWinBanish;
+        private static int[] _hostRaffleTied = System.Array.Empty<int>();
+
+        /// <summary>True while a tie draw is playing (both ends) — the overlay + the card-highlight postfix animate it.</summary>
         public static bool RaffleActive => _raffleActive;
 
-        /// <summary>The card index the raffle cursor is currently over — a decelerating sweep that cycles <b>only through the
-        /// tied cards</b> and lands on the winner.</summary>
+        /// <summary>The card the draw cursor is currently over. A multi-card tie decelerates card-to-card and lands on the
+        /// winner's card; a single-card tie (a pick-vs-banish tie on one card) blinks that card a few times.</summary>
         public static int RaffleCursorIndex
         {
             get
             {
                 if (!_raffleActive || _raffleTied.Length == 0) return -1;
-                int n = _raffleTied.Length;
-                int targetPos = System.Array.IndexOf(_raffleTied, _raffleTarget);
-                if (targetPos < 0) targetPos = 0;
                 float x = Mathf.Clamp01((Now - _raffleStart) / RaffleSeconds);
                 float ease = 1f - (1f - x) * (1f - x) * (1f - x); // easeOutCubic: fast → slow
-                int totalSteps = n * RaffleLoops + targetPos; // lands on the winner's position at x=1
+                int n = _raffleTied.Length;
+                if (n == 1)
+                {
+                    const int blinks = 5;
+                    bool on = x >= 1f || Mathf.FloorToInt(ease * blinks) % 2 == 0; // blink, land ON
+                    return on ? _raffleTied[0] : -1;
+                }
+                int targetPos = n - 1; // the winner is placed last in _raffleTied so the sweep lands on it at x=1
+                int totalSteps = n * RaffleLoops + targetPos;
                 int step = Mathf.FloorToInt(totalSteps * ease);
                 return _raffleTied[((step % n) + n) % n];
             }
+        }
+
+        // Set the local draw visual (both roles): rising edge stamps the local start + tied cards.
+        private static void SetLocalRaffle(bool active, int[]? tied)
+        {
+            if (active && !_raffleActive) { _raffleStart = Now; _raffleTied = tied ?? System.Array.Empty<int>(); }
+            _raffleActive = active;
+            if (!active) _raffleTied = System.Array.Empty<int>();
         }
 
         public static void Reset()
@@ -100,9 +134,12 @@ namespace SULFURTogether.Networking.Gameplay
             _timeoutActive = false; _timeoutStart = 0f; _lastBroadcast = 0f;
             _hostChap = ""; _hostLvl = 0; _hostHasSeed = false; _hostSeed = 0;
             _participants.Clear();
+            _banishedIndices.Clear();
+            _clientBanishEvent = -1; _clientBanishedMirrored.Clear();
             _revision = 0;
             _appliedEvent = -1;
-            _raffleActive = false; _raffleEvent = -1; _raffleTarget = 0; _raffleTied = System.Array.Empty<int>(); _raffleStart = 0f;
+            _raffleActive = false; _raffleTied = System.Array.Empty<int>(); _raffleStart = 0f;
+            _hostRaffling = false; _hostRaffleStart = 0f; _hostRaffleWinIdx = -1; _hostRaffleWinBanish = false; _hostRaffleTied = System.Array.Empty<int>();
             _hostTied = System.Array.Empty<int>();
             _hostVotable = System.Array.Empty<int>();
         }
@@ -134,6 +171,7 @@ namespace SULFURTogether.Networking.Gameplay
                 _hostVotable = votable;
                 _timeoutActive = false; _timeoutStart = 0f; _lastBroadcast = 0f;
                 _hostChap = chap ?? ""; _hostLvl = lvl; _hostHasSeed = hasSeed; _hostSeed = seed;
+                _banishedIndices.Clear();
 
                 RebuildParticipants();
                 if (_participants.Count == 0) { _hostActive = false; return; }
@@ -162,6 +200,14 @@ namespace SULFURTogether.Networking.Gameplay
                 // The panel is gone (SpinAndDismissCard finished, or an abnormal close) → the vote is over.
                 if (!EndlessCardManager.LocalCardPanelUp()) { HostEndVote(); return; }
 
+                // A tie draw is playing → apply its winner when the timer elapses (a pick resolves; a banish removes + re-votes).
+                if (_hostRaffling)
+                {
+                    if (now >= _hostRaffleStart + RaffleSeconds) HostApplyRaffleWinner(now);
+                    else if (now - _lastBroadcast >= KeepaliveSeconds) HostBroadcast();
+                    return;
+                }
+
                 if (!_hostResolved)
                 {
                     PruneDisconnected();
@@ -176,29 +222,73 @@ namespace SULFURTogether.Networking.Gameplay
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] EM-6b-3a HostTick failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        /// <summary>HOST: record a participant's cast (from a client message or the host's own pick) and re-evaluate.</summary>
+        /// <summary>HOST: record a participant's <b>pick</b> vote for a card (ordinary / Skip / Reroll) and re-evaluate.
+        /// One vote per player: a pick clears any prior banish; re-casting the same pick retracts it (toggle).</summary>
         public static void HostHandleCast(string peerId, int eventId, int votedIndex)
         {
             try
             {
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || !SharedMode) return;
-                if (!_hostActive || _hostResolved || eventId != _hostEventId) return;
+                if (!_hostActive || _hostResolved || _hostRaffling || eventId != _hostEventId) return; // votes locked during the draw
                 if (string.IsNullOrEmpty(peerId)) return;
                 if (!IsVotable(votedIndex)) return; // only an interactable card index (ordinary / Skip / interactable Reroll)
 
                 var p = Find(peerId);
                 if (p == null) return;            // not a recognized participant
-                if (p.VotedIndex == votedIndex) return; // no change
-                p.VotedIndex = votedIndex;
+                bool retract = p.VotedIndex == votedIndex && p.BanishIndex < 0;
+                p.VotedIndex  = retract ? -1 : votedIndex; // toggle off if re-casting the same pick
+                p.BanishIndex = -1;                        // one vote per player: a pick clears the banish
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3a cast peer={peerId} index={p.VotedIndex} event={eventId}");
 
                 float now = Now;
-                if (!_timeoutActive) { _timeoutActive = true; _timeoutStart = now; } // first cast → start the clock
-                if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3a cast peer={peerId} index={votedIndex} event={eventId}");
-
+                UpdateCountdown(now);
                 HostEvaluate(now);
                 if (!_hostResolved) HostBroadcast();
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostHandleCast failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>HOST (EM-6b-3c): record a participant's <b>banish</b> vote — one of the unified vote options. One vote
+        /// per player: a banish clears any prior pick; re-casting the same target retracts it (toggle).</summary>
+        public static void HostHandleBanishCast(string peerId, int eventId, int targetIndex)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || !SharedMode) return;
+                if (!_hostActive || _hostResolved || _hostRaffling || eventId != _hostEventId) return; // votes locked during the draw
+                if (string.IsNullOrEmpty(peerId)) return;
+                object? fcm = EndlessCardManager.ResolveLocalCardManager();
+                if (fcm == null || !EndlessCardManager.IsBanishableCard(fcm, targetIndex)) return;
+
+                var p = Find(peerId);
+                if (p == null) return;
+                bool retract = p.BanishIndex == targetIndex;
+                p.BanishIndex = retract ? -1 : targetIndex; // toggle off if re-casting the same banish
+                p.VotedIndex  = -1;                          // one vote per player: a banish clears the pick
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3c banish cast peer={peerId} target={p.BanishIndex} event={eventId}");
+
+                float now = Now;
+                UpdateCountdown(now);
+                HostEvaluate(now);
+                if (!_hostResolved) HostBroadcast();
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostHandleBanishCast failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static int CountVotes()
+        {
+            int v = 0;
+            foreach (var p in _participants) if (p.VotedIndex >= 0 || p.BanishIndex >= 0) v++;
+            return v;
+        }
+
+        // The countdown runs only while at least one vote is cast (user decision): retracting to zero votes stops it, and
+        // the next vote restarts it from full.
+        private static void UpdateCountdown(float now)
+        {
+            int votes = CountVotes();
+            if (votes > 0 && !_timeoutActive) { _timeoutActive = true; _timeoutStart = now; }
+            else if (votes == 0 && _timeoutActive) { _timeoutActive = false; _timeoutStart = 0f; }
         }
 
         private static void HostEvaluate(float now)
@@ -207,8 +297,9 @@ namespace SULFURTogether.Networking.Gameplay
             int total = _participants.Count;
             if (total == 0) { HostEndVote(); return; }
 
-            int voted = 0;
-            foreach (var p in _participants) if (p.VotedIndex >= 0) voted++;
+            UpdateCountdown(now);
+            int voted = CountVotes();
+            if (voted == 0) return; // no votes → nothing to resolve (and no countdown)
 
             bool allVoted = voted >= total;
             bool deadline = _timeoutActive && now >= _timeoutStart + TimeoutSeconds;
@@ -217,43 +308,100 @@ namespace SULFURTogether.Networking.Gameplay
             HostResolve(now);
         }
 
+        // Unified resolution: pick / Skip / Reroll / banish are all one vote per player. Tally every cast option (a pick of
+        // card i and a banish of card i are distinct options), take the most-voted, break a tie by host roll. A banish
+        // winner removes the card and re-opens the same vote on the remaining cards; a pick/Skip/Reroll winner resolves the
+        // panel (with the tie-break raffle when it was rolled).
         private static void HostResolve(float now)
         {
-            // Tally votes per ordinary card index.
-            var tally = new int[_hostCardCount];
-            int cast = 0;
+            var pickTally   = new int[_hostCardCount];
+            var banishTally = new int[_hostCardCount];
             foreach (var p in _participants)
-                if (p.VotedIndex >= 0 && p.VotedIndex < _hostCardCount) { tally[p.VotedIndex]++; cast++; }
-
-            int index;
-            bool byRoll;
-            List<int> tied = new List<int>();
-            if (cast == 0)
             {
-                foreach (int idx in _hostVotable) tied.Add(idx);                                       // nobody voted → sweep all votable
-                if (tied.Count == 0) for (int i = 0; i < _hostCardCount; i++) tied.Add(i);             // (defensive; votable is never empty here)
-                index = tied[UnityEngine.Random.Range(0, tied.Count)];
-                byRoll = true;
-            }
-            else
-            {
-                int best = -1;
-                for (int i = 0; i < tally.Length; i++)
-                {
-                    if (tally[i] > best) { best = tally[i]; tied.Clear(); tied.Add(i); }
-                    else if (tally[i] == best && best > 0) tied.Add(i);
-                }
-                byRoll = tied.Count > 1;                                                              // a genuine tie
-                index = byRoll ? tied[UnityEngine.Random.Range(0, tied.Count)] : tied[0];             // tie → host roll
+                if (p.VotedIndex >= 0 && p.VotedIndex < _hostCardCount) pickTally[p.VotedIndex]++;
+                else if (p.BanishIndex >= 0 && p.BanishIndex < _hostCardCount) banishTally[p.BanishIndex]++;
             }
 
+            // Collect the winning option(s): the maximum-vote options across both pick and banish tallies.
+            int best = 0;
+            var tied = new List<(int index, bool banish)>();
+            for (int i = 0; i < _hostCardCount; i++)
+            {
+                if (pickTally[i] > best)   { best = pickTally[i];   tied.Clear(); tied.Add((i, false)); }
+                else if (pickTally[i] == best && best > 0) tied.Add((i, false));
+            }
+            for (int i = 0; i < _hostCardCount; i++)
+            {
+                if (banishTally[i] > best) { best = banishTally[i]; tied.Clear(); tied.Add((i, true)); }
+                else if (banishTally[i] == best && best > 0) tied.Add((i, true));
+            }
+
+            if (best == 0 || tied.Count == 0) // defensive: no votes → uniform pick roll over the votable set
+            {
+                foreach (int idx in _hostVotable) tied.Add((idx, false));
+                if (tied.Count == 0) for (int i = 0; i < _hostCardCount; i++) tied.Add((i, false));
+            }
+
+            bool byRoll = tied.Count > 1;
+            var winner = byRoll ? tied[UnityEngine.Random.Range(0, tied.Count)] : tied[0];
+            // A clear pick applies at once (obvious from the stamps); a tie OR any banish gets a short reveal draw first, so
+            // a rolled outcome isn't abrupt and a banish's ✕ stamps are seen before the card leaves.
+            bool draw = byRoll || winner.banish;
+            if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3a host card vote RESOLVED event={_hostEventId} winner={(winner.banish ? "banish " : "pick ")}{winner.index} byRoll={byRoll} draw={draw} options=[{string.Join(",", tied.ConvertAll(o => (o.banish ? "b" : "p") + o.index))}]");
+
+            if (!draw) { HostApplyPick(winner.index, now); return; }
+
+            // Play a host-driven draw over the distinct tied cards, winner hidden until it lands. Place the winning card LAST
+            // so the deceleration lands on it. A single tied card (a clear banish, or a pick-vs-banish tie on one card) blinks.
+            var tiedCards = new List<int>();
+            foreach (var o in tied) if (o.index != winner.index && !tiedCards.Contains(o.index)) tiedCards.Add(o.index);
+            tiedCards.Add(winner.index); // winner last
+
+            _hostRaffling = true; _hostRaffleStart = now;
+            _hostRaffleWinIdx = winner.index; _hostRaffleWinBanish = winner.banish;
+            _hostRaffleTied = tiedCards.ToArray();
+            SetLocalRaffle(true, _hostRaffleTied); // host's own draw visual
+            if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3a host draw start event={_hostEventId} winner={(winner.banish ? "banish " : "pick ")}{winner.index} cards=[{string.Join(",", _hostRaffleTied)}]");
+            HostBroadcast();
+        }
+
+        // HOST: the draw timer elapsed — apply the winner it landed on.
+        private static void HostApplyRaffleWinner(float now)
+        {
+            _hostRaffling = false;
+            SetLocalRaffle(false, null);
+            if (_hostRaffleWinBanish) HostResolveBanish(_hostRaffleWinIdx, now);
+            else                      HostApplyPick(_hostRaffleWinIdx, now);
+        }
+
+        // HOST: a pick / Skip / Reroll won — resolve the panel. Both ends run SpinAndDismissCard (host here, clients on the
+        // Resolved snapshot).
+        private static void HostApplyPick(int index, float now)
+        {
             _hostResolved = true;
             _hostResolvedIndex = Mathf.Clamp(index, 0, _hostCardCount - 1);
-            _hostResolvedByRoll = byRoll;
-            _hostTied = tied.ToArray();
-            if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3a host card vote RESOLVED event={_hostEventId} index={_hostResolvedIndex} cast={cast}/{_participants.Count} byRoll={byRoll} tied=[{string.Join(",", _hostTied)}]");
+            _hostResolvedByRoll = false;
+            _hostTied = System.Array.Empty<int>();
             HostBroadcast();
-            ApplyResolvedLocally(_hostEventId, _hostResolvedIndex, byRoll, _hostTied); // the host applies its own copy
+            ApplyResolvedPick(_hostEventId, _hostResolvedIndex); // the host applies its own copy
+        }
+
+        // HOST: a banish won — remove the card (host-authoritative DismissCard, clients mirror via BanishedIndices) and
+        // re-open the SAME vote on the remaining cards: clear every vote and stop the countdown (it restarts on the next
+        // cast). Does NOT resolve the panel. If the banish can't run (out of shared banishes), it just clears the votes.
+        private static void HostResolveBanish(int index, float now)
+        {
+            bool banished = EndlessCardManager.HostBanishCard(index); // vanilla DismissCard (consumes a shared banish)
+            if (banished)
+            {
+                _banishedIndices.Add(index);
+                _hostVotable = System.Array.FindAll(_hostVotable, i => i != index);
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3c host banished card index={index} event={_hostEventId} banishesLeft={EndlessCardManager.HostBanishesRemaining()}");
+            }
+            foreach (var p in _participants) { p.VotedIndex = -1; p.BanishIndex = -1; } // fresh round
+            _hostResolved = false;                       // stays Active — the vote continues on the remaining cards
+            _timeoutActive = false; _timeoutStart = 0f;  // 0 votes → no countdown
+            HostBroadcast();
         }
 
         private static void HostEndVote()
@@ -284,14 +432,18 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 ChapterName = _hostChap, LevelIndex = _hostLvl, HasLevelSeed = _hostHasSeed, LevelSeed = _hostSeed,
                 CardEventId = _hostEventId, Revision = ++_revision,
-                Phase = (byte)(_hostResolved ? 1 : 0), ResolvedIndex = _hostResolvedIndex, ResolvedByRoll = _hostResolvedByRoll,
+                Phase = (byte)(_hostResolved ? 1 : 0),
+                ResolvedIndex = _hostRaffling ? -1 : _hostResolvedIndex, // winner hidden while the draw plays
+                ResolvedByRoll = _hostResolvedByRoll,
+                RaffleActive = _hostRaffling,
                 CardCount = _hostCardCount, TimeoutActive = _timeoutActive, SecondsRemaining = secs,
-                TiedIndices = _hostTied,
+                TiedIndices = _hostRaffling ? _hostRaffleTied : _hostTied,
+                BanishedIndices = _banishedIndices.ToArray(),
             };
             var arr = new NetEndlessCardVoteState.Participant[_participants.Count];
             for (int i = 0; i < _participants.Count; i++)
                 arr[i] = new NetEndlessCardVoteState.Participant
-                { PeerId = _participants[i].PeerId, Name = _participants[i].Name, VotedIndex = _participants[i].VotedIndex };
+                { PeerId = _participants[i].PeerId, Name = _participants[i].Name, VotedIndex = _participants[i].VotedIndex, BanishIndex = _participants[i].BanishIndex };
             snap.Participants = arr;
             return snap;
         }
@@ -311,74 +463,77 @@ namespace SULFURTogether.Networking.Gameplay
                 if (_current != null && snap.Revision <= _current.Revision && snap.CardEventId == _current.CardEventId) return;
                 _current = snap.CardEventId == 0 ? null : snap;
 
-                if (snap.CardEventId != 0 && snap.Phase == 1) // resolved → apply on the client too
-                    ApplyResolvedLocally(snap.CardEventId, snap.ResolvedIndex, snap.ResolvedByRoll, snap.TiedIndices);
+                SetLocalRaffle(snap.CardEventId != 0 && snap.RaffleActive, snap.TiedIndices); // mirror the host-driven draw
+                ClientMirrorBanishes(snap); // EM-6b-3c: remove any newly-banished card locally
+
+                if (snap.CardEventId != 0 && snap.Phase == 1) // pick resolved → apply on the client too
+                    ApplyResolvedPick(snap.CardEventId, snap.ResolvedIndex);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] ClientApplySnapshot failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
+        /// <summary>CLIENT (EM-6b-3c): mirror any card the host has banished this event that we have not removed yet.</summary>
+        private static void ClientMirrorBanishes(NetEndlessCardVoteState snap)
+        {
+            if (NetGameplaySyncBridge.BossMode != NetMode.Client || snap == null || snap.CardEventId == 0) return;
+            if (snap.BanishedIndices == null || snap.BanishedIndices.Length == 0) return;
+            if (_clientBanishEvent != snap.CardEventId) { _clientBanishEvent = snap.CardEventId; _clientBanishedMirrored.Clear(); }
+            foreach (int idx in snap.BanishedIndices)
+            {
+                if (_clientBanishedMirrored.Contains(idx)) continue;
+                if (!EndlessCardManager.ClientMirrorBanish(idx)) continue; // panel not ready yet → retry on the next snapshot
+                _clientBanishedMirrored.Add(idx);
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3c client mirrored banish index={idx} event={snap.CardEventId}");
+            }
+        }
+
         // ================================================================== local cast (card-pick prefix, both roles)
 
-        /// <summary>BOTH ROLES: the local player pressed Fire/Interact while the shared card panel is up. Read the card
-        /// they are aiming at; if it is a votable (interactable) card — ordinary, Skip, or an available Reroll — cast a vote
-        /// for it. The per-card banish button (DismissButton) is still ignored (EM-6b-3c). Called from the card-pick prefix,
-        /// which always blocks the vanilla pick in shared mode.</summary>
+        /// <summary>BOTH ROLES: the local player pressed Fire/Interact while the shared card panel is up. Aiming at a card's
+        /// dismiss button casts a banish vote; aiming at a card body casts a pick vote (both toggle — one vote per player).
+        /// Called from the card-pick prefix, which always blocks the vanilla pick in shared mode.</summary>
         public static void OnLocalPickInput(object fcm)
         {
             try
             {
                 if (!Enabled || !SharedMode || _current == null || _current.CardEventId <= 0 || _current.Phase != 0) return;
+
+                // EM-6b-3c: aiming at a card's dismiss button + firing is a BANISH vote (checked first — it's a distinct
+                // aim from the card body). Otherwise it is a normal pick vote.
+                if (EndlessCardManager.TryReadAimedBanishCard(fcm, out int banishIndex))
+                {
+                    if (NetGameplaySyncBridge.BossMode == NetMode.Host)
+                        HostHandleBanishCast(NetGameplaySyncBridge.LocalPeerId, _current.CardEventId, banishIndex);
+                    else
+                        NetGameplaySyncBridge.SendEndlessCardVoteCast(_current.CardEventId, banishIndex, 1);
+                    return;
+                }
+
                 if (!EndlessCardManager.TryReadAimedVotableCard(fcm, _current.CardCount, out int index)) return;
 
                 if (NetGameplaySyncBridge.BossMode == NetMode.Host)
                     HostHandleCast(NetGameplaySyncBridge.LocalPeerId, _current.CardEventId, index);
                 else
-                    NetGameplaySyncBridge.SendEndlessCardVoteCast(_current.CardEventId, index);
+                    NetGameplaySyncBridge.SendEndlessCardVoteCast(_current.CardEventId, index, 0);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] OnLocalPickInput failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         // ================================================================== apply (both roles, once per event)
 
-        private static void ApplyResolvedLocally(int eventId, int resolvedIndex, bool byRoll, int[] tied)
+        // Apply the resolved PICK (Skip/Reroll included) via the vanilla SpinAndDismissCard, once per event. The draw, when
+        // there was one, has already played out (host-driven); this is only reached with the final winner.
+        private static void ApplyResolvedPick(int eventId, int resolvedIndex)
         {
-            if (eventId == _appliedEvent) return;
-            if (_raffleActive && _raffleEvent == eventId) return; // already sweeping toward this event's winner
-
-            // A tie/no-vote roll picks the winner instantly, which reads as a bug ("my pick was ignored"). Play a short
-            // decelerating raffle sweep across ONLY the tied cards, landing on the winner, then apply. A clear majority is
-            // obvious from the stamps, so it applies immediately.
-            if (byRoll && tied != null && tied.Length > 1 && RaffleSeconds > 0f)
-            {
-                _raffleActive = true; _raffleEvent = eventId; _raffleTarget = resolvedIndex;
-                _raffleTied = tied; _raffleStart = Now;
-                if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3a raffle start event={eventId} target={_raffleTarget} tied=[{string.Join(",", tied)}]");
-                return;
-            }
-
+            if (eventId == _appliedEvent || resolvedIndex < 0) return;
             _appliedEvent = eventId;
             EndlessCardManager.ApplyResolvedPick(resolvedIndex);
             if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3a applied resolved pick event={eventId} index={resolvedIndex}");
         }
 
-        /// <summary>BOTH ROLES (each service tick): advance the tie-break raffle and apply the winner when the sweep ends.
-        /// Cheap no-op when no raffle is running.</summary>
-        public static void FrameTick()
-        {
-            if (!_raffleActive) return;
-            try
-            {
-                if (Now < _raffleStart + RaffleSeconds) return; // still sweeping
-                _raffleActive = false;
-                if (_raffleEvent != _appliedEvent)
-                {
-                    _appliedEvent = _raffleEvent;
-                    EndlessCardManager.ApplyResolvedPick(_raffleTarget);
-                    if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3a raffle applied event={_raffleEvent} index={_raffleTarget}");
-                }
-            }
-            catch (Exception ex) { _raffleActive = false; Plugin.Log.Warn($"[Endless] EM-6b-3a FrameTick failed: {ex.GetType().Name}: {ex.Message}"); }
-        }
+        /// <summary>BOTH ROLES (each service tick): kept for the service-tick contract; the tie draw is now host-driven
+        /// (see <see cref="HostTick"/>) and rendered from the snapshot, so there is nothing to advance here.</summary>
+        public static void FrameTick() { }
 
         // ================================================================== participants
 

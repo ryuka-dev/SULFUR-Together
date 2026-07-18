@@ -26,8 +26,9 @@ namespace SULFURTogether.UI.EndlessCardVote
     /// </summary>
     internal static class EndlessCardVoteOverlay
     {
-        private static readonly Color SelfInk = new Color(1f, 0.72f, 0.15f, 0.96f);   // gold — the local player
-        private static readonly Color MateInk = new Color(0.88f, 0.20f, 0.16f, 0.96f); // red  — teammates
+        private static readonly Color SelfInk   = new Color(1f, 0.72f, 0.15f, 0.96f);   // gold   — the local player's pick
+        private static readonly Color MateInk   = new Color(0.88f, 0.20f, 0.16f, 0.96f); // red    — teammates' picks
+        private static readonly Color BanishInk = new Color(0.74f, 0.28f, 0.95f, 0.97f); // violet — a banish vote (either player)
 
         private sealed class Stamp { public GameObject? Go; public int CardIndex; public int Stack; }
         private static readonly Dictionary<string, Stamp> _stamps = new Dictionary<string, Stamp>();
@@ -64,8 +65,22 @@ namespace SULFURTogether.UI.EndlessCardVote
             // last vote resolves the tie instantly, so its stamp is created here rather than before the raffle began.
             if (EndlessCardVoteManager.RaffleActive) { ReconcileStamps(snap!); return; }
 
-            if (snap!.Phase == 1) { _stamps.Clear(); return; } // resolved (no raffle) → cards carry their stamps out; drop refs
+            if (snap!.Phase == 1) { _stamps.Clear(); return; } // resolved → cards carry their stamps out; drop refs
+            ReleaseStampsOnBanishedCards(snap); // let a winning ✕ stamp ride the banished card out instead of being destroyed
             ReconcileStamps(snap);
+        }
+
+        // A card that just got banished is animating out (StartDismissal). Its ✕ stamp is a child of that card, so releasing
+        // it (drop our reference without destroying) lets it ride the card out and die with it — otherwise the vote-clear
+        // that accompanies a banish would make ReconcileStamps destroy it immediately, before the player sees it.
+        private static void ReleaseStampsOnBanishedCards(NetEndlessCardVoteState snap)
+        {
+            if (snap.BanishedIndices == null || snap.BanishedIndices.Length == 0 || _stamps.Count == 0) return;
+            List<string>? release = null;
+            foreach (var kv in _stamps)
+                if (Array.IndexOf(snap.BanishedIndices, kv.Value.CardIndex) >= 0)
+                    (release ??= new List<string>()).Add(kv.Key);
+            if (release != null) foreach (var k in release) _stamps.Remove(k);
         }
 
         // ---------------------------------------------------------------- on-card stamps
@@ -78,19 +93,19 @@ namespace SULFURTogether.UI.EndlessCardVote
 
             string me = NetGameplaySyncBridge.LocalPeerId;
 
-            // Desired: for each participant that voted a still-present card, its (cardIndex, stack position in snapshot order).
-            var desired = new Dictionary<string, (int card, int stack, string name, bool self)>();
+            // Desired: each participant contributes a PICK stamp (on its voted card) and/or a BANISH stamp (on the card it
+            // is voting to banish, EM-6b-3c). Keyed by "peer|kind" so one player can show both. Stacked per card so stamps
+            // on the same card don't perfectly overlap.
+            var desired = new Dictionary<string, (int card, int stack, string name, bool self, bool banish)>();
             var perCard = new Dictionary<int, int>();
             if (snap.Participants != null)
             {
                 foreach (var p in snap.Participants)
                 {
-                    if (p.VotedIndex < 0 || p.VotedIndex >= cards.Length) continue;
-                    if (cards.GetValue(p.VotedIndex) == null) continue;
-                    int stack = perCard.TryGetValue(p.VotedIndex, out var c) ? c : 0;
-                    perCard[p.VotedIndex] = stack + 1;
+                    bool self = string.Equals(p.PeerId, me, StringComparison.Ordinal);
                     string name = string.IsNullOrEmpty(p.Name) ? p.PeerId : p.Name;
-                    desired[p.PeerId] = (p.VotedIndex, stack, name, string.Equals(p.PeerId, me, StringComparison.Ordinal));
+                    AddDesired(desired, perCard, cards, p.PeerId + "|p", p.VotedIndex,  name, self, false);
+                    AddDesired(desired, perCard, cards, p.PeerId + "|b", p.BanishIndex, name, self, true);
                 }
             }
 
@@ -106,12 +121,22 @@ namespace SULFURTogether.UI.EndlessCardVote
                 if (_stamps.TryGetValue(kv.Key, out var ex) && ex.Go != null && ex.CardIndex == d.card && ex.Stack == d.stack)
                     continue;
                 if (_stamps.TryGetValue(kv.Key, out var old)) { DestroyStamp(old); _stamps.Remove(kv.Key); }
-                var go = CreateStamp(cards.GetValue(d.card)!, kv.Key, d.card, d.name, d.self);
+                var go = CreateStamp(cards.GetValue(d.card)!, kv.Key, d.card, d.name, d.self, d.banish);
                 if (go != null) _stamps[kv.Key] = new Stamp { Go = go, CardIndex = d.card, Stack = d.stack };
             }
         }
 
-        private static GameObject? CreateStamp(object card, string peerId, int cardIndex, string name, bool self)
+        private static void AddDesired(
+            Dictionary<string, (int card, int stack, string name, bool self, bool banish)> desired,
+            Dictionary<int, int> perCard, Array cards, string key, int cardIndex, string name, bool self, bool banish)
+        {
+            if (cardIndex < 0 || cardIndex >= cards.Length || cards.GetValue(cardIndex) == null) return;
+            int stack = perCard.TryGetValue(cardIndex, out var c) ? c : 0;
+            perCard[cardIndex] = stack + 1;
+            desired[key] = (cardIndex, stack, name, self, banish);
+        }
+
+        private static GameObject? CreateStamp(object card, string peerId, int cardIndex, string name, bool self, bool banish)
         {
             try
             {
@@ -125,8 +150,10 @@ namespace SULFURTogether.UI.EndlessCardVote
                     UnityEngine.Object.Destroy(clone.transform.GetChild(i).gameObject); // subtitle carries no children, but be safe
                 if (clone.GetComponent<TMP_Text>() is not TMP_Text tmp) { UnityEngine.Object.Destroy(clone); return null; }
 
-                tmp.text = (name ?? "").ToUpperInvariant();
-                tmp.color = self ? SelfInk : MateInk;
+                // A banish stamp is prefixed with ✕ and inked violet (distinct from a gold/red pick stamp) so it reads as
+                // "wants this card gone" regardless of which player cast it; the name still identifies the voter.
+                tmp.text = (banish ? "✕ " : "") + (name ?? "").ToUpperInvariant();
+                tmp.color = banish ? BanishInk : (self ? SelfInk : MateInk);
                 tmp.fontStyle = FontStyles.Bold;
                 tmp.enableAutoSizing = false;
                 tmp.fontSize = sub.enableAutoSizing ? Mathf.Max(sub.fontSizeMin, 8f) : sub.fontSize; // reference size; rescaled below
@@ -203,7 +230,7 @@ namespace SULFURTogether.UI.EndlessCardVote
         {
             int total = snap.Participants?.Length ?? 0;
             int voted = 0;
-            if (snap.Participants != null) foreach (var p in snap.Participants) if (p.VotedIndex >= 0) voted++;
+            if (snap.Participants != null) foreach (var p in snap.Participants) if (p.VotedIndex >= 0 || p.BanishIndex >= 0) voted++;
 
             if (EndlessCardVoteManager.RaffleActive) // tie → don't reveal the winner until the sweep lands
                 return CoopLoc.Get("endless.cardvote.rolling", "Tie — drawing a card…");
