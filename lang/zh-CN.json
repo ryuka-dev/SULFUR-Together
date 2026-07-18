@@ -136,6 +136,10 @@
     { "key": "vote.result.failed", "value": "投票未通过" },
     { "key": "vote.result.devStaysOff", "value": "开发者模式保持关闭" },
     { "key": "vote.result.cancelled", "value": "投票已取消" },
-    { "key": "vote.result.cancelledSub", "value": "玩家人数变动" }
+    { "key": "vote.result.cancelledSub", "value": "玩家人数变动" },
+    { "key": "endless.cardvote.prompt", "value": "瞄准卡牌开火投票" },
+    { "key": "endless.cardvote.waiting", "value": "等待队友投票… {voted}/{total} — {secs}s" },
+    { "key": "endless.cardvote.rolling", "value": "平票 — 正在随机抽选…" },
+    { "key": "endless.cardvote.resolved", "value": "已选择第 {index} 张卡" }
   ]
 }

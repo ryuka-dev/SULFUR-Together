@@ -164,6 +164,7 @@ namespace SULFURTogether
             UI.RunStatsOverlay.RunStatsOverlayManager.Tick(); // RS-2: Run-end stat cards over the Hub loading screen
             UI.DownedRescueOverlay.DownedRescueOverlayManager.Tick(); // DR-2: downed/rescue HUD (replaces the old OnGUI prompt)
             UI.VoteOverlay.VoteOverlayManager.Tick(); // UI-VOTE: session-vote HUD (issue #8 dev-mode gate)
+            UI.EndlessCardVote.EndlessCardVoteOverlay.Tick(); // EM-6b-3a: on-card voter stamps + shared card-vote status hint
             CoopConnection.Tick();
             Patches.PauseControlPatches.Tick(); // 5.7-NP2: seamless un-pause when a session starts with a menu open
 #if NATIVE_UI_LIB

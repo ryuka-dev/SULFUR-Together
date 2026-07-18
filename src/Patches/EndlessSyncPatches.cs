@@ -134,8 +134,24 @@ namespace SULFURTogether.Patches
                             harmony.Patch(pick, prefix: new HarmonyMethod(
                                 typeof(EndlessSyncPatches).GetMethod(nameof(CardPick_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
                     }
+
+                    // EM-6b-3a: during the tie-break raffle, drive the native card highlight (border + enlarge) along the
+                    // sweep by overriding the frame's aim-based SetSelected — a postfix so it wins after the vanilla loop.
+                    var fcmUpdate = AccessTools.Method(fcmType, "Update", Type.EmptyTypes);
+                    if (fcmUpdate != null)
+                        harmony.Patch(fcmUpdate, postfix: new HarmonyMethod(
+                            typeof(EndlessSyncPatches).GetMethod(nameof(CardManagerUpdate_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 else Plugin.Log.Info("[Endless] FloatingCardManager not found — EM-6b shared card mirror disabled.");
+
+                // EM-6b-3a: force the per-save storage/service unlock filter open while a shared-mode roll rebuilds its
+                // pools (both ends), so those cards' item pools are identical and the roll stays deterministic. Outside
+                // that window the real unlock state is used, so nothing else changes.
+                var crType = AccessTools.TypeByName("CardReward") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.CardReward");
+                var isStorageUnlocked = crType != null ? AccessTools.Method(crType, "IsStorageUnlocked") : null;
+                if (isStorageUnlocked != null && isStorageUnlocked.ReturnType == typeof(bool))
+                    harmony.Patch(isStorageUnlocked, prefix: new HarmonyMethod(
+                        typeof(EndlessSyncPatches).GetMethod(nameof(IsStorageUnlocked_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
 
                 var choiceDraw = AccessTools.PropertyGetter(emType, "ChoiceDrawAmount");
                 if (choiceDraw != null)
@@ -253,12 +269,39 @@ namespace SULFURTogether.Patches
             catch { }
         }
 
-        // EM-6b-2 CLIENT: block the client's own card pick while a shared replayed panel is up (the pick becomes a group
-        // vote in EM-6b-3). Host picks normally; the client's cards are display + vote only.
-        private static bool CardPick_Pre()
+        // EM-6b-3a: in Shared mode the card pick is a 1-of-N group vote, not an immediate selection. Both ends route the
+        // Fire/Interact into a vote cast (for the ordinary card being aimed at) and the vanilla pick is blocked; the
+        // resolved card is applied on both ends by the vote manager (SpinAndDismissCard). Independent mode + single-player
+        // are unchanged (each player picks their own card); the 6b-2 client-replay block still applies before the vote
+        // snapshot has arrived.
+        private static bool CardPick_Pre(object __instance)
         {
-            try { return !(NetGameplaySyncBridge.BossMode == NetMode.Client && EndlessCardManager.ClientRollActive); }
+            try
+            {
+                if (EndlessCardVoteManager.SharedVoteActive)
+                {
+                    EndlessCardVoteManager.OnLocalPickInput(__instance); // cast (or ignore a non-votable aim); never apply vanilla
+                    return false;
+                }
+                return !(NetGameplaySyncBridge.BossMode == NetMode.Client && EndlessCardManager.ClientRollActive);
+            }
             catch { return true; }
+        }
+
+        // EM-6b-3a: while a tie-break raffle sweeps, override the frame's card highlight to the raffle cursor so the native
+        // border + enlarge hops card to card and lands on the winner. No-op otherwise (normal aim highlight runs).
+        private static void CardManagerUpdate_Post(object __instance)
+        {
+            try { if (EndlessCardVoteManager.RaffleActive) EndlessCardManager.ApplyRaffleHighlight(__instance, EndlessCardVoteManager.RaffleCursorIndex); }
+            catch { }
+        }
+
+        // EM-6b-3a: force storage/service cards' unlock filter open only while a shared roll rebuilds its pools (both ends),
+        // so those pools match and the roll is deterministic. Returns real unlock state at all other times.
+        private static bool IsStorageUnlocked_Pre(ref bool __result)
+        {
+            if (EndlessCardManager.ForceStorageUnlocked) { __result = true; return false; }
+            return true;
         }
 
         private static int ReadInt(object obj, string member)

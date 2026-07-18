@@ -287,6 +287,40 @@ integer option set instead of Agree/Decline:
   generalization of the vote codec (add an `OptionIndex` + `OptionCount`) over a bespoke protocol, but keep
   it a **separate `VoteKind`** so it does not perturb the binary path.
 
+### 7.1 As-built (EM-6b-3a — shipped, pending real-machine test)
+
+The shipped card vote is a **dedicated N-option protocol** (`EndlessCardVoteManager` + `NetEndlessCardVote`),
+kept separate from the binary `CoopVoteManager` rather than generalizing its codec — the tally is per-card, the
+inputs are aim-based, and the feedback lives on the 3D cards, so a bespoke channel was cleaner than perturbing
+the binary path. Both ends cast through the existing card-pick prefix (aim at an ordinary card + Fire/Interact →
+one vote, re-castable); the host owns the tally and broadcasts a snapshot (`EndlessCardVoteState`, msg 93) of who
+voted for which index; clients forward casts (`EndlessCardVoteCast`, msg 94). Resolution is **majority wins, tie →
+host roll, nobody-voted → host uniform roll**, resolving early once everyone has voted. The resolved index is
+applied on **both ends** via the vanilla `SpinAndDismissCard`, so personal card effects land on each `PlayerUnit`.
+
+Refinements vs. the §7 sketch:
+
+- **The countdown starts only after the first cast** (user decision): early on, players may deliberate
+  indefinitely, so an un-cast vote never expires. (The binary `CoopVoteManager` is unaffected — its initiator
+  always casts immediately, so its clock already started at t0.)
+- **Feedback is on the cards, not the center square.** Each voter's name is stamped on the card they chose
+  (cloned from the card's own subtitle TMP so it inherits the font/orientation/motion), rubber-stamp style with a
+  per-voter random tilt; the local player's stamp is gold ink, teammates' red. The stamp size is the subtitle's
+  auto-size floor (`fontSizeMin`) — the subtitle auto-sizes so `fontSize` returns its large max, which ballooned a
+  short name ~10×. A small bottom-centre status line carries the prompt / waiting (`voted/total — secs`) / resolved.
+- **A tie is not instant.** A tie / no-vote host roll would snap the winner in immediately, which reads as "my vote
+  was ignored"; instead both ends play a short decelerating **raffle sweep** across the cards (the overlay pulses
+  the cursor card's scale, landing on the winner) before the pick applies. A clear majority applies at once (the
+  winner is obvious from the stamps). Carried by `ResolvedByRoll` on the snapshot; the sweep is a deterministic
+  easeOut over the votable cards, so no RNG needs to travel.
+- **Scope:** only the ordinary reward cards are votable in this slice; the static Skip/Reroll cards and the
+  per-card banish are deferred (EM-6b-3b/c). A panel with **no** ordinary cards opens no vote (the host falls back
+  to a vanilla Skip/Reroll pick and the client follows via the EM-6a teardown edge), so there is no soft-lock.
+- **Known gap (EM-7):** a resolved **world card** (companion / shop NPC) runs `ExecuteReward` on both ends and so
+  spawns twice — world-card rewards still need routing to a single authority. Personal cards are correct per-player.
+
+`ProtocolVersion 18→19`. Localization row 31 (`endless.cardvote.*`).
+
 ---
 
 ## 8. Phasing

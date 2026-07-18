@@ -429,5 +429,12 @@ namespace SULFURTogether.Networking
         // EM-6b-2 (host→all, Shared mode): the host's card RNG + card-manager selection state captured just before the roll,
         // so the client sets the same state and runs the vanilla roll to reproduce byte-identical 3D cards.
         EndlessCardRoll         = 92,
+
+        // EM-6b-3a shared-mode 1-of-N card vote.
+        //   EndlessCardVoteState (host→all, ReliableOrdered): the authoritative tally — who voted for which ordinary card
+        //     index, the phase, and (once resolved) the single winning index both ends apply via SpinAndDismissCard.
+        //   EndlessCardVoteCast (client→host, ReliableOrdered): "my player cast a vote for this card index" (re-castable).
+        EndlessCardVoteState    = 93,
+        EndlessCardVoteCast     = 94,
     }
 }

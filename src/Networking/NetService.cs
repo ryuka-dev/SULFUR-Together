@@ -298,6 +298,8 @@ namespace SULFURTogether.Networking
                 Gameplay.EndlessSyncManager.HostTick();
                 Gameplay.EndlessCardManager.HostTick();   // EM-6b: broadcast the host-rolled shared card set when the panel opens
                 Gameplay.EndlessCardManager.ClientTick(); // EM-6b-2: verify the client's replayed roll against the manifest
+                Gameplay.EndlessCardVoteManager.HostTick();  // EM-6b-3a: drive the shared card-vote timeout/keepalive/end
+                Gameplay.EndlessCardVoteManager.FrameTick(); // EM-6b-3a: advance the tie-break raffle + apply the winner (both ends)
             }
 
             // EM-5b: detect the local player reaching a shared XP pickup and request its collection (both roles).
@@ -1522,6 +1524,59 @@ namespace SULFURTogether.Networking
                 return;
             }
             Gameplay.EndlessCardManager.ApplyCardRoll(msg);
+        }
+
+        // EM-6b-3a: host → all, the authoritative shared card-vote snapshot (tally + resolved index).
+        internal void BroadcastHostEndlessCardVoteState(Gameplay.NetEndlessCardVoteState msg)
+        {
+            if (_mode != NetMode.Host || _net == null) return;
+            if (msg == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.EndlessCardVoteState);
+                    Gameplay.NetEndlessCardVoteStateCodec.Write(w, msg);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[Endless] failed to broadcast card vote state: {ex.Message}"); }
+            }
+        }
+
+        private void HandleEndlessCardVoteState(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Gameplay.NetEndlessCardVoteStateCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[Endless] malformed EndlessCardVoteState packet");
+                return;
+            }
+            Gameplay.EndlessCardVoteManager.ClientApplySnapshot(msg);
+        }
+
+        // EM-6b-3a: client → host, "my player cast a vote for this ordinary card index".
+        internal void SendEndlessCardVoteCast(int cardEventId, int votedIndex)
+        {
+            if (_mode != NetMode.Client || _hostPeer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.EndlessCardVoteCast);
+                Gameplay.NetEndlessCardVoteCastCodec.Write(w, new Gameplay.NetEndlessCardVoteCast { CardEventId = cardEventId, VotedIndex = votedIndex });
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[Endless] failed to send card vote cast: {ex.Message}"); }
+        }
+
+        private void HandleEndlessCardVoteCast(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Gameplay.NetEndlessCardVoteCastCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[Endless] malformed EndlessCardVoteCast packet");
+                return;
+            }
+            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            Gameplay.EndlessCardVoteManager.HostHandleCast(peerId, msg.CardEventId, msg.VotedIndex);
         }
 
         // ----------------------------------------------------------------- Phase 5.6-WS player weapon bullet sync
@@ -4004,6 +4059,12 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.EndlessCardRoll:
                         HandleEndlessCardRoll(peer, reader);
+                        break;
+                    case NetMessageType.EndlessCardVoteState:
+                        HandleEndlessCardVoteState(peer, reader);
+                        break;
+                    case NetMessageType.EndlessCardVoteCast:
+                        HandleEndlessCardVoteCast(peer, reader);
                         break;
                     case NetMessageType.EndlessXpCollected:
                         HandleEndlessXpCollected(peer, reader);

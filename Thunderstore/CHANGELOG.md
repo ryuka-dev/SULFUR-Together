@@ -15,7 +15,13 @@ before joining the same session.
   running while you pick your card, and you stand safely still (invulnerable, and enemies stop
   targeting you) until you choose. Enemies also pick their target by distance now, so they no longer
   all pile onto the host.
-  *(Shared progression — one pool with a group card vote — is still in development.)*
+- **Endless Mode co-op — Shared progression card vote (in development).** In Shared mode both
+  players now see the same floating cards on level-up and **vote together** on which one to take:
+  aim at a card and fire to cast your vote, and your name is stamped onto the card you picked (your
+  own stamp in gold, teammates' in red). The most-voted card wins — ties are broken by the host — and
+  the chosen card is applied for everyone. There's no timer until someone casts the first vote, so
+  you can take your time discussing.
+  *(One shared XP pool and shared world-card rewards are still in development.)*
 
 ## 1.1.1 — Co-op fixes and polish
 

@@ -386,6 +386,14 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastHostEndlessCardRoll(SULFURTogether.Networking.Gameplay.NetEndlessCardRoll msg)
             => _service?.BroadcastHostEndlessCardRoll(msg);
 
+        // EM-6b-3a: Host → all, the shared card-vote snapshot (tally + resolved index).
+        public static void BroadcastHostEndlessCardVoteState(SULFURTogether.Networking.Gameplay.NetEndlessCardVoteState msg)
+            => _service?.BroadcastHostEndlessCardVoteState(msg);
+
+        // EM-6b-3a: Client → Host, "my player cast a vote for this ordinary card index".
+        public static void SendEndlessCardVoteCast(int cardEventId, int votedIndex)
+            => _service?.SendEndlessCardVoteCast(cardEventId, votedIndex);
+
         // FF-1: Client → Host friendly-fire hit report.
         public static void SendFriendlyFireHit(NetFriendlyFireHit msg)
             => _service?.SendFriendlyFireHit(msg);

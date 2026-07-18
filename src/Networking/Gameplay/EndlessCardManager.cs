@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -36,6 +37,21 @@ namespace SULFURTogether.Networking.Gameplay
         private static PropertyInfo? _tmpText;       // TMP_Text.text : string
         private static MethodInfo? _fcmSpawnCards;   // FloatingCardManager.SpawnCards()
         private static MethodInfo? _fcmExitCards;    // FloatingCardManager.ExitCardSelection() — unsubscribes input + resets
+        private static MethodInfo? _fcmInitSession;  // FloatingCardManager.InitializeSession() — rebuilds every card's item pool
+        private static MethodInfo? _fcmSpinDismiss;  // FloatingCardManager.SpinAndDismissCard(int) : IEnumerator — the resolved-pick apply
+        private static FieldInfo? _fcmCurrentSel;    // FloatingCardManager.currentSelectedIndex : int (the aimed card)
+        private static FieldInfo? _fcmLastSelType;   // FloatingCardManager.lastSelectionType : CardSelectionType
+        private static MethodInfo? _fcSetSelected;   // FloatingCard.SetSelected(CardSelectionType) — native border + enlarge
+        private static object? _selCard, _selNone;   // CardSelectionType.Card / None (boxed) for the raffle highlight
+        // manifest reconciliation (correct a diverged client roll back to the host's authoritative card set)
+        private static FieldInfo? _fcmRewardDatabase; // FloatingCardManager.rewardDatabase : CardRewardDatabase
+        private static MethodInfo? _crdGetSpecificCard; // CardRewardDatabase.GetSpecificCard(string) : CardReward
+        private static MethodInfo? _fcSetCardType;    // FloatingCard.SetCardType(CardType)
+        private static FieldInfo? _crCardType;        // CardReward.cardType
+        private static FieldInfo? _fcPreselectedItem; // FloatingCard.preselectedItem : UnityEngine.Object
+        private static FieldInfo? _crCustomArtwork;   // CardReward.customArtwork (the card's default icon)
+        private static FieldInfo? _crCardLayout;      // CardReward.cardLayout
+        private static MethodInfo? _fcSetArtwork;     // FloatingCard.SetArtwork(artwork, layout, qty, [addPadding])
 
         // gameplayRandom (Unity.Mathematics.Random struct) + its inner state
         private static FieldInfo? _emGameplayRandom; // EndlessModeManager.gameplayRandom : Unity.Mathematics.Random
@@ -58,11 +74,18 @@ namespace SULFURTogether.Networking.Gameplay
         private static int    _clientExpectedEvent = -1; // manifest event whose keys the client should reproduce
         private static string _clientExpectedKeys = "";  // authoritative keys from that manifest
         private static int    _clientVerifiedEvent = -1;  // last event the client logged a roll-verify for
+        private static NetEndlessCardManifest? _clientManifest; // full authoritative manifest for reconciliation
+        private static int    _clientReconciledEvent = -1;  // last event whose diverged cards were corrected to the manifest
 
         /// <summary>CLIENT: true while a host-driven card roll is being replayed — used to force ChoiceDrawAmount parity and
         /// to block the client's own card pick (the pick becomes a vote in EM-6b-3).</summary>
         public static bool ClientRollActive { get; private set; }
         public static int  ClientChoiceDrawOverride => _clientChoiceDrawOverride;
+
+        /// <summary>Set only while a shared-mode roll rebuilds its card pools, so the <c>CardReward.IsStorageUnlocked</c>
+        /// patch forces every storage/service item into the pool identically on both ends (its real value is per-save, the
+        /// main reason the client's replayed roll diverged). See <see cref="ResetCardPoolsForSharedRoll"/>.</summary>
+        public static bool ForceStorageUnlocked { get; private set; }
 
         public static void Reset()
         {
@@ -73,7 +96,10 @@ namespace SULFURTogether.Networking.Gameplay
             _clientExpectedEvent = -1;
             _clientExpectedKeys = "";
             _clientVerifiedEvent = -1;
+            _clientManifest = null;
+            _clientReconciledEvent = -1;
             ClientRollActive = false;
+            EndlessCardVoteManager.Reset(); // EM-6b-3a: drop the previous run's card-vote state alongside the card state
         }
 
         /// <summary>HOST (Shared mode, each service tick): when the card panel finishes spawning, capture the rolled cards
@@ -99,6 +125,12 @@ namespace SULFURTogether.Networking.Gameplay
                 NetGameplaySyncBridge.BroadcastHostEndlessCardManifest(msg);
                 ApplyManifest(msg); // the host keeps the same authoritative record (mirror UI + vote build on it in EM-6b-2/3)
                 if (LogOn) Plugin.Log.Info($"[Endless] EM-6b host card manifest event={msg.CardEventId} count={msg.Cards.Length} keys=[{KeysOf(msg)}]");
+
+                // EM-6b-3a: open the shared 1-of-N card vote for this panel (votable = the ordinary reward cards only;
+                // the static Skip/Reroll cards are excluded until EM-6b-3b).
+                int ordinaryCount = 0;
+                foreach (var c in msg.Cards) if (!c.IsStatic) ordinaryCount++;
+                EndlessCardVoteManager.HostOpenVote(msg.CardEventId, ordinaryCount, msg.ChapterName, msg.LevelIndex, msg.HasLevelSeed, msg.LevelSeed);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] card HostTick failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -117,6 +149,8 @@ namespace SULFURTogether.Networking.Gameplay
                 EnsureResolved();
                 object? mgr = EndlessSyncManager.ResolveEndlessInstance();
                 if (mgr == null || fcm == null) return;
+
+                ResetCardPoolsForSharedRoll(fcm); // canonical, unlock-neutral pools so the client's replay is deterministic
 
                 if (!NetBossEncounterManager.TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed))
                 { chap = ""; lvl = -1; hasSeed = false; seed = 0; }
@@ -162,6 +196,8 @@ namespace SULFURTogether.Networking.Gameplay
                 // Already showing a panel? tear it down first so we never stack two.
                 TeardownClientCards();
 
+                ResetCardPoolsForSharedRoll(fcm); // match the host: canonical, unlock-neutral pools before writing state
+
                 // 1) selection state → the available pool + preselection the roll will read.
                 WriteStringList(fcm, _selOneTime, msg.SelectedOneTimeUsed);
                 WriteStringList(fcm, _banishedKeys, msg.BanishedCardKeys);
@@ -204,6 +240,87 @@ namespace SULFURTogether.Networking.Gameplay
                 bool match = string.Equals(rolled, _clientExpectedKeys, StringComparison.Ordinal);
                 if (LogOn || !match)
                     Plugin.Log.Info($"[Endless] EM-6b client roll verify event={_clientRollEvent} match={match} rolled=[{rolled}] expected=[{_clientExpectedKeys}]");
+                if (!match) ClientReconcileToManifest(fcm); // correct the diverged cards to the host's authoritative set
+            }
+            catch { }
+        }
+
+        /// <summary>CLIENT: the replayed roll diverged from the host's set (per-player card state — e.g. unlock-gated
+        /// storage/service pools — breaks the RNG determinism). Force each ordinary card's identity to the host manifest
+        /// (correct <c>CardReward</c> by key + host-rendered title/desc), so the vote and the applied reward always match
+        /// the host. Artwork / preselected items may still differ on a corrected card — within the accepted tolerance.</summary>
+        private static void ClientReconcileToManifest(object fcm)
+        {
+            try
+            {
+                if (_clientManifest == null || _clientManifest.CardEventId != _clientRollEvent) return;
+                if (_clientReconciledEvent == _clientRollEvent) return;
+                if (_fcmSpawnedCards?.GetValue(fcm) is not Array cards) return;
+                if (_fcmCardRewards?.GetValue(fcm) is not Array rewards) return;
+                object? db = _fcmRewardDatabase?.GetValue(fcm);
+                if (db == null || _crdGetSpecificCard == null) return;
+
+                _clientReconciledEvent = _clientRollEvent;
+                int corrected = 0;
+                var entries = _clientManifest.Cards;
+                int n = Math.Min(Math.Min(cards.Length, rewards.Length), entries.Length);
+                for (int i = 0; i < n; i++)
+                {
+                    if (entries[i].IsStatic) continue; // Skip/Reroll cards are fixed prefabs, never re-keyed
+                    string want = entries[i].Key ?? "";
+                    object? reward = rewards.GetValue(i);
+                    string have = reward != null ? (_crCardKey?.GetValue(reward) as string ?? "") : "";
+                    if (string.Equals(have, want, StringComparison.Ordinal)) continue; // already correct
+
+                    object? corrReward = _crdGetSpecificCard.Invoke(db, new object[] { want });
+                    object? card = cards.GetValue(i);
+                    if (corrReward == null || card == null) continue;
+                    rewards.SetValue(corrReward, i);
+                    try { if (_crCardType != null && _fcSetCardType != null) _fcSetCardType.Invoke(card, new[] { _crCardType.GetValue(corrReward) }); } catch { }
+                    SetTmp(card, _fcSubtitle, entries[i].Title);
+                    SetTmp(card, _fcDescription, entries[i].Desc);
+                    ApplyReconcileArtwork(card, corrReward);
+                    try { _fcPreselectedItem?.SetValue(card, null); } catch { } // re-derived at apply from the correct reward's pool
+                    corrected++;
+                }
+                if (LogOn || corrected > 0) Plugin.Log.Info($"[Endless] EM-6b-3a client reconciled {corrected} diverged card(s) to host manifest event={_clientRollEvent}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ClientReconcileToManifest failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Best-effort: give a reconciled card its reward's default icon (<c>customArtwork</c>). Exact for buff /
+        /// resource cards; a diverged preselected-item card (loot/summon) shows the generic reward art rather than the
+        /// host's specific item icon — within the accepted art tolerance, and far better than a wrong card's icon.</summary>
+        private static void ApplyReconcileArtwork(object card, object reward)
+        {
+            try
+            {
+                if (_fcSetArtwork == null || _crCustomArtwork == null || _crCardLayout == null) return;
+                object? art = _crCustomArtwork.GetValue(reward);
+                if (art is UnityEngine.Object auo && auo == null) art = null;
+                if (art == null) return; // no default art → leave the rolled icon rather than blank the card
+                object? layout = _crCardLayout.GetValue(reward);
+                var ps = _fcSetArtwork.GetParameters();
+                var args = new object?[ps.Length];
+                args[0] = art;
+                if (ps.Length > 1) args[1] = layout;
+                if (ps.Length > 2) args[2] = "";
+                for (int a = 3; a < ps.Length; a++)
+                    args[a] = ps[a].HasDefaultValue ? ps[a].DefaultValue
+                            : ps[a].ParameterType.IsValueType ? Activator.CreateInstance(ps[a].ParameterType) : null;
+                _fcSetArtwork.Invoke(card, args);
+            }
+            catch { }
+        }
+
+        private static void SetTmp(object? card, FieldInfo? tmpField, string text)
+        {
+            try
+            {
+                if (card == null || tmpField == null || _tmpText == null) return;
+                object? tmp = tmpField.GetValue(card);
+                if (tmp is UnityEngine.Object uo && uo == null) return;
+                if (tmp != null) _tmpText.SetValue(tmp, text ?? "");
             }
             catch { }
         }
@@ -231,6 +348,105 @@ namespace SULFURTogether.Networking.Gameplay
                 _fcmCardsVisible?.SetValue(fcm, false);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] TeardownClientCards failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // ================================================================== EM-6b-3a card-vote helpers (both roles)
+
+        /// <summary>True while the local card panel is set up (cards spawned, not yet torn down). Used by the vote manager
+        /// to detect the end of the event (SpinAndDismissCard clears cardsSetup when it finishes).</summary>
+        public static bool LocalCardPanelUp()
+        {
+            try { EnsureResolved(); object? fcm = ResolveCardManager(); return fcm != null && _fcmCardsSetup?.GetValue(fcm) is bool b && b; }
+            catch { return false; }
+        }
+
+        /// <summary>Read the ordinary (votable) card the local player is currently aiming at + firing on. Returns false for
+        /// no selection, a dismiss-button (banish, EM-6b-3c) selection, or a static Skip/Reroll card (EM-6b-3b).</summary>
+        public static bool TryReadAimedOrdinaryCard(object fcm, int cardCount, out int index)
+        {
+            index = -1;
+            try
+            {
+                if (fcm == null) return false;
+                int sel = _fcmCurrentSel?.GetValue(fcm) is int s ? s : -1;
+                int selType = _fcmLastSelType != null ? Convert.ToInt32(_fcmLastSelType.GetValue(fcm)) : 0;
+                // CardSelectionType: 1 = Card, 2 = SelectButton (a pick); 3 = DismissButton (banish — deferred).
+                if (sel < 0 || sel >= cardCount) return false;
+                if (selType != 1 && selType != 2) return false;
+                if (_fcmSpawnedCards?.GetValue(fcm) is Array cards && sel < cards.Length)
+                {
+                    object? card = cards.GetValue(sel);
+                    if (card == null) return false;
+                    if (_fcIsStatic?.GetValue(card) is bool st && st) return false; // never vote a static card here
+                }
+                index = sel;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>BOTH ROLES: apply the vote-resolved card by running the vanilla <c>SpinAndDismissCard(index)</c> on the
+        /// local card manager — the reward's personal effect lands on each player's own <c>PlayerUnit</c> (world-card
+        /// duplication is the known EM-7 gap). Clears the 6b-2 replay flag so the later shared-pause edge teardown no-ops
+        /// (the spin destroys the cards itself).</summary>
+        public static void ApplyResolvedPick(int index)
+        {
+            try
+            {
+                EnsureResolved();
+                object? fcm = ResolveCardManager();
+                if (fcm == null || _fcmSpinDismiss == null) return;
+                if (_fcmSpawnedCards?.GetValue(fcm) is not Array cards || index < 0 || index >= cards.Length) return;
+                if (cards.GetValue(index) == null) return; // card already gone
+                ClientRollActive = false; // client: the spin tears the panel down; keep the edge teardown from double-firing
+                if (_fcmSpinDismiss.Invoke(fcm, new object[] { index }) is IEnumerator e && fcm is MonoBehaviour mb)
+                    mb.StartCoroutine(e);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ApplyResolvedPick failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Drive the vanilla card highlight (border + enlarge, via <c>FloatingCard.SetSelected</c> → the card's own
+        /// scale lerp) so the tie-break raffle sweep reuses the native selection look. Called from a
+        /// <c>FloatingCardManager.Update</c> postfix while a raffle is active, so it overrides the frame's aim-based
+        /// highlight. A localScale write here would be futile — the card's own Update overwrites localScale every frame.</summary>
+        public static void ApplyRaffleHighlight(object fcm, int cursor)
+        {
+            try
+            {
+                EnsureResolved();
+                if (fcm == null || _fcSetSelected == null || _selCard == null || _selNone == null) return;
+                if (_fcmSpawnedCards?.GetValue(fcm) is not Array cards) return;
+                for (int i = 0; i < cards.Length; i++)
+                {
+                    object? card = cards.GetValue(i);
+                    if (card is not UnityEngine.Object uo || uo == null) continue;
+                    _fcSetSelected.Invoke(card, new[] { i == cursor ? _selCard : _selNone });
+                }
+            }
+            catch { }
+        }
+
+        // ---- stamp-UI accessors (EM-6b-3a on-card voter stamps) reuse this class's cached reflection ----
+        public static object? ResolveLocalCardManager() { EnsureResolved(); return ResolveCardManager(); }
+        public static Array?  GetSpawnedCards(object fcm) { try { return _fcmSpawnedCards?.GetValue(fcm) as Array; } catch { return null; } }
+        public static Component? GetCardSubtitle(object card) { try { return _fcSubtitle?.GetValue(card) as Component; } catch { return null; } }
+        public static bool CardIsStatic(object card) { try { return _fcIsStatic?.GetValue(card) is bool b && b; } catch { return false; } }
+
+        /// <summary>Rebuild every card's item pool to a canonical, unlock-neutral state right before a shared-mode roll, on
+        /// BOTH ends, so the roll is deterministic and the client reproduces the host's cards natively (correct language +
+        /// artwork) — no post-roll correction needed. The per-save storage/service unlock filter (the main divergence
+        /// source) is forced open via <see cref="ForceStorageUnlocked"/>; stale/empty pools are refreshed. Only touches
+        /// pools (never selectedOneTimeUsed / banished lists, which the roll state carries).</summary>
+        private static void ResetCardPoolsForSharedRoll(object fcm)
+        {
+            if (_fcmInitSession == null) return;
+            try
+            {
+                ForceStorageUnlocked = true;
+                try { _fcmInitSession.Invoke(fcm, null); }
+                finally { ForceStorageUnlocked = false; }
+            }
+            catch (Exception ex) { ForceStorageUnlocked = false; Plugin.Log.Warn($"[Endless] ResetCardPoolsForSharedRoll failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         private static NetEndlessCardManifest? BuildManifest(object fcm)
@@ -280,6 +496,7 @@ namespace SULFURTogether.Networking.Gameplay
                     _clientLastEvent = msg.CardEventId;
                     _clientExpectedEvent = msg.CardEventId;         // EM-6b-2: stored so ClientTick can verify the replay
                     _clientExpectedKeys = KeysOf(msg);
+                    _clientManifest = msg;                          // EM-6b-3a: kept so a diverged roll can be corrected to it
                     if (LogOn) Plugin.Log.Info($"[Endless] EM-6b client card manifest event={msg.CardEventId} count={msg.Cards.Length} keys=[{_clientExpectedKeys}]");
                 }
             }
@@ -463,10 +680,41 @@ namespace SULFURTogether.Networking.Gameplay
                 _fcmCardRewards  = fcmType?.GetField("cardRewards", bf);
                 _fcmSpawnCards   = fcmType?.GetMethod("SpawnCards", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
                 _fcmExitCards    = fcmType?.GetMethod("ExitCardSelection", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                _fcmInitSession  = fcmType?.GetMethod("InitializeSession", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                _fcmSpinDismiss  = fcmType?.GetMethod("SpinAndDismissCard", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(int) }, null);
+                _fcmCurrentSel   = fcmType?.GetField("currentSelectedIndex", bf);
+                _fcmLastSelType  = fcmType?.GetField("lastSelectionType", bf);
                 _fcIsStatic      = fcType?.GetField("isStaticCard", bf);
                 _fcSubtitle      = fcType?.GetField("subtitleText", bf);
                 _fcDescription   = fcType?.GetField("descriptionText", bf);
                 _crCardKey       = crType?.GetField("cardKey", bf);
+
+                var cstType = AccessTools.TypeByName("CardSelectionType") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.CardSelectionType");
+                if (cstType != null)
+                {
+                    _fcSetSelected = fcType?.GetMethod("SetSelected", BindingFlags.Public | BindingFlags.Instance, null, new[] { cstType }, null);
+                    try { _selCard = Enum.ToObject(cstType, 1); _selNone = Enum.ToObject(cstType, 0); } catch { }
+                }
+
+                _fcmRewardDatabase = fcmType?.GetField("rewardDatabase", bf);
+                var crdbType = _fcmRewardDatabase?.FieldType;
+                _crdGetSpecificCard = crdbType?.GetMethod("GetSpecificCard", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(string) }, null);
+                _crCardType = crType?.GetField("cardType", bf);
+                _fcPreselectedItem = fcType?.GetField("preselectedItem", bf);
+                if (_crCardType != null)
+                    _fcSetCardType = fcType?.GetMethod("SetCardType", BindingFlags.Public | BindingFlags.Instance, null, new[] { _crCardType.FieldType }, null);
+                _crCustomArtwork = crType?.GetField("customArtwork", bf);
+                _crCardLayout    = crType?.GetField("cardLayout", bf);
+                if (_crCustomArtwork != null && fcType != null)
+                {
+                    // Pick the SetArtwork overload whose first parameter accepts customArtwork's type (Sprite/Texture).
+                    foreach (var m in fcType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                    {
+                        if (m.Name != "SetArtwork") continue;
+                        var ps = m.GetParameters();
+                        if (ps.Length >= 1 && ps[0].ParameterType.IsAssignableFrom(_crCustomArtwork.FieldType)) { _fcSetArtwork = m; break; }
+                    }
+                }
 
                 var tmpType = _fcSubtitle?.FieldType;
                 _tmpText = tmpType?.GetProperty("text", BindingFlags.Public | BindingFlags.Instance);

@@ -136,6 +136,10 @@
     { "key": "vote.result.failed", "value": "投票は否決されました" },
     { "key": "vote.result.devStaysOff", "value": "開発者モードは無効のままです" },
     { "key": "vote.result.cancelled", "value": "投票がキャンセルされました" },
-    { "key": "vote.result.cancelledSub", "value": "プレイヤー構成が変わりました" }
+    { "key": "vote.result.cancelledSub", "value": "プレイヤー構成が変わりました" },
+    { "key": "endless.cardvote.prompt", "value": "カードを狙って射撃で投票" },
+    { "key": "endless.cardvote.waiting", "value": "仲間の投票を待っています… {voted}/{total} — {secs}秒" },
+    { "key": "endless.cardvote.rolling", "value": "同票 — 抽選中…" },
+    { "key": "endless.cardvote.resolved", "value": "カード {index} を選択" }
   ]
 }
