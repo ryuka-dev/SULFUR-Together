@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 — Endless Mode co-op
 
-Work in progress toward the next release. All players must update to the same version
-before joining the same session.
+Endless Mode can now be played in co-op. Both players share the same arena, waves, and
+enemies (the host runs the world), and the host chooses whether each player progresses
+independently — keeping their own XP, level, and cards — or shares one progression track
+with a group card vote. This release also fixes several multiplayer sync problems.
+All players must update to the same version before joining the same session.
 
 **New:**
 - **Endless Mode co-op — Independent progression.** Endless Mode now stays in sync between
@@ -15,7 +18,7 @@ before joining the same session.
   running while you pick your card, and you stand safely still (invulnerable, and enemies stop
   targeting you) until you choose. Enemies also pick their target by distance now, so they no longer
   all pile onto the host.
-- **Endless Mode co-op — Shared progression card vote (in development).** In Shared mode both
+- **Endless Mode co-op — Shared progression card vote.** In Shared mode both
   players now see the same floating cards on level-up and **vote together** on which one to take:
   aim at a card and fire to cast your vote, and your name is stamped onto the card you picked (your
   own stamp in gold, teammates' in red). The most-voted card wins — ties are broken by the host — and
@@ -27,37 +30,39 @@ before joining the same session.
   competing with everyone's picks. If a banish wins, that card is removed for everyone (spending one
   shared banish) and you vote again on the rest. You can **change or cancel** your vote at any time
   by re-selecting, and the countdown only runs once at least one vote has been cast.
-  *(One shared XP pool and shared world-card rewards are still in development.)*
+  In Shared mode you also level from **one shared XP pool** — everyone levels together — and the
+  rewards a card drops into the world (loot, companions, shops, chests, and service stations) are
+  shared too: single objects both players see in the same place, rather than a separate copy on
+  each screen. (Shop purchases and service-station stock stay per-player for now.)
 
 **Fixed:**
-- **Endless Mode card loot no longer appears twice.** In Shared mode, a level-up card that
-  drops loot into the world now spawns it once, at the same place for both players, instead of
-  a duplicate copy on each screen.
-- **Endless Mode companions are shared.** A card that summons an ally now spawns a single
-  companion that both players see in the same place (it follows the host), with the charmed
-  heart above its head, instead of a separate copy on each screen.
-- **The yellow "loot spawned here" beam is now visible to everyone.** In Shared mode the pillar
-  that marks where a card dropped loot, a chest, or an NPC now appears, moves, and disappears in
-  sync for both players.
-- **Endless Mode shop NPCs are shared.** A card that spawns a vendor now places a single shop that
-  both players can walk up to and buy from, instead of a separate one on each screen. (Purchases
-  are per-player for now.)
-- **Endless Mode chests and stations from cards are shared.** In Shared mode, a card that spawns a
-  chest, storage stash, or service station now creates a single object at the same place for both
-  players — you both see it, at the same spot, and can use it — instead of a separate copy on each
-  screen at a different position (which the other player couldn't open). With shared loot on, opening
-  a card chest gives one shared reward, as it does for world chests. (Service-station stock is still
-  per-player for now.)
-- **Endless Mode card effects work correctly for non-host players.** The Infinite Ammo and
-  Indestructible cards now wear off after their duration for the client too (they used to last the
-  whole run), and the "more XP" card now actually speeds up the shared XP bar.
-- **Endless Mode enemy corpses no longer pile up for non-host players.** Defeated enemies now sink
-  into the ground and clear away on every player's screen, matching the host, so a long run no longer
-  fills the arena with corpses and slows the client down.
-- **Endless Mode companions work for non-host players in Independent mode.** When a non-host player
-  picks a "summon ally" card, the companion is now spawned as a real fighting ally that follows that
-  player and can actually damage enemies, instead of a local copy that couldn't hurt anything and was
-  invisible to the host.
+- **The Cousin boss fight no longer freezes every player after the boss dies.** In co-op the
+  boss could lock all other players in place once it was defeated; the fight now ends cleanly
+  for everyone.
+- **Fixed a level-generation desync when two players reach an exit at the same time.** Taking an
+  exit while the host was already changing levels could build the level twice and leave players
+  in differently-shaped copies of the same map. The duplicate transition is now suppressed.
+- **A player who falls behind during a level change now catches up to the host's level** instead
+  of getting stuck or reloading a different version of the level.
+- **Steam joins are faster and more reliable.** Joining by Steam ID no longer requires the host
+  to press *Invite Friends* first, connects noticeably faster, and fails quickly instead of
+  hanging on a bad attempt. — https://github.com/ryuka-dev/SULFUR-Together/issues/7
+- **Fixed hosting from the hub a second time failing to bring joiners in.** After hosting,
+  closing the room, and hosting again from the hub, joining players could be left behind; the
+  host now keeps the level-generation information it needs to pull them to the hub.
+
+**Polish:**
+- **Join flow.** A **"Connecting to host…"** notification now appears on every way of joining, the
+  "linked" notification no longer fires the moment you press the button, and if a joined player
+  hasn't linked to the host a hint shows the key to press instead of silently leaving them on
+  their own map.
+
+**Known issues:**
+- In Shared Endless Mode, a level-up card can occasionally show the wrong artwork or text on one
+  player's screen. The vote and the reward you receive are always correct — only that card's
+  appearance is affected. — https://github.com/ryuka-dev/SULFUR-Together/issues/16
+- The known issues from previous releases still apply (occasional enemy snapping, boss desyncs
+  when a client loads ahead, unsynced blood/particles/sounds, and 4+ players untested).
 
 ## 1.1.1 — Co-op fixes and polish
 
