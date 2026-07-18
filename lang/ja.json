@@ -8,6 +8,7 @@
     { "key": "toast.title.default", "value": "Together" },
     { "key": "toast.playerJoined", "value": "{name} が参加しました" },
     { "key": "toast.connectedTo", "value": "{host} に接続しました" },
+    { "key": "toast.connectingToHost", "value": "ホストに接続中…" },
     { "key": "toast.playerLeft", "value": "{name} が退出しました" },
     { "key": "toast.disconnectedFromHost", "value": "ホストとの接続が切断されました" },
 

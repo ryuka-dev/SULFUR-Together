@@ -8,6 +8,7 @@
     { "key": "toast.title.default", "value": "Together" },
     { "key": "toast.playerJoined", "value": "{name} 님이 참가했습니다" },
     { "key": "toast.connectedTo", "value": "{host} 에 연결되었습니다" },
+    { "key": "toast.connectingToHost", "value": "호스트에 연결하는 중…" },
     { "key": "toast.playerLeft", "value": "{name} 님이 나갔습니다" },
     { "key": "toast.disconnectedFromHost", "value": "호스트와의 연결이 끊어졌습니다" },
 

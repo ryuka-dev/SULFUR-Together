@@ -8,6 +8,7 @@
     { "key": "toast.title.default", "value": "联机同行" },
     { "key": "toast.playerJoined", "value": "{name} 加入了" },
     { "key": "toast.connectedTo", "value": "已连接到 {host}" },
+    { "key": "toast.connectingToHost", "value": "正在连接主机……" },
     { "key": "toast.playerLeft", "value": "{name} 离开了" },
     { "key": "toast.disconnectedFromHost", "value": "已与主机断开连接" },
 

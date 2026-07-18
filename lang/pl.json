@@ -8,6 +8,7 @@
     { "key": "toast.title.default", "value": "Together" },
     { "key": "toast.playerJoined", "value": "{name} dołączył" },
     { "key": "toast.connectedTo", "value": "Połączono z {host}" },
+    { "key": "toast.connectingToHost", "value": "Łączenie z hostem…" },
     { "key": "toast.playerLeft", "value": "{name} wyszedł" },
     { "key": "toast.disconnectedFromHost", "value": "Rozłączono z hostem" },
 

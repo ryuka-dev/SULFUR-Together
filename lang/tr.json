@@ -8,6 +8,7 @@
     { "key": "toast.title.default", "value": "Together" },
     { "key": "toast.playerJoined", "value": "{name} katıldı" },
     { "key": "toast.connectedTo", "value": "{host} adresine bağlanıldı" },
+    { "key": "toast.connectingToHost", "value": "Sunucuya bağlanılıyor…" },
     { "key": "toast.playerLeft", "value": "{name} ayrıldı" },
     { "key": "toast.disconnectedFromHost", "value": "Sunucuyla bağlantı kesildi" },
 

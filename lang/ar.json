@@ -8,6 +8,7 @@
     { "key": "toast.title.default", "value": "Together" },
     { "key": "toast.playerJoined", "value": "انضم {name}" },
     { "key": "toast.connectedTo", "value": "تم الاتصال بـ {host}" },
+    { "key": "toast.connectingToHost", "value": "جارٍ الاتصال بالمضيف…" },
     { "key": "toast.playerLeft", "value": "غادر {name}" },
     { "key": "toast.disconnectedFromHost", "value": "تم قطع الاتصال بالمضيف" },
 

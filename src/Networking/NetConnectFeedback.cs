@@ -15,11 +15,17 @@ namespace SULFURTogether.Networking
         /// <summary>True between a connect attempt starting and it resolving (connected or failed).</summary>
         public static bool Connecting { get; private set; }
 
-        /// <summary>A Join was pressed: clear any stale error and enter the connecting state.</summary>
+        /// <summary>A Join was pressed: clear any stale error and enter the connecting state. Every join path
+        /// converges here (Direct-IP Apply, Steam-ID/invite ApplySteamClient — the latter calls this twice, so
+        /// the toast fires only on the false→true transition), making it the single place the player is told a
+        /// connection attempt has actually started — previously the invite-accept path showed nothing at all
+        /// until the handshake resolved.</summary>
         public static void BeginAttempt()
         {
             LastError = "";
+            if (Connecting) return;
             Connecting = true;
+            UI.CoopToasts.Notify(UI.CoopLoc.Get("toast.connectingToHost", "Connecting to host…"));
         }
 
         /// <summary>Handshake accepted — clear the connecting/error state.</summary>

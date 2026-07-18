@@ -39,9 +39,15 @@ namespace SULFURTogether.Networking
             }
             _clientLinked = on;
             Plugin.Log.Info($"[LinkState] client {(on ? "LINKED (joining/following host)" : "UNLINKED (independent local run)")} reason={reason}");
-            UI.CoopToasts.Notify(on
-                ? UI.CoopLoc.Get("link.linkedToHost", "Linked to host")
-                : UI.CoopLoc.Get("link.playingSolo", "Playing solo"));
+            // While a join attempt is in flight the connecting/connected toasts own the flow — the join buttons
+            // link synchronously BEFORE the handshake (Log185), so an unconditional toast here announced
+            // "Linked to host" on the button press regardless of whether the connection ever succeeded. The
+            // link toast stays for link changes outside an attempt (the PageDown/PageUp mid-session toggles,
+            // where it is the accurate description); a successful join is announced by "Connected to {host}".
+            if (!on || !NetConnectFeedback.Connecting)
+                UI.CoopToasts.Notify(on
+                    ? UI.CoopLoc.Get("link.linkedToHost", "Linked to host")
+                    : UI.CoopLoc.Get("link.playingSolo", "Playing solo"));
             if (!on)
             {
                 // Leaving the session clears joined-state so boss authority / auto-follow stop immediately, and
