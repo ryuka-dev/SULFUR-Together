@@ -29,6 +29,12 @@ before joining the same session.
   by re-selecting, and the countdown only runs once at least one vote has been cast.
   *(One shared XP pool and shared world-card rewards are still in development.)*
 
+**Fixed:**
+- **Endless Mode card loot no longer appears twice.** In Shared mode, a level-up card that
+  drops loot into the world now spawns it once, at the same place for both players, instead of
+  a duplicate copy on each screen. (Companions, shop NPCs, and chests from cards are still being
+  worked on.)
+
 ## 1.1.1 — Co-op fixes and polish
 
 A small update with multiplayer fixes and quality-of-life improvements.

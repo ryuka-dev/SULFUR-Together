@@ -385,6 +385,46 @@ Per the user's revision the vote is **unified**: every player casts exactly **on
 
 ---
 
+## 7.5 Card-effect co-op audit (EM-7 basis)
+
+`FloatingCardManager.ExecuteReward(reward, preselectedItem)` is the single apply chokepoint. In **Shared**
+mode the vote applies it on **both ends**; in **Independent** mode each player applies its own pick. That
+"both ends run it" is why personal cards already work and world cards duplicate. Categories:
+
+- **Personal (already correct — each end applies to its own `PlayerUnit`):** `ApplyBuff`
+  (`ExistingBuff` / `PermanentModifier`), `GiveResource`, `TriggerEvent.PassForStamps`,
+  `TriggerEvent.RepairAll`.
+- **Manager-flag (writes `EndlessModeManager` fields; the client's manager is a slave):**
+  `InfiniteAmmo` / `Indestructible` are set on both ends (read per-player locally), **but their expiry
+  runs inside `StartEnemySpawning`, which the client suppresses — so they never expire on the client**
+  (`currentWaveIncludingLoops = currentWave + loopCount*maxWaveInData` is synced, only the expiry branch
+  is missing). `MeleeXPBonus` is read in the host `OnEnemyDied` → does not cross ends (known gap).
+  `ammoGainMultiplier` is set on both (correct). `IncreaseXPRange`/`IncreaseXPAmount` write
+  `xpOrbManager.pickupRadius`/`xpMultiplier`; under host-authoritative force-collect XP the client copy
+  is likely inert — audit pending.
+- **World (duplicate/diverge — the EM-7 target):** `SpawnFromLootTable`, `SpawnInteractable`
+  (HiddenChest / ServiceStation / Container), `SpawnRandomAllies` (companion —
+  `ApplyForcedCharmed(local PlayerUnit)`, so under host-only spawn it follows the host, not the picker),
+  `SpawnNPC` (shop), `TriggerEvent.ExplosiveBarrels` / `Bonanza` / `TravelBackToChurch` (level transition).
+
+Observed symptom root cause: **loot shows two visible copies** because `SpawnFromLootTable` → `SpawnPickup`
+is the WID chokepoint, and both ends spawn+broadcast their own; **companion/shop/chest are per-end local**
+because `SpawnUnitAsync(FloatingCardManager,…)` / `Instantiate` owners are not recognized by
+`RuntimeSpawnManager.ClassifyOwner` (only `EndlessModeManager` is), so they are never broadcast/mirrored.
+
+### 7.6 As-built (EM-7a — card loot single authority, shipped)
+
+First EM-7 slice, Shared mode. The loot-table reward's **plain-Pickup path** (`containerPrefab == null`) is
+deduped: the client suppresses its own `ExecuteReward` copy (the host's arrives via the WID mirror) and the
+host tags its spawn (`WorldPickupManager.EndlessSharedLootContext`) so the pickup mirrors **regardless of the
+SharedLoot toggle** — card loot has no `inventoryData` and would otherwise fail the Independent-mode WID
+filter, leaving the client with nothing. `ExecuteReward` is fire-and-forget (not awaited), so the client
+prefix returns a completed `Task`; the loot branch has no await, so the host postfix clears the tag after the
+pickups spawn. No protocol change. Container-path loot, companions, shop NPCs, interactables, and the
+`lootLightEffect` spawn-locator beam are later slices. `ProtocolVersion` unchanged.
+
+---
+
 ## 8. Phasing
 
 Each phase builds + is independently verifiable. Tag commits with an internal phase label (see
