@@ -54,6 +54,10 @@ before joining the same session.
 - **Endless Mode enemy corpses no longer pile up for non-host players.** Defeated enemies now sink
   into the ground and clear away on every player's screen, matching the host, so a long run no longer
   fills the arena with corpses and slows the client down.
+- **Endless Mode companions work for non-host players in Independent mode.** When a non-host player
+  picks a "summon ally" card, the companion is now spawned as a real fighting ally that follows that
+  player and can actually damage enemies, instead of a local copy that couldn't hurt anything and was
+  invisible to the host.
 
 ## 1.1.1 — Co-op fixes and polish
 

@@ -443,5 +443,12 @@ namespace SULFURTogether.Networking
         // (card key + prefab name → the reward's itemPool) + world position so the client mirrors the same object once,
         // instead of each end spawning its own at a diverging (player-motion-dependent) position.
         EndlessInteractable     = 95,
+
+        // IND-1 (client → host, Independent mode): a client picked a companion card. In Independent mode each player picks
+        // its own cards and spawns world objects locally, but a client-local companion can't damage the host-authoritative
+        // enemy puppets, so it can't fight. The client suppresses its local spawn and asks the host to spawn the
+        // authoritative companion (at the client's ghost position, charmed to the picker) — the picker mirrors it back via
+        // the RuntimeSpawn puppet pipeline (EM-7c).
+        EndlessWorldCard        = 96,
     }
 }

@@ -329,12 +329,13 @@ namespace SULFURTogether.Networking.Gameplay
                 if (playerUnit == null) return;
                 if (_applyForcedCharmed == null)
                 {
-                    // Resolve the single-parameter overload explicitly (a plain GetMethod matched a different arity).
+                    // The only overload is ApplyForcedCharmed(Unit charmingOwner, bool applyHeartSymbol) — resolve it by
+                    // arity (an earlier 1-arg lookup never matched, so the heart visual never applied).
                     foreach (var m in unit.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-                        if (m.Name == "ApplyForcedCharmed" && m.GetParameters().Length == 1) { _applyForcedCharmed = m; break; }
+                        if (m.Name == "ApplyForcedCharmed" && m.GetParameters().Length == 2) { _applyForcedCharmed = m; break; }
                 }
-                if (_applyForcedCharmed == null) { if (LogOn) Plugin.Log.Info("[RuntimeSpawn] companion charm: ApplyForcedCharmed(Unit) not found."); return; }
-                _applyForcedCharmed.Invoke(unit, new object[] { playerUnit });
+                if (_applyForcedCharmed == null) { if (LogOn) Plugin.Log.Info("[RuntimeSpawn] companion charm: ApplyForcedCharmed(Unit,bool) not found."); return; }
+                _applyForcedCharmed.Invoke(unit, new object[] { playerUnit, true }); // applyHeartSymbol: true
                 if (LogOn) Plugin.Log.Info($"[RuntimeSpawn] EM-7c applied companion charm visual to mirror unit={BossReflect.RootName(unit)}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[RuntimeSpawn] companion charm failed: {ex.GetType().Name}: {ex.Message}"); }
@@ -455,6 +456,14 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
         // ================================================================== reflection
+
+        /// <summary>IND-1: read a UnitSO's <c>id.value</c> (the cross-end unit key) — used by the client to name the
+        /// companion it is routing to the host.</summary>
+        internal static int ReadUnitIdValuePublic(object unitSO) => ReadUnitIdValue(unitSO);
+
+        /// <summary>IND-1: resolve a <c>UnitSO</c> from its id value via the unit database — used by the host to spawn the
+        /// companion a client requested.</summary>
+        internal static object? ResolveUnitSOPublic(int unitIdValue) { EnsureResolved(); return ResolveUnitSO(unitIdValue); }
 
         private static int ReadUnitIdValue(object unitSO)
         {

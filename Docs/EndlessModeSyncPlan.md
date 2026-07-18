@@ -248,6 +248,31 @@ client's ghost unit so all players are candidates. Two refinements make the spli
   `EndlessCardSelect` (client→host) on entering/leaving the pick, and the host marks that client's ghost
   invulnerable, so the same exclusion applies.
 
+### 5.2 As-built (IND-1 — world-card routing: companion, shipped)
+
+The §5.4 "route world-card rewards to a single authority" plan was scoped down after a per-type analysis: in
+Independent mode a shop / chest / storage station / plain-loot pickup already **works locally as a personal object**
+(a static vendor you buy from locally, a chest you open for your own independent loot, a pickup you walk over), so
+routing them would only turn Independent-mode rewards into shared ones — contradicting "independent". The one card
+that is genuinely **broken** is the **companion**: a client-local companion can't damage the host-authoritative enemy
+**puppets**, so it can't fight and the host can't see it. Only the companion is routed.
+
+- **CLIENT** (`SpawnCompanion` prefix, Independent + linked client): reads the resolved `UnitSO` id and sends
+  `NetEndlessWorldCard` (msg 96, client→host); the local spawn is suppressed (return false).
+- **HOST** (`EndlessWorldCardManager.HostHandleWorldCard`): spawns the companion via the game's own `SpawnCompanion`
+  (so all the vanilla stat modifiers / onDeath / bookkeeping run and the existing EM-7c `HostCompanionSpawnDepth`
+  bracket classifies it for RuntimeSpawn), with the charm target redirected to the **requesting peer's ghost unit** so
+  it follows the picker. The redirect is a consume-once flag read by an `Npc.ApplyForcedCharmed(Unit, bool)` prefix
+  that swaps arg 0 via `__args` (no game-type ref needed); it survives `SpawnCompanion`'s internal await as a static
+  field and is a no-op for every other charm. If the ghost isn't resolved yet, it falls back to the host's charm (the
+  companion still exists + fights, just follows the host until then).
+- The companion mirrors back to every client as a puppet (source `"EndlessCompanion"`); the **picker's** client
+  re-applies the charmed presentation to its own player (EM-7c), so on its screen the companion is charmed to itself.
+
+**Known limitations:** the companion spawns at the host's position and walks to the picker (charmed to the ghost) — a
+short, host-consistent traversal in the shared arena; and with 3+ players a non-picker client's mirror charms to that
+client's own player (visual only). `ProtocolVersion 24→25`.
+
 ---
 
 ## 6. Progression layer — Shared mode (default)

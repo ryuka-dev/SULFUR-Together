@@ -1526,6 +1526,31 @@ namespace SULFURTogether.Networking
             Gameplay.EndlessInteractableManager.ApplyMirror(msg);
         }
 
+        // IND-1: client → host, route a locally-picked Independent-mode companion to the host.
+        internal void SendEndlessWorldCard(Gameplay.NetEndlessWorldCard msg)
+        {
+            if (_mode != NetMode.Client || _hostPeer == null || msg == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.EndlessWorldCard);
+                Gameplay.NetEndlessWorldCardCodec.Write(w, msg);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[Endless] failed to send world card: {ex.Message}"); }
+        }
+
+        private void HandleEndlessWorldCard(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Gameplay.NetEndlessWorldCardCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[Endless] malformed EndlessWorldCard packet");
+                return;
+            }
+            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            Gameplay.EndlessWorldCardManager.HostHandleWorldCard(peerId, msg);
+        }
+
         // EM-6b-2: host → all, the pre-roll card RNG + selection state so the client reproduces identical 3D cards.
         internal void BroadcastHostEndlessCardRoll(Gameplay.NetEndlessCardRoll msg)
         {
@@ -4087,6 +4112,9 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.EndlessInteractable:
                         HandleEndlessInteractable(peer, reader);
+                        break;
+                    case NetMessageType.EndlessWorldCard:
+                        HandleEndlessWorldCard(peer, reader);
                         break;
                     case NetMessageType.EndlessCardManifest:
                         HandleEndlessCardManifest(peer, reader);

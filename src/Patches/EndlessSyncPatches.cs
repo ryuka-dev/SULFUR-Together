@@ -219,6 +219,19 @@ namespace SULFURTogether.Patches
                         postfix: new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(SpawnCompanion_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 else Plugin.Log.Info("[Endless] FloatingCardManager.SpawnCompanion not found — EM-7c companion mirror disabled.");
 
+                // IND-1: redirect the charm target when the HOST spawns a companion on behalf of a client (so it follows
+                // the picker's ghost, not the host). Gated by a consume-once flag set only during that on-behalf spawn, so
+                // every other ApplyForcedCharmed is untouched. Patch the 2-arg overload SpawnCompanion uses (Unit, bool).
+                var npcType2 = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.Npc") ?? AccessTools.TypeByName("Npc");
+                MethodInfo? applyCharmed2 = null;
+                if (npcType2 != null)
+                    foreach (var m in npcType2.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+                        if (m.Name == "ApplyForcedCharmed" && m.GetParameters().Length == 2) { applyCharmed2 = m; break; }
+                if (applyCharmed2 != null)
+                    harmony.Patch(applyCharmed2, prefix: new HarmonyMethod(
+                        typeof(EndlessSyncPatches).GetMethod(nameof(ApplyForcedCharmed_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                else Plugin.Log.Info("[Endless] Npc.ApplyForcedCharmed(Unit,bool) not found — IND-1 charm redirect disabled.");
+
                 Plugin.Log.Info($"[Endless] EM-1/EM-5 client slave + progression patched ({patched} core). EM-2 mirror via RuntimeSpawnManager.ClassifyOwner(Endless).");
             }
             catch (Exception ex) { Plugin.Log.Error($"[Endless] EM-1 Apply failed: {ex.Message}"); }
@@ -428,14 +441,38 @@ namespace SULFURTogether.Patches
         // EM-7c: bracket the host's companion spawn. SpawnCompanion is async void and calls SpawnUnitAsync synchronously
         // (before its first await), so the depth is >0 exactly when RuntimeSpawnManager.NotePendingSpawn observes the
         // companion's SpawnUnitAsync — classifying only companion spawns from FloatingCardManager for the mirror.
-        private static void SpawnCompanion_Pre()
+        //
+        // IND-1: in Independent mode a linked client's local companion can't fight (its enemies are host-authoritative
+        // puppets), so route the pick to the host instead of spawning locally — the host spawns the authoritative
+        // companion (charmed to the picker) and it mirrors back as a puppet. Returns false to suppress the local spawn.
+        private static bool SpawnCompanion_Pre(object unitSO)
         {
-            if (Enabled && NetGameplaySyncBridge.BossMode == NetMode.Host) HostCompanionSpawnDepth++;
+            if (!Enabled) return true;
+            if (EndlessSyncManager.IsIndependentMode && IsLinkedClient)
+            {
+                EndlessWorldCardManager.ClientRouteCompanion(unitSO);
+                return false; // don't spawn the non-functional local companion
+            }
+            if (NetGameplaySyncBridge.BossMode == NetMode.Host) HostCompanionSpawnDepth++;
+            return true;
         }
 
         private static void SpawnCompanion_Post()
         {
             if (Enabled && NetGameplaySyncBridge.BossMode == NetMode.Host && HostCompanionSpawnDepth > 0) HostCompanionSpawnDepth--;
+        }
+
+        // IND-1 (HOST): while an on-behalf companion spawn is pending, swap ApplyForcedCharmed's owner (arg 0) to the
+        // requesting peer's ghost unit so the companion follows the picker. Consume-once; a no-op for every other charm.
+        // Uses __args (writable) so we don't need to reference the game Unit type in a ref parameter.
+        private static void ApplyForcedCharmed_Pre(object[] __args)
+        {
+            try
+            {
+                object? target = EndlessWorldCardManager.ConsumeOnBehalfCharmTarget();
+                if (target != null && __args != null && __args.Length >= 1) __args[0] = target;
+            }
+            catch { }
         }
 
         // EM-6b-3a: in Shared mode the card pick is a 1-of-N group vote, not an immediate selection. Both ends route the

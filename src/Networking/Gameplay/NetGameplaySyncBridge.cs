@@ -386,6 +386,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastHostEndlessInteractable(SULFURTogether.Networking.Gameplay.NetEndlessInteractable msg)
             => _service?.BroadcastHostEndlessInteractable(msg);
 
+        // IND-1: Client → host, route a locally-picked Independent-mode companion to the host.
+        public static void SendEndlessWorldCard(SULFURTogether.Networking.Gameplay.NetEndlessWorldCard msg)
+            => _service?.SendEndlessWorldCard(msg);
+
         // EM-6b-2: Host → all, the pre-roll card RNG + selection state so the client reproduces identical 3D cards.
         public static void BroadcastHostEndlessCardRoll(SULFURTogether.Networking.Gameplay.NetEndlessCardRoll msg)
             => _service?.BroadcastHostEndlessCardRoll(msg);
