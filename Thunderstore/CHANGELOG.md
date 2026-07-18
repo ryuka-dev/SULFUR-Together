@@ -42,6 +42,9 @@ before joining the same session.
 - **Endless Mode shop NPCs are shared.** A card that spawns a vendor now places a single shop that
   both players can walk up to and buy from, instead of a separate one on each screen. (Purchases
   are per-player for now; chests from cards are still being worked on.)
+- **Endless Mode card effects work correctly for non-host players.** The Infinite Ammo and
+  Indestructible cards now wear off after their duration for the client too (they used to last the
+  whole run), and the "more XP" card now actually speeds up the shared XP bar.
 
 ## 1.1.1 — Co-op fixes and polish
 
