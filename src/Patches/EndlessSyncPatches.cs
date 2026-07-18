@@ -33,11 +33,16 @@ namespace SULFURTogether.Patches
         public static int ClientWaveDriverSkipped;
         public static int ClientSpawnCoroutineSkipped;
 
-        // EM-7: Endless card-reward world-spawn routing (Shared mode). The plain-Pickup loot branch is host-authoritative
-        // and mirrored to the client via the WID pipeline; the client suppresses its own duplicate.
+        // EM-7: Endless card-reward world-spawn routing (Shared mode). World rewards are host-authoritative and mirrored;
+        // the client suppresses its own duplicate. Loot-table Pickups ride the WID pipeline; companions ride RuntimeSpawn.
         private static FieldInfo? _crRewardType;        // CardReward.rewardType : CardRewardType
         private static FieldInfo? _crContainerPrefab;   // CardReward.containerPrefab : Container (null = plain SpawnPickup path)
         private static int _lootTableRewardValue = int.MinValue; // CardRewardType.SpawnFromLootTable
+        private static int _spawnRandomAlliesRewardValue = int.MinValue; // CardRewardType.SpawnRandomAllies (companion)
+
+        // EM-7c: >0 while the HOST is inside FloatingCardManager.SpawnCompanion. `RuntimeSpawnManager.ClassifyOwner` uses
+        // it to mirror only companion spawns from FloatingCardManager (shop NPCs share the owner but are EM-7d).
+        internal static int HostCompanionSpawnDepth;
 
         private static bool Enabled { get { try { return Plugin.Cfg.EnableEndlessSync.Value; } catch { return false; } } }
         private static bool LogOn  { get { try { return Plugin.Cfg.LogEndlessSync.Value; } catch { return false; } } }
@@ -147,6 +152,15 @@ namespace SULFURTogether.Patches
                     if (fcmUpdate != null)
                         harmony.Patch(fcmUpdate, postfix: new HarmonyMethod(
                             typeof(EndlessSyncPatches).GetMethod(nameof(CardManagerUpdate_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+
+                    // EM-7b: the card-spawn locator beam (loot / chest / NPC) is host-authoritative — a linked client
+                    // suppresses its own local activation so the beam is driven purely by the host wave-state snapshot
+                    // (spawn + move + disappear in sync at the host's positions). Host + single-player run vanilla.
+                    var lootBeam = AccessTools.Method(fcmType, "SpawnLootLightEffect", new[] { typeof(UnityEngine.Vector3) });
+                    if (lootBeam != null)
+                        harmony.Patch(lootBeam, prefix: new HarmonyMethod(
+                            typeof(EndlessSyncPatches).GetMethod(nameof(SpawnLootLightEffect_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                    else Plugin.Log.Info("[Endless] FloatingCardManager.SpawnLootLightEffect not found — EM-7b beam sync disabled.");
                 }
                 else Plugin.Log.Info("[Endless] FloatingCardManager not found — EM-6b shared card mirror disabled.");
 
@@ -175,12 +189,24 @@ namespace SULFURTogether.Patches
                     _crRewardType      = AccessTools.Field(crType, "rewardType");
                     _crContainerPrefab = AccessTools.Field(crType, "containerPrefab");
                     if (_crRewardType != null)
-                        try { _lootTableRewardValue = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnFromLootTable")); } catch { }
+                    {
+                        try { _lootTableRewardValue        = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnFromLootTable")); } catch { }
+                        try { _spawnRandomAlliesRewardValue = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnRandomAllies")); } catch { }
+                    }
                     harmony.Patch(execReward,
                         prefix:  new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(ExecuteReward_Pre),  BindingFlags.Static | BindingFlags.NonPublic)),
                         postfix: new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(ExecuteReward_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 }
                 else Plugin.Log.Info("[Endless] FloatingCardManager.ExecuteReward not found — EM-7 loot routing disabled.");
+
+                // EM-7c: bracket the host's companion spawn so RuntimeSpawnManager mirrors only companion spawns from
+                // FloatingCardManager (shop NPCs share the owner type but are handled separately in EM-7d).
+                var spawnCompanion = fcmType != null ? AccessTools.Method(fcmType, "SpawnCompanion") : null;
+                if (spawnCompanion != null)
+                    harmony.Patch(spawnCompanion,
+                        prefix:  new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(SpawnCompanion_Pre),  BindingFlags.Static | BindingFlags.NonPublic)),
+                        postfix: new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(SpawnCompanion_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                else Plugin.Log.Info("[Endless] FloatingCardManager.SpawnCompanion not found — EM-7c companion mirror disabled.");
 
                 Plugin.Log.Info($"[Endless] EM-1/EM-5 client slave + progression patched ({patched} core). EM-2 mirror via RuntimeSpawnManager.ClassifyOwner(Endless).");
             }
@@ -306,33 +332,40 @@ namespace SULFURTogether.Patches
         }
 
         // EM-7 (Shared mode): a resolved card runs ExecuteReward on BOTH ends (the shared vote applies the pick on each),
-        // so a world reward that spawns an object duplicates it. This slice routes the plain-Pickup LOOT reward to a single
-        // authority:
-        //  - CLIENT (linked, Shared): suppress the SpawnFromLootTable pickup branch — the host's copy is mirrored in via the
-        //    WID pipeline, so running it here is what doubles the loot.
-        //  - HOST (Shared): tag the loot spawn (EndlessSharedLootContext) so the resulting SpawnPickup is mirrored to the
-        //    client independently of the SharedLoot session toggle. Cleared in the postfix.
-        // Independent mode + single-player are untouched (personal loot stays separate; routing Independent-mode client world
-        // picks to the host is a later EM-7 slice). Container-path loot, companions, and shop NPCs are later slices too.
+        // so a world reward that spawns an object duplicates it. World rewards are routed to a single authority:
+        //  - CLIENT (linked, Shared): suppress the world-spawn branch — the host's copy is mirrored in (loot via the WID
+        //    pipeline, companions via the RuntimeSpawn puppet pipeline), so running it here is what duplicates the object.
+        //  - HOST (Shared): loot only — tag the spawn (EndlessSharedLootContext) so the SpawnPickup mirrors to the client
+        //    regardless of the SharedLoot session toggle (cleared in the postfix). Companions need no host tag here (the
+        //    SpawnCompanion bracket classifies them for RuntimeSpawn).
+        // Independent mode + single-player untouched. Container-path loot, shop NPCs, and interactables are later slices.
         private static bool ExecuteReward_Pre(object reward, ref System.Threading.Tasks.Task __result)
         {
             try
             {
                 if (!Enabled || NetGameplaySyncBridge.BossMode == NetMode.Off) return true;
                 if (EndlessSyncManager.IsIndependentMode) return true;   // Shared mode only (this slice)
-                if (!IsLootTablePickupReward(reward)) return true;       // only the plain-Pickup loot branch
+
+                int kind = ClassifyWorldReward(reward);                  // 0 none, 1 loot-Pickup, 2 companion
+                if (kind == 0) return true;
 
                 if (IsLinkedClient)
                 {
-                    __result = System.Threading.Tasks.Task.CompletedTask; // host's copy arrives via WID mirror — no duplicate
+                    __result = System.Threading.Tasks.Task.CompletedTask; // host's copy arrives via mirror — no duplicate
                     return false;
                 }
-                if (NetGameplaySyncBridge.BossMode == NetMode.Host)
-                    WorldPickupManager.EndlessSharedLootContext = true;   // mirror host loot regardless of SharedLoot toggle
+                if (NetGameplaySyncBridge.BossMode == NetMode.Host && kind == 1)
+                    WorldPickupManager.EndlessSharedLootContext = true;   // loot: mirror regardless of SharedLoot toggle
             }
             catch { }
             return true;
         }
+
+        // EM-7b: in Shared mode the card-spawn locator beam is host-authoritative — a linked client suppresses its own
+        // local activation so the beam is host-driven via the wave-state snapshot. Independent mode keeps its own local
+        // beam (each player's world-card spawns are separate there). Host + single-player run vanilla.
+        private static bool SpawnLootLightEffect_Pre()
+            => !(Enabled && IsLinkedClient && !EndlessSyncManager.IsIndependentMode);
 
         // Clear the host loot tag once the (synchronous) loot spawn has completed. The SpawnFromLootTable pickup branch has
         // no await, so this postfix runs after the pickups are spawned; other reward branches never set the flag.
@@ -341,18 +374,37 @@ namespace SULFURTogether.Patches
             try { WorldPickupManager.EndlessSharedLootContext = false; } catch { }
         }
 
-        private static bool IsLootTablePickupReward(object reward)
+        // 0 = not a world reward routed in this slice; 1 = loot-table plain-Pickup (WID mirror); 2 = SpawnRandomAllies companion.
+        private static int ClassifyWorldReward(object reward)
         {
             try
             {
-                if (reward == null || _crRewardType == null || _lootTableRewardValue == int.MinValue) return false;
-                if (Convert.ToInt32(_crRewardType.GetValue(reward)) != _lootTableRewardValue) return false;
-                // containerPrefab != null → the Container path (an interactable Instantiate, not a SpawnPickup) — not this
-                // slice; leave it spawning on both ends until the interactable mirror exists.
-                if (_crContainerPrefab != null && _crContainerPrefab.GetValue(reward) != null) return false;
-                return true;
+                if (reward == null || _crRewardType == null) return 0;
+                int rt = Convert.ToInt32(_crRewardType.GetValue(reward));
+                if (rt == _lootTableRewardValue && _lootTableRewardValue != int.MinValue)
+                {
+                    // containerPrefab != null → the Container path (an interactable Instantiate, not a SpawnPickup) — not
+                    // this slice; leave it spawning on both ends until the interactable mirror exists.
+                    if (_crContainerPrefab != null && _crContainerPrefab.GetValue(reward) != null) return 0;
+                    return 1;
+                }
+                if (rt == _spawnRandomAlliesRewardValue && _spawnRandomAlliesRewardValue != int.MinValue) return 2;
+                return 0;
             }
-            catch { return false; }
+            catch { return 0; }
+        }
+
+        // EM-7c: bracket the host's companion spawn. SpawnCompanion is async void and calls SpawnUnitAsync synchronously
+        // (before its first await), so the depth is >0 exactly when RuntimeSpawnManager.NotePendingSpawn observes the
+        // companion's SpawnUnitAsync — classifying only companion spawns from FloatingCardManager for the mirror.
+        private static void SpawnCompanion_Pre()
+        {
+            if (Enabled && NetGameplaySyncBridge.BossMode == NetMode.Host) HostCompanionSpawnDepth++;
+        }
+
+        private static void SpawnCompanion_Post()
+        {
+            if (Enabled && NetGameplaySyncBridge.BossMode == NetMode.Host && HostCompanionSpawnDepth > 0) HostCompanionSpawnDepth--;
         }
 
         // EM-6b-3a: in Shared mode the card pick is a 1-of-N group vote, not an immediate selection. Both ends route the

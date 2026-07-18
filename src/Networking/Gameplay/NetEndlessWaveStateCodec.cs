@@ -4,7 +4,7 @@ namespace SULFURTogether.Networking.Gameplay
 {
     internal static class NetEndlessWaveStateCodec
     {
-        private const byte Version = 1;
+        private const byte Version = 2; // v2: EM-7b loot-locator beam (active + position)
 
         public static void Write(NetDataWriter w, NetEndlessWaveState m)
         {
@@ -25,6 +25,9 @@ namespace SULFURTogether.Networking.Gameplay
             w.Put(m.CurrentXP);
             w.Put(m.NextCardThresholdXP);
             w.Put(m.CurrentCardLevel);
+
+            w.Put(m.LootBeamActive);
+            if (m.LootBeamActive) { w.Put(m.LootBeamX); w.Put(m.LootBeamY); w.Put(m.LootBeamZ); }
         }
 
         public static bool TryRead(NetDataReader r, out NetEndlessWaveState m)
@@ -51,6 +54,9 @@ namespace SULFURTogether.Networking.Gameplay
                 m.CurrentXP           = r.GetFloat();
                 m.NextCardThresholdXP = r.GetFloat();
                 m.CurrentCardLevel    = r.GetInt();
+
+                m.LootBeamActive = r.GetBool();
+                if (m.LootBeamActive) { m.LootBeamX = r.GetFloat(); m.LootBeamY = r.GetFloat(); m.LootBeamZ = r.GetFloat(); }
                 return true;
             }
             catch

@@ -31,6 +31,14 @@ namespace SULFURTogether.Networking.Gameplay
         public float NextCardThresholdXP { get; set; }
         public int   CurrentCardLevel    { get; set; }
 
+        // EM-7b: the host-owned card-spawn locator beam (FloatingCardManager.lootLightEffect) — a single shared pillar
+        // that moves to the latest world-card spawn (loot / chest / NPC) and turns off at the run reset. Mirrored so the
+        // client sees the same locator; the client's own beam is host-driven (its local SpawnLootLightEffect is suppressed).
+        public bool  LootBeamActive { get; set; }
+        public float LootBeamX      { get; set; }
+        public float LootBeamY      { get; set; }
+        public float LootBeamZ      { get; set; }
+
         public bool MatchesScene(NetRunState localState)
         {
             if (localState == null || !localState.HasLevel) return false;

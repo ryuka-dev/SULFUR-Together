@@ -203,6 +203,15 @@ namespace SULFURTogether.Networking.Gameplay
                 try { if (!Plugin.Cfg.EnableEndlessSync.Value) return null; } catch { return null; }
                 return "Endless";
             }
+            // Phase EM-7c: Endless companion cards spawn allies via FloatingCardManager.SpawnCompanion → SpawnUnitAsync(this,…).
+            // FloatingCardManager also spawns shop NPCs (SpawnNPC), so mirror ONLY companion spawns — the host brackets
+            // SpawnCompanion with a depth counter (shop NPCs are EM-7d, needing ServiceStation/inventory work). The client
+            // suppresses its own companion spawn (EndlessSyncPatches.ExecuteReward_Pre), so the host's is one-sided.
+            if (tn == "FloatingCardManager")
+            {
+                try { if (!Plugin.Cfg.EnableEndlessSync.Value) return null; } catch { return null; }
+                return Patches.EndlessSyncPatches.HostCompanionSpawnDepth > 0 ? "EndlessCompanion" : null;
+            }
             return null;
         }
 
@@ -244,7 +253,7 @@ namespace SULFURTogether.Networking.Gameplay
                 object? unitSO = ResolveUnitSO(msg.UnitIdValue);
                 if (unitSO == null) { RuntimeSpawnMirrorFailed++; Plugin.Log.Warn($"[RuntimeSpawn] client cannot resolve UnitSO for unitId={msg.UnitIdValue}"); return; }
                 Plugin.Log.Info($"[RuntimeSpawn] client mirroring {msg.ToCompact()}");
-                MirrorSpawnAsync(unitSO, msg.Position, msg.RotationY, msg.HostSpawnIndex);
+                MirrorSpawnAsync(unitSO, msg.Position, msg.RotationY, msg.HostSpawnIndex, msg.Source);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[RuntimeSpawn] HandleHostRuntimeSpawn failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -259,12 +268,12 @@ namespace SULFURTogether.Networking.Gameplay
                 EnsureResolved();
                 object? unitSO = ResolveUnitSO(unitIdValue);
                 if (unitSO == null) { RuntimeSpawnMirrorFailed++; Plugin.Log.Warn($"[RuntimeSpawn] boss-add mirror cannot resolve unitId={unitIdValue}"); return; }
-                MirrorSpawnAsync(unitSO, position, 0f, hostSpawnIndex);
+                MirrorSpawnAsync(unitSO, position, 0f, hostSpawnIndex, "");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[RuntimeSpawn] MirrorBossAdd failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        private static async void MirrorSpawnAsync(object unitSO, Vector3 position, float rotY, int hostSpawnIndex)
+        private static async void MirrorSpawnAsync(object unitSO, Vector3 position, float rotY, int hostSpawnIndex, string source = "")
         {
             try
             {
@@ -285,8 +294,42 @@ namespace SULFURTogether.Networking.Gameplay
                 Plugin.Log.Info($"[RuntimeSpawn] client mirrored unit hostIdx={hostSpawnIndex} bound={bound} unit={BossReflect.RootName(unit)}");
                 // F4-ADDS: boss-specific taming of special mirrors (Desert enemy pikes: physics/trigger-pounce off).
                 Boss.NetBossEncounterManager.OnRuntimeMirrorSpawned(unit);
+                // EM-7c: an Endless companion is a charmed ally on the host; the puppet mirror doesn't carry the charm.
+                // Apply the vanilla charmed presentation (heart symbol + allied faction) on the client so it reads as a
+                // companion, not an enemy. The unit's AI is puppet-suppressed, so forcedCharmingOwner is inert (visual only).
+                if (string.Equals(source, "EndlessCompanion", StringComparison.Ordinal))
+                    ApplyEndlessCompanionCharm(unit);
             }
             catch (Exception ex) { RuntimeSpawnMirrorFailed++; Plugin.Log.Warn($"[RuntimeSpawn] MirrorSpawnAsync failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static MethodInfo? _applyForcedCharmed;   // Unit/Npc.ApplyForcedCharmed(Unit) — sets the charmed heart symbol + faction
+        private static PropertyInfo? _gmPlayerUnitProp;   // GameManager.PlayerUnit
+
+        /// <summary>EM-7c (CLIENT): replicate the vanilla charmed-companion presentation on a mirrored companion puppet —
+        /// the heart symbol above its head + allied faction — which <c>ApplyForcedCharmed</c> sets on the host but the
+        /// puppet mirror (position/animation/health only) doesn't carry.</summary>
+        private static void ApplyEndlessCompanionCharm(object unit)
+        {
+            try
+            {
+                object? gm = ResolveGameManager();
+                if (gm == null) return;
+                _gmPlayerUnitProp ??= gm.GetType().GetProperty("PlayerUnit",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+                object? playerUnit = _gmPlayerUnitProp?.GetValue(gm);
+                if (playerUnit == null) return;
+                if (_applyForcedCharmed == null)
+                {
+                    // Resolve the single-parameter overload explicitly (a plain GetMethod matched a different arity).
+                    foreach (var m in unit.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+                        if (m.Name == "ApplyForcedCharmed" && m.GetParameters().Length == 1) { _applyForcedCharmed = m; break; }
+                }
+                if (_applyForcedCharmed == null) { if (LogOn) Plugin.Log.Info("[RuntimeSpawn] companion charm: ApplyForcedCharmed(Unit) not found."); return; }
+                _applyForcedCharmed.Invoke(unit, new object[] { playerUnit });
+                if (LogOn) Plugin.Log.Info($"[RuntimeSpawn] EM-7c applied companion charm visual to mirror unit={BossReflect.RootName(unit)}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[RuntimeSpawn] companion charm failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         // ---- HZ-2: reused by the throwable-effect mirror (resolve the throwing weapon's prefab from its ItemId).

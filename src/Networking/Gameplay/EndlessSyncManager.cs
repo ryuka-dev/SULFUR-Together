@@ -50,6 +50,8 @@ namespace SULFURTogether.Networking.Gameplay
         private static PropertyInfo? _instanceProp;   // static EndlessModeManager.Instance
         private static FieldInfo? _fStage, _fWave, _fBurst, _fLoop, _fTransition, _fXP, _fThreshold, _fCardLevel, _fActive;
         private static FieldInfo? _fXpOrbManager;     // EndlessModeManager.xpOrbManager : XPOrbManager
+        private static FieldInfo? _fCardManager;      // EndlessModeManager.cardManager : FloatingCardManager
+        private static FieldInfo? _fLootLightEffect;  // FloatingCardManager.lootLightEffect : GameObject (EM-7b spawn-locator beam)
         private static FieldInfo? _fPickupRadius;     // XPOrbManager.pickupRadius : float
         private static FieldInfo? _fActiveOrbs;       // XPOrbManager.activeOrbs : List<XPOrb>
         private static FieldInfo? _orbStateField;     // XPOrb.state : OrbState
@@ -70,6 +72,8 @@ namespace SULFURTogether.Networking.Gameplay
         private static bool  _hadInstance;
         private static float _lastSentAt;
         private static int   _lStage = int.MinValue, _lWave, _lBurst, _lLoop, _lCardLevel, _lTransition;
+        private static bool  _lBeamActive;            // EM-7b: last-sent loot-locator beam state (host change detection)
+        private static Vector3 _lBeamPos;
         private static float _lXP = float.NaN, _lThreshold = float.NaN;
 
         // ---- client apply / staleness ----
@@ -110,12 +114,18 @@ namespace SULFURTogether.Networking.Gameplay
                 int transition = ReadTransition(mgr);
                 float xp = ReadFloat(_fXP, mgr), threshold = ReadFloat(_fThreshold, mgr);
 
+                // EM-7b: the shared card-spawn locator beam (host-owned single pillar) — active state + its position.
+                bool beamActive = false; Vector3 beamPos = _lBeamPos;
+                var hostBeam = ResolveLootBeam(mgr);
+                if (hostBeam != null) { beamActive = hostBeam.activeSelf; if (beamActive) beamPos = hostBeam.transform.position; }
+                bool beamChanged = beamActive != _lBeamActive || (beamActive && (beamPos - _lBeamPos).sqrMagnitude > 0.01f);
+
                 bool discreteChanged = stage != _lStage || wave != _lWave || burst != _lBurst || loop != _lLoop
                                        || cardLevel != _lCardLevel || transition != _lTransition;
                 bool xpChanged = xp != _lXP || threshold != _lThreshold;
                 float now = Time.realtimeSinceStartup;
 
-                bool send = discreteChanged
+                bool send = discreteChanged || beamChanged
                             || (xpChanged && now - _lastSentAt >= XpThrottleSeconds)
                             || (now - _lastSentAt >= KeepaliveSeconds);
                 if (!send) return;
@@ -130,10 +140,14 @@ namespace SULFURTogether.Networking.Gameplay
                     CurrentStage = stage, CurrentWave = wave, CurrentBurstIndex = burst, LoopCount = loop,
                     TransitionState = (byte)transition,
                     CurrentXP = xp, NextCardThresholdXP = threshold, CurrentCardLevel = cardLevel,
+                    LootBeamActive = beamActive, LootBeamX = beamPos.x, LootBeamY = beamPos.y, LootBeamZ = beamPos.z,
                 };
 
                 _lStage = stage; _lWave = wave; _lBurst = burst; _lLoop = loop; _lCardLevel = cardLevel;
                 _lTransition = transition; _lXP = xp; _lThreshold = threshold; _lastSentAt = now;
+                if (LogOn && beamChanged)
+                    Plugin.Log.Info($"[Endless] EM-7b host beam {(beamActive ? $"ON pos={beamPos}" : "OFF")} (rev={msg.Revision})");
+                _lBeamActive = beamActive; _lBeamPos = beamPos;
 
                 HostStateBroadcast++;
                 NetGameplaySyncBridge.BroadcastHostEndlessWaveState(msg);
@@ -148,6 +162,20 @@ namespace SULFURTogether.Networking.Gameplay
         {
             _lStage = int.MinValue; _lWave = _lBurst = _lLoop = _lCardLevel = _lTransition = 0;
             _lXP = float.NaN; _lThreshold = float.NaN; _lastSentAt = 0f;
+            _lBeamActive = false; _lBeamPos = Vector3.zero;
+        }
+
+        /// <summary>EM-7b: resolve the shared card-spawn locator beam GameObject
+        /// (<c>EndlessModeManager.cardManager.lootLightEffect</c>).</summary>
+        private static UnityEngine.GameObject? ResolveLootBeam(object mgr)
+        {
+            try
+            {
+                if (_fCardManager == null || _fLootLightEffect == null) return null;
+                object? cm = _fCardManager.GetValue(mgr);
+                return cm == null ? null : _fLootLightEffect.GetValue(cm) as UnityEngine.GameObject;
+            }
+            catch { return null; }
         }
 
         // ================================================================== client apply
@@ -193,6 +221,27 @@ namespace SULFURTogether.Networking.Gameplay
                     SetFloat(_fXP, mgr, msg.CurrentXP);
                     SetFloat(_fThreshold, mgr, msg.NextCardThresholdXP);
                     ApplySharedPauseEdge(msg.TransitionState); // EM-6a: freeze/resume with the host's shared card-select window
+                }
+
+                // EM-7b: mirror the host's card-spawn locator beam (Shared mode only — world-card spawns are
+                // host-authoritative there, and the client's own SpawnLootLightEffect is suppressed, so this host-driven
+                // state is the client beam's only driver). Independent mode keeps each player's local beam.
+                if (SharedMode)
+                {
+                    var beam = ResolveLootBeam(mgr);
+                    if (beam != null)
+                    {
+                        bool was = beam.activeSelf;
+                        if (msg.LootBeamActive)
+                        {
+                            beam.transform.position = new Vector3(msg.LootBeamX, msg.LootBeamY, msg.LootBeamZ);
+                            if (!beam.activeSelf) beam.SetActive(true);
+                        }
+                        else if (beam.activeSelf) beam.SetActive(false);
+                        if (LogOn && was != beam.activeSelf)
+                            Plugin.Log.Info($"[Endless] EM-7b client beam {(beam.activeSelf ? $"ON pos=({msg.LootBeamX:F1},{msg.LootBeamY:F1},{msg.LootBeamZ:F1})" : "OFF")} (rev={msg.Revision})");
+                    }
+                    else if (LogOn && msg.LootBeamActive) Plugin.Log.Info("[Endless] EM-7b client beam: lootLightEffect unresolved (cardManager/field null)");
                 }
 
                 ClientStateApplied++;
@@ -746,6 +795,9 @@ namespace SULFURTogether.Networking.Gameplay
                 _fCardLevel  = _emType.GetField("currentCardLevel", bf);
                 _fActive     = _emType.GetField("endlessModeActive", bf);
                 _fXpOrbManager = _emType.GetField("xpOrbManager", bf);
+                _fCardManager  = _emType.GetField("cardManager", bf);
+                var fcmType = AccessTools.TypeByName("FloatingCardManager") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.FloatingCardManager");
+                _fLootLightEffect = fcmType?.GetField("lootLightEffect", bf);
                 _updateUI    = _emType.GetMethod("UpdateUI", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
 
                 var orbType = AccessTools.TypeByName("XPOrbManager") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.XPOrbManager");

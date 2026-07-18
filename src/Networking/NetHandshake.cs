@@ -18,7 +18,8 @@ namespace SULFURTogether.Networking
         // 17: EM-6b added EndlessCardManifest (91) — host→all shared card set; peers must agree on the wire set.
         // 18: EM-6b-2 added EndlessCardRoll (92) — host→all pre-roll card RNG+state; peers must agree on the wire set.
         // 19: EM-6b-3a added EndlessCardVoteState (93) + EndlessCardVoteCast (94) — shared 1-of-N card vote; wire set must match.
-        public const int    ProtocolVersion  = 22;
+        // 23: EM-7b added a loot-locator beam (active + position) to the EndlessWaveState (86) snapshot (codec v2) — wire shape must match.
+        public const int    ProtocolVersion  = 23;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)
