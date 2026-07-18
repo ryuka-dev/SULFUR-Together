@@ -210,7 +210,9 @@ namespace SULFURTogether.Networking.Gameplay
             if (tn == "FloatingCardManager")
             {
                 try { if (!Plugin.Cfg.EnableEndlessSync.Value) return null; } catch { return null; }
-                return Patches.EndlessSyncPatches.HostCompanionSpawnDepth > 0 ? "EndlessCompanion" : null;
+                if (Patches.EndlessSyncPatches.HostCompanionSpawnDepth > 0) return "EndlessCompanion";
+                if (Patches.EndlessSyncPatches.HostShopSpawnDepth > 0) return "EndlessShop"; // EM-7d
+                return null;
             }
             return null;
         }
@@ -299,6 +301,8 @@ namespace SULFURTogether.Networking.Gameplay
                 // companion, not an enemy. The unit's AI is puppet-suppressed, so forcedCharmingOwner is inert (visual only).
                 if (string.Equals(source, "EndlessCompanion", StringComparison.Ordinal))
                     ApplyEndlessCompanionCharm(unit);
+                else if (string.Equals(source, "EndlessShop", StringComparison.Ordinal))
+                    ApplyEndlessShopSetup(unit);
             }
             catch (Exception ex) { RuntimeSpawnMirrorFailed++; Plugin.Log.Warn($"[RuntimeSpawn] MirrorSpawnAsync failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -330,6 +334,52 @@ namespace SULFURTogether.Networking.Gameplay
                 if (LogOn) Plugin.Log.Info($"[RuntimeSpawn] EM-7c applied companion charm visual to mirror unit={BossReflect.RootName(unit)}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[RuntimeSpawn] companion charm failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static Type? _serviceStationType;    // ServiceStation (base; DoSetup is virtual)
+        private static Type? _unitInteractableType;   // UnitInteractable : Interactable
+        private static MethodInfo? _addInteractable;  // InteractionManager.AddInteractable(Interactable)
+        private static MethodInfo? _doSetup;          // ServiceStation.DoSetup()
+
+        /// <summary>EM-7d (CLIENT): make a mirrored Endless shop NPC usable. The host does this in ExecuteReward's SpawnNPC
+        /// branch (register the UnitInteractable + run each ServiceStation.DoSetup), which the client suppresses — so the
+        /// puppet has the components but isn't set up. We replicate it here. Vendor stock is rolled by DoSetup and may
+        /// differ from the host until stock sync (a later slice); per the design decision, purchases are local for now.</summary>
+        private static void ApplyEndlessShopSetup(object unit)
+        {
+            try
+            {
+                if (unit is not Component comp) return;
+                _serviceStationType   ??= BossReflect.FindType("PerfectRandom.Sulfur.Core.ServiceStation", "ServiceStation");
+                _unitInteractableType ??= BossReflect.FindType("UnitInteractable", "PerfectRandom.Sulfur.Core.UnitInteractable");
+
+                // Register the interactable so the client can target + open the shop.
+                if (_unitInteractableType != null)
+                {
+                    var imType = BossReflect.FindType("InteractionManager", "PerfectRandom.Sulfur.Core.InteractionManager");
+                    object? im = imType == null ? null : ResolveStaticInstance(imType);
+                    var ui = comp.GetComponent(_unitInteractableType);
+                    if (im != null && ui != null)
+                    {
+                        _addInteractable ??= imType!.GetMethod("AddInteractable", BindingFlags.Public | BindingFlags.Instance);
+                        _addInteractable?.Invoke(im, new object[] { ui });
+                    }
+                }
+
+                // Run each ServiceStation's setup (virtual DoSetup dispatches to the concrete shop/stash type).
+                if (_serviceStationType != null)
+                {
+                    _doSetup ??= _serviceStationType.GetMethod("DoSetup", BindingFlags.Public | BindingFlags.Instance);
+                    var stations = comp.GetComponents(_serviceStationType);
+                    int n = 0;
+                    if (stations != null)
+                        foreach (var s in stations)
+                            try { _doSetup?.Invoke(s, null); n++; }
+                            catch (Exception e) { Plugin.Log.Warn($"[RuntimeSpawn] shop DoSetup failed: {e.GetType().Name}: {e.Message}"); }
+                    if (LogOn) Plugin.Log.Info($"[RuntimeSpawn] EM-7d applied shop setup ({n} station(s)) to mirror unit={BossReflect.RootName(unit)}");
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[RuntimeSpawn] shop setup failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         // ---- HZ-2: reused by the throwable-effect mirror (resolve the throwing weapon's prefab from its ItemId).

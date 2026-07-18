@@ -39,10 +39,18 @@ namespace SULFURTogether.Patches
         private static FieldInfo? _crContainerPrefab;   // CardReward.containerPrefab : Container (null = plain SpawnPickup path)
         private static int _lootTableRewardValue = int.MinValue; // CardRewardType.SpawnFromLootTable
         private static int _spawnRandomAlliesRewardValue = int.MinValue; // CardRewardType.SpawnRandomAllies (companion)
+        private static int _spawnNpcRewardValue          = int.MinValue; // CardRewardType.SpawnNPC (shop)
 
         // EM-7c: >0 while the HOST is inside FloatingCardManager.SpawnCompanion. `RuntimeSpawnManager.ClassifyOwner` uses
         // it to mirror only companion spawns from FloatingCardManager (shop NPCs share the owner but are EM-7d).
         internal static int HostCompanionSpawnDepth;
+
+        // EM-7d: >0 while the HOST is inside the ExecuteReward SpawnNPC (shop) branch — same idea as the companion bracket,
+        // so ClassifyOwner mirrors shop-NPC spawns as "EndlessShop" (distinct from companion). SpawnNPC has no dedicated
+        // method, so the bracket is set/cleared around ExecuteReward (its first await is the shop's SpawnUnitAsync, which
+        // NotePendingSpawn observes synchronously). Shop cards spawn one NPC (spawnCount 1); a multi-NPC card would only
+        // mirror its first (accepted).
+        internal static int HostShopSpawnDepth;
 
         private static bool Enabled { get { try { return Plugin.Cfg.EnableEndlessSync.Value; } catch { return false; } } }
         private static bool LogOn  { get { try { return Plugin.Cfg.LogEndlessSync.Value; } catch { return false; } } }
@@ -192,6 +200,7 @@ namespace SULFURTogether.Patches
                     {
                         try { _lootTableRewardValue        = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnFromLootTable")); } catch { }
                         try { _spawnRandomAlliesRewardValue = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnRandomAllies")); } catch { }
+                        try { _spawnNpcRewardValue          = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnNPC")); } catch { }
                     }
                     harmony.Patch(execReward,
                         prefix:  new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(ExecuteReward_Pre),  BindingFlags.Static | BindingFlags.NonPublic)),
@@ -346,7 +355,7 @@ namespace SULFURTogether.Patches
                 if (!Enabled || NetGameplaySyncBridge.BossMode == NetMode.Off) return true;
                 if (EndlessSyncManager.IsIndependentMode) return true;   // Shared mode only (this slice)
 
-                int kind = ClassifyWorldReward(reward);                  // 0 none, 1 loot-Pickup, 2 companion
+                int kind = ClassifyWorldReward(reward);                  // 0 none, 1 loot-Pickup, 2 companion, 3 shop NPC
                 if (kind == 0) return true;
 
                 if (IsLinkedClient)
@@ -354,8 +363,11 @@ namespace SULFURTogether.Patches
                     __result = System.Threading.Tasks.Task.CompletedTask; // host's copy arrives via mirror — no duplicate
                     return false;
                 }
-                if (NetGameplaySyncBridge.BossMode == NetMode.Host && kind == 1)
-                    WorldPickupManager.EndlessSharedLootContext = true;   // loot: mirror regardless of SharedLoot toggle
+                if (NetGameplaySyncBridge.BossMode == NetMode.Host)
+                {
+                    if (kind == 1) WorldPickupManager.EndlessSharedLootContext = true; // loot: mirror regardless of SharedLoot toggle
+                    if (kind == 3) HostShopSpawnDepth++;                               // shop: bracket the SpawnNPC SpawnUnitAsync
+                }
             }
             catch { }
             return true;
@@ -367,14 +379,16 @@ namespace SULFURTogether.Patches
         private static bool SpawnLootLightEffect_Pre()
             => !(Enabled && IsLinkedClient && !EndlessSyncManager.IsIndependentMode);
 
-        // Clear the host loot tag once the (synchronous) loot spawn has completed. The SpawnFromLootTable pickup branch has
-        // no await, so this postfix runs after the pickups are spawned; other reward branches never set the flag.
+        // Clear the host world-spawn brackets once ExecuteReward's synchronous portion returns. The loot branch has no await
+        // (runs to completion first); the shop branch's first await is its SpawnUnitAsync, which NotePendingSpawn already
+        // observed synchronously — so clearing here is correct for both. Non-world branches never set them.
         private static void ExecuteReward_Post()
         {
             try { WorldPickupManager.EndlessSharedLootContext = false; } catch { }
+            try { if (HostShopSpawnDepth > 0) HostShopSpawnDepth--; } catch { }
         }
 
-        // 0 = not a world reward routed in this slice; 1 = loot-table plain-Pickup (WID mirror); 2 = SpawnRandomAllies companion.
+        // 0 = not routed this slice; 1 = loot-table plain-Pickup (WID mirror); 2 = SpawnRandomAllies companion; 3 = SpawnNPC shop.
         private static int ClassifyWorldReward(object reward)
         {
             try
@@ -389,6 +403,7 @@ namespace SULFURTogether.Patches
                     return 1;
                 }
                 if (rt == _spawnRandomAlliesRewardValue && _spawnRandomAlliesRewardValue != int.MinValue) return 2;
+                if (rt == _spawnNpcRewardValue          && _spawnNpcRewardValue          != int.MinValue) return 3;
                 return 0;
             }
             catch { return 0; }
