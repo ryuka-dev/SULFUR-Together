@@ -464,6 +464,30 @@ namespace SULFURTogether.Patches
             try { ReverseProbeSummary.IncrementGmEvent(); Log.Info("[GM] CompleteLevel <<"); }
             catch (Exception ex) { Log.Error($"[GM.CompleteLevel] {ex.Message}"); }
 
+            // A host CompleteLevel while a transition is ALREADY in flight is the reverse of the Type B race: a
+            // client relay led the transition first (host GoToLevel already running) and the host player then walks
+            // into the exit trigger during the fade window. Letting it through starts a SECOND SwitchLevelRoutine —
+            // two generations interleave with two different seeds, the host's level is built from mixed state, and
+            // the clients' clean load of the final seed produces a DIFFERENT layout (the caves same-seed
+            // rooms=1-vs-2 desync). The guard covers [transition start → finalize]; gameState==Loading covers
+            // [finalize → level running]. The in-flight transition already saves + advances, so a duplicate has no
+            // side effect worth keeping.
+            try
+            {
+                if (NetClientLoadGate.CurrentMode == NetMode.Host)
+                {
+                    bool guardActive = NetHostTransitionGuard.IsActive;
+                    string gs = "";
+                    try { gs = __instance?.GetType().GetProperty("gameState")?.GetValue(__instance)?.ToString() ?? ""; } catch { }
+                    if (guardActive || string.Equals(gs, "Loading", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log.Info($"[HostTransitionGuard] blocked duplicate CompleteLevel (transition in flight: guard={guardActive} gameState={gs})");
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex) { Log.Error($"[HostTransitionGuard] duplicate CompleteLevel check failed: {ex.Message}"); }
+
             // Phase 5.6-LK-P2 (Type B): the host's OWN CompleteLevel starts an authoritative transition. Latch it
             // at the earliest point (the Cinematic window) so a client relay arriving mid-completion is deferred
             // instead of triggering a second generation of the same level.
