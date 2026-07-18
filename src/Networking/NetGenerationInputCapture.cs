@@ -130,18 +130,12 @@ namespace SULFURTogether.Networking
             return false;
         }
 
-        public static void Clear()
-        {
-            lock (_lock)
-            {
-                _byRunKey.Clear();
-                _bySeedLevel.Clear();
-                _pending = null;
-                _pendingTransition = null;
-                _lastFinalizedKey = "";
-                LastFinalizedSnapshot = null;
-            }
-        }
+        // Note: there is deliberately no Clear(). This state is derived purely from local generation events and
+        // describes the currently loaded level; each new generation supersedes it, and while no level is loaded
+        // (main menu) the consumers classify the target as menu and never read it. Clearing it on a NETWORKING
+        // lifecycle event (the old NetService.Stop() call) wedged a host who had started+stopped a session while
+        // sitting in the hub: no level load ever re-finalized the snapshot, so every hub scene request deferred
+        // forever (missing-finalized-hub-seed) and joining clients were never pulled in (Log469).
 
         // ---- StartLevelRoutineGraph capture (host side, generation-start = pre-used-set-mutation) ----
 

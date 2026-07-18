@@ -200,7 +200,13 @@ namespace SULFURTogether.Networking
             _listener = null;
             _hostPeer = null;
             NetClientLoadGate.SetMode(NetMode.Off);
-            NetGenerationInputCapture.Clear();
+            // Deliberately NOT cleared: NetGenerationInputCapture. Its snapshots are derived purely from LOCAL
+            // generation events (GoToLevel/SwitchLevelRoutine/ResetContext) and describe the level that is STILL
+            // loaded — their lifecycle follows the level, not the networking session, and each new generation
+            // supersedes them. Clearing here was the Log469 wedge: a host who had started+stopped any networking
+            // (a join attempt, a re-created room) while sitting in the hub lost the hub's finalized snapshot,
+            // could never re-finalize without a level load, and then every hub scene request deferred forever
+            // (missing-finalized-hub-seed, autoLoad=False) — joining clients were never pulled in.
             NetLoadBarrier.Reset();
             NetClientJoinFlow.LeaveSession("networking stopped");
             NetClientJoinFlow.Reset();
