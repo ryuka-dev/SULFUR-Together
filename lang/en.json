@@ -140,6 +140,8 @@
     { "key": "endless.cardvote.prompt", "value": "Aim at a card and fire to vote" },
     { "key": "endless.cardvote.waiting", "value": "Waiting for teammates… {voted}/{total} — {secs}s" },
     { "key": "endless.cardvote.rolling", "value": "Tie — drawing a card…" },
-    { "key": "endless.cardvote.resolved", "value": "Card {index} chosen" }
+    { "key": "endless.cardvote.resolved", "value": "Card {index} chosen" },
+    { "key": "endless.cardvote.resolved_skip", "value": "Skipped" },
+    { "key": "endless.cardvote.resolved_reroll", "value": "Rerolling cards…" }
   ]
 }

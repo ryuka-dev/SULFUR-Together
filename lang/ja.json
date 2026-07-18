@@ -140,6 +140,8 @@
     { "key": "endless.cardvote.prompt", "value": "カードを狙って射撃で投票" },
     { "key": "endless.cardvote.waiting", "value": "仲間の投票を待っています… {voted}/{total} — {secs}秒" },
     { "key": "endless.cardvote.rolling", "value": "同票 — 抽選中…" },
-    { "key": "endless.cardvote.resolved", "value": "カード {index} を選択" }
+    { "key": "endless.cardvote.resolved", "value": "カード {index} を選択" },
+    { "key": "endless.cardvote.resolved_skip", "value": "スキップ" },
+    { "key": "endless.cardvote.resolved_reroll", "value": "カードを引き直し中…" }
   ]
 }

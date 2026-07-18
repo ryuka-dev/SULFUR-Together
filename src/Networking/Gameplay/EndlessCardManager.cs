@@ -52,6 +52,11 @@ namespace SULFURTogether.Networking.Gameplay
         private static FieldInfo? _crCustomArtwork;   // CardReward.customArtwork (the card's default icon)
         private static FieldInfo? _crCardLayout;      // CardReward.cardLayout
         private static MethodInfo? _fcSetArtwork;     // FloatingCard.SetArtwork(artwork, layout, qty, [addPadding])
+        // EM-6b-3b: Skip/Reroll voting
+        private static PropertyInfo? _fcInteractable; // FloatingCard.Interactable : bool (a 0-reroll card is non-interactable)
+        private static MethodInfo? _fcStartSpin;      // FloatingCard.StartSpin() — client reroll visual feedback
+        private static FieldInfo? _crEventType;       // CardReward.eventType : CardEventType
+        private static object? _ceReroll;             // CardEventType.Reroll (boxed) — identifies the reroll card
 
         // gameplayRandom (Unity.Mathematics.Random struct) + its inner state
         private static FieldInfo? _emGameplayRandom; // EndlessModeManager.gameplayRandom : Unity.Mathematics.Random
@@ -64,7 +69,10 @@ namespace SULFURTogether.Networking.Gameplay
         private static FieldInfo? _emRerollsBF, _emBanishesBF;
 
         // ---- host capture edge ----
-        private static bool _hostCaptured;   // captured the current panel's cards already
+        // Identity of the last-captured spawnedCards array. A new panel (including a chained reroll) always allocates a
+        // fresh FloatingCard[] (FloatingCardManager.SetupCards), so comparing references detects it reliably — a reroll
+        // flips cardsSetup false→true within one frame, so a "cardsSetup rising edge" poll can miss it entirely.
+        private static object? _hostCapturedCards;
         private static int  _cardEventId;    // monotonic per host run
 
         // ---- client dedup / driven roll ----
@@ -89,7 +97,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         public static void Reset()
         {
-            _hostCaptured = false;
+            _hostCapturedCards = null;
             _cardEventId = 0;
             _clientLastEvent = -1;
             _clientRollEvent = -1;
@@ -102,9 +110,10 @@ namespace SULFURTogether.Networking.Gameplay
             EndlessCardVoteManager.Reset(); // EM-6b-3a: drop the previous run's card-vote state alongside the card state
         }
 
-        /// <summary>HOST (Shared mode, each service tick): when the card panel finishes spawning, capture the rolled cards
-        /// once and broadcast them. The <c>cardsSetup</c> flag is true exactly while the panel is up, so its rising edge is
-        /// the canonical "cards ready" signal and its falling edge ends the event.</summary>
+        /// <summary>HOST (Shared mode, each service tick): when a card panel is fully set up, capture the rolled cards once
+        /// and broadcast them. The panel is identified by its <c>spawnedCards</c> array reference (a fresh array per panel),
+        /// so a chained reroll — which flips <c>cardsSetup</c> false→true inside one frame, invisible to a rising-edge poll
+        /// — is still detected as a new event.</summary>
         public static void HostTick()
         {
             try
@@ -112,25 +121,26 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || !SharedMode) return;
                 EnsureResolved();
                 object? fcm = ResolveCardManager();
-                if (fcm == null) { _hostCaptured = false; return; }
+                if (fcm == null) return;
 
                 bool ready = _fcmCardsSetup?.GetValue(fcm) is bool b && b;
-                if (!ready) { _hostCaptured = false; return; } // panel down → arm for the next event
-                if (_hostCaptured) return;                     // already captured this panel
+                if (!ready) return;                                     // no panel up (the next one is a fresh array)
+                object? curCards = _fcmSpawnedCards?.GetValue(fcm);
+                if (curCards == null) return;
+                if (ReferenceEquals(curCards, _hostCapturedCards)) return; // already captured this exact panel
 
                 var msg = BuildManifest(fcm);
                 if (msg == null) return; // arrays not populated yet this frame — retry next tick (still not captured)
-                _hostCaptured = true;
+                _hostCapturedCards = curCards;
 
                 NetGameplaySyncBridge.BroadcastHostEndlessCardManifest(msg);
                 ApplyManifest(msg); // the host keeps the same authoritative record (mirror UI + vote build on it in EM-6b-2/3)
                 if (LogOn) Plugin.Log.Info($"[Endless] EM-6b host card manifest event={msg.CardEventId} count={msg.Cards.Length} keys=[{KeysOf(msg)}]");
 
-                // EM-6b-3a: open the shared 1-of-N card vote for this panel (votable = the ordinary reward cards only;
-                // the static Skip/Reroll cards are excluded until EM-6b-3b).
-                int ordinaryCount = 0;
-                foreach (var c in msg.Cards) if (!c.IsStatic) ordinaryCount++;
-                EndlessCardVoteManager.HostOpenVote(msg.CardEventId, ordinaryCount, msg.ChapterName, msg.LevelIndex, msg.HasLevelSeed, msg.LevelSeed);
+                // EM-6b-3b: open the shared 1-of-N card vote for this panel. Every interactable card is votable —
+                // the ordinary reward cards plus the static Skip/Reroll (a 0-reroll card is non-interactable and excluded).
+                int[] votable = GetVotableIndices(fcm);
+                EndlessCardVoteManager.HostOpenVote(msg.CardEventId, msg.Cards.Length, votable, msg.ChapterName, msg.LevelIndex, msg.HasLevelSeed, msg.LevelSeed);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] card HostTick failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -360,9 +370,10 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return false; }
         }
 
-        /// <summary>Read the ordinary (votable) card the local player is currently aiming at + firing on. Returns false for
-        /// no selection, a dismiss-button (banish, EM-6b-3c) selection, or a static Skip/Reroll card (EM-6b-3b).</summary>
-        public static bool TryReadAimedOrdinaryCard(object fcm, int cardCount, out int index)
+        /// <summary>Read the votable card the local player is currently aiming at + firing on. A votable card is any
+        /// <b>interactable</b> card — ordinary reward, Skip, or an available Reroll (EM-6b-3b). Returns false for no
+        /// selection, a dismiss-button (banish, EM-6b-3c) selection, or a non-interactable card (e.g. a 0-reroll card).</summary>
+        public static bool TryReadAimedVotableCard(object fcm, int cardCount, out int index)
         {
             index = -1;
             try
@@ -377,7 +388,7 @@ namespace SULFURTogether.Networking.Gameplay
                 {
                     object? card = cards.GetValue(sel);
                     if (card == null) return false;
-                    if (_fcIsStatic?.GetValue(card) is bool st && st) return false; // never vote a static card here
+                    if (!IsInteractable(card)) return false; // exhausted 0-reroll card can't be voted
                 }
                 index = sel;
                 return true;
@@ -385,10 +396,70 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return false; }
         }
 
-        /// <summary>BOTH ROLES: apply the vote-resolved card by running the vanilla <c>SpinAndDismissCard(index)</c> on the
-        /// local card manager — the reward's personal effect lands on each player's own <c>PlayerUnit</c> (world-card
-        /// duplication is the known EM-7 gap). Clears the 6b-2 replay flag so the later shared-pause edge teardown no-ops
-        /// (the spin destroys the cards itself).</summary>
+        /// <summary>The interactable card indices in the current panel (ordinary + Skip + an available Reroll) — the votable
+        /// set. A 0-reroll card reports <c>Interactable == false</c> and is excluded, so no host tie/no-vote roll can land on
+        /// a dead reroll.</summary>
+        private static int[] GetVotableIndices(object fcm)
+        {
+            var list = new System.Collections.Generic.List<int>();
+            try
+            {
+                if (_fcmSpawnedCards?.GetValue(fcm) is Array cards)
+                    for (int i = 0; i < cards.Length; i++)
+                    {
+                        object? card = cards.GetValue(i);
+                        if (card is UnityEngine.Object uo && uo != null && IsInteractable(card)) list.Add(i);
+                    }
+            }
+            catch { }
+            return list.ToArray();
+        }
+
+        private static bool IsInteractable(object card)
+        {
+            try { return _fcInteractable == null || (_fcInteractable.GetValue(card) is bool b && b); }
+            catch { return true; }
+        }
+
+        /// <summary>True if the card at <paramref name="index"/> is the Reroll card (host-authoritative re-roll on resolve).</summary>
+        private static bool IsRerollCard(object fcm, int index)
+        {
+            try
+            {
+                if (_ceReroll == null || _crEventType == null) return false;
+                if (_fcmCardRewards?.GetValue(fcm) is not Array rewards || index < 0 || index >= rewards.Length) return false;
+                object? reward = rewards.GetValue(index);
+                if (reward == null) return false;
+                return Equals(_crEventType.GetValue(reward), _ceReroll);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Describe the resolved card for the status HUD: 0 = ordinary, 1 = Skip, 2 = Reroll. Reads the local card
+        /// manager so the wire carries no extra field.</summary>
+        public static int DescribeResolvedCard(int index)
+        {
+            try
+            {
+                EnsureResolved();
+                object? fcm = ResolveCardManager();
+                if (fcm == null) return 0;
+                if (_fcmSpawnedCards?.GetValue(fcm) is not Array cards || index < 0 || index >= cards.Length) return 0;
+                object? card = cards.GetValue(index);
+                if (card == null || !(_fcIsStatic?.GetValue(card) is bool st && st)) return 0; // ordinary
+                return IsRerollCard(fcm, index) ? 2 : 1; // static → Reroll or Skip
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>BOTH ROLES: apply the vote-resolved card. For an ordinary or Skip card, run the vanilla
+        /// <c>SpinAndDismissCard(index)</c> on both ends — the reward's personal effect lands on each player's own
+        /// <c>PlayerUnit</c> (world-card duplication is the known EM-7 gap). For a <b>Reroll</b> (EM-6b-3b) the re-roll is
+        /// host-authoritative: the host runs the vanilla spin, whose terminal <c>SpawnCards</c> re-rolls the panel and
+        /// broadcasts a fresh roll/manifest/vote; the client does <b>not</b> run the spin (its terminal <c>SpawnCards</c>
+        /// would roll a divergent local panel and could collide with the incoming host roll mid-coroutine) — instead it
+        /// spins the reroll card for feedback and waits for the host's new panel, which replaces its cards via
+        /// <see cref="ApplyCardRoll"/>.</summary>
         public static void ApplyResolvedPick(int index)
         {
             try
@@ -398,7 +469,16 @@ namespace SULFURTogether.Networking.Gameplay
                 if (fcm == null || _fcmSpinDismiss == null) return;
                 if (_fcmSpawnedCards?.GetValue(fcm) is not Array cards || index < 0 || index >= cards.Length) return;
                 if (cards.GetValue(index) == null) return; // card already gone
-                ClientRollActive = false; // client: the spin tears the panel down; keep the edge teardown from double-firing
+
+                if (IsRerollCard(fcm, index) && NetGameplaySyncBridge.BossMode == NetMode.Client)
+                {
+                    // Client reroll: host owns the re-roll. Spin the card for feedback, keep ClientRollActive set so the
+                    // incoming host roll's TeardownClientCards fires and swaps in the authoritative new panel.
+                    try { if (cards.GetValue(index) is object rc) _fcStartSpin?.Invoke(rc, null); } catch { }
+                    return;
+                }
+
+                ClientRollActive = false; // client (ordinary/Skip): the spin tears the panel down; keep the edge teardown from double-firing
                 if (_fcmSpinDismiss.Invoke(fcm, new object[] { index }) is IEnumerator e && fcm is MonoBehaviour mb)
                     mb.StartCoroutine(e);
             }
@@ -715,6 +795,13 @@ namespace SULFURTogether.Networking.Gameplay
                         if (ps.Length >= 1 && ps[0].ParameterType.IsAssignableFrom(_crCustomArtwork.FieldType)) { _fcSetArtwork = m; break; }
                     }
                 }
+
+                // EM-6b-3b: Skip/Reroll voting — interactability (excludes a 0-reroll card), reroll detection, spin feedback.
+                _fcInteractable = fcType?.GetProperty("Interactable", BindingFlags.Public | BindingFlags.Instance);
+                _fcStartSpin    = fcType?.GetMethod("StartSpin", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                _crEventType    = crType?.GetField("eventType", bf);
+                var ceType = _crEventType?.FieldType ?? AccessTools.TypeByName("CardEventType") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.CardEventType");
+                if (ceType != null && ceType.IsEnum) { try { _ceReroll = Enum.Parse(ceType, "Reroll"); } catch { _ceReroll = null; } }
 
                 var tmpType = _fcSubtitle?.FieldType;
                 _tmpText = tmpType?.GetProperty("text", BindingFlags.Public | BindingFlags.Instance);

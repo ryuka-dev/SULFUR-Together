@@ -20,7 +20,9 @@ before joining the same session.
   aim at a card and fire to cast your vote, and your name is stamped onto the card you picked (your
   own stamp in gold, teammates' in red). The most-voted card wins — ties are broken by the host — and
   the chosen card is applied for everyone. There's no timer until someone casts the first vote, so
-  you can take your time discussing.
+  you can take your time discussing. You can also vote to **Skip** or **Reroll** — a Skip gives each
+  player their pass reward, and a winning Reroll deals a fresh set of cards for everyone to vote on
+  again (the reroll card is unavailable once your shared rerolls run out).
   *(One shared XP pool and shared world-card rewards are still in development.)*
 
 ## 1.1.1 — Co-op fixes and polish

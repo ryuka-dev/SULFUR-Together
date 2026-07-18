@@ -140,6 +140,8 @@
     { "key": "endless.cardvote.prompt", "value": "瞄准卡牌开火投票" },
     { "key": "endless.cardvote.waiting", "value": "等待队友投票… {voted}/{total} — {secs}s" },
     { "key": "endless.cardvote.rolling", "value": "平票 — 正在随机抽选…" },
-    { "key": "endless.cardvote.resolved", "value": "已选择第 {index} 张卡" }
+    { "key": "endless.cardvote.resolved", "value": "已选择第 {index} 张卡" },
+    { "key": "endless.cardvote.resolved_skip", "value": "已跳过" },
+    { "key": "endless.cardvote.resolved_reroll", "value": "正在重摇卡牌…" }
   ]
 }

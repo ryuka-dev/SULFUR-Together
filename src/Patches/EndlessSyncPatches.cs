@@ -252,11 +252,23 @@ namespace SULFURTogether.Patches
         }
 
         // EM-6b-2 HOST: capture the card RNG + selection state before the vanilla roll consumes it (Shared mode only; the
-        // manager self-gates). The client's own driven SpawnCards also hits this, but HostCaptureRoll no-ops off Host role.
-        private static void SpawnCards_Pre(object __instance)
+        // manager self-gates). EM-6b-3b CLIENT: in Shared mode the only legitimate client card spawn is our host-driven
+        // replay (ClientRollActive is set just before we invoke SpawnCards); suppress any other SpawnCards — notably the
+        // terminal re-roll inside a resolved Reroll's SpinAndDismissCard — so the client never rolls a divergent panel.
+        // The host owns the reroll and broadcasts the new one. Independent mode + single-player are untouched.
+        private static bool SpawnCards_Pre(object __instance)
         {
-            try { if (Enabled && NetGameplaySyncBridge.BossMode == NetMode.Host) EndlessSyncManager_HostCaptureRoll(__instance); }
+            try
+            {
+                if (!Enabled) return true;
+                if (NetGameplaySyncBridge.BossMode == NetMode.Host) { EndlessSyncManager_HostCaptureRoll(__instance); return true; }
+                if (NetGameplaySyncBridge.BossMode == NetMode.Client
+                    && !EndlessSyncManager.IsIndependentMode
+                    && !EndlessCardManager.ClientRollActive)
+                    return false; // suppress non-replay client spawns (reroll re-roll etc.)
+            }
             catch { }
+            return true;
         }
 
         private static void EndlessSyncManager_HostCaptureRoll(object fcm) => EndlessCardManager.HostCaptureRoll(fcm);

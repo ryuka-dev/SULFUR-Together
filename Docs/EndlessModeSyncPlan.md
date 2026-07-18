@@ -313,13 +313,37 @@ Refinements vs. the §7 sketch:
   the cursor card's scale, landing on the winner) before the pick applies. A clear majority applies at once (the
   winner is obvious from the stamps). Carried by `ResolvedByRoll` on the snapshot; the sweep is a deterministic
   easeOut over the votable cards, so no RNG needs to travel.
-- **Scope:** only the ordinary reward cards are votable in this slice; the static Skip/Reroll cards and the
-  per-card banish are deferred (EM-6b-3b/c). A panel with **no** ordinary cards opens no vote (the host falls back
-  to a vanilla Skip/Reroll pick and the client follows via the EM-6a teardown edge), so there is no soft-lock.
+- **Scope:** in 6b-3a only the ordinary reward cards are votable; the static Skip/Reroll cards and the per-card
+  banish are deferred. **EM-6b-3b (below) makes Skip + Reroll votable**; the banish is still deferred (EM-6b-3c).
 - **Known gap (EM-7):** a resolved **world card** (companion / shop NPC) runs `ExecuteReward` on both ends and so
   spawns twice — world-card rewards still need routing to a single authority. Personal cards are correct per-player.
 
 `ProtocolVersion 18→19`. Localization row 31 (`endless.cardvote.*`).
+
+### 7.2 As-built (EM-6b-3b — Skip + Reroll votable, shipped)
+
+The vote is extended from the ordinary reward cards to the **whole panel**. The votable set is every *interactable*
+card (`EndlessCardManager.GetVotableIndices` reads `FloatingCard.Interactable`), so an exhausted **0-reroll card is
+excluded** — `EndlessModeManager.ConsumeReroll` has no floor, and a dead reroll must never be a tie/no-vote roll
+target. `HostOpenVote` now receives the full card count plus that votable-index array; casts and the nobody-voted
+uniform roll are both restricted to it. `TryReadAimedVotableCard` (renamed from `…OrdinaryCard`) drops the
+static-card rejection and instead requires `Interactable`; the DismissButton banish is still ignored (EM-6b-3c).
+
+Resolution branches by the resolved card:
+
+- **Skip** — both ends run vanilla `SpinAndDismissCard(skipIndex)`. The skip reward is `PassForStamps` (personal),
+  so each player gets their own stamps and the panel closes; symmetric, same as an ordinary personal card.
+- **Reroll** — **host-authoritative**. The host runs the vanilla spin, whose terminal `SpawnCards` re-rolls the
+  panel and, through the existing 6b-1/6b-2 chain (`SpawnCards` prefix → `HostCaptureRoll` broadcast, then the
+  manifest + a fresh `HostOpenVote`), issues a new roll/manifest/vote under a new `CardEventId`. The **client does
+  not** run that spin — its terminal `SpawnCards` would roll a divergent local panel and could collide with the
+  incoming host roll mid-coroutine; instead `ApplyResolvedPick` spins the reroll card for feedback and keeps
+  `ClientRollActive` set so the host's new roll tears the panel down and swaps in the authoritative one via
+  `ApplyCardRoll`. A `FloatingCardManager.SpawnCards` **client prefix** additionally suppresses *any* non-replay
+  client card spawn in Shared mode (only the host-driven replay, which sets `ClientRollActive` first, is allowed).
+
+The status HUD names the Skip/Reroll outcome (`DescribeResolvedCard` → `endless.cardvote.resolved_skip` /
+`…_reroll`) rather than a card number. `ProtocolVersion 19→20` (vote semantics changed; the wire is unchanged).
 
 ---
 

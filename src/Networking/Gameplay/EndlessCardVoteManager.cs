@@ -18,9 +18,12 @@ namespace SULFURTogether.Networking.Gameplay
     /// The countdown only starts after the <b>first cast</b> (<see cref="_timeoutActive"/>) — early on, players may
     /// deliberate indefinitely, so an un-cast vote never expires.</para>
     ///
-    /// <para>Only the ordinary reward cards (indices <c>0..CardCount-1</c>) are votable in this slice; the static
-    /// Skip/Reroll cards and the per-card banish are deferred (EM-6b-3b/c). All state is main-thread (host tick from the
-    /// service tick, client apply from the network dispatch, local casts from the card-pick prefix).</para>
+    /// <para>EM-6b-3b: the static <b>Skip</b> and <b>Reroll</b> cards are votable too (the votable set is every
+    /// <i>interactable</i> card, so an exhausted 0-reroll card is excluded). A resolved Skip runs its personal reward on
+    /// each player; a resolved Reroll is <b>host-authoritative</b> — the host re-rolls (which broadcasts a fresh
+    /// roll/manifest/vote) while the client waits for and mirrors that new panel rather than rolling its own. The per-card
+    /// banish (DismissButton) is still deferred (EM-6b-3c). All state is main-thread (host tick from the service tick,
+    /// client apply from the network dispatch, local casts from the card-pick prefix).</para>
     /// </summary>
     internal static class EndlessCardVoteManager
     {
@@ -52,6 +55,7 @@ namespace SULFURTogether.Networking.Gameplay
         private static int    _hostResolvedIndex;
         private static bool   _hostResolvedByRoll;
         private static int[]  _hostTied = System.Array.Empty<int>();
+        private static int[]  _hostVotable = System.Array.Empty<int>(); // EM-6b-3b: the interactable card indices (excludes a 0-reroll card)
         private static bool   _timeoutActive;   // the countdown started (first cast landed)
         private static float  _timeoutStart;
         private static float  _lastBroadcast;
@@ -100,6 +104,13 @@ namespace SULFURTogether.Networking.Gameplay
             _appliedEvent = -1;
             _raffleActive = false; _raffleEvent = -1; _raffleTarget = 0; _raffleTied = System.Array.Empty<int>(); _raffleStart = 0f;
             _hostTied = System.Array.Empty<int>();
+            _hostVotable = System.Array.Empty<int>();
+        }
+
+        private static bool IsVotable(int index)
+        {
+            for (int i = 0; i < _hostVotable.Length; i++) if (_hostVotable[i] == index) return true;
+            return false;
         }
 
         private static float Now => Time.realtimeSinceStartup; // world is frozen during shared card select → use realtime
@@ -107,25 +118,27 @@ namespace SULFURTogether.Networking.Gameplay
         // ================================================================== HOST: open / tick / cast / resolve
 
         /// <summary>HOST: open the shared card vote for a freshly-rolled panel (called from
-        /// <see cref="EndlessCardManager.HostTick"/> right after the manifest broadcast). No-op if there are no votable
-        /// ordinary cards (all reward cards exhausted — a Skip/Reroll-only panel is an EM-6b-3b concern).</summary>
-        public static void HostOpenVote(int eventId, int cardCount, string chap, int lvl, bool hasSeed, int seed)
+        /// <see cref="EndlessCardManager.HostTick"/> right after the manifest broadcast). <paramref name="cardCount"/> is the
+        /// total number of spawned cards (ordinary + Skip + Reroll); <paramref name="votable"/> is the subset of interactable
+        /// card indices players may vote for (EM-6b-3b — excludes a 0-reroll card). No-op if nothing is votable.</summary>
+        public static void HostOpenVote(int eventId, int cardCount, int[] votable, string chap, int lvl, bool hasSeed, int seed)
         {
             try
             {
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || !SharedMode) return;
-                if (cardCount <= 0) { if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3a no votable cards event={eventId} — vote not opened"); return; }
+                if (cardCount <= 0 || votable == null || votable.Length == 0) { if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3b no votable cards event={eventId} — vote not opened"); return; }
                 if (_hostActive && _hostEventId == eventId) return; // already open for this event
 
                 _hostActive = true; _hostResolved = false;
                 _hostEventId = eventId; _hostCardCount = cardCount; _hostResolvedIndex = -1;
+                _hostVotable = votable;
                 _timeoutActive = false; _timeoutStart = 0f; _lastBroadcast = 0f;
                 _hostChap = chap ?? ""; _hostLvl = lvl; _hostHasSeed = hasSeed; _hostSeed = seed;
 
                 RebuildParticipants();
                 if (_participants.Count == 0) { _hostActive = false; return; }
 
-                if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3a host card vote OPEN event={eventId} cards={cardCount} participants={_participants.Count}");
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-6b-3b host card vote OPEN event={eventId} cards={cardCount} votable=[{string.Join(",", votable)}] participants={_participants.Count}");
                 HostBroadcast();
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostOpenVote failed: {ex.GetType().Name}: {ex.Message}"); }
@@ -171,7 +184,7 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || !SharedMode) return;
                 if (!_hostActive || _hostResolved || eventId != _hostEventId) return;
                 if (string.IsNullOrEmpty(peerId)) return;
-                if (votedIndex < 0 || votedIndex >= _hostCardCount) return; // only ordinary votable indices
+                if (!IsVotable(votedIndex)) return; // only an interactable card index (ordinary / Skip / interactable Reroll)
 
                 var p = Find(peerId);
                 if (p == null) return;            // not a recognized participant
@@ -217,7 +230,8 @@ namespace SULFURTogether.Networking.Gameplay
             List<int> tied = new List<int>();
             if (cast == 0)
             {
-                for (int i = 0; i < _hostCardCount; i++) tied.Add(i);                                 // nobody voted → sweep all
+                foreach (int idx in _hostVotable) tied.Add(idx);                                       // nobody voted → sweep all votable
+                if (tied.Count == 0) for (int i = 0; i < _hostCardCount; i++) tied.Add(i);             // (defensive; votable is never empty here)
                 index = tied[UnityEngine.Random.Range(0, tied.Count)];
                 byRoll = true;
             }
@@ -306,15 +320,15 @@ namespace SULFURTogether.Networking.Gameplay
         // ================================================================== local cast (card-pick prefix, both roles)
 
         /// <summary>BOTH ROLES: the local player pressed Fire/Interact while the shared card panel is up. Read the card
-        /// they are aiming at; if it is an ordinary (votable) card, cast a vote for it. Skip/Reroll and the banish button
-        /// are ignored in this slice (EM-6b-3b/c). Called from the card-pick prefix, which always blocks the vanilla pick
-        /// in shared mode.</summary>
+        /// they are aiming at; if it is a votable (interactable) card — ordinary, Skip, or an available Reroll — cast a vote
+        /// for it. The per-card banish button (DismissButton) is still ignored (EM-6b-3c). Called from the card-pick prefix,
+        /// which always blocks the vanilla pick in shared mode.</summary>
         public static void OnLocalPickInput(object fcm)
         {
             try
             {
                 if (!Enabled || !SharedMode || _current == null || _current.CardEventId <= 0 || _current.Phase != 0) return;
-                if (!EndlessCardManager.TryReadAimedOrdinaryCard(fcm, _current.CardCount, out int index)) return;
+                if (!EndlessCardManager.TryReadAimedVotableCard(fcm, _current.CardCount, out int index)) return;
 
                 if (NetGameplaySyncBridge.BossMode == NetMode.Host)
                     HostHandleCast(NetGameplaySyncBridge.LocalPeerId, _current.CardEventId, index);

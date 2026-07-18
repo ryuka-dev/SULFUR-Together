@@ -208,8 +208,15 @@ namespace SULFURTogether.UI.EndlessCardVote
             if (EndlessCardVoteManager.RaffleActive) // tie → don't reveal the winner until the sweep lands
                 return CoopLoc.Get("endless.cardvote.rolling", "Tie — drawing a card…");
             if (snap.Phase == 1)
+            {
+                switch (EndlessCardManager.DescribeResolvedCard(snap.ResolvedIndex)) // EM-6b-3b: name the Skip/Reroll outcome
+                {
+                    case 2: return CoopLoc.Get("endless.cardvote.resolved_reroll", "Rerolling cards…");
+                    case 1: return CoopLoc.Get("endless.cardvote.resolved_skip", "Skipped");
+                }
                 return CoopLoc.Format("endless.cardvote.resolved", "Card {index} chosen",
                     ("index", (snap.ResolvedIndex + 1).ToString()));
+            }
             if (!snap.TimeoutActive)
                 return CoopLoc.Get("endless.cardvote.prompt", "Aim at a card and fire to vote");
             return CoopLoc.Format("endless.cardvote.waiting", "Waiting for teammates… {voted}/{total} — {secs}s",
