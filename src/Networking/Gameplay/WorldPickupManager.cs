@@ -76,11 +76,19 @@ namespace SULFURTogether.Networking.Gameplay
 
         public static bool IsApplyingMirror => _applyingMirror;
 
+        /// <summary>EM-7: set by the HOST only, for the duration of an Endless card's loot-table reward
+        /// (<c>FloatingCardManager.ExecuteReward</c> → <c>SpawnFromLootTable</c> → <c>SpawnPickup</c>). In Shared-endless
+        /// mode the client suppresses its own copy of that reward, so the host's pickup must be mirrored to the client
+        /// <b>independently of the SharedLoot toggle</b> — otherwise the shared card loot would only exist on the host.
+        /// Scoped tightly to the host's synchronous loot spawn so no other pickup qualifies through it.</summary>
+        public static bool EndlessSharedLootContext;
+
         // ----------------------------------------------------------------- filter (mode-driven)
 
         private static bool Qualifies(Pickup p)
         {
             if (p == null || p.ItemSO == null) return false;
+            if (EndlessSharedLootContext) return true;        // EM-7: host-authoritative Endless card loot (mode-independent)
             if (NetSessionSettings.SharedLootEnabled) return true;   // SL-4 Shared-loot mode (host-authoritative): every pickup
             return p.inventoryData != null;                   // Independent mode: only player drops (Pickup.DroppedByPlayer)
         }

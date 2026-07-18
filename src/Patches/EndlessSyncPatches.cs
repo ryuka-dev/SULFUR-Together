@@ -33,6 +33,12 @@ namespace SULFURTogether.Patches
         public static int ClientWaveDriverSkipped;
         public static int ClientSpawnCoroutineSkipped;
 
+        // EM-7: Endless card-reward world-spawn routing (Shared mode). The plain-Pickup loot branch is host-authoritative
+        // and mirrored to the client via the WID pipeline; the client suppresses its own duplicate.
+        private static FieldInfo? _crRewardType;        // CardReward.rewardType : CardRewardType
+        private static FieldInfo? _crContainerPrefab;   // CardReward.containerPrefab : Container (null = plain SpawnPickup path)
+        private static int _lootTableRewardValue = int.MinValue; // CardRewardType.SpawnFromLootTable
+
         private static bool Enabled { get { try { return Plugin.Cfg.EnableEndlessSync.Value; } catch { return false; } } }
         private static bool LogOn  { get { try { return Plugin.Cfg.LogEndlessSync.Value; } catch { return false; } } }
 
@@ -158,6 +164,24 @@ namespace SULFURTogether.Patches
                     harmony.Patch(choiceDraw, postfix: new HarmonyMethod(
                         typeof(EndlessSyncPatches).GetMethod(nameof(ChoiceDrawAmount_Post), BindingFlags.Static | BindingFlags.NonPublic)));
 
+                // EM-7 (Shared mode): route Endless card LOOT to a single authority. SpawnFromLootTable's plain-Pickup path
+                // (containerPrefab == null) goes through InteractionManager.SpawnPickup, which the WID pipeline already
+                // mirrors — so the host spawns it once (tagged EndlessSharedLootContext so it mirrors regardless of the
+                // SharedLoot toggle) and the client suppresses its own duplicate (the reported "loot spawns twice" bug).
+                // Container-path loot + companions + shop NPCs are later EM-7 slices.
+                var execReward = fcmType != null ? AccessTools.Method(fcmType, "ExecuteReward") : null;
+                if (execReward != null && crType != null)
+                {
+                    _crRewardType      = AccessTools.Field(crType, "rewardType");
+                    _crContainerPrefab = AccessTools.Field(crType, "containerPrefab");
+                    if (_crRewardType != null)
+                        try { _lootTableRewardValue = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnFromLootTable")); } catch { }
+                    harmony.Patch(execReward,
+                        prefix:  new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(ExecuteReward_Pre),  BindingFlags.Static | BindingFlags.NonPublic)),
+                        postfix: new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(ExecuteReward_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                }
+                else Plugin.Log.Info("[Endless] FloatingCardManager.ExecuteReward not found — EM-7 loot routing disabled.");
+
                 Plugin.Log.Info($"[Endless] EM-1/EM-5 client slave + progression patched ({patched} core). EM-2 mirror via RuntimeSpawnManager.ClassifyOwner(Endless).");
             }
             catch (Exception ex) { Plugin.Log.Error($"[Endless] EM-1 Apply failed: {ex.Message}"); }
@@ -279,6 +303,56 @@ namespace SULFURTogether.Patches
         {
             try { if (EndlessCardManager.ClientRollActive) __result = EndlessCardManager.ClientChoiceDrawOverride; }
             catch { }
+        }
+
+        // EM-7 (Shared mode): a resolved card runs ExecuteReward on BOTH ends (the shared vote applies the pick on each),
+        // so a world reward that spawns an object duplicates it. This slice routes the plain-Pickup LOOT reward to a single
+        // authority:
+        //  - CLIENT (linked, Shared): suppress the SpawnFromLootTable pickup branch — the host's copy is mirrored in via the
+        //    WID pipeline, so running it here is what doubles the loot.
+        //  - HOST (Shared): tag the loot spawn (EndlessSharedLootContext) so the resulting SpawnPickup is mirrored to the
+        //    client independently of the SharedLoot session toggle. Cleared in the postfix.
+        // Independent mode + single-player are untouched (personal loot stays separate; routing Independent-mode client world
+        // picks to the host is a later EM-7 slice). Container-path loot, companions, and shop NPCs are later slices too.
+        private static bool ExecuteReward_Pre(object reward, ref System.Threading.Tasks.Task __result)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode == NetMode.Off) return true;
+                if (EndlessSyncManager.IsIndependentMode) return true;   // Shared mode only (this slice)
+                if (!IsLootTablePickupReward(reward)) return true;       // only the plain-Pickup loot branch
+
+                if (IsLinkedClient)
+                {
+                    __result = System.Threading.Tasks.Task.CompletedTask; // host's copy arrives via WID mirror — no duplicate
+                    return false;
+                }
+                if (NetGameplaySyncBridge.BossMode == NetMode.Host)
+                    WorldPickupManager.EndlessSharedLootContext = true;   // mirror host loot regardless of SharedLoot toggle
+            }
+            catch { }
+            return true;
+        }
+
+        // Clear the host loot tag once the (synchronous) loot spawn has completed. The SpawnFromLootTable pickup branch has
+        // no await, so this postfix runs after the pickups are spawned; other reward branches never set the flag.
+        private static void ExecuteReward_Post()
+        {
+            try { WorldPickupManager.EndlessSharedLootContext = false; } catch { }
+        }
+
+        private static bool IsLootTablePickupReward(object reward)
+        {
+            try
+            {
+                if (reward == null || _crRewardType == null || _lootTableRewardValue == int.MinValue) return false;
+                if (Convert.ToInt32(_crRewardType.GetValue(reward)) != _lootTableRewardValue) return false;
+                // containerPrefab != null → the Container path (an interactable Instantiate, not a SpawnPickup) — not this
+                // slice; leave it spawning on both ends until the interactable mirror exists.
+                if (_crContainerPrefab != null && _crContainerPrefab.GetValue(reward) != null) return false;
+                return true;
+            }
+            catch { return false; }
         }
 
         // EM-6b-3a: in Shared mode the card pick is a 1-of-N group vote, not an immediate selection. Both ends route the
