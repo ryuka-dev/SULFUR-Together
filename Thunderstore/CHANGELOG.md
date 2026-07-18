@@ -32,8 +32,13 @@ before joining the same session.
 **Fixed:**
 - **Endless Mode card loot no longer appears twice.** In Shared mode, a level-up card that
   drops loot into the world now spawns it once, at the same place for both players, instead of
-  a duplicate copy on each screen. (Companions, shop NPCs, and chests from cards are still being
-  worked on.)
+  a duplicate copy on each screen.
+- **Endless Mode companions are shared.** A card that summons an ally now spawns a single
+  companion that both players see in the same place (it follows the host), with the charmed
+  heart above its head, instead of a separate copy on each screen.
+- **The yellow "loot spawned here" beam is now visible to everyone.** In Shared mode the pillar
+  that marks where a card dropped loot, a chest, or an NPC now appears, moves, and disappears in
+  sync for both players. (Shop NPCs and chests from cards are still being worked on.)
 
 ## 1.1.1 — Co-op fixes and polish
 

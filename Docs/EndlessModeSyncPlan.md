@@ -423,6 +423,30 @@ prefix returns a completed `Task`; the loot branch has no await, so the host pos
 pickups spawn. No protocol change. Container-path loot, companions, shop NPCs, interactables, and the
 `lootLightEffect` spawn-locator beam are later slices. `ProtocolVersion` unchanged.
 
+### 7.7 As-built (EM-7b — loot-locator beam, shipped)
+
+`FloatingCardManager.lootLightEffect` is a single shared light pillar that marks where a card spawned loot /
+chests / NPCs (moved + activated per spawn, turned off at the next arena transition). It is host-authoritative
+in Shared mode: the client suppresses its own `SpawnLootLightEffect` and the beam's active state + position ride
+the existing `NetEndlessWaveState` snapshot (codec v2, reliable) — so it appears, moves, and disappears in sync
+with the host. Because it is a single object, this is decoupled from spawn-mirroring (it works even for spawns
+that aren't mirrored yet). Independent mode keeps each player's local beam. Note the vanilla beam sits at the
+loot **spawn** position while the item settles ~1 m away and the client mirror glides to the settled spot
+(WID-3) — a small, host-consistent offset. `ProtocolVersion 22→23`.
+
+### 7.8 As-built (EM-7c — companion mirror + charmed presentation, shipped)
+
+A `SpawnRandomAllies` card spawns one host-authoritative ally, mirrored to the client as a puppet (via the
+existing RuntimeSpawn pipeline) instead of one per screen. `FloatingCardManager` is classified in
+`RuntimeSpawnManager.ClassifyOwner`, but **only companion spawns** are mirrored — the host brackets
+`SpawnCompanion` with a depth counter so shop NPCs (which share the owner via `SpawnNPC`) are left per-end for
+EM-7d. The client suppresses its own companion spawn (the EM-7a world-reward `ExecuteReward` prefix, extended).
+A companion is a **charmed** ally on the host (`ApplyForcedCharmed` = heart symbol + allied faction); the
+position/animation puppet mirror doesn't carry that, so — since `NetRuntimeSpawn.Source` already travels on the
+wire (`"EndlessCompanion"`) — the client re-applies the charmed presentation on the mirrored puppet (its AI is
+puppet-suppressed, so this is visual only). No protocol change for companions. **Open:** the companion charms to
+the host's `PlayerUnit`; "follows the picker" only has a well-defined picker in Independent mode (deferred).
+
 ---
 
 ## 8. Phasing
