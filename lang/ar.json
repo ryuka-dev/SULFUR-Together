@@ -15,6 +15,7 @@
     { "key": "link.playingSolo", "value": "اللعب منفرداً" },
     { "key": "link.hostingOn", "value": "الاستضافة مفعّلة" },
     { "key": "link.hostingOff", "value": "الاستضافة معطّلة" },
+    { "key": "link.pressToJoin", "value": "لست في عالم المضيف بعد — اضغط [{key}] للانضمام" },
 
     { "key": "session.settingChanged", "value": "{label}: {state}" },
     { "key": "session.friendlyFire.label", "value": "نيران صديقة" },

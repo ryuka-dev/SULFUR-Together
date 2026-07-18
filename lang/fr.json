@@ -15,6 +15,7 @@
     { "key": "link.playingSolo", "value": "Jeu en solo" },
     { "key": "link.hostingOn", "value": "Hébergement ACTIVÉ" },
     { "key": "link.hostingOff", "value": "Hébergement DÉSACTIVÉ" },
+    { "key": "link.pressToJoin", "value": "Vous n'êtes pas encore dans le monde de l'hôte — appuyez sur [{key}] pour rejoindre" },
 
     { "key": "session.settingChanged", "value": "{label} : {state}" },
     { "key": "session.friendlyFire.label", "value": "Tir allié" },

@@ -15,6 +15,7 @@
     { "key": "link.playingSolo", "value": "솔로 플레이 중" },
     { "key": "link.hostingOn", "value": "호스팅 켜짐" },
     { "key": "link.hostingOff", "value": "호스팅 꺼짐" },
+    { "key": "link.pressToJoin", "value": "아직 호스트의 월드에 참가하지 않았습니다 — [{key}] 키로 참가하세요" },
 
     { "key": "session.settingChanged", "value": "{label}: {state}" },
     { "key": "session.friendlyFire.label", "value": "아군 사격" },

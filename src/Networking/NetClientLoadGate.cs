@@ -443,6 +443,9 @@ namespace SULFURTogether.Networking
                     {
                         SessionReturnSkippedNotJoined++;
                         Plugin.Log.Info($"[AutoFollow] skipped target={target} reason=not-joined-hub-request-waiting");
+                        // The player is connected but UNLINKED, sitting invisibly in their own hub instance —
+                        // tell them the link key exists (throttled; the deliberate no-hijack skip stays).
+                        SULFURTogether.UI.CoopToasts.NotifyLinkHint();
                         return;
                     }
 

@@ -196,6 +196,8 @@ namespace SULFURTogether.Networking
                 LastSkipReason = "not-linked";
                 JoinFlowManualAvailable++;
                 Plugin.Log.Info($"[JoinFlow] auto-follow skipped reason=not-linked (联机状态 off) target={targetKey}");
+                // Connected but unlinked — surface the link key (throttled); the no-hijack skip itself stays.
+                SULFURTogether.UI.CoopToasts.NotifyLinkHint();
                 return false;
             }
 

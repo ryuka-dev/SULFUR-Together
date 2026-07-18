@@ -15,6 +15,7 @@
     { "key": "link.playingSolo", "value": "Playing solo" },
     { "key": "link.hostingOn", "value": "Hosting ON" },
     { "key": "link.hostingOff", "value": "Hosting OFF" },
+    { "key": "link.pressToJoin", "value": "You're not in the host's world yet — press [{key}] to join" },
 
     { "key": "session.settingChanged", "value": "{label}: {state}" },
     { "key": "session.friendlyFire.label", "value": "Friendly fire" },

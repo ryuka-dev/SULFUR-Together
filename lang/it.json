@@ -15,6 +15,7 @@
     { "key": "link.playingSolo", "value": "Gioco in solitaria" },
     { "key": "link.hostingOn", "value": "Hosting ATTIVO" },
     { "key": "link.hostingOff", "value": "Hosting DISATTIVO" },
+    { "key": "link.pressToJoin", "value": "Non sei ancora nel mondo dell'host: premi [{key}] per unirti" },
 
     { "key": "session.settingChanged", "value": "{label}: {state}" },
     { "key": "session.friendlyFire.label", "value": "Fuoco amico" },

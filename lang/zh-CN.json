@@ -15,6 +15,7 @@
     { "key": "link.playingSolo", "value": "单人游戏中" },
     { "key": "link.hostingOn", "value": "主机模式 开" },
     { "key": "link.hostingOff", "value": "主机模式 关" },
+    { "key": "link.pressToJoin", "value": "尚未进入主机的世界——按 [{key}] 加入" },
 
     { "key": "session.settingChanged", "value": "{label}：{state}" },
     { "key": "session.friendlyFire.label", "value": "友方伤害" },

@@ -51,6 +51,26 @@ namespace SULFURTogether.UI
                 : CoopLoc.Get("session.devmode.disabled", "Developer mode disabled — not all players have dev access"),
                 respectPreference: false);
 
+        private static float _nextLinkHintAt;
+
+        /// <summary>
+        /// Link hint: an UNLINKED client received a followable host target and the auto-follow skipped it
+        /// (联机状态 off). The skip itself is deliberate — a solo run must never be hijacked — but it is silent:
+        /// a first-time joiner sits invisibly in their own same-named hub instance (different seed hides the
+        /// remote visuals) with no clue the link key exists. Surface the key. Throttled so the periodic host
+        /// re-broadcasts don't spam; gated by the normal toast preference.
+        /// </summary>
+        public static void NotifyLinkHint()
+        {
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            if (now < _nextLinkHintAt) return;
+            _nextLinkHintAt = now + 90f;
+            string key = "PageDown";
+            try { key = Plugin.Cfg.ManualClientSceneFollowKey.Value.MainKey.ToString(); } catch { }
+            Notify(null, CoopLoc.Format("link.pressToJoin", "You're not in the host's world yet — press [{key}] to join",
+                ("key", key)));
+        }
+
         /// <summary>
         /// Show a co-op toast (and always log the event). No-op when <c>EnableCoopToasts</c> is off.
         /// Safe to call when the UI Lib is absent — the event is logged only.

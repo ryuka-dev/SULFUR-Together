@@ -15,6 +15,7 @@
     { "key": "link.playingSolo", "value": "Tek başına oynanıyor" },
     { "key": "link.hostingOn", "value": "Sunuculuk AÇIK" },
     { "key": "link.hostingOff", "value": "Sunuculuk KAPALI" },
+    { "key": "link.pressToJoin", "value": "Henüz sunucunun dünyasında değilsin — katılmak için [{key}] tuşuna bas" },
 
     { "key": "session.settingChanged", "value": "{label}: {state}" },
     { "key": "session.friendlyFire.label", "value": "Dost ateşi" },
