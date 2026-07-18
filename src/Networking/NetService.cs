@@ -349,12 +349,14 @@ namespace SULFURTogether.Networking
         // STEAM-2: when set, ConnectToHost/GetConnectionSummary target this instead of the configured Direct-IP
         // HostAddress/HostPort — used for a Steam join, where the real destination is a local SteamRelayBridge
         // loopback port. Null (the default) preserves today's Direct-IP behavior exactly.
-        private (string Address, int Port, string Label)? _connectTargetOverride;
+        private (string Address, int Port, string Label, bool SteamRelay)? _connectTargetOverride;
 
         /// <summary>Must be called (if at all) before <see cref="Start"/> for a Client session. See
-        /// <see cref="_connectTargetOverride"/>.</summary>
-        public void SetConnectTarget(string address, int port, string displayLabel)
-            => _connectTargetOverride = (address, port, displayLabel);
+        /// <see cref="_connectTargetOverride"/>. <paramref name="steamRelay"/> marks the target as a local
+        /// SteamRelayBridge loopback port, which widens the LiteNetLib connect window (see
+        /// <see cref="ConnectToHost"/>).</summary>
+        public void SetConnectTarget(string address, int port, string displayLabel, bool steamRelay = false)
+            => _connectTargetOverride = (address, port, displayLabel, steamRelay);
 
         private void ConnectToHost(bool initial)
         {
@@ -366,6 +368,14 @@ namespace SULFURTogether.Networking
 
             string address = _connectTargetOverride?.Address ?? Plugin.Cfg.HostAddress.Value;
             int port = _connectTargetOverride?.Port ?? Plugin.Cfg.HostPort.Value;
+
+            // A Steam join's first datagram is what triggers the underlying P2P session negotiation (NAT punch /
+            // SDR relay), which can take several seconds cold — longer than LiteNetLib's default connect window
+            // (10 attempts × 0.5s). The first attempt then died mid-negotiation and the 5s reconnect backoff made
+            // even a healthy Steam join take ~10s (Log464). Widen the window for a Steam target so the same
+            // connect request simply rides through the negotiation and completes the moment the tunnel opens.
+            // Direct IP keeps the default (a dead LAN target should fail fast).
+            _net.MaxConnectAttempts = (_connectTargetOverride?.SteamRelay ?? false) ? 30 : 10;
 
             _net.Connect(address, port, Plugin.Cfg.ConnectionKey.Value);
 

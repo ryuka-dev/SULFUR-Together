@@ -105,6 +105,10 @@ namespace SULFURTogether.Networking
             if (!_hostingActive)
             {
                 Plugin.Log?.Info($"[SteamRelay] ignored session request from {remote.m_SteamID} — Steam hosting not enabled.");
+                // Close instead of leaving the request pending: the requester's reliable send otherwise sits in
+                // "connecting" until Steam's ~20s timeout ("App did not respond") — an explicit close fails their
+                // session fast so their UI can say "connection failed" immediately.
+                SteamNetworkingSupport.CloseSession(remote);
                 return;
             }
             if (_hostPeers.ContainsKey(remote.m_SteamID)) return; // already bridged

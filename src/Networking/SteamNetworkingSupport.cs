@@ -209,6 +209,11 @@ namespace SULFURTogether.Networking
                 // etc. — via m_info.m_eEndReason / m_szEndDebug) instead of the two ends just silently never seeing
                 // each other, which is otherwise indistinguishable from "callback never fired".
                 _sessionFailedCallback = Callback<SteamNetworkingMessagesSessionFailed_t>.Create(OnSessionFailed);
+                // Valve-recommended warm-up: pre-fetch the relay network config + ticket NOW (async) so the
+                // first real P2P connection doesn't pay that round-trip inside its own session-negotiation
+                // window — a cold first join was exceeding LiteNetLib's connect window before the tunnel opened.
+                try { SteamNetworkingUtils.InitRelayNetworkAccess(); }
+                catch (Exception ex) { Plugin.Log?.Info($"[SteamNet] InitRelayNetworkAccess failed (non-fatal): {ex.Message}"); }
                 string idText = TryGetLocalSteamId(out var id) ? id.m_SteamID.ToString() : "?";
                 Plugin.Log?.Info($"[SteamNet] available; local SteamID={idText}");
             }

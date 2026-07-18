@@ -110,11 +110,21 @@ namespace SULFURTogether.Networking
                 if (mode == NetMode.Client && _pendingSteamJoinTarget.HasValue)
                 {
                     var t = _pendingSteamJoinTarget.Value;
-                    service.SetConnectTarget(t.Address, t.Port, t.Label);
+                    service.SetConnectTarget(t.Address, t.Port, t.Label, steamRelay: true);
                 }
                 _pendingSteamJoinTarget = null;
 
                 service.Start(mode);
+
+                // STEAM-2b: the relay bridge now starts WITH the room (when Steam is up), so a friend entering the
+                // host's Steam ID connects on the first try — it used to start only when "Invite Friends" was
+                // pressed, and any earlier P2P session request was ignored (Log464: the joiner timed out with
+                // "connection failed", then got straight in once the host merely OPENED the invite dialog). Only
+                // inbound-session acceptance is auto-started; rich presence (friends seeing "Join Game") and the
+                // overlay stay strictly on the invite button, and every session still lands in the normal
+                // LiteNetLib handshake (connection key + version gated).
+                if (mode == NetMode.Host && SteamNetworkingSupport.IsAvailable)
+                    SteamRelayBridge.StartHosting(BuildHostGamePort());
                 // HOST ONLY: networking now starts AFTER the save is loaded (explicit Create), so the GoToLevel
                 // that loaded the host's current level fired before this service existed. Seed the run-state from
                 // the cached last level + current seed so the host's handshake scene request to a joining client
