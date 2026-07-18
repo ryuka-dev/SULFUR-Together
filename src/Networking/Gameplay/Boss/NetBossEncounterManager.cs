@@ -367,6 +367,18 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try { return adapter.IsStarted(component); } catch { return false; }
         }
 
+        /// <summary>True when the adapter's single health unit exists and its unitState reads Dead. Used by the
+        /// terminal gate: a dead local boss is terminal even before the host's death broadcast lands.</summary>
+        private static bool IsHealthUnitDead(IBossEncounterAdapter adapter, object component)
+        {
+            try
+            {
+                var unit = adapter.GetHealthUnit(component);
+                return unit != null && BossReflect.GetMember(unit, "unitState")?.ToString() == "Dead";
+            }
+            catch { return false; }
+        }
+
         /// <summary>LD-Sandstorm / F4: true when a boss's per-frame combat should be SUPPRESSED on this end — i.e. we are
         /// a joined client and the boss has started (fightStarted). On the client the fight is host-authoritative, so the
         /// boss must not run its own aiming/firing/missile logic (that produced a divergent local fight + double damage).
@@ -1787,10 +1799,25 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // music restart. A terminal encounter must reject every start source on both ends, ahead of the
                 // continuation / appliedStart logic.
                 bool terminal; lock (_lock) { terminal = _terminalDead.Contains(key); }
+                // A DEAD local boss unit is terminal-equivalent: the host's death broadcast can lag the local unit's
+                // death (health-sync die) by ~1s, and in that window the released puppet's behavior tree re-runs the
+                // intro chain (Log 1.1.1: post-death Introduction → Cinematic lock with its releasing StartFight
+                // blocked below → client frozen until the next scene change). The local unit's death is the canonical
+                // local state — no need to wait for the broadcast.
+                if (!terminal && mode == NetMode.Client && joined && IsHealthUnitDead(adapter, component))
+                {
+                    terminal = true;
+                    if (LogOn) Plugin.Log.Info($"[BossEncounter] client treating start as TERMINAL (local boss unit dead) source={source} key={key}");
+                }
                 if (terminal && mode == NetMode.Client && joined)
                 {
                     BossLocalStartBlocked++;
                     if (LogOn) Plugin.Log.Info($"[BossEncounter] client blocked start on TERMINAL encounter source={source} key={key}");
+                    // Blocking a start-chain step also blocks any lock-release that lives in it (Cousin: StartFight
+                    // releases the Cinematic locks Introduction took). Release stale pre-fight locks so a blocked
+                    // chain can never leave the local player frozen.
+                    if (adapter.TryReleaseStalePreFightLocks(component, out string staleLockDetail))
+                        Plugin.Log.Info($"[BossEncounter] {staleLockDetail} key={key} (start blocked on terminal encounter)");
                     return false;
                 }
 

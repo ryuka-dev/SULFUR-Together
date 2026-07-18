@@ -222,6 +222,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// The manager marks the encounter terminal: the Client runs the real local death and stops sending hits.</summary>
         bool IsTerminalEvent(string eventName);
 
+        /// <summary>CLIENT: release any player-facing lock the boss's pre-fight chain applied whose paired release
+        /// lives in a start-chain step the terminal gate blocks (Cousin: Introduction takes the Cinematic
+        /// controller-lock + invulnerability and only StartFight releases them — on a dead encounter StartFight is
+        /// blocked, so a late-run intro would freeze the player until the next scene change). Called when a start
+        /// source is blocked on a terminal/dead encounter and when the terminal death event is applied. Idempotent,
+        /// never throws. Default = no-op (boss takes no such lock).</summary>
+        bool TryReleaseStalePreFightLocks(object component, out string detail);
+
         // ---- Phase 5.4-F5: Lucia eye defeat authority (count/cycle, not per-eye identity) ----
 
         /// <summary>True if this boss has the Lucia-style "eye phase": the body is locked invulnerable while a set of

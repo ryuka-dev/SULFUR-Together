@@ -1,4 +1,5 @@
 using System;
+using PerfectRandom.Sulfur.Core;
 using UnityEngine;
 
 namespace SULFURTogether.Networking.Gameplay.Boss
@@ -110,6 +111,17 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     return true;
                 case "CousinDeath":
                     detail = ApplyLocalDeath(component);
+                    // 1.1.1 post-death freeze (all clients, every run): on the client the cousin fights as an enemy
+                    // puppet, so its behavior tree never consumes the triggeredByPlayer set by the fight-start
+                    // Trigger(). Unit death releases the puppet, the tree resumes, sees triggeredByPlayer=true +
+                    // introPlayed=false and runs Introduction() — which takes the Cinematic controller-lock +
+                    // invulnerability whose paired release lives in StartFight(), blocked by the terminal gate.
+                    // Inoculate the tree (clear the trigger, mark the intro played so Introduction() no-ops) and
+                    // release the lock if the tree already took it.
+                    TrySetMember(component, "triggeredByPlayer", false);
+                    TrySetMember(component, "introPlayed", true);
+                    if (TryReleaseStalePreFightLocks(component, out string lockDetail))
+                        detail += $"; {lockDetail}";
                     return true;
                 default:
                     detail = $"unknown event {eventName}";
@@ -118,6 +130,42 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         }
 
         public override bool IsTerminalEvent(string eventName) => eventName == "CousinDeath";
+
+        // The intro's Cinematic locks are only ever released by StartFight(); once the encounter is terminal that
+        // release can never run (the terminal gate blocks every start source), so release them here. Gated on
+        // introPlayed (the lock owner is the intro chain) — ModifyControllerLock removes from a padlock set, so a
+        // release with no lock held is a no-op.
+        public override bool TryReleaseStalePreFightLocks(object component, out string detail)
+        {
+            detail = "no-op";
+            try
+            {
+                if (!(BossReflect.TryGetBool(component, "introPlayed", out bool intro) && intro)) return false;
+                var gm = GameManager.Instance;
+                if (gm == null) return false;
+                gm.ModifyPlayerInvulnerability(LockStatePadlock.Cinematic, state: false);
+                gm.ModifyControllerLock(LockStatePadlock.Cinematic, state: false);
+                detail = "released stale Cinematic lock+invuln";
+                return true;
+            }
+            catch (Exception ex) { detail = $"lock-release ex {ex.GetType().Name}"; return false; }
+        }
+
+        private static bool TrySetMember(object obj, string name, object value)
+        {
+            try
+            {
+                const System.Reflection.BindingFlags f =
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                var t = obj.GetType();
+                var fi = t.GetField(name, f);
+                if (fi != null) { fi.SetValue(obj, value); return true; }
+                var pi = t.GetProperty(name, f);
+                if (pi != null && pi.CanWrite) { pi.SetValue(obj, value); return true; }
+            }
+            catch { }
+            return false;
+        }
 
         // LogOutput31: Host kills Cousin normally but the Client only got hp=0 — owner never Died, so the body stays
         // up, killable, bar stuck. The faithful fix is owner.Die() (Unit.Die -> SetUnitState(Dead) + onDeath ->

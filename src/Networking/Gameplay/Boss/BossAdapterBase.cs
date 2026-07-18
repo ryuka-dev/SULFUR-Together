@@ -209,6 +209,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         public virtual int SuppressClientMechanics(object component, out string detail) { detail = "not-a-pure-puppet-boss"; return 0; }
 
+        public virtual bool TryReleaseStalePreFightLocks(object component, out string detail) { detail = "no pre-fight locks"; return false; }
+
         public virtual bool ProvidesPhaseState => false;
 
         /// <summary>Default: fill the host-authoritative health of the boss's damageable unit. Phase bosses override
