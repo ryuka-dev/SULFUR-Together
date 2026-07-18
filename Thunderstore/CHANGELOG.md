@@ -38,7 +38,10 @@ before joining the same session.
   heart above its head, instead of a separate copy on each screen.
 - **The yellow "loot spawned here" beam is now visible to everyone.** In Shared mode the pillar
   that marks where a card dropped loot, a chest, or an NPC now appears, moves, and disappears in
-  sync for both players. (Shop NPCs and chests from cards are still being worked on.)
+  sync for both players.
+- **Endless Mode shop NPCs are shared.** A card that spawns a vendor now places a single shop that
+  both players can walk up to and buy from, instead of a separate one on each screen. (Purchases
+  are per-player for now; chests from cards are still being worked on.)
 
 ## 1.1.1 — Co-op fixes and polish
 

@@ -447,6 +447,19 @@ wire (`"EndlessCompanion"`) — the client re-applies the charmed presentation o
 puppet-suppressed, so this is visual only). No protocol change for companions. **Open:** the companion charms to
 the host's `PlayerUnit`; "follows the picker" only has a well-defined picker in Independent mode (deferred).
 
+### 7.9 As-built (EM-7d-1 — shop NPC mirror + client setup, shipped)
+
+A `SpawnNPC` shop card spawns one host-authoritative vendor, mirrored to the client (RuntimeSpawn puppet). Since
+`SpawnNPC` is inline in `ExecuteReward` (no method to bracket like `SpawnCompanion`), the host brackets
+`ExecuteReward` with a depth counter — its first `await` is the shop's `SpawnUnitAsync`, observed synchronously by
+`NotePendingSpawn` — so only shop spawns classify as `"EndlessShop"` (a multi-NPC card mirrors only its first). The
+client suppresses its own shop spawn, and because that also suppresses the host's post-spawn wiring, on mirror the
+client registers the `UnitInteractable` and runs each `ServiceStation.DoSetup` so the shop is openable + usable.
+Per the user's decision this ships as **one host-authoritative NPC with local (independent) purchases**. **Stock:**
+`DoSetup` rolls the vendor table via `UnityEngine.Random`, so a *random* `ShopKeeper` would diverge between ends (a
+host-authoritative stock broadcast, EM-7d-2, would be added then); a *deterministic* vendor (e.g. a named trader)
+matches for free. No protocol change (reuses RuntimeSpawn + `Source`).
+
 ---
 
 ## 8. Phasing
