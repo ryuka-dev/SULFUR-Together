@@ -94,6 +94,8 @@ namespace SULFURTogether.Networking.Gameplay
             ClearDamagerTracking(); // EM-5c: drop the previous run's damager attribution + force-pulls
             ClearCardSelectInvuln(); // never carry a card-select invuln bubble across a level change
             ClearSharedPause(); // EM-6a: never carry a shared-mode client pause across a run boundary
+            EndlessInteractableManager.Reset(); // EM-7e: drop mirrored chests/stations from the previous run
+            ClearWavePuppetTracking(); // corpse cleanup: forget the previous run's wave-enemy puppets
         }
 
         // ================================================================== host
@@ -248,6 +250,9 @@ namespace SULFURTogether.Networking.Gameplay
                     SetFloat(_fXP, mgr, msg.CurrentXP);
                     SetFloat(_fThreshold, mgr, msg.NextCardThresholdXP);
                     ApplySharedPauseEdge(msg.TransitionState); // EM-6a: freeze/resume with the host's shared card-select window
+                    // EM-7e: the client's slave manager never runs ArenaTransitionRoutine (its Update is suppressed), so it
+                    // can't clean up mirrored chests/stations on a stage change — drive that from the host-synced transition.
+                    EndlessInteractableManager.OnClientTransition(msg.TransitionState);
                 }
 
                 // EM-7b: mirror the host's card-spawn locator beam (Shared mode only — world-card spawns are
@@ -895,6 +900,52 @@ namespace SULFURTogether.Networking.Gameplay
         /// <summary>Shared access to the live EndlessModeManager instance (null if not in an Endless arena). Used by
         /// <see cref="EndlessCardManager"/> so the two managers resolve the same singleton without duplicating reflection.</summary>
         public static object? ResolveEndlessInstance() { EnsureResolved(); return ResolveInstance(); }
+
+        // ================================================================== corpse cleanup (client wave-enemy puppets)
+        //
+        // Vanilla Endless sinks wave-enemy corpses into the ground to prevent them piling up (perf): each SetEnemy wave
+        // enemy registers OnEnemyDied → SinkIntoGroundEndless (companions / shop NPCs / bosses do NOT). On the client the
+        // wave enemies are host-mirrored puppets whose slave manager never wired that callback, so their corpses leak and
+        // accumulate over a long run. Fix: track the puppets mirrored with RuntimeSpawn source "Endless" (= exactly the
+        // SetEnemy wave enemies) and, when one dies on the client, run the same vanilla SinkIntoGroundEndless on it. This
+        // is local presentation/perf, per-end (like vanilla — each end sinks its own corpses), never authoritative.
+        private static readonly System.Collections.Generic.HashSet<int> _wavePuppetIds = new System.Collections.Generic.HashSet<int>();
+        private static MethodInfo? _sinkIntoGroundEndless; // Npc.SinkIntoGroundEndless()
+        private static bool _sinkResolved;
+
+        /// <summary>CLIENT: remember a mirrored Endless wave-enemy puppet so its corpse is sunk on death (source "Endless"
+        /// = SetEnemy wave enemies only — companions/shop/bosses carry a different source and are excluded).</summary>
+        public static void NoteEndlessWavePuppet(object unit)
+        {
+            try { if (unit is UnityEngine.Object uo && uo != null) lock (_wavePuppetIds) _wavePuppetIds.Add(uo.GetInstanceID()); }
+            catch { }
+        }
+
+        /// <summary>CLIENT: a puppet died (from the runtime-spawn death replay). If it was a tracked Endless wave enemy,
+        /// sink its corpse like vanilla's host-side OnEnemyDied does. Removing from the set makes this at-most-once even if
+        /// the death event re-applies.</summary>
+        public static void OnClientPuppetDied(object npc)
+        {
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
+                if (npc is not UnityEngine.Object uo || uo == null) return;
+                bool tracked; lock (_wavePuppetIds) tracked = _wavePuppetIds.Remove(uo.GetInstanceID());
+                if (!tracked) return;
+
+                if (!_sinkResolved)
+                {
+                    _sinkResolved = true;
+                    var npcType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.Npc") ?? AccessTools.TypeByName("Npc");
+                    _sinkIntoGroundEndless = npcType?.GetMethod("SinkIntoGroundEndless", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                    if (_sinkIntoGroundEndless == null) Plugin.Log.Info("[Endless] corpse cleanup: Npc.SinkIntoGroundEndless not found — client corpses will persist.");
+                }
+                _sinkIntoGroundEndless?.Invoke(npc, null);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] OnClientPuppetDied failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static void ClearWavePuppetTracking() { lock (_wavePuppetIds) _wavePuppetIds.Clear(); }
 
         private static object? ResolveInstance()
         {

@@ -34,6 +34,8 @@ namespace SULFURTogether.Networking.Gameplay
         private static FieldInfo? _fcSubtitle;       // FloatingCard.subtitleText : TMP_Text
         private static FieldInfo? _fcDescription;    // FloatingCard.descriptionText : TMP_Text
         private static FieldInfo? _crCardKey;        // CardReward.cardKey : string
+        private static FieldInfo? _crItemPool;       // CardReward.itemPool : UnityEngine.Object[] (EM-7e SpawnInteractable prefabs)
+        private static FieldInfo? _crContainerPrefab; // CardReward.containerPrefab : Container (EM-7e SpawnFromLootTable chest prefab)
         private static PropertyInfo? _tmpText;       // TMP_Text.text : string
         private static MethodInfo? _fcmSpawnCards;   // FloatingCardManager.SpawnCards()
         private static MethodInfo? _fcmExitCards;    // FloatingCardManager.ExitCardSelection() — unsubscribes input + resets
@@ -654,6 +656,37 @@ namespace SULFURTogether.Networking.Gameplay
             catch { }
         }
 
+        /// <summary>EM-7e (CLIENT): resolve the interactable prefab the host spawned. The prefab lives in the reward
+        /// (either its <c>containerPrefab</c> for a SpawnFromLootTable chest, or its <c>itemPool</c> array for a
+        /// SpawnInteractable), both serialized identically on both builds — so resolving the <c>CardReward</c> by
+        /// <paramref name="cardKey"/> and matching by <c>Object.name</c> yields the same asset the host instantiated, with
+        /// no runtime RNG parity required.</summary>
+        public static UnityEngine.Object? ResolveInteractablePrefab(string cardKey, string prefabName)
+        {
+            try
+            {
+                EnsureResolved();
+                object? fcm = ResolveCardManager();
+                if (fcm == null) return null;
+                object? db = _fcmRewardDatabase?.GetValue(fcm);
+                if (db == null || _crdGetSpecificCard == null) return null;
+                object? reward = _crdGetSpecificCard.Invoke(db, new object[] { cardKey ?? "" });
+                if (reward == null) return null;
+
+                // SpawnFromLootTable chest: a single serialized containerPrefab.
+                if (_crContainerPrefab?.GetValue(reward) is UnityEngine.Object cp && cp != null
+                    && string.Equals(cp.name, prefabName, StringComparison.Ordinal))
+                    return cp;
+
+                // SpawnInteractable: match the itemPool entry by name.
+                if (_crItemPool?.GetValue(reward) is UnityEngine.Object[] pool)
+                    foreach (var o in pool)
+                        if (o != null && string.Equals(o.name, prefabName, StringComparison.Ordinal)) return o;
+                return null;
+            }
+            catch { return null; }
+        }
+
         // ---- stamp-UI accessors (EM-6b-3a on-card voter stamps) reuse this class's cached reflection ----
         public static object? ResolveLocalCardManager() { EnsureResolved(); return ResolveCardManager(); }
         public static Array?  GetSpawnedCards(object fcm) { try { return _fcmSpawnedCards?.GetValue(fcm) as Array; } catch { return null; } }
@@ -936,6 +969,8 @@ namespace SULFURTogether.Networking.Gameplay
                 _crDisplayName   = crType?.GetField("displayName", bf);
                 _crDescription   = crType?.GetField("description", bf);
                 _crSpawnCount    = crType?.GetField("spawnCount", bf);
+                _crItemPool      = crType?.GetField("itemPool", bf); // EM-7e: CardReward.itemPool : UnityEngine.Object[]
+                _crContainerPrefab = crType?.GetField("containerPrefab", bf); // EM-7e: CardReward.containerPrefab : Container
                 if (_crCustomArtwork != null && fcType != null)
                 {
                     // Pick the SetArtwork overload whose first parameter accepts customArtwork's type (Sprite/Texture).

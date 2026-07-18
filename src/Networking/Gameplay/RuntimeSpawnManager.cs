@@ -303,6 +303,10 @@ namespace SULFURTogether.Networking.Gameplay
                     ApplyEndlessCompanionCharm(unit);
                 else if (string.Equals(source, "EndlessShop", StringComparison.Ordinal))
                     ApplyEndlessShopSetup(unit);
+                // Corpse cleanup: Endless WAVE enemies (source "Endless" = SetEnemy) sink their corpses on the host via
+                // OnEnemyDied; the client's slave manager never wires that, so track the puppet and sink it on death.
+                else if (string.Equals(source, "Endless", StringComparison.Ordinal))
+                    EndlessSyncManager.NoteEndlessWavePuppet(unit);
             }
             catch (Exception ex) { RuntimeSpawnMirrorFailed++; Plugin.Log.Warn($"[RuntimeSpawn] MirrorSpawnAsync failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -413,6 +417,24 @@ namespace SULFURTogether.Networking.Gameplay
                 return _itemDefPrefabField?.GetValue(itemDef) as GameObject;
             }
             catch (Exception ex) { Plugin.Log.Warn($"[ThrowableEffect] ResolveItemPrefab failed: {ex.GetType().Name}: {ex.Message}"); return null; }
+        }
+
+        /// <summary>EM-7e: resolve an <c>ItemDefinition</c> from its <c>ItemId</c> value via the item database (the same
+        /// lookup as <see cref="ResolveItemPrefab"/>, returning the definition itself). Used to restore a mirrored Endless
+        /// chest's <c>Container.StaticLoot</c> so it contains the card's intended item.</summary>
+        internal static object? ResolveItemDefinition(int itemIdValue)
+        {
+            try
+            {
+                EnsureResolved();
+                EnsureItemResolved();
+                if (_asyncAssetLoadingInstance == null || _itemDbProp == null || _itemDbIndexer == null || _itemIdType == null) return null;
+                object? db = _itemDbProp.GetValue(_asyncAssetLoadingInstance);
+                if (db == null) return null;
+                object itemId = Activator.CreateInstance(_itemIdType, (ushort)itemIdValue);
+                return _itemDbIndexer.Invoke(db, new[] { itemId });
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ResolveItemDefinition failed: {ex.GetType().Name}: {ex.Message}"); return null; }
         }
 
         private static void EnsureItemResolved()

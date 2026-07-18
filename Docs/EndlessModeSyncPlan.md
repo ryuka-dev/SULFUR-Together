@@ -460,6 +460,51 @@ Per the user's decision this ships as **one host-authoritative NPC with local (i
 host-authoritative stock broadcast, EM-7d-2, would be added then); a *deterministic* vendor (e.g. a named trader)
 matches for free. No protocol change (reuses RuntimeSpawn + `Source`).
 
+### 7.10 As-built (EM-7e — non-unit interactable mirror: card chests / storage / stations, shipped)
+
+The final EM-7 world-card slice: the card-spawned **non-unit interactables**. Two reward paths produce them, both
+instantiating a plain `Interactable` with `Object.Instantiate` (not a Unit) at a `GetRandomSpawnPositionInView`
+(player-motion-dependent) position — so without mirroring each end spawns its own at a diverging spot ("chests are
+discrete"). The RuntimeSpawn puppet pipeline (keyed on `UnitSO.id`) can't carry them, so a **new non-unit mirror
+mechanism** was needed. Shared mode only.
+
+- **The card CHEST is the `SpawnFromLootTable` + `containerPrefab` path** (`ExecuteReward` kind 5) — `Card_WeaponChest`,
+  `Card_GearChest`, `Card_SummonCommonChest`, etc. spawn a `Container` (with `StaticLoot` = the card's item), opened via
+  the SL-2 `ChestSyncManager`. This is the path deferred in EM-7a; it is what the real "宝箱" cards use (confirmed from
+  logs — the divergent chest opened through `[ChestSync]`, and no `SpawnInteractable` ever fired).
+- **`SpawnInteractable`** (kind 4) — storage stashes / service stations — flows through the same mirror.
+- **Prefab identity (no RNG parity):** the prefab is a serialized field of the reward (`containerPrefab`, or an `itemPool`
+  entry for `SpawnInteractable`), identical on both builds. The host reads the spawned root's `Object.name` (`(Clone)`
+  stripped) + the reward's `cardKey`; the client resolves `CardReward(cardKey)` and matches its `containerPrefab` /
+  `itemPool` by name — the same asset, no runtime RNG agreement.
+- **HOST** lets the vanilla branch run (correct spawn + wiring + the arena-transition cleanup that destroys
+  `spawnedInteractables`), bracketed by `EndlessInteractableManager.HostArmCapture` (records the reward + the
+  `spawnedInteractables` count) in `ExecuteReward_Pre` and `HostCaptureAndBroadcast` in `ExecuteReward_Post` — both
+  branches are synchronous (no await), so the postfix sees a fully-populated list. Only the **roots** (parent == the
+  Endless manager transform) are broadcast (`NetEndlessInteractable`, msg 95), each with its Container `StaticLoot` ItemId.
+- **CLIENT** suppresses its own local spawn (the `ExecuteReward_Pre` world-reward suppression, kinds 4 & 5) and on receive
+  instantiates the resolved prefab at the host position, restores the Container's `StaticLoot` from the broadcast ItemId,
+  and re-runs the vanilla setup (`AddInteractable` root + children, `ServiceStation.DoSetup`, `HiddenChest` registration).
+- **Chest open + loot is host-authoritative for free:** the client's mirrored `Container` auto-registers with
+  `ChestSyncManager` in its `Start`, so once it is at the **host position** the existing SL-2 open/loot sync (keyed by
+  position) matches it — the earlier `[ChestSync] no chest near` failures were purely the position divergence this slice
+  fixes. `StaticLoot` is still synced so the chest holds the card's item in Independent-loot mode too.
+- **Cleanup:** the client's slave manager never runs `ArenaTransitionRoutine` (its `Update` is suppressed), so
+  `EndlessInteractableManager` tracks its mirrors and destroys them on the host-synced `ArenaTransition` edge + on run
+  reset (destroyed Containers drop out of the `ChestSyncManager` registry as nulls).
+- The spawn-locator beam is already host-authoritative via EM-7b. `ProtocolVersion 23→24`.
+
+### 7.11 As-built (Endless corpse cleanup on the client, shipped)
+
+Vanilla Endless sinks wave-enemy corpses into the ground to prevent them accumulating (perf): each `SetEnemy` wave enemy
+registers `OnEnemyDied` → `SinkUnitIntoGroundAfter` → `Npc.SinkIntoGroundEndless` (companions / shop NPCs / bosses do
+**not**). On the client the wave enemies are host-mirrored puppets whose slave manager never wired that callback, so their
+corpses leaked. Fix: the runtime-spawn mirror tags puppets spawned with source `"Endless"` (= exactly the `SetEnemy` wave
+enemies) via `EndlessSyncManager.NoteEndlessWavePuppet`; when such a puppet dies (from the runtime-spawn death replay in
+`NetGameplayProbeManager`), `OnClientPuppetDied` runs the same vanilla `SinkIntoGroundEndless` on it. This is local,
+per-end presentation/perf (like vanilla — each end sinks its own corpses), never authoritative; it applies in both
+progression modes. No protocol change.
+
 ---
 
 ## 8. Phasing

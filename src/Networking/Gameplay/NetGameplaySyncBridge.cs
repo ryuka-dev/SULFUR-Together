@@ -382,6 +382,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastHostEndlessCardManifest(SULFURTogether.Networking.Gameplay.NetEndlessCardManifest msg)
             => _service?.BroadcastHostEndlessCardManifest(msg);
 
+        // EM-7e: Host → all, one card-spawned non-unit interactable (chest / storage / service station) to mirror.
+        public static void BroadcastHostEndlessInteractable(SULFURTogether.Networking.Gameplay.NetEndlessInteractable msg)
+            => _service?.BroadcastHostEndlessInteractable(msg);
+
         // EM-6b-2: Host → all, the pre-roll card RNG + selection state so the client reproduces identical 3D cards.
         public static void BroadcastHostEndlessCardRoll(SULFURTogether.Networking.Gameplay.NetEndlessCardRoll msg)
             => _service?.BroadcastHostEndlessCardRoll(msg);

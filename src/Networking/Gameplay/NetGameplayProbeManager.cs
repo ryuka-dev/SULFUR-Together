@@ -1852,6 +1852,9 @@ namespace SULFURTogether.Networking.Gameplay
                 // idx=1 Tracker: host Npc.Die damageCount=0 → death applied → puppet still stale-suppressed 20s+).
                 if (Plugin.Cfg.ReleasePuppetOnHostDeath.Value)
                     ReleaseClientEnemyPuppetOnHostDeath(snapshot, deathEvent.SpawnIndex, reason);
+                // EM corpse cleanup: if this puppet was a mirrored Endless wave enemy, sink its corpse like the host does
+                // (its slave manager never wired OnEnemyDied → SinkIntoGroundEndless). No-op for untracked / non-Endless deaths.
+                EndlessSyncManager.OnClientPuppetDied(runtimeObject);
                 detail = $"invoked {die.DeclaringType?.Name ?? runtimeObject.GetType().Name}.Die() idx={snapshot.SpawnIndex} reason={reason} rosterBound={isRosterBound} wasPendingDead={wasPendingDead}";
                 return true;
             }

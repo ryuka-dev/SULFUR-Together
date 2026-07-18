@@ -41,10 +41,19 @@ before joining the same session.
   sync for both players.
 - **Endless Mode shop NPCs are shared.** A card that spawns a vendor now places a single shop that
   both players can walk up to and buy from, instead of a separate one on each screen. (Purchases
-  are per-player for now; chests from cards are still being worked on.)
+  are per-player for now.)
+- **Endless Mode chests and stations from cards are shared.** In Shared mode, a card that spawns a
+  chest, storage stash, or service station now creates a single object at the same place for both
+  players — you both see it, at the same spot, and can use it — instead of a separate copy on each
+  screen at a different position (which the other player couldn't open). With shared loot on, opening
+  a card chest gives one shared reward, as it does for world chests. (Service-station stock is still
+  per-player for now.)
 - **Endless Mode card effects work correctly for non-host players.** The Infinite Ammo and
   Indestructible cards now wear off after their duration for the client too (they used to last the
   whole run), and the "more XP" card now actually speeds up the shared XP bar.
+- **Endless Mode enemy corpses no longer pile up for non-host players.** Defeated enemies now sink
+  into the ground and clear away on every player's screen, matching the host, so a long run no longer
+  fills the arena with corpses and slows the client down.
 
 ## 1.1.1 — Co-op fixes and polish
 

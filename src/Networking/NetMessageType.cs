@@ -436,5 +436,12 @@ namespace SULFURTogether.Networking
         //   EndlessCardVoteCast (client→host, ReliableOrdered): "my player cast a vote for this card index" (re-castable).
         EndlessCardVoteState    = 93,
         EndlessCardVoteCast     = 94,
+
+        // EM-7e (host → all, Shared mode): a card spawned a non-unit interactable (chest / storage / service station) via
+        // FloatingCardManager.ExecuteReward's SpawnInteractable branch. These are not Units (Object.Instantiate, not
+        // UnitSO.SpawnUnit), so the RuntimeSpawn puppet pipeline can't carry them — the host broadcasts the prefab identity
+        // (card key + prefab name → the reward's itemPool) + world position so the client mirrors the same object once,
+        // instead of each end spawning its own at a diverging (player-motion-dependent) position.
+        EndlessInteractable     = 95,
     }
 }

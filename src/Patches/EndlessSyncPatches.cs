@@ -40,6 +40,7 @@ namespace SULFURTogether.Patches
         private static int _lootTableRewardValue = int.MinValue; // CardRewardType.SpawnFromLootTable
         private static int _spawnRandomAlliesRewardValue = int.MinValue; // CardRewardType.SpawnRandomAllies (companion)
         private static int _spawnNpcRewardValue          = int.MinValue; // CardRewardType.SpawnNPC (shop)
+        private static int _spawnInteractableRewardValue = int.MinValue; // CardRewardType.SpawnInteractable (chest / storage / service station — EM-7e)
 
         // EM-7c: >0 while the HOST is inside FloatingCardManager.SpawnCompanion. `RuntimeSpawnManager.ClassifyOwner` uses
         // it to mirror only companion spawns from FloatingCardManager (shop NPCs share the owner but are EM-7d).
@@ -201,6 +202,7 @@ namespace SULFURTogether.Patches
                         try { _lootTableRewardValue        = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnFromLootTable")); } catch { }
                         try { _spawnRandomAlliesRewardValue = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnRandomAllies")); } catch { }
                         try { _spawnNpcRewardValue          = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnNPC")); } catch { }
+                        try { _spawnInteractableRewardValue = Convert.ToInt32(Enum.Parse(_crRewardType.FieldType, "SpawnInteractable")); } catch { }
                     }
                     harmony.Patch(execReward,
                         prefix:  new HarmonyMethod(typeof(EndlessSyncPatches).GetMethod(nameof(ExecuteReward_Pre),  BindingFlags.Static | BindingFlags.NonPublic)),
@@ -372,6 +374,7 @@ namespace SULFURTogether.Patches
                 {
                     if (kind == 1) WorldPickupManager.EndlessSharedLootContext = true; // loot: mirror regardless of SharedLoot toggle
                     if (kind == 3) HostShopSpawnDepth++;                               // shop: bracket the SpawnNPC SpawnUnitAsync
+                    if (kind == 4 || kind == 5) EndlessInteractableManager.HostArmCapture(reward); // EM-7e: capture spawned chest/station/container roots
                 }
             }
             catch { }
@@ -391,9 +394,14 @@ namespace SULFURTogether.Patches
         {
             try { WorldPickupManager.EndlessSharedLootContext = false; } catch { }
             try { if (HostShopSpawnDepth > 0) HostShopSpawnDepth--; } catch { }
+            // EM-7e: the SpawnInteractable branch is synchronous (no await), so by now spawnedInteractables is fully
+            // populated — read the new roots and broadcast them. No-op unless capture was armed on the host.
+            try { EndlessInteractableManager.HostCaptureAndBroadcast(); } catch { }
         }
 
-        // 0 = not routed this slice; 1 = loot-table plain-Pickup (WID mirror); 2 = SpawnRandomAllies companion; 3 = SpawnNPC shop.
+        // 0 = not routed; 1 = loot-table plain-Pickup (WID mirror); 2 = SpawnRandomAllies companion; 3 = SpawnNPC shop;
+        // 4 = SpawnInteractable (storage / service station); 5 = SpawnFromLootTable Container-path chest.
+        // Kinds 4 & 5 share the EM-7e non-unit interactable mirror.
         private static int ClassifyWorldReward(object reward)
         {
             try
@@ -402,13 +410,16 @@ namespace SULFURTogether.Patches
                 int rt = Convert.ToInt32(_crRewardType.GetValue(reward));
                 if (rt == _lootTableRewardValue && _lootTableRewardValue != int.MinValue)
                 {
-                    // containerPrefab != null → the Container path (an interactable Instantiate, not a SpawnPickup) — not
-                    // this slice; leave it spawning on both ends until the interactable mirror exists.
-                    if (_crContainerPrefab != null && _crContainerPrefab.GetValue(reward) != null) return 0;
+                    // containerPrefab != null → the Container path (an interactable Instantiate, not a SpawnPickup). This is
+                    // the card CHEST the game actually spawns (SpawnFromLootTable + a Container prefab), mirrored like
+                    // SpawnInteractable via the non-unit interactable mirror (EM-7e kind 5). containerPrefab == null → plain
+                    // Pickup, deduped via the WID pipeline (EM-7a kind 1).
+                    if (_crContainerPrefab != null && _crContainerPrefab.GetValue(reward) != null) return 5;
                     return 1;
                 }
                 if (rt == _spawnRandomAlliesRewardValue && _spawnRandomAlliesRewardValue != int.MinValue) return 2;
                 if (rt == _spawnNpcRewardValue          && _spawnNpcRewardValue          != int.MinValue) return 3;
+                if (rt == _spawnInteractableRewardValue && _spawnInteractableRewardValue != int.MinValue) return 4; // EM-7e chest / storage / station
                 return 0;
             }
             catch { return 0; }
