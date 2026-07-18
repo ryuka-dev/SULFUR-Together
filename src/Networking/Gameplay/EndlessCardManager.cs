@@ -52,6 +52,9 @@ namespace SULFURTogether.Networking.Gameplay
         private static FieldInfo? _crCustomArtwork;   // CardReward.customArtwork (the card's default icon)
         private static FieldInfo? _crCardLayout;      // CardReward.cardLayout
         private static MethodInfo? _fcSetArtwork;     // FloatingCard.SetArtwork(artwork, layout, qty, [addPadding])
+        private static FieldInfo? _crDisplayName;     // CardReward.displayName (client-localized; used to re-localize a reconciled card)
+        private static FieldInfo? _crDescription;     // CardReward.description
+        private static FieldInfo? _crSpawnCount;      // CardReward.spawnCount (for the AMOUNT_X token)
         // EM-6b-3b: Skip/Reroll voting
         private static PropertyInfo? _fcInteractable; // FloatingCard.Interactable : bool (a 0-reroll card is non-interactable)
         private static MethodInfo? _fcStartSpin;      // FloatingCard.StartSpin() — client reroll visual feedback
@@ -293,8 +296,11 @@ namespace SULFURTogether.Networking.Gameplay
                     if (corrReward == null || card == null) continue;
                     rewards.SetValue(corrReward, i);
                     try { if (_crCardType != null && _fcSetCardType != null) _fcSetCardType.Invoke(card, new[] { _crCardType.GetValue(corrReward) }); } catch { }
-                    SetTmp(card, _fcSubtitle, entries[i].Title);
-                    SetTmp(card, _fcDescription, entries[i].Desc);
+                    // Prefer the corrected reward's OWN localized displayName/description (client language) over the host's
+                    // rendered strings, so a reconciled card reads in the client's language; fall back to the host string for
+                    // templated cards whose text needs a preselected item we don't have (unresolved *_X token).
+                    SetTmp(card, _fcSubtitle, LocalizedCardText(corrReward, _crDisplayName, entries[i].Title));
+                    SetTmp(card, _fcDescription, LocalizedCardText(corrReward, _crDescription, entries[i].Desc));
                     ApplyReconcileArtwork(card, corrReward);
                     try { _fcPreselectedItem?.SetValue(card, null); } catch { } // re-derived at apply from the correct reward's pool
                     corrected++;
@@ -327,6 +333,23 @@ namespace SULFURTogether.Networking.Gameplay
                 _fcSetArtwork.Invoke(card, args);
             }
             catch { }
+        }
+
+        /// <summary>The corrected reward's own localized text (AMOUNT_X resolved), used when it carries no unresolved item/npc
+        /// token; otherwise the host-rendered <paramref name="hostText"/> (which already had its token filled in).</summary>
+        private static string LocalizedCardText(object reward, FieldInfo? field, string hostText)
+        {
+            try
+            {
+                if (field?.GetValue(reward) is string s && !string.IsNullOrEmpty(s))
+                {
+                    int count = _crSpawnCount?.GetValue(reward) is int c ? c : 1;
+                    s = s.Replace("AMOUNT_X", count.ToString());
+                    if (!s.Contains("_X") && !s.Contains("AMMO_TYPE")) return s; // no unresolved ITEM_X / NPC_X / AMMO_TYPE token
+                }
+            }
+            catch { }
+            return hostText ?? "";
         }
 
         private static void SetTmp(object? card, FieldInfo? tmpField, string text)
@@ -910,6 +933,9 @@ namespace SULFURTogether.Networking.Gameplay
                     _fcSetCardType = fcType?.GetMethod("SetCardType", BindingFlags.Public | BindingFlags.Instance, null, new[] { _crCardType.FieldType }, null);
                 _crCustomArtwork = crType?.GetField("customArtwork", bf);
                 _crCardLayout    = crType?.GetField("cardLayout", bf);
+                _crDisplayName   = crType?.GetField("displayName", bf);
+                _crDescription   = crType?.GetField("description", bf);
+                _crSpawnCount    = crType?.GetField("spawnCount", bf);
                 if (_crCustomArtwork != null && fcType != null)
                 {
                     // Pick the SetArtwork overload whose first parameter accepts customArtwork's type (Sprite/Texture).

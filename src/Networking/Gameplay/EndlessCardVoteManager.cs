@@ -97,22 +97,26 @@ namespace SULFURTogether.Networking.Gameplay
 
         /// <summary>The card the draw cursor is currently over. A multi-card tie decelerates card-to-card and lands on the
         /// winner's card; a single-card tie (a pick-vs-banish tie on one card) blinks that card a few times.</summary>
+        private const float RaffleHoldFrac = 0.28f; // final fraction of the draw that rests, raised, on the winner
+
         public static int RaffleCursorIndex
         {
             get
             {
                 if (!_raffleActive || _raffleTied.Length == 0) return -1;
-                float x = Mathf.Clamp01((Now - _raffleStart) / RaffleSeconds);
-                float ease = 1f - (1f - x) * (1f - x) * (1f - x); // easeOutCubic: fast → slow
                 int n = _raffleTied.Length;
+                float x = Mathf.Clamp01((Now - _raffleStart) / RaffleSeconds);
+                // The winner is placed LAST. Reserve the final stretch to sit, raised, on the winner so the draw visibly
+                // comes to rest on the chosen card (then its pick/dismiss animation continues from that raised state).
+                if (x >= 1f - RaffleHoldFrac) return _raffleTied[n - 1];
+                float sx = x / (1f - RaffleHoldFrac);                    // remap the sweep into [0,1]
+                float ease = 1f - (1f - sx) * (1f - sx) * (1f - sx);     // easeOutCubic: fast → slow, reaching the winner at sx=1
                 if (n == 1)
                 {
                     const int blinks = 5;
-                    bool on = x >= 1f || Mathf.FloorToInt(ease * blinks) % 2 == 0; // blink, land ON
-                    return on ? _raffleTied[0] : -1;
+                    return Mathf.FloorToInt(ease * blinks) % 2 == 0 ? _raffleTied[0] : -1; // blink, then the hold above rests ON
                 }
-                int targetPos = n - 1; // the winner is placed last in _raffleTied so the sweep lands on it at x=1
-                int totalSteps = n * RaffleLoops + targetPos;
+                int totalSteps = n * RaffleLoops + (n - 1);
                 int step = Mathf.FloorToInt(totalSteps * ease);
                 return _raffleTied[((step % n) + n) % n];
             }
