@@ -266,7 +266,12 @@ namespace SULFURTogether.Patches
                 if (EndlessSyncManager.IsIndependentMode)
                     EndlessSyncManager.HostAwardXpForKill(npc, pos, xpOnKill); // EM-5c: award to first-damager / last-hit
                 else
-                    EndlessSyncManager.HostOnEnemyKilled(pos, xpOnKill, xpOnKill); // Shared: pickup
+                {
+                    // #2c: scale the shared award by the host's IncreaseXPAmount multiplier (both ends share it in Shared mode).
+                    float mult = EndlessSyncManager.HostXpMultiplier;
+                    int total = mult > 1.0001f ? UnityEngine.Mathf.RoundToInt(xpOnKill * mult) : xpOnKill;
+                    EndlessSyncManager.HostOnEnemyKilled(pos, total, xpOnKill); // Shared: pickup
+                }
             }
             catch (Exception ex) { SuppressVanillaOrbSpawn = false; Plugin.Log.Warn($"[Endless] OnEnemyDied_Post failed: {ex.GetType().Name}: {ex.Message}"); }
         }

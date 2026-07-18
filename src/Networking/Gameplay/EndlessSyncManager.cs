@@ -52,7 +52,11 @@ namespace SULFURTogether.Networking.Gameplay
         private static FieldInfo? _fXpOrbManager;     // EndlessModeManager.xpOrbManager : XPOrbManager
         private static FieldInfo? _fCardManager;      // EndlessModeManager.cardManager : FloatingCardManager
         private static FieldInfo? _fLootLightEffect;  // FloatingCardManager.lootLightEffect : GameObject (EM-7b spawn-locator beam)
+        // #2a: infinite-ammo / indestructible expiry fields (the client drives expiry from the synced wave counter).
+        private static FieldInfo? _fInfAmmoActive, _fInfAmmoStart, _fIndestructActive, _fIndestructStart, _fDurabilityDur;
+        private static PropertyInfo? _pWaveIncludingLoops; // EndlessModeManager.currentWaveIncludingLoops (getter)
         private static FieldInfo? _fPickupRadius;     // XPOrbManager.pickupRadius : float
+        private static FieldInfo? _fXpMultiplier;     // XPOrbManager.xpMultiplier : float (#2c IncreaseXPAmount card)
         private static FieldInfo? _fActiveOrbs;       // XPOrbManager.activeOrbs : List<XPOrb>
         private static FieldInfo? _orbStateField;     // XPOrb.state : OrbState
         private static FieldInfo? _orbCollectStartField; // XPOrb.collectStartTime : float
@@ -165,6 +169,27 @@ namespace SULFURTogether.Networking.Gameplay
             _lBeamActive = false; _lBeamPos = Vector3.zero;
         }
 
+        /// <summary>#2a (CLIENT): the infinite-ammo / indestructible cards expire after
+        /// <c>infiniteDurabilityWaveDuration</c> waves, but the vanilla expiry check lives in <c>StartEnemySpawning</c>
+        /// which the client suppresses (EM-1) — so the client's flags (read per-player from <c>EndlessModeManager.Instance</c>
+        /// when firing / taking durability loss) would never clear. Drive the expiry from the host-synced wave counter on
+        /// every applied snapshot. Both modes (each end set the flag via its own <c>ExecuteReward</c>). The grant wave is the
+        /// same on both ends (the wave counter is host-synced), so the thresholds match.</summary>
+        private static void ApplyClientFlagExpiry(object mgr)
+        {
+            try
+            {
+                if (_pWaveIncludingLoops == null || _fDurabilityDur == null) return;
+                int cwil = Convert.ToInt32(_pWaveIncludingLoops.GetValue(mgr));
+                int dur  = ReadInt(_fDurabilityDur, mgr);
+                if (_fInfAmmoActive != null && ReadBool(_fInfAmmoActive, mgr) && cwil >= ReadInt(_fInfAmmoStart, mgr) + dur)
+                { SetBool(_fInfAmmoActive, mgr, false); if (LogOn) Plugin.Log.Info("[Endless] #2a client infinite-ammo expired"); }
+                if (_fIndestructActive != null && ReadBool(_fIndestructActive, mgr) && cwil >= ReadInt(_fIndestructStart, mgr) + dur)
+                { SetBool(_fIndestructActive, mgr, false); if (LogOn) Plugin.Log.Info("[Endless] #2a client indestructible expired"); }
+            }
+            catch { }
+        }
+
         /// <summary>EM-7b: resolve the shared card-spawn locator beam GameObject
         /// (<c>EndlessModeManager.cardManager.lootLightEffect</c>).</summary>
         private static UnityEngine.GameObject? ResolveLootBeam(object mgr)
@@ -211,6 +236,8 @@ namespace SULFURTogether.Networking.Gameplay
                 SetInt(_fBurst, mgr, msg.CurrentBurstIndex);
                 SetInt(_fLoop, mgr, msg.LoopCount);
                 SetBool(_fActive, mgr, true); // ensure the UpdateUI guard passes even before the client's StartEndlessMode ran
+
+                ApplyClientFlagExpiry(mgr); // #2a: expire infinite-ammo / indestructible off the synced wave counter
 
                 // Progression layer: Shared mode mirrors the host's single pool (EM-3). Independent mode leaves the
                 // client's own currentXP / level / card flow untouched (EM-5) — those are driven locally.
@@ -604,6 +631,20 @@ namespace SULFURTogether.Networking.Gameplay
             return 3f;
         }
 
+        /// <summary>#2c: the host's Endless XP multiplier (the IncreaseXPAmount card). Applied to the shared XP award so the
+        /// card is meaningful in co-op — our XP path awards base <c>ExperienceOnKill</c>, bypassing vanilla's
+        /// <c>orbValue * xpMultiplier</c>. Shared mode only (both ends share the multiplier); the Independent-mode per-killer
+        /// multiplier is a documented gap (the host doesn't know a client's multiplier).</summary>
+        public static float HostXpMultiplier
+        {
+            get
+            {
+                try { object? orb = ResolveOrbManager(); if (orb != null && _fXpMultiplier != null) return Convert.ToSingle(_fXpMultiplier.GetValue(orb)); }
+                catch { }
+                return 1f;
+            }
+        }
+
         /// <summary>Deactivate + drop any active XP orbs clustered around a collected pickup's position, so the orbs vanish
         /// on every end when the pickup is taken (on the collector's end they usually already flew in via vanilla).</summary>
         private static void RemoveOrbsNear(Vector3 pos)
@@ -798,6 +839,12 @@ namespace SULFURTogether.Networking.Gameplay
                 _fCardManager  = _emType.GetField("cardManager", bf);
                 var fcmType = AccessTools.TypeByName("FloatingCardManager") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.FloatingCardManager");
                 _fLootLightEffect = fcmType?.GetField("lootLightEffect", bf);
+                _fInfAmmoActive    = _emType.GetField("infiniteAmmoActive", bf);
+                _fInfAmmoStart     = _emType.GetField("infiniteAmmoStartWave", bf);
+                _fIndestructActive = _emType.GetField("indestructibleActive", bf);
+                _fIndestructStart  = _emType.GetField("indestructibleStartWave", bf);
+                _fDurabilityDur    = _emType.GetField("infiniteDurabilityWaveDuration", bf);
+                _pWaveIncludingLoops = _emType.GetProperty("currentWaveIncludingLoops", bf);
                 _updateUI    = _emType.GetMethod("UpdateUI", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
 
                 var orbType = AccessTools.TypeByName("XPOrbManager") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.XPOrbManager");
@@ -806,6 +853,7 @@ namespace SULFURTogether.Networking.Gameplay
                     _spawnOrb = orbType.GetMethod("SpawnOrb", BindingFlags.Public | BindingFlags.Instance, null,
                         new[] { typeof(Vector3), typeof(int) }, null);
                     _fPickupRadius = orbType.GetField("pickupRadius", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    _fXpMultiplier = orbType.GetField("xpMultiplier", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                     _fActiveOrbs   = orbType.GetField("activeOrbs", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 }
                 var xpOrbType = AccessTools.TypeByName("XPOrb") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.XPOrb");
