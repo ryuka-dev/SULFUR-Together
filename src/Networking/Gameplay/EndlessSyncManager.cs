@@ -307,7 +307,7 @@ namespace SULFURTogether.Networking.Gameplay
         // resolves first-collector-wins and broadcasts the result; both ends remove the orbs together. Only the reward
         // differs by mode — Independent: the collector's local pool; Shared: the host's single pool (mirrored via EM-3).
 
-        private sealed class PendingDrop { public int Id; public Vector3 Pos; public int TotalXp; public bool Requested; }
+        private sealed class PendingDrop { public int Id; public Vector3 Pos; public int TotalXp; public int OrbCount; public bool Requested; }
         private static readonly System.Collections.Generic.List<PendingDrop> _pendingDrops = new System.Collections.Generic.List<PendingDrop>();
         private static int _nextDropId;
         private static readonly System.Collections.Generic.HashSet<int> _hostCollected = new System.Collections.Generic.HashSet<int>();
@@ -379,7 +379,7 @@ namespace SULFURTogether.Networking.Gameplay
                 lock (_pendingDrops)
                 {
                     for (int i = 0; i < _pendingDrops.Count; i++) if (_pendingDrops[i].Id == msg.DropId) return; // dup
-                    _pendingDrops.Add(new PendingDrop { Id = msg.DropId, Pos = msg.Position, TotalXp = msg.TotalXp });
+                    _pendingDrops.Add(new PendingDrop { Id = msg.DropId, Pos = msg.Position, TotalXp = msg.TotalXp, OrbCount = Mathf.Clamp(msg.OrbCount, 0, 256) });
                 }
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] ApplyDrop failed: {ex.GetType().Name}: {ex.Message}"); }
@@ -469,6 +469,10 @@ namespace SULFURTogether.Networking.Gameplay
             if (count <= 0) return;
             lock (_forcePulls) _forcePulls.Add(new ForcePull { Pos = pos, Remaining = count, Deadline = Time.realtimeSinceStartup + 3f });
         }
+
+        /// <summary>True when the reflection needed to flip orbs into the Collecting state is resolved. If not, callers must
+        /// fall back to instant removal so cosmetic orbs never linger.</summary>
+        private static bool CanForceCollect() => _fActiveOrbs != null && _orbStateField != null && _orbStateEnumType != null;
 
         /// <summary>Each frame (service tick): flip freshly-spawned award orbs near a pending pull into the Collecting state
         /// so they home to the local player regardless of distance. Runs until the expected count is pulled or it times out.</summary>
@@ -581,18 +585,28 @@ namespace SULFURTogether.Networking.Gameplay
             try
             {
                 if (!Enabled || msg == null) return;
-                Vector3 pos = default; bool found = false;
+                Vector3 pos = default; int orbCount = 0; bool found = false;
                 lock (_pendingDrops)
                 {
                     for (int i = _pendingDrops.Count - 1; i >= 0; i--)
-                        if (_pendingDrops[i].Id == msg.DropId) { pos = _pendingDrops[i].Pos; found = true; _pendingDrops.RemoveAt(i); break; }
+                        if (_pendingDrops[i].Id == msg.DropId) { pos = _pendingDrops[i].Pos; orbCount = _pendingDrops[i].OrbCount; found = true; _pendingDrops.RemoveAt(i); break; }
                 }
                 if (!found) return; // unknown / already handled
 
-                RemoveOrbsNear(pos); // sync removal — the orbs vanish on every end
+                // On the collector's OWN end, fly the cosmetic orbs into the local player (visual) rather than snapping them
+                // out. PickupTick fires at pickupRadius+1.5 — outside vanilla's own collect range — so without this a distant
+                // orb is deleted the instant the player crosses the outer reach and never plays the fly-in that near orbs get
+                // for free (vanilla self-collects those while the player is already in pickup range). Force-collect flips them
+                // to Collecting so vanilla homes them in and removes them; they are value-0 orbs, so no XP is double-counted.
+                bool localIsCollector = string.Equals(msg.CollectorPeerId, NetGameplaySyncBridge.LocalPeerId, StringComparison.Ordinal);
+                EnsureResolved();
+                if (localIsCollector && CanForceCollect())
+                    RegisterForceCollect(pos, orbCount > 0 ? orbCount : 256);
+                else
+                    RemoveOrbsNear(pos); // remote collector (or force-collect unavailable) → the orbs vanish here
 
                 // Independent mode: only the collector's own pool gains it. (Shared mode was applied on the host pool.)
-                if (IsIndependentMode && string.Equals(msg.CollectorPeerId, NetGameplaySyncBridge.LocalPeerId, StringComparison.Ordinal))
+                if (IsIndependentMode && localIsCollector)
                     AddToLocalXp(msg.TotalXp);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] ApplyCollected failed: {ex.GetType().Name}: {ex.Message}"); }
