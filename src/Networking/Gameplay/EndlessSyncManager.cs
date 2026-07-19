@@ -68,6 +68,11 @@ namespace SULFURTogether.Networking.Gameplay
         private static MethodInfo? _addLock;          // GameManager.AddLock(PlayerLocks, bool)
         private static object? _playerMovementLock;   // GameManager.PlayerLocks.PlayerMovement (movement only — keeps look + card pick)
         private static PropertyInfo? _gmPlayerUnitProp; // GameManager.PlayerUnit
+        // EM-Arena: arena-transition mirroring.
+        private static FieldInfo? _fArenaPrefabs;        // EndlessModeManager.arenaPrefabs : List<GameObject>
+        private static FieldInfo? _fDebugOverrideArena;  // EndlessModeManager.debugOverrideArena : GameObject (routine honours it, skipping the RNG pick)
+        private static FieldInfo? _fLastUsedArenaIndex;  // EndlessModeManager.lastUsedArenaIndex : int (avoid-repeat)
+        private static MethodInfo? _arenaTransitionRoutine; // EndlessModeManager.ArenaTransitionRoutine() : IEnumerator (client mirror)
 
         // ---- host throttle / dedup ----
         private const float XpThrottleSeconds   = 0.15f; // continuous XP changes: at most ~6-7 Hz
@@ -79,17 +84,25 @@ namespace SULFURTogether.Networking.Gameplay
         private static bool  _lBeamActive;            // EM-7b: last-sent loot-locator beam state (host change detection)
         private static Vector3 _lBeamPos;
         private static float _lXP = float.NaN, _lThreshold = float.NaN;
+        // EM-Arena (host): authoritative arena-transition, armed by the ArenaTransitionRoutine prefix. _lArenaEventId is the
+        // last-sent id (change detection). _weSetOverride guards clearing debugOverrideArena in the InstantiateArena postfix.
+        private static int  _pendingArenaEventId;
+        private static int  _pendingArenaIndex = -1;
+        private static int  _lArenaEventId;
+        private static bool _weSetOverride;
 
         // ---- client apply / staleness ----
         private static string _clientRunKey = "";
         private static int    _clientLastRevision = -1;
+        private static int    _clientArenaEventId; // EM-Arena: last arena-transition the client mirrored (monotonic per run)
 
         public static void Reset()
         {
             _revision = 0; _hadInstance = false; _lastSentAt = 0f;
             _lStage = int.MinValue; _lWave = _lBurst = _lLoop = _lCardLevel = _lTransition = 0;
             _lXP = float.NaN; _lThreshold = float.NaN;
-            _clientRunKey = ""; _clientLastRevision = -1;
+            _pendingArenaEventId = 0; _pendingArenaIndex = -1; _lArenaEventId = 0; _weSetOverride = false; // EM-Arena
+            _clientRunKey = ""; _clientLastRevision = -1; _clientArenaEventId = 0;
             ClearPendingDrops(); // drop the previous run's XP pickups
             ClearDamagerTracking(); // EM-5c: drop the previous run's damager attribution + force-pulls
             ClearCardSelectInvuln(); // never carry a card-select invuln bubble across a level change
@@ -109,7 +122,11 @@ namespace SULFURTogether.Networking.Gameplay
                 EnsureResolved();
                 object? mgr = ResolveInstance();
                 if (mgr == null) { _hadInstance = false; ClearCardSelectInvuln(); return; }
-                if (!_hadInstance) { _hadInstance = true; ResetHostBaseline(); } // fresh run → force first send
+                if (!_hadInstance)
+                {
+                    _hadInstance = true; ResetHostBaseline();       // fresh run → force first send
+                    _pendingArenaEventId = 0; _pendingArenaIndex = -1; _weSetOverride = false; // EM-Arena: new run starts on its Awake arena
+                }
 
                 // Safety (host): the card-select invuln bubble is normally dropped by CardSpinComplete; also clear it here
                 // the moment the host leaves CardSelection, so a host can never get stuck invulnerable.
@@ -120,18 +137,24 @@ namespace SULFURTogether.Networking.Gameplay
                 int transition = ReadTransition(mgr);
                 float xp = ReadFloat(_fXP, mgr), threshold = ReadFloat(_fThreshold, mgr);
 
+                // EM-Arena: the instant the host enters ArenaTransition (routine just started), pick + force the arena and
+                // arm the snapshot — well before the routine reaches InstantiateArena — so the client swaps in step. The
+                // arm bumps the arena event id, which forces this same tick to send (arenaChanged below).
+                if (transition == 4 && _lTransition != 4) HostPickAndArmArena(mgr);
+
                 // EM-7b: the shared card-spawn locator beam (host-owned single pillar) — active state + its position.
                 bool beamActive = false; Vector3 beamPos = _lBeamPos;
                 var hostBeam = ResolveLootBeam(mgr);
                 if (hostBeam != null) { beamActive = hostBeam.activeSelf; if (beamActive) beamPos = hostBeam.transform.position; }
                 bool beamChanged = beamActive != _lBeamActive || (beamActive && (beamPos - _lBeamPos).sqrMagnitude > 0.01f);
 
+                bool arenaChanged = _pendingArenaEventId != _lArenaEventId; // EM-Arena: host armed a new arena swap
                 bool discreteChanged = stage != _lStage || wave != _lWave || burst != _lBurst || loop != _lLoop
                                        || cardLevel != _lCardLevel || transition != _lTransition;
                 bool xpChanged = xp != _lXP || threshold != _lThreshold;
                 float now = Time.realtimeSinceStartup;
 
-                bool send = discreteChanged || beamChanged
+                bool send = discreteChanged || beamChanged || arenaChanged
                             || (xpChanged && now - _lastSentAt >= XpThrottleSeconds)
                             || (now - _lastSentAt >= KeepaliveSeconds);
                 if (!send) return;
@@ -147,10 +170,14 @@ namespace SULFURTogether.Networking.Gameplay
                     TransitionState = (byte)transition,
                     CurrentXP = xp, NextCardThresholdXP = threshold, CurrentCardLevel = cardLevel,
                     LootBeamActive = beamActive, LootBeamX = beamPos.x, LootBeamY = beamPos.y, LootBeamZ = beamPos.z,
+                    ArenaEventId = _pendingArenaEventId, ArenaIndex = _pendingArenaIndex,
                 };
 
                 _lStage = stage; _lWave = wave; _lBurst = burst; _lLoop = loop; _lCardLevel = cardLevel;
                 _lTransition = transition; _lXP = xp; _lThreshold = threshold; _lastSentAt = now;
+                if (arenaChanged && LogOn)
+                    Plugin.Log.Info($"[Endless] EM-Arena host broadcast arena event={_pendingArenaEventId} idx={_pendingArenaIndex} (rev={msg.Revision})");
+                _lArenaEventId = _pendingArenaEventId;
                 if (LogOn && beamChanged)
                     Plugin.Log.Info($"[Endless] EM-7b host beam {(beamActive ? $"ON pos={beamPos}" : "OFF")} (rev={msg.Revision})");
                 _lBeamActive = beamActive; _lBeamPos = beamPos;
@@ -169,6 +196,7 @@ namespace SULFURTogether.Networking.Gameplay
             _lStage = int.MinValue; _lWave = _lBurst = _lLoop = _lCardLevel = _lTransition = 0;
             _lXP = float.NaN; _lThreshold = float.NaN; _lastSentAt = 0f;
             _lBeamActive = false; _lBeamPos = Vector3.zero;
+            _lArenaEventId = 0; // EM-Arena: re-send the current arena id on the first snapshot of a fresh run
         }
 
         /// <summary>#2a (CLIENT): the infinite-ammo / indestructible cards expire after
@@ -205,6 +233,88 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return null; }
         }
 
+        // ================================================================== EM-Arena arena-transition sync
+        //
+        // The Endless "level" is the in-place arena swap. The host runs vanilla ArenaTransitionRoutine (chooses a new
+        // arena prefab via gameplayRandom, destroys the old arena, instantiates the new one, teleports the player). The
+        // client's slave manager never runs that routine, and gameplayRandom has long diverged, so the two would end up in
+        // different arenas from the second stage on. We make the pick host-authoritative: the host prefix picks the index
+        // (host-owned RNG, avoiding a repeat) BEFORE the routine's own pick, forces it via debugOverrideArena, and arms a
+        // monotonic ArenaEventId carried on the EM-3 snapshot. The client forces the same prefab and runs the SAME vanilla
+        // routine when it sees a new id, so both ends reuse the game's own cleanup/navmesh/teleport with no reimplementation.
+
+        /// <summary>HOST: called from HostTick the moment the manager enters <c>TransitionState.ArenaTransition</c> — i.e.
+        /// right when the vanilla routine starts, ~3 s before it reaches its own arena pick / InstantiateArena. Choose the
+        /// next arena host-authoritatively (avoiding an immediate repeat), force it via <c>debugOverrideArena</c> so the
+        /// host's own routine uses it instead of its RNG pick, and arm a monotonic event id for the EM-3 snapshot. Arming
+        /// here (at the transition edge) rather than at InstantiateArena (near the end of the routine) means the client
+        /// receives the arena in the same snapshot that flips it to ArenaTransition and starts its mirror routine in step,
+        /// instead of trailing the host by a whole routine's length. Patching the routine's iterator kickoff prefix does
+        /// not fire in this game (Log478), and InstantiateArena fires too late + missed some transitions (Log479), so the
+        /// canonical hook is the host-owned transitionState edge.</summary>
+        public static void HostPickAndArmArena(object mgr)
+        {
+            try
+            {
+                if (NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+                EnsureResolved();
+                if (_fArenaPrefabs == null || _fDebugOverrideArena == null || mgr == null) return;
+                if (_fArenaPrefabs.GetValue(mgr) is not System.Collections.IList prefabs || prefabs.Count == 0) return;
+
+                int last = _fLastUsedArenaIndex != null ? Convert.ToInt32(_fLastUsedArenaIndex.GetValue(mgr)) : -1;
+                int idx = UnityEngine.Random.Range(0, prefabs.Count);
+                for (int guard = 0; idx == last && prefabs.Count > 1 && guard < 16; guard++)
+                    idx = UnityEngine.Random.Range(0, prefabs.Count); // avoid the same arena twice in a row (like vanilla)
+
+                if (prefabs[idx] is not UnityEngine.Object prefab || prefab == null) return;
+                _fDebugOverrideArena.SetValue(mgr, prefab);
+                _fLastUsedArenaIndex?.SetValue(mgr, idx);
+                _weSetOverride = true;
+
+                _pendingArenaIndex = idx;
+                _pendingArenaEventId++;
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-Arena host armed arena idx={idx} event={_pendingArenaEventId} (prefab={prefab.name})");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] HostPickAndArmArena failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Both roles: clear the forced <c>debugOverrideArena</c> we set, from the InstantiateArena postfix, so the
+        /// field doesn't stick into a later transition. No-op if we didn't set it (a genuine debug override is left alone).</summary>
+        public static void ClearForcedArenaIfSet(object mgr)
+        {
+            try
+            {
+                if (!_weSetOverride || _fDebugOverrideArena == null || mgr == null) return;
+                _fDebugOverrideArena.SetValue(mgr, null);
+                _weSetOverride = false;
+            }
+            catch { }
+        }
+
+        /// <summary>CLIENT: mirror one host arena swap — force the host's arena prefab and run the vanilla
+        /// ArenaTransitionRoutine locally (its cleanup / navmesh bake / player teleport / per-player "continue" gate). The
+        /// transitionState is set to ArenaTransition first so an Independent-mode client (whose Update runs vanilla) parks
+        /// on the no-op ArenaTransition case instead of fighting the swap.</summary>
+        private static void ClientRunArenaTransition(object mgr, int arenaIndex)
+        {
+            try
+            {
+                if (_fArenaPrefabs == null || _fDebugOverrideArena == null || _arenaTransitionRoutine == null) return;
+                if (mgr is not MonoBehaviour mb) return;
+                if (_fArenaPrefabs.GetValue(mgr) is not System.Collections.IList prefabs
+                    || arenaIndex < 0 || arenaIndex >= prefabs.Count) return;
+                if (prefabs[arenaIndex] is not UnityEngine.Object prefab || prefab == null) return;
+
+                _fDebugOverrideArena.SetValue(mgr, prefab);
+                _weSetOverride = true;
+                SetTransition(mgr, 4); // TransitionState.ArenaTransition — park a vanilla-running (Independent) Update
+                if (_arenaTransitionRoutine.Invoke(mgr, null) is System.Collections.IEnumerator routine)
+                    mb.StartCoroutine(routine);
+                if (LogOn) Plugin.Log.Info($"[Endless] EM-Arena client swap arena idx={arenaIndex} event={_clientArenaEventId} (prefab={prefab.name})");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[Endless] ClientRunArenaTransition failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
         // ================================================================== client apply
 
         /// <summary>CLIENT: apply a host wave-state snapshot to the local slave EndlessModeManager.</summary>
@@ -224,7 +334,7 @@ namespace SULFURTogether.Networking.Gameplay
 
                 // Staleness: revision is monotonic within a host run; a new run (different context) resets the baseline.
                 string runKey = $"{msg.ChapterName}:{msg.LevelIndex}:{(msg.HasLevelSeed ? msg.LevelSeed : 0)}";
-                if (!string.Equals(runKey, _clientRunKey, StringComparison.Ordinal)) { _clientRunKey = runKey; _clientLastRevision = -1; }
+                if (!string.Equals(runKey, _clientRunKey, StringComparison.Ordinal)) { _clientRunKey = runKey; _clientLastRevision = -1; _clientArenaEventId = 0; }
                 if (msg.Revision < _clientLastRevision) return;
                 _clientLastRevision = msg.Revision;
 
@@ -240,6 +350,16 @@ namespace SULFURTogether.Networking.Gameplay
                 SetBool(_fActive, mgr, true); // ensure the UpdateUI guard passes even before the client's StartEndlessMode ran
 
                 ApplyClientFlagExpiry(mgr); // #2a: expire infinite-ammo / indestructible off the synced wave counter
+
+                // EM-Arena (both modes — the arena is host-authoritative in Shared and Independent alike): the host swapped
+                // to a new arena. Drive the client's vanilla ArenaTransitionRoutine with the host's forced prefab. Keyed on
+                // a monotonic id (idempotent to the latest arena for a late-joining client). Runs before the progression
+                // block so a same-snapshot transitionState=ArenaTransition doesn't matter (we set it in the swap anyway).
+                if (msg.ArenaEventId != _clientArenaEventId)
+                {
+                    _clientArenaEventId = msg.ArenaEventId;
+                    if (msg.ArenaEventId > 0 && msg.ArenaIndex >= 0) ClientRunArenaTransition(mgr, msg.ArenaIndex);
+                }
 
                 // Progression layer: Shared mode mirrors the host's single pool (EM-3). Independent mode leaves the
                 // client's own currentXP / level / card flow untouched (EM-5) — those are driven locally.
@@ -865,6 +985,11 @@ namespace SULFURTogether.Networking.Gameplay
                 _fDurabilityDur    = _emType.GetField("infiniteDurabilityWaveDuration", bf);
                 _pWaveIncludingLoops = _emType.GetProperty("currentWaveIncludingLoops", bf);
                 _updateUI    = _emType.GetMethod("UpdateUI", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+                // EM-Arena: arena-transition mirroring.
+                _fArenaPrefabs        = _emType.GetField("arenaPrefabs", bf);
+                _fDebugOverrideArena  = _emType.GetField("debugOverrideArena", bf);
+                _fLastUsedArenaIndex  = _emType.GetField("lastUsedArenaIndex", bf);
+                _arenaTransitionRoutine = _emType.GetMethod("ArenaTransitionRoutine", bf, null, Type.EmptyTypes, null);
 
                 var orbType = AccessTools.TypeByName("XPOrbManager") ?? AccessTools.TypeByName("PerfectRandom.Sulfur.Core.XPOrbManager");
                 if (orbType != null)
@@ -906,7 +1031,8 @@ namespace SULFURTogether.Networking.Gameplay
                 Plugin.Log.Info($"[Endless] EM-3 resolved fields stage={_fStage != null} wave={_fWave != null} xp={_fXP != null} " +
                                 $"trans={_fTransition != null} updateUI={_updateUI != null} instance={_instanceProp != null} " +
                                 $"orbMgr={_fXpOrbManager != null} spawnOrb={_spawnOrb != null} setInvuln={_setInvulnerable != null} " +
-                                $"activeOrbs={_fActiveOrbs != null} orbState={_orbStateField != null} orbEnum={_orbStateEnumType != null} collectStart={_orbCollectStartField != null}");
+                                $"activeOrbs={_fActiveOrbs != null} orbState={_orbStateField != null} orbEnum={_orbStateEnumType != null} collectStart={_orbCollectStartField != null} " +
+                                $"arenaPrefabs={_fArenaPrefabs != null} debugOverrideArena={_fDebugOverrideArena != null} arenaRoutine={_arenaTransitionRoutine != null}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] EM-3 EnsureResolved failed: {ex.GetType().Name}: {ex.Message}"); }
         }

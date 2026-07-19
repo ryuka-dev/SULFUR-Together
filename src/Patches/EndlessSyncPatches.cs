@@ -135,6 +135,19 @@ namespace SULFURTogether.Patches
                         typeof(EndlessSyncPatches).GetMethod(nameof(RefreshTargets_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 else Plugin.Log.Info("[Endless] EndlessModeManager.RefreshTargets not found — client targeting fix disabled.");
 
+                // EM-Arena (level desync): the in-place arena swap (ArenaTransitionRoutine) was never synced — the host
+                // picks the next arena and instantiates it locally, the client's slave manager never runs the routine, so
+                // from the 2nd stage on the two ends are in different arenas. The host arms the swap from HostTick on the
+                // transitionState→ArenaTransition edge (EndlessSyncManager.HostPickAndArmArena — the routine's iterator
+                // kickoff prefix does not fire, and InstantiateArena fires too late); the client runs the same vanilla
+                // routine forced to the host's arena when the EM-3 snapshot carries a new id. This postfix just clears the
+                // forced debugOverrideArena once the arena is instantiated so it doesn't stick into a later transition.
+                var instantiateArena = AccessTools.DeclaredMethod(emType, "InstantiateArena");
+                if (instantiateArena != null)
+                    harmony.Patch(instantiateArena, postfix: new HarmonyMethod(
+                        typeof(EndlessSyncPatches).GetMethod(nameof(InstantiateArena_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                else Plugin.Log.Info("[Endless] EndlessModeManager.InstantiateArena not found — EM-Arena override cleanup disabled.");
+
                 // EM-6b-2 (Shared mode 3D card mirror via roll-state replay):
                 //  - host captures the pre-roll RNG + selection state (FloatingCardManager.SpawnCards prefix);
                 //  - client forces ChoiceDrawAmount to the host's value so the card count matches (getter postfix);
@@ -255,6 +268,15 @@ namespace SULFURTogether.Patches
             ClientWaveDriverSkipped++;
             EndlessSyncManager.ClientRenderUI(__instance); // EM-3 shared: host-driven HUD; no-op until state resolves
             return false;
+        }
+
+        // EM-Arena (both roles): once the new arena is instantiated, clear the debugOverrideArena we forced (host: in
+        // HostPickAndArmArena at the transition edge; client: in ClientRunArenaTransition) so it doesn't stick into a later
+        // transition. No-op if we didn't set it (single-player, or the Awake first arena).
+        private static void InstantiateArena_Post(object __instance)
+        {
+            if (!Enabled) return;
+            EndlessSyncManager.ClearForcedArenaIfSet(__instance);
         }
 
         // EM-5b (HOST): the canonical Endless XP source. XP is a host-authoritative shared pickup (not per-player), so

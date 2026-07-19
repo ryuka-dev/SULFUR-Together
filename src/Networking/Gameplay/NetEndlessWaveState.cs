@@ -39,6 +39,16 @@ namespace SULFURTogether.Networking.Gameplay
         public float LootBeamY      { get; set; }
         public float LootBeamZ      { get; set; }
 
+        // EM-Arena: host-authoritative arena (stage) transition. The Endless "level" is the in-place arena swap
+        // (ArenaTransitionRoutine): the host picks the next arena prefab and destroys/instantiates it locally, but the
+        // client's slave manager never runs that routine (its Update is suppressed / world is host-authoritative), so
+        // without this the client stays in its old arena from the second stage on. <see cref="ArenaEventId"/> is monotonic
+        // per host run — each increment is one swap; <see cref="ArenaIndex"/> is the index into
+        // EndlessModeManager.arenaPrefabs the host chose. The client forces the same prefab (debugOverrideArena) and runs
+        // the vanilla routine when it sees a new id. World-layer, so it applies in both Shared and Independent modes.
+        public int ArenaEventId { get; set; }
+        public int ArenaIndex   { get; set; } = -1;
+
         public bool MatchesScene(NetRunState localState)
         {
             if (localState == null || !localState.HasLevel) return false;

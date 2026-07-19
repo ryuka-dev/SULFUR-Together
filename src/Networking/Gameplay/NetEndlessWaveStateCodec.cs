@@ -4,7 +4,7 @@ namespace SULFURTogether.Networking.Gameplay
 {
     internal static class NetEndlessWaveStateCodec
     {
-        private const byte Version = 2; // v2: EM-7b loot-locator beam (active + position)
+        private const byte Version = 3; // v3: EM-Arena host-authoritative arena-transition (event id + prefab index)
 
         public static void Write(NetDataWriter w, NetEndlessWaveState m)
         {
@@ -28,6 +28,9 @@ namespace SULFURTogether.Networking.Gameplay
 
             w.Put(m.LootBeamActive);
             if (m.LootBeamActive) { w.Put(m.LootBeamX); w.Put(m.LootBeamY); w.Put(m.LootBeamZ); }
+
+            w.Put(m.ArenaEventId);
+            w.Put(m.ArenaIndex);
         }
 
         public static bool TryRead(NetDataReader r, out NetEndlessWaveState m)
@@ -57,6 +60,9 @@ namespace SULFURTogether.Networking.Gameplay
 
                 m.LootBeamActive = r.GetBool();
                 if (m.LootBeamActive) { m.LootBeamX = r.GetFloat(); m.LootBeamY = r.GetFloat(); m.LootBeamZ = r.GetFloat(); }
+
+                m.ArenaEventId = r.GetInt();
+                m.ArenaIndex   = r.GetInt();
                 return true;
             }
             catch
