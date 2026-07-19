@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using HarmonyLib;
 using UnityEngine;
 using SULFURTogether.Networking;
 using SULFURTogether.ReverseProbe;
@@ -403,6 +404,7 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _hostHitRequestsRejectedNoTarget;
         private static int _hostHitRequestsRejectedTypeMismatch;
         private static int _hostHitRequestsRejectedDead;
+        private static int _hostHitRequestsRejectedPreFightInvuln; // EM-Boss: absorbed while boss invulnerable pre-fight
         private static int _hostHitRequestsRejectedRateLimit;
         private static int _hostHitRequestsAccepted;
         private static int _hostHitRequestsDamageApplied;
@@ -1028,6 +1030,7 @@ namespace SULFURTogether.Networking.Gameplay
             _hostHitRequestsRejectedNoTarget = 0;
             _hostHitRequestsRejectedTypeMismatch = 0;
             _hostHitRequestsRejectedDead = 0;
+            _hostHitRequestsRejectedPreFightInvuln = 0;
             _hostHitRequestsRejectedRateLimit = 0;
             _hostHitRequestsCoalesced = 0;
             _hostHitPendingDamageByHostIdx.Clear();
@@ -2083,7 +2086,7 @@ namespace SULFURTogether.Networking.Gameplay
             Plugin.Log.Info($"[GameplayProbe] Phase5.0 hostAttackPhaseEventsSent={_hostAttackPhaseEventsSent} clientAttackPhaseEventsReceived={_clientAttackPhaseEventsReceived} clientAttackPhaseAnimatorApplies={_clientAttackPhaseAnimatorApplies} clientPuppetDamageSuppressed={_clientPuppetDamageSuppressed} interestManagementFarSkipped={_interestManagementFarSkipped} interestEngagedExempt={_interestEngagedExempt} attackPhaseThrottled={_attackPhaseThrottled} enemyDamageEventThrottled={_enemyDamageEventThrottled}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.2 hostDmgEventsSent={_hostEnemyDamageEventsSent} hostHealthStatesSent={_hostEnemyHealthStatesSent} clientDmgEventsRecv={_clientEnemyDamageEventsReceived} clientHealthStatesRecv={_clientEnemyHealthStatesReceived} clientHealthApplied={_clientEnemyHealthStatesApplied} clientHealthNoBinding={_clientEnemyHealthApplySkippedNoBinding} healthPendingQueued={_clientHealthStatesPendingQueued} healthPendingApplied={_clientHealthStatesPendingApplied} healthPendingExpired={_clientHealthStatesPendingExpired} deathByRosterBind={_hostDeathAppliedByRosterBinding} deathSnapped={_hostDeathAppliedAfterSnap} deathRejectedNoBinding={_hostDeathRejectedNoBinding} deathTombstone={_hostDeathTombstoneHit} deathNeverBound={_hostDeathNeverBound} lateBindAttempts={_hostDeathLateBindAttempts} lateBindSuccess={_hostDeathLateBindSuccess} claimsSuppressed={_clientDeathClaimsSuppressedByHostAuthority}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.2-diag healthFail_disabled={_clientHealthApplyDisabled} healthFail_noHp={_clientHealthNoCurrentHp} healthFail_noEntity={_clientHealthNoEntity} healthFail_noRuntimeObj={_clientHealthNoRuntimeObj} healthFail_unityDestroyed={_clientHealthUnityDestroyed} healthFail_noStats={_clientHealthNoStats} healthFail_noSetStatus={_clientHealthSetStatusMissing} healthFail_enumArgBuild={_clientHealthEnumArgFailed} healthFail_invokeFail={_clientHealthSetStatusFailed} healthFail_write={_clientHealthWriteFailed} healthFail_readBackUnchanged={_clientHealthWriteReadBackUnchanged} puppetSuppressedAwaitingHost={_puppetReleaseSuppressedAwaitingHost} puppetStaleSuppressed={_puppetStaleReleaseSuppressed}");
-            Plugin.Log.Info($"[GameplayProbe] Phase5.3-B clientHitSent={_clientHitRequestsSent} clientHitSkipNoPuppet={_clientHitRequestsSkippedNoPuppet} clientHitSkipNoBinding={_clientHitRequestsSkippedNoBinding} puppetNonPlayerDmgIgnored={_clientPuppetNonPlayerDamageIgnored} clientHitSkipPendingDead={_clientHitSkipPendingDead} clientHitSkipTerminalDead={_clientHitSkipTerminalDead} clientHitPredicted={_clientLocalHitPredicted} clientHitConfirmed={_clientLocalHitConfirmed} hostHitRecv={_hostHitRequestsRecv} hostHitRejectScene={_hostHitRequestsRejectedScene} hostHitRejectNoTarget={_hostHitRequestsRejectedNoTarget} hostHitRejectType={_hostHitRequestsRejectedTypeMismatch} hostHitRejectDead={_hostHitRequestsRejectedDead} hostHitRejectRateLimit={_hostHitRequestsRejectedRateLimit} hostHitCoalesced={_hostHitRequestsCoalesced} hostHitAccepted={_hostHitRequestsAccepted} hostHitDmgApplied={_hostHitRequestsDamageApplied} hostHitDmgFailed={_hostHitRequestsDamageFailed} hostHitResultHealthSent={_hostHitResultHealthStateSent}");
+            Plugin.Log.Info($"[GameplayProbe] Phase5.3-B clientHitSent={_clientHitRequestsSent} clientHitSkipNoPuppet={_clientHitRequestsSkippedNoPuppet} clientHitSkipNoBinding={_clientHitRequestsSkippedNoBinding} puppetNonPlayerDmgIgnored={_clientPuppetNonPlayerDamageIgnored} clientHitSkipPendingDead={_clientHitSkipPendingDead} clientHitSkipTerminalDead={_clientHitSkipTerminalDead} clientHitPredicted={_clientLocalHitPredicted} clientHitConfirmed={_clientLocalHitConfirmed} hostHitRecv={_hostHitRequestsRecv} hostHitRejectScene={_hostHitRequestsRejectedScene} hostHitRejectNoTarget={_hostHitRequestsRejectedNoTarget} hostHitRejectType={_hostHitRequestsRejectedTypeMismatch} hostHitRejectDead={_hostHitRequestsRejectedDead} hostHitRejectPreFightInvuln={_hostHitRequestsRejectedPreFightInvuln} hostHitRejectRateLimit={_hostHitRequestsRejectedRateLimit} hostHitCoalesced={_hostHitRequestsCoalesced} hostHitAccepted={_hostHitRequestsAccepted} hostHitDmgApplied={_hostHitRequestsDamageApplied} hostHitDmgFailed={_hostHitRequestsDamageFailed} hostHitResultHealthSent={_hostHitResultHealthStateSent}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-D-death pendingDeadMarked={_pendingDeadMarked} pendingDeadHostDeathApplied={_pendingDeadHostDeathApplied} pendingDeadAwaitingHostDeath={_clientPendingDeadHostIdx.Count} pdVisualFallbackAttempted={_pendingDeadVisualFallbackAttempted} pdVisualFallbackSucceeded={_pendingDeadVisualFallbackSucceeded} pdVisualFallbackFailed={_pendingDeadVisualFallbackFailed} pdBlockedHitFlash={_pendingDeadBlockedHitFlash} pdBlockedClientHit={_pendingDeadBlockedClientHit} terminalDeadMarkedAfterDie={_terminalDeadMarkedAfterDie} terminalDeadMarkedAfterVisualFallback={_terminalDeadMarkedAfterVisualFallback} terminalDeadMarkedFromHealthOnly={_terminalDeadMarkedFromHealthOnly} activeTerminalDead={_clientTerminalDeadHostIdx.Count} tdBlockedAttackPhase={_terminalDeadBlockedAttackPhase} tdBlockedGenericReplay={_terminalDeadBlockedGenericReplay} tdBlockedMovement={_terminalDeadBlockedMovement} tdBlockedHitReaction={_terminalDeadBlockedHitReaction} tdHealthIgnored={_terminalDeadHealthUpdatesIgnored} tdDeathReapplySkipped={_terminalDeadDeathReapplySkipped}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-D-flash dmgVisualPlayed={_damageVisualReactionsPlayed} dmgVisualDoWhiteFlash={_dmgVisualNativeDoWhiteFlash} dmgVisualSetHitEffect={_dmgVisualNativeSetHitEffect} dmgVisualMaterialHitTime={_dmgVisualMaterialHitTime} dmgVisualFallbackColor={_dmgVisualFallbackColor} dmgVisualFailNoNpc={_dmgVisualFailedNoNpc} dmgVisualFailNoMethod={_dmgVisualFailedNoMethod} dmgVisualFailNoMaterial={_dmgVisualFailedNoMaterial} dmgVisualSkipTerminalDead={_damageVisualReactionSkippedTerminalDead} dmgVisualSkipPendingDead={_damageVisualReactionSkippedPendingDead} dmgVisualSkipNoBinding={_damageVisualReactionSkippedNoBinding} dmgVisualSkipDupSeq={_damageVisualReactionSkippedDuplicateSeq} activeFlashes={_pendingHitFlashes.Count}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-E-manifest hostManifestBuilt={_hostManifestBuilt} clientManifestBuilt={_clientManifestBuilt} hostManifestSent={_hostManifestSent} clientManifestReceived={_clientManifestReceived} seedMismatch={_manifestSeedMismatch} roomMismatch={_manifestRoomMismatch} unitMismatch={_manifestUnitMismatch} specialMismatch={_manifestSpecialMismatch} modifierMismatch={_manifestHostEnemyModifierMismatch} hostOnlyUnits={_manifestHostOnlyUnits} clientOnlyUnits={_manifestClientOnlyUnits} hostEnemyBoundExisting={_manifestHostEnemyBoundExisting} hostEnemyBindFailedNoCandidate={_manifestHostEnemyBindFailedNoCandidate} hostEnemyBindFailedAmbiguous={_manifestHostEnemyBindFailedAmbiguous}");
@@ -9248,6 +9251,25 @@ namespace SULFURTogether.Networking.Gameplay
                     return;
                 }
 
+                // EM-Boss: honor a boss's pre-fight invulnerability. An Endless (and story) boss spawns invulnerable
+                // (BossFightHelper.Awake → SetInvulnerable(true)) and stays so through its intro animation until its
+                // animation-event fight start (Anim_OnStartBossFight → TriggerFight). Vanilla Unit.ReceiveDamage blocks
+                // damage while isInvulnerable (Unit.cs:1652), so the host's own shots do nothing during the intro. But
+                // this client-hit path writes health via Stats.SetStatus and never calls ReceiveDamage, bypassing that
+                // guard — so a strong client weapon melts the boss during its intro and kills it BEFORE the fight starts
+                // (observed Log482: Cousin/Lucia died at fightStarted=False, invuln=True, in ~2s). Drop the client hit
+                // while the boss is invulnerable AND its fight has not started. Deliberately narrow: gated on the boss
+                // having a BossFightHelper with fightStarted==false, so Terrorbaum (permanent body-invuln + eye-hitbox
+                // damage, fightStarted==true during its fight) and ordinary enemies (no helper) are unaffected.
+                if (targetSnapshot.TryGetRuntimeObject(out var preFightObj) && preFightObj != null
+                    && IsBossInPreFightInvulnerability(preFightObj))
+                {
+                    _hostHitRequestsRejectedPreFightInvuln++;
+                    if (Plugin.Cfg.LogClientHitRequests.Value)
+                        NetLogger.Info($"[ClientHit] ABSORB pre-fight-invuln peer={peerId} seq={request.RequestSeq} hostIdx={request.TargetHostSpawnIndex} unit={hostUnitId} (boss invulnerable until its fight starts)");
+                    return;
+                }
+
                 // Rate limit per target — but COALESCE, don't drop. The limit exists to cap SetStatus/broadcast frequency,
                 // not to discard damage. A hit inside the window adds its damage to the target's pending accumulator,
                 // applied on the next accepted hit or flushed in Tick. Otherwise burst/multi-pellet weapons (8 pellets in
@@ -9423,6 +9445,71 @@ namespace SULFURTogether.Networking.Gameplay
             }
 
             return true;
+        }
+
+        // EM-Boss: reflection handles for the pre-fight-invulnerability guard (resolved once, lazily).
+        private static bool _bossGuardResolved;
+        private static Type? _bossEndlessHelperType;           // PerfectRandom.Sulfur.Gameplay.BossEndlessHelper (base of the Endless boss helpers)
+        private static FieldInfo? _bfhFightStartedField;       // BossFightHelper.fightStarted : public bool (inherited by BossEndlessHelper)
+        private static readonly Dictionary<Type, PropertyInfo?> _unitInvulnGetterCache = new Dictionary<Type, PropertyInfo?>();
+
+        /// <summary>
+        /// EM-Boss: true when <paramref name="unit"/> is an <b>Endless</b> boss currently sitting in its pre-fight
+        /// invulnerability window — i.e. the unit reads <c>isInvulnerable</c> and it carries a <c>BossEndlessHelper</c>
+        /// whose (inherited) <c>fightStarted</c> is still false. Endless bosses spawn invulnerable
+        /// (BossFightHelper.Awake → SetInvulnerable(true)) and only clear it when their animation-event fight start runs
+        /// (Anim_OnStartBossFight → TriggerFight). The host's own shots are blocked by vanilla ReceiveDamage during this
+        /// window (Unit.cs:1652), but the client-hit path writes health via SetStatus and bypasses that guard, so
+        /// without this check a strong client weapon kills the boss during its intro (Log482: Cousin/Lucia died at
+        /// fightStarted=False, invuln=True). Deliberately narrow: scoped to the BossEndlessHelper family so the tested
+        /// story-boss damage paths are untouched; ordinary enemies have no such helper (→ false); and a boss whose
+        /// fight has started (Terrorbaum's permanent body-invuln + eye-hitbox damage, fightStarted==true) is not blocked.
+        /// </summary>
+        private static bool IsBossInPreFightInvulnerability(object unit)
+        {
+            try
+            {
+                if (!_bossGuardResolved)
+                {
+                    _bossGuardResolved = true;
+                    _bossEndlessHelperType = AccessTools.TypeByName("PerfectRandom.Sulfur.Gameplay.BossEndlessHelper")
+                                          ?? AccessTools.TypeByName("BossEndlessHelper");
+                    if (_bossEndlessHelperType != null)
+                        _bfhFightStartedField = AccessTools.Field(_bossEndlessHelperType, "fightStarted"); // walks up to BossFightHelper
+                }
+                if (_bossEndlessHelperType == null || _bfhFightStartedField == null) return false;
+                if (unit is not Component comp) return false;
+
+                // Only invulnerable units are candidates — short-circuit before the component lookup so ordinary,
+                // damageable enemies (the overwhelming majority of client hits) never pay for the search.
+                if (!ReadUnitIsInvulnerable(unit)) return false;
+
+                // The endless boss helper normally lives on the boss NPC's own GameObject; search self, then
+                // descendants, then ancestors, so a prefab that parents/childs the helper differently is still covered.
+                Component? helper = comp.GetComponent(_bossEndlessHelperType)
+                                 ?? comp.GetComponentInChildren(_bossEndlessHelperType, true)
+                                 ?? comp.GetComponentInParent(_bossEndlessHelperType);
+                if (helper == null) return false; // invulnerable but not an endless boss fight → not our case
+
+                object? fs = _bfhFightStartedField.GetValue(helper);
+                return fs is bool started && !started; // pre-fight (fight not yet started) → absorb client damage
+            }
+            catch { return false; }
+        }
+
+        private static bool ReadUnitIsInvulnerable(object unit)
+        {
+            try
+            {
+                Type t = unit.GetType();
+                if (!_unitInvulnGetterCache.TryGetValue(t, out var pi))
+                {
+                    pi = AccessTools.Property(t, "isInvulnerable"); // inherited from Unit; AccessTools walks the hierarchy
+                    _unitInvulnGetterCache[t] = pi;
+                }
+                return pi?.GetValue(unit) is bool b && b;
+            }
+            catch { return false; }
         }
 
         // Helper: get position from a snapshot's runtime object for range checking.

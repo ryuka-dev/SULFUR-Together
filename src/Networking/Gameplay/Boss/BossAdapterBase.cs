@@ -253,10 +253,37 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             return $"health {(wrote ? "written" : "write-failed")} {state.CurrentHealth:0}/{state.MaxHealth:0} (norm={normalized:0.00}) barEvent={bar}";
         }
 
+        // EM-Boss: BossEndlessHelper type, resolved once. Endless bosses drive the segmented crypt bar
+        // (EndlessModeManager.AttachBossToUI) themselves and must NOT also get the single standard boss bar.
+        private static bool _endlessTypeResolved;
+        private static Type? _bossEndlessHelperType;
+
+        /// <summary>True when this boss helper is an Endless-mode variant (CousinEndlessHelper, LuciaBossEndlessHelper,
+        /// …), which manages its own crypt health bar via EndlessModeManager and must not be given the standard bar.</summary>
+        protected static bool IsEndlessBoss(object component)
+        {
+            if (component == null) return false;
+            if (!_endlessTypeResolved)
+            {
+                _endlessTypeResolved = true;
+                _bossEndlessHelperType = BossReflect.FindType("BossEndlessHelper",
+                    "PerfectRandom.Sulfur.Gameplay.BossEndlessHelper", "PerfectRandom.Sulfur.Core.BossEndlessHelper");
+            }
+            return _bossEndlessHelperType != null && _bossEndlessHelperType.IsInstanceOfType(component);
+        }
+
         /// <summary>Attach the boss bar to this boss's health unit (called ONCE per encounter by the manager — Attach
         /// re-subscribes onHealthChange each call, so it must not run every state packet).</summary>
         public bool TryAttachBossBar(object component)
         {
+            // EM-Boss: an Endless boss (e.g. CousinEndlessHelper) already shows the segmented crypt bar via its own
+            // BossEndlessHelper.DelayIntro → EndlessModeManager.AttachBossToUI. Attaching the standard single boss bar
+            // here as well produces a SECOND, redundant health bar; worse, the endless variant never runs the story
+            // adapter's death teardown that would detach it, so it lingers across stage transitions (the residual bar,
+            // confirmed in Log485: stdBossBar tracked the endless Cousin and was never released). Let the crypt bar own
+            // the UI for endless bosses.
+            if (IsEndlessBoss(component)) return false;
+
             var hu = GetHealthUnit(component);
             if (hu == null) return false;
             return BossReflect.TryInvokeBool(hu, "AttachToBossUI", true, out _);
