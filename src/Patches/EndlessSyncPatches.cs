@@ -540,6 +540,7 @@ namespace SULFURTogether.Patches
         private static MemberInfo? _npcAiAgent;                  // Npc.AiAgent (property or field)
         private static FieldInfo? _aiOverrideTargets;            // AiAgent.overridetargets
         private static MethodInfo? _otAddUnits;                  // OverrideTarget.AddUnits(List<Unit>, TargetType)
+        private static FieldInfo? _otUnitsToTarget;              // OverrideTarget.unitsToTarget (the live candidate list)
         private static Type? _otUnitListType;                    // List<Unit>
         private static object? _otTargetTypeClosest;             // TargetType.Closest
         private static bool _targetingResolved;
@@ -571,20 +572,25 @@ namespace SULFURTogether.Patches
                         try { _otTargetTypeClosest = Enum.Parse(ps[1].ParameterType, "Closest"); } catch { _otTargetTypeClosest = Enum.ToObject(ps[1].ParameterType, 0); }
                         break;
                     }
+                    _otUnitsToTarget = otType.GetField("unitsToTarget", bf);
                 }
-                Plugin.Log.Info($"[Endless] bug-2 targeting resolved allSpawned={_fAllSpawned != null} aiAgent={_npcAiAgent != null} overrideTargets={_aiOverrideTargets != null} addUnits={_otAddUnits != null}");
+                Plugin.Log.Info($"[Endless] bug-2 targeting resolved allSpawned={_fAllSpawned != null} aiAgent={_npcAiAgent != null} overrideTargets={_aiOverrideTargets != null} addUnits={_otAddUnits != null} unitsToTarget={_otUnitsToTarget != null}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[Endless] ResolveTargetingReflection failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        // HOST: after RefreshTargets rebuilt each Endless enemy's (host-only) overridetargets, add the client ghost units
-        // so GrabHostileUnit can pick whichever player is nearest (enemies far from the host now aggro the client).
+        // HOST: after RefreshTargets rebuilt each Endless enemy's overridetargets, APPEND the client ghost units to the
+        // list vanilla just built (host PlayerUnit + companions + other enemies). We must append, not call AddUnits again:
+        // OverrideTarget.AddUnits REPLACES its internal list wholesale (unitsToTarget = targetUnits), so a second AddUnits
+        // would wipe the host player out of every enemy's candidate set and glue all aggro to the client (the exact
+        // "enemies only target the non-host player" report). GrabHostileUnit(Closest) then picks whoever is nearest.
         private static void RefreshTargets_Post(object __instance)
         {
             try
             {
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
-                if (_otAddUnits == null || _otUnitListType == null || _aiOverrideTargets == null || _npcAiAgent == null) return;
+                if (_otUnitListType == null || _aiOverrideTargets == null || _npcAiAgent == null) return;
+                if (_otUnitsToTarget == null && _otAddUnits == null) return;
 
                 object[] ghosts;
                 lock (RemotePlayerRegistryManager.GhostUnitsByPeer)
@@ -619,7 +625,19 @@ namespace SULFURTogether.Patches
                 if (ai is not UnityEngine.Object aio || aio == null) continue;
                 object? ot = _aiOverrideTargets!.GetValue(ai);
                 if (ot == null) continue;
-                try { _otAddUnits!.Invoke(ot, new object[] { ghostList, _otTargetTypeClosest! }); } catch { }
+
+                // Preferred path: append ghosts to the live candidate list vanilla just populated, preserving the host
+                // player / companions / enemy-vs-enemy targets already in it. Vanilla rebuilds this as a fresh list on
+                // every RefreshTargets, so mutating it in place accumulates nothing across refreshes.
+                if (_otUnitsToTarget?.GetValue(ot) is IList current)
+                {
+                    foreach (var g in ghostList) if (g != null && !current.Contains(g)) current.Add(g);
+                    continue;
+                }
+
+                // Fallback (unitsToTarget field unresolved): AddUnits replaces the list — degrades to client-only aggro,
+                // but keeps enemies reacting to the client rather than doing nothing.
+                try { _otAddUnits?.Invoke(ot, new object[] { ghostList, _otTargetTypeClosest! }); } catch { }
             }
         }
 
