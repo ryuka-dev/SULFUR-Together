@@ -55,9 +55,6 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static FieldInfo? _fBossPhaseIndex;    // BossCondition.bossPhaseIndex
         private static FieldInfo? _fPhaseName;         // BossCondition.phaseName
 
-        // Unit members (property-or-field, resolved lazily per boss unit type).
-        private static Func<object, string>? _readUnitState;
-
         // Boss-UI roster (EndlessModeManager.spawnedBosses = the crypt bar's segments).
         private static PropertyInfo? _emInstanceProp;   // static EndlessModeManager.Instance
         private static FieldInfo? _fSpawnedBosses;       // public List<Npc> spawnedBosses

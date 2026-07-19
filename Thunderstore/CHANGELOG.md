@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.1 — Endless boss fixes
+
+Fixes for Endless Mode bosses in co-op. Updating is recommended for everyone in a session.
+
+**Fixed:**
+- **Endless bosses can now be fought in co-op.** A boss could die almost the instant it appeared:
+  a second player's shots were bypassing the boss's entrance invulnerability, so a strong weapon
+  could kill it before its fight even started and the stage would just move on. Bosses now stay
+  invulnerable through their intro exactly as they do in single-player, so the fight begins properly.
+- **Fixed a duplicate and leftover boss health bar in Endless.** A second health bar could appear
+  during a boss fight and stay stuck on screen into later stages. Endless bosses now show a single
+  health bar that clears correctly when the boss dies.
+
 ## 1.2.0 — Endless Mode co-op
 
 Endless Mode can now be played in co-op. Both players share the same arena, waves, and

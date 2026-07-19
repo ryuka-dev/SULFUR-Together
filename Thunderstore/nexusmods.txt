@@ -120,6 +120,8 @@ The world does [b]not pause[/b] while multiplayer is active — opening the inve
 [/list]
 This list is not exhaustive.
 
+[b]Note (by design):[/b] In Endless, changing arena vacuums up every remaining XP orb at once. The base game's level-up zeroes your XP bar — it does not carry the excess — and grants one level per card, so a large lump of XP absorbed at a transition only yields a single level-up. This is vanilla behavior; the mod deliberately leaves the level-up logic unchanged.
+
 [color=DodgerBlue][b]Feedback & bug reports[/b][/color]
 
 [b]Thunderstore does not support bug reports or comments[/b], so please report elsewhere:
@@ -247,6 +249,8 @@ SULFUR Together [b]不使用[/b]共享角色存档。每位玩家保留自己的
 [*]4 人及以上的会话未经测试——2 人最为稳定。[/*]
 [/list]
 以上并非完整清单。
+
+[b]说明（原版设定）：[/b] 无尽模式切换竞技场时会一次性吸收所有剩余的经验球。原版的升级会把经验条清零——不保留溢出——且每张卡只升一级，因此在切换时一次性吸收的大量经验也只会带来一次升级。这是原版行为；本 mod 特意保留升级逻辑、不做修改。
 
 [color=DodgerBlue][b]反馈与错误报告[/b][/color]
 
@@ -376,6 +380,8 @@ SULFUR Together は共有キャラクターセーブを[b]使いません[/b]。
 [/list]
 これは完全な一覧ではありません。
 
+[b]補足（仕様）：[/b] エンドレスモードでアリーナが切り替わる際、残っている経験値オーブが一度にすべて回収されます。ベースゲームのレベルアップは経験値バーをゼロにし——超過分は繰り越されません——カード1枚につき1レベルのみ上昇するため、切り替え時にまとめて回収された大量の経験値でも上昇は1レベルだけです。これはバニラの挙動であり、本 mod はレベルアップのロジックを意図的に変更していません。
+
 [color=DodgerBlue][b]フィードバックと不具合報告[/b][/color]
 
 [b]Thunderstore は不具合報告やコメントに対応していません[/b]。以下からご報告ください：
@@ -391,6 +397,23 @@ SULFUR Together は共有キャラクターセーブを[b]使いません[/b]。
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.2.1 — Endless boss fixes[/b][/color]
+
+Fixes for Endless Mode bosses in co-op. Updating is recommended for everyone in a session.
+
+[b]Fixed:[/b]
+[list]
+[*][b]Endless bosses can now be fought in co-op.[/b] A boss could die almost the instant it appeared:[/*]
+[/list]
+  a second player's shots were bypassing the boss's entrance invulnerability, so a strong weapon
+  could kill it before its fight even started and the stage would just move on. Bosses now stay
+  invulnerable through their intro exactly as they do in single-player, so the fight begins properly.
+[list]
+[*][b]Fixed a duplicate and leftover boss health bar in Endless.[/b] A second health bar could appear[/*]
+[/list]
+  during a boss fight and stay stuck on screen into later stages. Endless bosses now show a single
+  health bar that clears correctly when the boss dies.
 
 [color=RoyalBlue][b]1.2.0 — Endless Mode co-op[/b][/color]
 

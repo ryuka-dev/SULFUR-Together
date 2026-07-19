@@ -108,6 +108,8 @@ The world does **not pause** while multiplayer is active — opening the invento
 
 This list is not exhaustive.
 
+**Note (by design):** In Endless, changing arena vacuums up every remaining XP orb at once. The base game's level-up zeroes your XP bar — it does not carry the excess — and grants one level per card, so a large lump of XP absorbed at a transition only yields a single level-up. This is vanilla behavior; the mod deliberately leaves the level-up logic unchanged.
+
 ### Feedback & bug reports
 
 **Thunderstore does not support bug reports or comments**, so please report elsewhere:
@@ -223,6 +225,8 @@ SULFUR Together **不使用**共享角色存档。每位玩家保留自己的角
 
 以上并非完整清单。
 
+**说明（原版设定）：** 无尽模式切换竞技场时会一次性吸收所有剩余的经验球。原版的升级会把经验条清零——不保留溢出——且每张卡只升一级，因此在切换时一次性吸收的大量经验也只会带来一次升级。这是原版行为；本 mod 特意保留升级逻辑、不做修改。
+
 ### 反馈与错误报告
 
 **Thunderstore 不支持提交反馈或评论**，因此请通过以下渠道反馈：
@@ -337,6 +341,8 @@ SULFUR Together は共有キャラクターセーブを**使いません**。各
 - 4人以上のセッションは未検証です——2人が最も安定します。
 
 これは完全な一覧ではありません。
+
+**補足（仕様）：** エンドレスモードでアリーナが切り替わる際、残っている経験値オーブが一度にすべて回収されます。ベースゲームのレベルアップは経験値バーをゼロにし——超過分は繰り越されません——カード1枚につき1レベルのみ上昇するため、切り替え時にまとめて回収された大量の経験値でも上昇は1レベルだけです。これはバニラの挙動であり、本 mod はレベルアップのロジックを意図的に変更していません。
 
 ### フィードバックと不具合報告
 
