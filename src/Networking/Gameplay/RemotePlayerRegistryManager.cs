@@ -42,6 +42,12 @@ namespace SULFURTogether.Networking.Gameplay
         /// <summary>HOST: the live ghost-player target Units by peer id (static so other host systems — e.g. Endless
         /// targeting, whose enemies use overridetargets instead of the hostilesInLOS scan — can add them as targets).</summary>
         internal static readonly Dictionary<string, object> GhostUnitsByPeer = new Dictionary<string, object>();
+
+        /// <summary>HOST: the ghost player's index in GameManager.Players by peer id, so the external-mod bridge can
+        /// report it on <c>ExternalPeer.PlayerIndex</c> and a companion host can route a per-player decision to the
+        /// owning peer. Kept in lockstep with <see cref="GhostUnitsByPeer"/>.</summary>
+        internal static readonly Dictionary<string, int> PlayerIndexByPeer = new Dictionary<string, int>();
+
         private readonly HashSet<string> _seenThisTick = new HashSet<string>();
         private readonly List<string> _removeScratch = new List<string>();
 
@@ -229,7 +235,8 @@ namespace SULFURTogether.Networking.Gameplay
                 try { _cameraRootField?.SetValue(player, eyes.transform); } catch { }
                 try { _playerVisualsField?.SetValue(player, Array.CreateInstance(_playerVisualsField.FieldType.GetElementType()!, 0)); } catch { }
                 try { if (_activeHoldableRenderersProp?.PropertyType.GetElementType() is Type rt) _activeHoldableRenderersProp.SetValue(player, Array.CreateInstance(rt, 0), null); } catch { }
-                try { _playerIndexProp?.SetValue(player, playersList.Count, null); } catch { }
+                int assignedPlayerIndex = playersList.Count;
+                try { _playerIndexProp?.SetValue(player, assignedPlayerIndex, null); } catch { }
 
                 go.SetActive(true); // Unit.Awake runs; Player stays disabled.
 
@@ -248,6 +255,7 @@ namespace SULFURTogether.Networking.Gameplay
 
                 _ghosts[peerId] = new Ghost { Go = go, Player = player, Unit = unit, LastUpdatedAt = now };
                 if (unit != null) GhostUnitsByPeer[peerId] = unit;
+                PlayerIndexByPeer[peerId] = assignedPlayerIndex;
                 _ghostGoIds.Add(go.GetInstanceID());
                 Plugin.Log.Info($"[PlayerRegistry] registered ghost player peer={peerId} pos={pos:F1} players={playersList.Count} unitSO={(playerUnitSO == null ? "null" : "ok")}");
             }
@@ -259,6 +267,7 @@ namespace SULFURTogether.Networking.Gameplay
             if (!_ghosts.TryGetValue(peerId, out var g)) return;
             _ghosts.Remove(peerId);
             GhostUnitsByPeer.Remove(peerId);
+            PlayerIndexByPeer.Remove(peerId);
             try { if (g.Go != null) _ghostGoIds.Remove(g.Go.GetInstanceID()); } catch { }
             bool removedFromPlayers = false;
             try

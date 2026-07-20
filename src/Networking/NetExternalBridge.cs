@@ -104,7 +104,10 @@ namespace SULFURTogether.Networking
                 foreach (var s in svc.SessionSnapshot)
                 {
                     if (!s.IsConnected) continue;
-                    list.Add(new ExternalPeer(s.PeerId, s.Role == NetPeerRole.Host, s.IsLocal));
+                    // Host-only: the headless per-peer player index, so a companion host can route a per-player
+                    // decision back to the owning peer. -1 elsewhere (a client keeps no per-peer players).
+                    int playerIndex = Gameplay.RemotePlayerRegistryManager.PlayerIndexByPeer.TryGetValue(s.PeerId, out var idx) ? idx : -1;
+                    list.Add(new ExternalPeer(s.PeerId, s.Role == NetPeerRole.Host, s.IsLocal, playerIndex));
                 }
                 return list;
             }

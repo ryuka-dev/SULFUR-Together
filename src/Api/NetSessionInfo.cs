@@ -12,21 +12,32 @@ namespace SULFURTogether.Api
 
     /// <summary>
     /// A connected session member. Identity only — no gameplay Player/Unit reference, no transport handle, no
-    /// position. A companion mod maps this to its own participant concept.
+    /// position. A companion mod maps this to its own participant concept; <see cref="PlayerIndex"/> is the one
+    /// bridge to the game roster, so an authoritative host can address a specific peer's player.
     /// </summary>
     public readonly struct ExternalPeer
     {
-        public ExternalPeer(string peerId, bool isHost, bool isLocal)
+        public ExternalPeer(string peerId, bool isHost, bool isLocal, int playerIndex = -1)
         {
-            PeerId  = peerId ?? "";
-            IsHost  = isHost;
-            IsLocal = isLocal;
+            PeerId      = peerId ?? "";
+            IsHost      = isHost;
+            IsLocal     = isLocal;
+            PlayerIndex = playerIndex;
         }
 
         /// <summary>Stable session peer id (the host's id is "host"). Not a display name, not a transport handle.</summary>
         public string PeerId  { get; }
         public bool   IsHost  { get; }
         public bool   IsLocal { get; }
+
+        /// <summary>
+        /// The index of this peer's player in the <b>local</b> machine's <c>GameManager.Players</c>, or <c>-1</c>
+        /// when not resolvable here. The host populates it for remote peers (from the headless player it already
+        /// tracks per peer); a client keeps no such per-peer players, so it reports <c>-1</c> for others. A companion
+        /// mod resolves its own local player index directly and uses this only to route a decision about a remote
+        /// peer's player back to that peer. Not stable across machines — it is each machine's own roster index.
+        /// </summary>
+        public int PlayerIndex { get; }
     }
 
     /// <summary>
