@@ -246,6 +246,9 @@ namespace SULFURTogether.Networking.Gameplay
             return _service.FormatBossConvergence(out allConverged);
         }
 
+        // PK-2 — client→host desert-pike ambush request.
+        public static void SendClientPikeJump(SULFURTogether.Networking.Gameplay.Boss.NetClientPikeJump msg) => _service?.SendClientPikeJump(msg);
+
         public static void SendClientBossStartRequest(SULFURTogether.Networking.Gameplay.Boss.NetClientBossStartRequest req)
         {
             _service?.SendClientBossStartRequest(req);

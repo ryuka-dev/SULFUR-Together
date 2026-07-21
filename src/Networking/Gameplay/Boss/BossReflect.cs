@@ -35,6 +35,25 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             return null;
         }
 
+        /// <summary>Write a field/property, most-derived first. False when the member is missing or read-only — callers
+        /// decide whether that is fatal; nothing here throws.</summary>
+        public static bool TrySetMember(object? obj, string name, object? value)
+        {
+            if (obj == null) return false;
+            try
+            {
+                for (Type? t = obj.GetType(); t != null; t = t.BaseType)
+                {
+                    var f = t.GetField(name, WalkFlags);
+                    if (f != null) { f.SetValue(obj, value); return true; }
+                    var p = t.GetProperty(name, WalkFlags);
+                    if (p != null && p.CanWrite && p.GetIndexParameters().Length == 0) { p.SetValue(obj, value, null); return true; }
+                }
+            }
+            catch { }
+            return false;
+        }
+
         public static bool TryGetBool(object? obj, string name, out bool value)
         {
             value = false;

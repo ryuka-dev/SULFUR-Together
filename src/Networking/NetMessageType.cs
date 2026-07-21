@@ -450,5 +450,11 @@ namespace SULFURTogether.Networking
         // authoritative companion (at the client's ghost position, charmed to the picker) — the picker mirrors it back via
         // the RuntimeSpawn puppet pipeline (EM-7c).
         EndlessWorldCard        = 96,
+
+        // PK-2 (client → host): "my player triggered this desert pike and my native search picked this landing point".
+        // The host cannot derive it — the pike's jump search needs a player camera rig, which the host's remote-player
+        // ghosts do not have. The host validates the request and runs the real JumpTowards, which broadcasts the arc back
+        // through the existing PikeJump discrete event.
+        ClientPikeJump          = 97,
     }
 }

@@ -23,7 +23,9 @@ namespace SULFURTogether.Networking
         // 25: IND-1 added EndlessWorldCard (96) — client→host Independent-mode companion routing; wire set must match.
         // 26: EM-Arena added arena-transition (event id + prefab index) to the EndlessWaveState (86) snapshot (codec v3) — wire shape must match.
         // 27: MP-Cap dropped the trailing maxPlayers field from HandshakeAccepted — the player cap is gone entirely.
-        public const int    ProtocolVersion  = 27;
+        // 28: PK-1 added shouldJumpOff/inverted to the PikeJump payload of HostBossDiscreteEvent (codec v3) — wire shape must match.
+        // 29: PK-2 added ClientPikeJump (97) — client→host desert-pike ambush request; wire set must match.
+        public const int    ProtocolVersion  = 29;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

@@ -878,6 +878,7 @@ namespace SULFURTogether.Networking.Gameplay
             ReleaseAllEnemyPuppets("level scoped clear: " + source);
             EntitiesByLocalId.Clear();
             PendingEnemyStateTargets.Clear();
+            PuppetColliderHolds.Clear();   // PK-3: the level's objects are going away with their colliders
             HostEnemyStateSendCacheBySpawnIndex.Clear();
             HostEnemyCombatActionsByNpcId.Clear();
             HostEnemyAiIntentsByNpcId.Clear();
@@ -2085,7 +2086,7 @@ namespace SULFURTogether.Networking.Gameplay
             Plugin.Log.Info($"[GameplayProbe] Summary alive={alive} npcAlive={npc} dead={dead} totalSeen={EntitiesByLocalId.Count} newSpawns={_newSpawns} spawnEvents={_spawnEvents} duplicateSpawnEvents={_duplicateSpawnEvents} damageEvents={_damageEvents} deathEvents={_deathEvents} enemyStateTargets={PendingEnemyStateTargets.Count} enemyStateQueued={_enemyStateTargetsQueued} enemyStateApplied={_enemyStateTargetsApplied} enemyStateSnapped={_enemyStateTargetsSnapped} enemyPuppets={ActiveEnemyPuppets.Count} enemyPuppetsActivated={_clientEnemyPuppetsActivated} enemyPuppetsReleased={_clientEnemyPuppetsReleased} puppetTargetClears={_clientEnemyPuppetTargetClears} puppetTargetBlocks={_clientEnemyPuppetTargetBlocks} puppetCombatBlocks={_clientEnemyPuppetCombatBlocks} enemyCombatProbeEvents={_enemyCombatProbeEvents} hostCombatActions={_hostEnemyCombatActionMarks} clientCombatTriggers={_clientCombatAnimatorTriggerApplies} clientCombatStates={_clientCombatAnimatorStateApplies} clientCombatVisualReplays={_clientCombatVisualActionReplays} clientCombatFallbacks={_clientCombatAnimatorFallbacks} genericCombatStates={_clientGenericCombatAnimatorStateApplies} genericCombatSkipped={_genericCombatStateSkippedDuringAuthorizedIntent} visualProjectiles={_clientVisualProjectileMirrors} activeVisualProjectiles={ClientVisualProjectiles.Count} projectileProbeEvents={_projectileProbeEvents} hostDamageChecks={_hostEnemyDamageChecks} hostDamageHits={_hostEnemyDamageHits} hostAiIntents={_hostEnemyAiIntentMarks} clientAiIntents={_clientEnemyAiIntentApplies} clientAiCorrections={_clientEnemyAiIntentCorrections} driftSkipLoco={_driftSkippedIntentLocomotion} driftSkipCombat={_driftSkippedAuthorizedCombat} hardDrift={_hardDriftCorrections} softDrift={_softDriftCorrections} clientIntentWindows={_clientIntentWindows} activeIntentWindows={_clientAuthorizedIntentByNpcId.Count} clientRootReplays={_clientCombatRootReplays} clientRootSkipped={_clientCombatRootReplaySkippedDuplicate} clientAuthorizedAttacks={_clientAuthorizedAttackPasses} clientAuthorizedChild={_clientAuthorizedChildPasses} clientBlockedSpontaneous={_clientBlockedSpontaneousCombatCalls} clientUnauthorizedBlocks={_clientUnauthorizedAttackBlocks} clientAuthorizedMelee={_clientAuthorizedMeleeEvents} clientSuppressedDamage={_clientSuppressedNativeEnemyDamage} pendingContext={PendingStableSpawnLogs.Count} suppressedContextEvents={_suppressedContextEvents} context={context}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.0 hostAttackPhaseEventsSent={_hostAttackPhaseEventsSent} clientAttackPhaseEventsReceived={_clientAttackPhaseEventsReceived} clientAttackPhaseAnimatorApplies={_clientAttackPhaseAnimatorApplies} clientPuppetDamageSuppressed={_clientPuppetDamageSuppressed} interestManagementFarSkipped={_interestManagementFarSkipped} interestEngagedExempt={_interestEngagedExempt} attackPhaseThrottled={_attackPhaseThrottled} enemyDamageEventThrottled={_enemyDamageEventThrottled}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.2 hostDmgEventsSent={_hostEnemyDamageEventsSent} hostHealthStatesSent={_hostEnemyHealthStatesSent} clientDmgEventsRecv={_clientEnemyDamageEventsReceived} clientHealthStatesRecv={_clientEnemyHealthStatesReceived} clientHealthApplied={_clientEnemyHealthStatesApplied} clientHealthNoBinding={_clientEnemyHealthApplySkippedNoBinding} healthPendingQueued={_clientHealthStatesPendingQueued} healthPendingApplied={_clientHealthStatesPendingApplied} healthPendingExpired={_clientHealthStatesPendingExpired} deathByRosterBind={_hostDeathAppliedByRosterBinding} deathSnapped={_hostDeathAppliedAfterSnap} deathRejectedNoBinding={_hostDeathRejectedNoBinding} deathTombstone={_hostDeathTombstoneHit} deathNeverBound={_hostDeathNeverBound} lateBindAttempts={_hostDeathLateBindAttempts} lateBindSuccess={_hostDeathLateBindSuccess} claimsSuppressed={_clientDeathClaimsSuppressedByHostAuthority}");
-            Plugin.Log.Info($"[GameplayProbe] Phase5.2-diag healthFail_disabled={_clientHealthApplyDisabled} healthFail_noHp={_clientHealthNoCurrentHp} healthFail_noEntity={_clientHealthNoEntity} healthFail_noRuntimeObj={_clientHealthNoRuntimeObj} healthFail_unityDestroyed={_clientHealthUnityDestroyed} healthFail_noStats={_clientHealthNoStats} healthFail_noSetStatus={_clientHealthSetStatusMissing} healthFail_enumArgBuild={_clientHealthEnumArgFailed} healthFail_invokeFail={_clientHealthSetStatusFailed} healthFail_write={_clientHealthWriteFailed} healthFail_readBackUnchanged={_clientHealthWriteReadBackUnchanged} puppetSuppressedAwaitingHost={_puppetReleaseSuppressedAwaitingHost} puppetStaleSuppressed={_puppetStaleReleaseSuppressed}");
+            Plugin.Log.Info($"[GameplayProbe] Phase5.2-diag healthFail_disabled={_clientHealthApplyDisabled} healthFail_noHp={_clientHealthNoCurrentHp} healthFail_noEntity={_clientHealthNoEntity} healthFail_noRuntimeObj={_clientHealthNoRuntimeObj} healthFail_unityDestroyed={_clientHealthUnityDestroyed} healthFail_noStats={_clientHealthNoStats} healthFail_noSetStatus={_clientHealthSetStatusMissing} healthFail_enumArgBuild={_clientHealthEnumArgFailed} healthFail_invokeFail={_clientHealthSetStatusFailed} healthFail_write={_clientHealthWriteFailed} healthFail_readBackUnchanged={_clientHealthWriteReadBackUnchanged} puppetSuppressedAwaitingHost={_puppetReleaseSuppressedAwaitingHost} puppetStaleSuppressed={_puppetStaleReleaseSuppressed} nonFiniteFacingsRejected={RejectedNonFiniteFacings} transformsRepaired={RepairedPoisonedTransforms} releasesKeptSuppressed={_suppressedUnrepairableReleases} safeTeleports={SafeTeleports} safeTeleportHoldsExpired={SafeTeleportHoldsExpired} safeTeleportHoldsActive={PuppetColliderHolds.Count} mountedSuppressionSkipped={_mountedPuppetSuppressionSkipped} carrierDrivenSuppressionSkipped={_carrierDrivenSuppressionSkipped}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-B clientHitSent={_clientHitRequestsSent} clientHitSkipNoPuppet={_clientHitRequestsSkippedNoPuppet} clientHitSkipNoBinding={_clientHitRequestsSkippedNoBinding} puppetNonPlayerDmgIgnored={_clientPuppetNonPlayerDamageIgnored} clientHitSkipPendingDead={_clientHitSkipPendingDead} clientHitSkipTerminalDead={_clientHitSkipTerminalDead} clientHitPredicted={_clientLocalHitPredicted} clientHitConfirmed={_clientLocalHitConfirmed} hostHitRecv={_hostHitRequestsRecv} hostHitRejectScene={_hostHitRequestsRejectedScene} hostHitRejectNoTarget={_hostHitRequestsRejectedNoTarget} hostHitRejectType={_hostHitRequestsRejectedTypeMismatch} hostHitRejectDead={_hostHitRequestsRejectedDead} hostHitRejectPreFightInvuln={_hostHitRequestsRejectedPreFightInvuln} hostHitRejectRateLimit={_hostHitRequestsRejectedRateLimit} hostHitCoalesced={_hostHitRequestsCoalesced} hostHitAccepted={_hostHitRequestsAccepted} hostHitDmgApplied={_hostHitRequestsDamageApplied} hostHitDmgFailed={_hostHitRequestsDamageFailed} hostHitResultHealthSent={_hostHitResultHealthStateSent}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-D-death pendingDeadMarked={_pendingDeadMarked} pendingDeadHostDeathApplied={_pendingDeadHostDeathApplied} pendingDeadAwaitingHostDeath={_clientPendingDeadHostIdx.Count} pdVisualFallbackAttempted={_pendingDeadVisualFallbackAttempted} pdVisualFallbackSucceeded={_pendingDeadVisualFallbackSucceeded} pdVisualFallbackFailed={_pendingDeadVisualFallbackFailed} pdBlockedHitFlash={_pendingDeadBlockedHitFlash} pdBlockedClientHit={_pendingDeadBlockedClientHit} terminalDeadMarkedAfterDie={_terminalDeadMarkedAfterDie} terminalDeadMarkedAfterVisualFallback={_terminalDeadMarkedAfterVisualFallback} terminalDeadMarkedFromHealthOnly={_terminalDeadMarkedFromHealthOnly} activeTerminalDead={_clientTerminalDeadHostIdx.Count} tdBlockedAttackPhase={_terminalDeadBlockedAttackPhase} tdBlockedGenericReplay={_terminalDeadBlockedGenericReplay} tdBlockedMovement={_terminalDeadBlockedMovement} tdBlockedHitReaction={_terminalDeadBlockedHitReaction} tdHealthIgnored={_terminalDeadHealthUpdatesIgnored} tdDeathReapplySkipped={_terminalDeadDeathReapplySkipped}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-D-flash dmgVisualPlayed={_damageVisualReactionsPlayed} dmgVisualDoWhiteFlash={_dmgVisualNativeDoWhiteFlash} dmgVisualSetHitEffect={_dmgVisualNativeSetHitEffect} dmgVisualMaterialHitTime={_dmgVisualMaterialHitTime} dmgVisualFallbackColor={_dmgVisualFallbackColor} dmgVisualFailNoNpc={_dmgVisualFailedNoNpc} dmgVisualFailNoMethod={_dmgVisualFailedNoMethod} dmgVisualFailNoMaterial={_dmgVisualFailedNoMaterial} dmgVisualSkipTerminalDead={_damageVisualReactionSkippedTerminalDead} dmgVisualSkipPendingDead={_damageVisualReactionSkippedPendingDead} dmgVisualSkipNoBinding={_damageVisualReactionSkippedNoBinding} dmgVisualSkipDupSeq={_damageVisualReactionSkippedDuplicateSeq} activeFlashes={_pendingHitFlashes.Count}");
@@ -2696,6 +2697,10 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static void ApplyPendingEnemyStateTargets()
         {
+            // PK-3: before anything else, hand back the colliders of puppets teleported on an earlier frame — this must run
+            // even when no snapshots are pending, or a stalled feed would leave an enemy non-solid indefinitely.
+            ProcessPuppetColliderHolds();
+
             if (PendingEnemyStateTargets.Count == 0) return;
 
             if (!Plugin.Cfg.ApplyReceivedEnemyStateSnapshots.Value)
@@ -2859,7 +2864,9 @@ namespace SULFURTogether.Networking.Gameplay
                     // by the host-replayed native jumps ("PikeJump:<hostIdx>" events). Snapshot-driving them teleport-stormed
                     // the client (Log346: pike flicker + physics freeze, snaps=140 vs the riders' 2-3). Unconditional (an
                     // enemy pike is never player-mounted).
-                    || IsDesertEnemyPikeSnapshot(snapshot);
+                    || IsDesertEnemyPikeSnapshot(snapshot)
+                    // PK-1: any unit welded to a carrier mount — the carrier owns its transform (see IsMountedOnCarrier).
+                    || IsMountedOnCarrier(runtimeObject);
 
                 EnsureClientEnemyPuppetMode(key, snapshot, target.HostSnapshot, runtimeObject, now);
 
@@ -2900,6 +2907,13 @@ namespace SULFURTogether.Networking.Gameplay
                 // animator is native-driven by the local replayed jump — skip the position + animator apply, keep the rest.
                 if (desertPositionExempt)
                     continue;
+
+                // PK-2: a poisoned local transform is NOT something to shrug off — A* keeps re-emitting it every physics
+                // step (see TryFaceEnemyTowards), so repair it against the host's position while we still hold the puppet.
+                // A non-finite HOST position is different: that is bad input, drop the target and leave the unit alone.
+                if (!IsFinite(transform.position) || !IsFinite(transform.rotation))
+                    TryRepairPoisonedTransform(transform, target.Position, IsFinite(target.Position),
+                        $"puppet key={key}");
 
                 Vector3 current = transform.position;
                 if (!IsFinite(current) || !IsFinite(target.Position))
@@ -2995,7 +3009,7 @@ namespace SULFURTogether.Networking.Gameplay
                 }
 
                 if (Vector3.Distance(current, nextPosition) > 0.001f)
-                    transform.position = nextPosition;
+                    ApplyPuppetPosition(key, runtimeObject, transform, current, nextPosition);   // PK-3: teleports go in non-solid
                 snapshot.HasPosition = true;
                 snapshot.Position = nextPosition;
                 snapshot.LastSeenAt = now;
@@ -4749,6 +4763,45 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return false; }
         }
 
+        private static PropertyInfo? _attachedToUnitProp;
+        private static Type? _attachedToUnitPropType;
+
+        /// <summary>PK-1: is this unit currently WELDED to a carrier mount (native <c>Npc.isAttachedToUnit</c>)? While a
+        /// rider sits on a Desert pike the carrier owns its transform outright — <c>DesertPikeCarrier.Update</c> writes
+        /// <c>localPosition = zero; localRotation = identity</c> EVERY frame. Driving the same rider from host snapshots
+        /// gives that transform two authorities: the mirror snaps it to the host's world position, the carrier yanks it
+        /// back onto the local pike, ~60 times a second. That teleport war moves a live collider metres per frame right
+        /// where players stand, and PhysX resolves the penetration by launching the player — the reported "client thrown
+        /// out of the map" (the native <c>Player.ManualUpdate</c> rescue at velocity.y &lt; -100 then files them back at
+        /// the floor's respawn point). It is also why the rotation writes below (LookRotation onto a rider parented under
+        /// the carrier's MIRRORED, negative-x-scale transform) produced non-unit quaternion spam.
+        /// <para>So: while attached, the carrier is the single position authority and the mirror keeps its hands off. The
+        /// pike's own arc is host-authoritative via the PikeJump replay (NetBossEncounterManager), so the rider still ends
+        /// up where the host has it. On dismount <c>isAttachedToUnit</c> clears and the ordinary puppet drive resumes.</para></summary>
+        private static bool IsMountedOnCarrier(object? runtimeObject)
+        {
+            try
+            {
+                if (runtimeObject == null) return false;
+                if (runtimeObject is UnityEngine.Object uo && uo == null) return false;
+                Type t = runtimeObject.GetType();
+                if (!ReferenceEquals(t, _attachedToUnitPropType))
+                {
+                    _attachedToUnitPropType = t;
+                    _attachedToUnitProp = null;
+                    const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+                    for (Type? cur = t; cur != null; cur = cur.BaseType)
+                    {
+                        var p = cur.GetProperty("isAttachedToUnit", flags);
+                        if (p != null && p.PropertyType == typeof(bool) && p.GetIndexParameters().Length == 0)
+                        { _attachedToUnitProp = p; break; }
+                    }
+                }
+                return _attachedToUnitProp != null && (bool)_attachedToUnitProp.GetValue(runtimeObject, null);
+            }
+            catch { return false; }
+        }
+
         private static void EnsureClientEnemyPuppetMode(string key, NetGameplayEntitySnapshot snapshot, NetGameplayEnemyStateSnapshot hostSnapshot, object runtimeObject, float now)
         {
             if (!IsClientEnemyPuppetModeEnabled()) return;
@@ -4798,10 +4851,44 @@ namespace SULFURTogether.Networking.Gameplay
             if (npc == null) return;
             if (npc is UnityEngine.Object unityObject && unityObject == null) return;
 
+            // PK-5: while a unit is welded to a carrier the carrier owns it OUTRIGHT — not just its transform (PK-1) but
+            // its AI state too. This block writes that state, and the intent-driven branch below re-enables movement
+            // (SetCanMove/SetNavMeshAgentState/ToggleRVO): on a mounted rider that switches A* back on for a unit vanilla
+            // deliberately shut down (DesertPikeCarrier.SetMovement disables the RichAI when it attaches). That matters
+            // because JumpTowards mirrors the carrier (`localScale.x = |x| * (inverted ? 1 : -1)`, so a NEGATIVE x scale
+            // whenever inverted is false), and a rider parented under a mirrored transform has a non-orthonormal world
+            // matrix — reading `transform.rotation` there yields a NON-UNIT quaternion. A* reads exactly that every
+            // physics step (`RichAI.MovementUpdateInternal`: `if (updateRotation) simulatedRotation = tr.rotation`) and
+            // hands it to Rigidbody.MoveRotation, which is the "Rotation quaternions must be unit length" flood seen on
+            // the client and never on the host (Log492: 11 client-side, 0 host-side, and our own facing-write guards at 0
+            // — so the rotation did not come from us writing one). Leave mounted units entirely alone; the native code
+            // clears isAttachedToUnit on dismount and the ordinary puppet drive picks them up from there.
+            if (IsMountedOnCarrier(npc)) { _mountedPuppetSuppressionSkipped++; return; }
+
             object? aiAgent = TryGetMemberValue(npc, "AiAgent") ?? TryGetMemberValue(npc, "aiAgent");
             object? movementDriver = aiAgent == null ? null : TryGetMemberValue(aiAgent, "ai");
             if (movementDriver == null)
                 movementDriver = TryFindComponentByTypeName(npc, "CustomRichAI");
+
+            // PK-5b: the same ownership rule for the CARRIER itself. PK-5 stopped us touching mounted riders (it fired
+            // 23135 times in Log493) and the quaternion flood survived it, so the bad rotation is the pike's own: vanilla
+            // shuts the pike's A* down when it takes over (`DesertPikeCarrier.AttachUnit → SetMovement` disables the
+            // RichAI and calls SetNavMeshAgentState(false)), but the intent-driven branch below turns it back on, and the
+            // pike's transform is MIRRORED for the rest of the level after any `inv=False` jump (`JumpTowards`:
+            // `localScale.x = |x| * (inverted ? 1f : -1f)`, and nothing ever flips it back). A mirrored transform has a
+            // non-orthonormal world matrix, so `tr.rotation` is a non-unit quaternion — which is exactly what A* reads and
+            // feeds to Rigidbody.MoveRotation every physics step once it is running again. Hence client-only (the host
+            // never puppet-izes), hence triggered by touching the pike (the contact is what gets the agent updating), and
+            // hence the escalation into 8 s and 32 s frames until the process stops responding.
+            // Not just "skip": undo an enable we may already have done on an earlier frame, then leave it to the carrier.
+            if (TryFindComponentByTypeName(npc, "DesertPikeCarrier") != null)
+            {
+                TryInvokeInstanceMethod(aiAgent, "SetNavMeshAgentState", false);
+                TryInvokeInstanceMethod(aiAgent, "ToggleRVO", false);
+                TryDisableNavMeshObject(TryGetMemberValue(npc, "navMeshAgent"));
+                _carrierDrivenSuppressionSkipped++;
+                return;
+            }
 
             record.AiAgent = aiAgent;
             record.MovementDriver = movementDriver;
@@ -4978,11 +5065,7 @@ namespace SULFURTogether.Networking.Gameplay
         {
             if (runtimeObject == null || hostSnapshot == null || !hostSnapshot.HasAiIntentLookAt) return;
             if (!TryGetTransform(runtimeObject, out var transform) || transform == null) return;
-            Vector3 delta = hostSnapshot.AiIntentLookAt - transform.position;
-            delta.y = 0f;
-            if (delta.sqrMagnitude < 0.001f) return;
-            try { transform.rotation = Quaternion.LookRotation(delta.normalized, Vector3.up); }
-            catch { }
+            TryFaceEnemyTowards(transform, hostSnapshot.AiIntentLookAt);
         }
 
 
@@ -5981,11 +6064,7 @@ namespace SULFURTogether.Networking.Gameplay
         {
             if (runtimeObject == null || hostSnapshot == null || !hostSnapshot.HasHostCombatAim) return;
             if (!TryGetTransform(runtimeObject, out var transform) || transform == null) return;
-            Vector3 delta = hostSnapshot.HostCombatAimPosition - transform.position;
-            delta.y = 0f;
-            if (delta.sqrMagnitude < 0.001f) return;
-            try { transform.rotation = Quaternion.LookRotation(delta.normalized, Vector3.up); }
-            catch { }
+            TryFaceEnemyTowards(transform, hostSnapshot.HostCombatAimPosition);
         }
 
         private static void TryApplyClientCombatAnimatorTriggers(EnemyPuppetRecord record, Animator animator, NetGameplayEnemyStateSnapshot hostSnapshot, float now)
@@ -6364,6 +6443,7 @@ namespace SULFURTogether.Networking.Gameplay
             if (!ActiveEnemyPuppets.TryGetValue(key, out var record)) return;
 
             ActiveEnemyPuppets.Remove(key);
+            ReleasePuppetColliderHold(key);   // PK-3: never leave a released puppet stuck non-solid
             if (record.NpcId != 0)
             {
                 ClientPuppetNpcIds.Remove(record.NpcId);
@@ -6389,17 +6469,47 @@ namespace SULFURTogether.Networking.Gameplay
                     TrySetBoolMember(npc, "preventNavMeshActivation", record.OriginalPreventNavMeshActivation.Value);
             }
 
-            if (aiAgent != null)
+            // PK-2: never hand a broken unit back to the native AI. Release re-enables A* movement (SetNavMeshAgentState
+            // → NavMeshEnabledTarget=true → RichAI back on), and RichAI immediately adopts whatever is on the transform:
+            // `if (updateRotation) simulatedRotation = tr.rotation` → FinalizeRotation → Rigidbody.MoveRotation. Handing it
+            // a non-finite transform is how Log487's client died — two unbound puppets were released, the very next frames
+            // began the "Rotation quaternions must be unit length" flood (a full native stack trace per FixedUpdate per
+            // agent) and the process stopped responding. Repair first; if it can't be repaired, keep the unit suppressed
+            // (frozen and harmless) rather than resuming AI on a poisoned transform.
+            bool safeToResumeAi = true;
+            if (npc != null && TryGetTransform(npc, out var releaseTransform) && releaseTransform != null)
             {
-                TryInvokeInstanceMethod(aiAgent, "SetCanMove", true);
-                TryInvokeInstanceMethod(aiAgent, "SetNavMeshAgentState", true);
-                TryInvokeInstanceMethod(aiAgent, "ToggleRVO", true);
+                bool poisoned = !IsFinite(releaseTransform.position) || !IsFinite(releaseTransform.rotation);
+                if (poisoned)
+                {
+                    bool hostPosFinite = record.Snapshot.HasPosition && IsFinite(record.Snapshot.Position);
+                    safeToResumeAi = TryRepairPoisonedTransform(releaseTransform,
+                        record.Snapshot.Position, hostPosFinite,
+                        $"released puppet idx={record.Snapshot.SpawnIndex} actor={record.Snapshot.ActorName}");
+                }
             }
 
-            if (npc != null)
-                TryInvokeInstanceMethod(npc, "ToggleBehaviourTree", true);
+            if (safeToResumeAi)
+            {
+                if (aiAgent != null)
+                {
+                    TryInvokeInstanceMethod(aiAgent, "SetCanMove", true);
+                    TryInvokeInstanceMethod(aiAgent, "SetNavMeshAgentState", true);
+                    TryInvokeInstanceMethod(aiAgent, "ToggleRVO", true);
+                }
 
-            RestorePuppetRigidbody(record); // RT3-A3: undo the kinematic override if the enemy survives release
+                if (npc != null)
+                    TryInvokeInstanceMethod(npc, "ToggleBehaviourTree", true);
+
+                RestorePuppetRigidbody(record); // RT3-A3: undo the kinematic override if the enemy survives release
+            }
+            else
+            {
+                _suppressedUnrepairableReleases++;
+                NetLogger.Warn($"[EnemyPuppet] release kept SUPPRESSED idx={record.Snapshot.SpawnIndex} actor={record.Snapshot.ActorName} "
+                             + "— transform is non-finite and no sane host position to reset it to; local AI/physics stay off "
+                             + "(resuming A* on it floods MoveRotation errors and hangs the client)");
+            }
 
             // Phase 5.2: record tombstone so death events arriving after puppet release can be
             // classified as "puppet destroyed" rather than "never bound".
@@ -7124,6 +7234,63 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!snap.TryGetRuntimeObject(out runtimeObject) || runtimeObject == null) return false;
                 if (runtimeObject is UnityEngine.Object uo && uo == null) { runtimeObject = null; return false; }
                 return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>PK-1: resolve the live local object bound to a host SpawnIndex through the GENERAL binding map — the
+        /// RT3 lookup above only knows runtime-mirrored spawns, and a level-placed Desert pike is an ordinary level entity
+        /// bound by the world roster / manifest reconcile. False when unbound or the entity is gone.</summary>
+        public static bool TryGetHostBoundRuntimeObject(int hostSpawnIndex, out object? runtimeObject)
+        {
+            runtimeObject = null;
+            try
+            {
+                if (hostSpawnIndex <= 0) return false;
+                if (!ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(hostSpawnIndex, out var localKey)
+                    || string.IsNullOrWhiteSpace(localKey)) return false;
+                if (!EntitiesByLocalId.TryGetValue(localKey, out var snap) || snap == null) return false;
+                if (!snap.TryGetRuntimeObject(out runtimeObject) || runtimeObject == null) return false;
+                if (runtimeObject is UnityEngine.Object uo && uo == null) { runtimeObject = null; return false; }
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>PK-2 (host): resolve one of THIS end's own tracked entities by its SpawnIndex. The client-side lookups
+        /// above translate a host index through the binding map; on the host the index IS the local one, so this is a
+        /// straight scan of the entity table. Used to validate a client's addressed request against a real live object.</summary>
+        public static bool TryGetRuntimeObjectForSpawnIndex(int spawnIndex, out object? runtimeObject)
+        {
+            runtimeObject = null;
+            try
+            {
+                if (spawnIndex <= 0) return false;
+                foreach (var kv in EntitiesByLocalId)
+                {
+                    var snap = kv.Value;
+                    if (snap == null || snap.SpawnIndex != spawnIndex) continue;
+                    if (!snap.TryGetRuntimeObject(out runtimeObject) || runtimeObject == null) continue;
+                    if (runtimeObject is UnityEngine.Object uo && uo == null) { runtimeObject = null; continue; }
+                    return true;
+                }
+            }
+            catch { }
+            runtimeObject = null;
+            return false;
+        }
+
+        /// <summary>PK-1: does this local entity currently answer to a host SpawnIndex? Callers that suppress local
+        /// simulation in favour of host replay must fail OPEN on false — an unbound entity gets no host events, so
+        /// blocking it would freeze it for good.</summary>
+        public static bool IsHostBoundEntity(object? entity)
+        {
+            try
+            {
+                if (entity == null) return false;
+                if (entity is UnityEngine.Object uo && uo == null) return false;
+                string key = LocalKeyForObject(entity);
+                return !string.IsNullOrWhiteSpace(key) && ClientLocalKeyToHostSpawnIndex.ContainsKey(key);
             }
             catch { return false; }
         }
@@ -8484,6 +8651,189 @@ namespace SULFURTogether.Networking.Gameplay
         private static bool IsFinite(Vector3 value)
         {
             return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+        }
+
+        private static bool IsFinite(Quaternion value)
+        {
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z) && IsFinite(value.w);
+        }
+
+        internal static int RejectedNonFiniteFacings;
+        internal static int RepairedPoisonedTransforms;
+        private static int _suppressedUnrepairableReleases;
+        private static int _mountedPuppetSuppressionSkipped;
+        private static int _carrierDrivenSuppressionSkipped;
+
+        // ───────────────────────────────────────────────────────────────── PK-3: collider-safe puppet teleports
+        // A puppet correction is a TELEPORT, not a movement: the transform is written straight to the host's position and
+        // its collider goes with it. Log488 caught what that costs — two puppets were snapped ~219 m (a host entity bound
+        // to a same-type local one far away, which the runtime-spawn divergence keeps producing), and in the same seconds
+        // the client player was thrown ~234 m out of the world and only came back via the vanilla rescue
+        // (Player.ManualUpdate: velocity.y < -100 → TeleportTo(closest room respawn)). A kinematic collider materialising
+        // inside a dynamic player body makes PhysX resolve the penetration with an enormous impulse; that is the reported
+        // "teleported off the map", and it needs no NaN and no pike — those were just the units that move the most.
+        // The binding itself is fine and is deliberately left alone (rejecting far binds would trade one violent teleport
+        // for a permanently missing enemy plus a frozen client-only statue). What is fixed here is only the teleport:
+        // carry it out with the unit's main collider off, and hand the collider back once it is no longer sitting on the
+        // local player. Sync behaviour is bit-for-bit what it was — the enemy still lands exactly where the host says.
+        private sealed class PuppetColliderHold
+        {
+            public object? Npc;
+            public Collider? Collider;
+            public bool WasEnabled;
+            public float ReleaseAfter;
+        }
+
+        private static readonly Dictionary<string, PuppetColliderHold> PuppetColliderHolds = new Dictionary<string, PuppetColliderHold>();
+        private static readonly List<string> ScratchColliderHoldKeys = new List<string>();
+        private const float SafeTeleportMinDistance   = 3f;    // below this a correction is a nudge, not a teleport
+        private const float PlayerClearanceRadius     = 2f;    // horizontal room the player needs before the collider returns
+        private const float PlayerClearanceHeight     = 2.5f;
+        private const float MaxColliderHoldSeconds    = 2f;    // hard ceiling: never leave an enemy non-solid for long
+        private static Vector3 _localPlayerWorldPosition;
+        private static bool _localPlayerWorldPositionValid;
+        internal static int SafeTeleports;
+        internal static int SafeTeleportHoldsExpired;
+
+        /// <summary>PK-3: the local player's live world position, pushed every frame by NetService. Used only to decide when
+        /// a teleported enemy may become solid again.</summary>
+        public static void SetLocalPlayerWorldPosition(Vector3 position)
+        {
+            _localPlayerWorldPosition = position;
+            _localPlayerWorldPositionValid = IsFinite(position);
+        }
+
+        private static bool OverlapsLocalPlayer(Vector3 position)
+        {
+            if (!_localPlayerWorldPositionValid || !IsFinite(position)) return false;
+            Vector3 d = position - _localPlayerWorldPosition;
+            if (Mathf.Abs(d.y) > PlayerClearanceHeight) return false;
+            d.y = 0f;
+            return d.sqrMagnitude <= PlayerClearanceRadius * PlayerClearanceRadius;
+        }
+
+        /// <summary>PK-3: write a puppet's position. A short correction is applied as-is; anything far enough to count as a
+        /// teleport is applied with the unit's main collider disabled (restored by <see cref="ProcessPuppetColliderHolds"/>
+        /// once it is clear of the local player), so a puppet can never materialise inside the player and launch them.</summary>
+        private static void ApplyPuppetPosition(string key, object? runtimeObject, Transform transform, Vector3 current, Vector3 nextPosition)
+        {
+            float distance = Vector3.Distance(current, nextPosition);
+            if (distance <= SafeTeleportMinDistance)
+            {
+                transform.position = nextPosition;
+                return;
+            }
+
+            // Teleport: take the collider out of the world for the move. Record the collider's REAL previous state rather
+            // than assuming it was on — a unit can be legitimately non-solid (mounted rider, dead, culled) and must not be
+            // handed back solid by us. Falls back to a plain write when the unit exposes no mainCollider.
+            var collider = runtimeObject == null ? null : TryGetMemberValue(runtimeObject, "mainCollider") as Collider;
+            if (collider == null)
+            {
+                transform.position = nextPosition;
+                return;
+            }
+
+            if (!PuppetColliderHolds.TryGetValue(key, out var hold))
+            {
+                hold = new PuppetColliderHold { Npc = runtimeObject, Collider = collider, WasEnabled = collider.enabled };
+                PuppetColliderHolds[key] = hold;
+                SafeTeleports++;
+            }
+            hold.ReleaseAfter = Time.realtimeSinceStartup + MaxColliderHoldSeconds;
+            if (collider.enabled) collider.enabled = false;
+
+            transform.position = nextPosition;
+            Physics.SyncTransforms();   // let PhysX see the move with the collider already out, not as a swept overlap
+        }
+
+        /// <summary>PK-3: hand back the colliders of teleported puppets that are no longer standing on the local player (or
+        /// whose hold has run out). Runs every frame, before the snapshot apply, so a hold can never outlive its unit.</summary>
+        private static void ProcessPuppetColliderHolds()
+        {
+            if (PuppetColliderHolds.Count == 0) return;
+            float now = Time.realtimeSinceStartup;
+
+            ScratchColliderHoldKeys.Clear();
+            ScratchColliderHoldKeys.AddRange(PuppetColliderHolds.Keys);
+            foreach (var key in ScratchColliderHoldKeys)
+            {
+                if (!PuppetColliderHolds.TryGetValue(key, out var hold)) continue;
+                var collider = hold.Collider;
+                if (collider == null) { PuppetColliderHolds.Remove(key); continue; }
+
+                bool expired = now >= hold.ReleaseAfter;
+                if (!expired && OverlapsLocalPlayer(collider.transform.position)) continue;
+                if (expired) SafeTeleportHoldsExpired++;
+
+                collider.enabled = hold.WasEnabled;
+                PuppetColliderHolds.Remove(key);
+            }
+        }
+
+        /// <summary>PK-3: drop a hold immediately (puppet released/destroyed) — restoring the collider to what it was.</summary>
+        private static void ReleasePuppetColliderHold(string key)
+        {
+            if (!PuppetColliderHolds.TryGetValue(key, out var hold)) return;
+            try { if (hold.Collider != null) hold.Collider.enabled = hold.WasEnabled; } catch { }
+            PuppetColliderHolds.Remove(key);
+        }
+
+        /// <summary>PK-2 (client): point an enemy at <paramref name="lookAt"/> — the ONLY place the mirror writes an
+        /// enemy's world rotation, and it refuses to write anything that isn't a finite unit quaternion.
+        /// <para>Why this is worth a guard of its own: A* re-reads what we write. <c>RichAI.MovementUpdateInternal</c> does
+        /// <c>if (updateRotation) simulatedRotation = tr.rotation;</c> and hands that to <c>AIBase.FinalizeRotation →
+        /// Rigidbody.MoveRotation</c> every FixedUpdate. So one bad rotation written here becomes a permanent, self-feeding
+        /// loop: Unity rejects the non-unit quaternion, logs "Rotation quaternions must be unit length" WITH a full native
+        /// stack trace, the transform keeps its poisoned value, and it happens again next physics step — tens of stack
+        /// traces per second until the client stops responding (Log487). The old guard (<c>delta.sqrMagnitude &lt;
+        /// 0.001f</c>) could not catch that: every comparison against NaN is false, so a NaN delta sailed straight through
+        /// into <c>LookRotation</c>. Infinite deltas passed too (huge magnitude → normalized = NaN).</para></summary>
+        private static void TryFaceEnemyTowards(Transform transform, Vector3 lookAt)
+        {
+            if (transform == null) return;
+            try
+            {
+                Vector3 position = transform.position;
+                if (!IsFinite(position) || !IsFinite(lookAt)) { RejectedNonFiniteFacings++; return; }
+                Vector3 delta = lookAt - position;
+                delta.y = 0f;
+                float sqr = delta.sqrMagnitude;
+                if (!IsFinite(sqr) || sqr < 0.001f) return;                 // degenerate or poisoned — leave facing alone
+                Vector3 dir = delta.normalized;
+                if (!IsFinite(dir) || dir.sqrMagnitude < 0.5f) { RejectedNonFiniteFacings++; return; }
+                Quaternion rotation = Quaternion.LookRotation(dir, Vector3.up);
+                if (!IsFinite(rotation)) { RejectedNonFiniteFacings++; return; }
+                transform.rotation = rotation;
+            }
+            catch { }
+        }
+
+        /// <summary>PK-2 (client): a puppet whose own transform has gone non-finite. Left alone it poisons A* forever (see
+        /// <see cref="TryFaceEnemyTowards"/>), so put it back on a sane value instead of skipping it: identity rotation,
+        /// and the host's position when we have a finite one. Returns false when there is nothing sane to place it at —
+        /// the caller then leaves it suppressed rather than handing it back to native AI.</summary>
+        private static bool TryRepairPoisonedTransform(Transform transform, Vector3 fallbackPosition, bool fallbackIsFinite, string what)
+        {
+            if (transform == null) return false;
+            try
+            {
+                bool badPos = !IsFinite(transform.position);
+                bool badRot = !IsFinite(transform.rotation);
+                if (!badPos && !badRot) return true;
+
+                if (badRot) transform.rotation = Quaternion.identity;
+                if (badPos)
+                {
+                    if (!fallbackIsFinite || !IsFinite(fallbackPosition)) { RepairedPoisonedTransforms++; return false; }
+                    transform.position = fallbackPosition;
+                }
+                RepairedPoisonedTransforms++;
+                NetLogger.Warn($"[TransformRepair] {what} had a non-finite transform (pos={badPos} rot={badRot}) — reset to "
+                             + $"{(badPos ? fallbackPosition.ToString("F1") : "kept")} / identity; A* would otherwise re-emit it every FixedUpdate");
+                return true;
+            }
+            catch { return false; }
         }
 
         private static bool TryGetRotationY(object entity, out float rotationY)

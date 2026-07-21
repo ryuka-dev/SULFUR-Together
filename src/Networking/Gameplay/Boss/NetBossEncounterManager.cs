@@ -199,6 +199,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _desertArenaLastSent = new Vector3(float.PositiveInfinity, 0, 0);
                 _ghostRocketIds.Clear();
                 _ghostRocketMarkers.Clear();
+                // PK-4/PK-2: carriers and their colliders go with the level (Unity forgets the ignore pairs with them),
+                // and the per-pike ambush cooldowns are level-scoped.
+                _pikeCollisionIgnores.Clear();
+                _lastPikeJumpAcceptAt.Clear();
                 _clientRequested.Clear();
                 _localIntroDialogKey = null;
                 _localMidFightDialogKey = null;
@@ -1008,6 +1012,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 float air = BossReflect.GetMember(carrier, "jumpAirTimer") is float a ? a : 1f;
                 float height = BossReflect.GetMember(carrier, "jumpHeight") is float h ? h : 1f;
                 float spawnPct = BossReflect.GetMember(carrier, "jumpSpawnPercentage") is float sp ? sp : 0.5f;
+                // PK-1: FindPositionToJumpTo (deciding end only) armed these before calling JumpTowards; the replay has to
+                // carry them or the client's riders never dismount.
+                bool jumpOff = BossReflect.GetMember(carrier, "shouldJumpOff") is bool sj && sj;
+                bool inverted = BossReflect.GetMember(carrier, "inverted") is bool iv && iv;
                 int seq; lock (_lock) { seq = ++_pikeJumpSeq; }
                 NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent
                 {
@@ -1015,15 +1023,21 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     HasPos = true, Position = target, Seq = seq,
                     HasJump = true, JumpStart = start, JumpAirTimer = air, JumpHeight = height,
                     JumpDepth = target.y - final.y, JumpSpawnPct = spawnPct,
+                    JumpShouldJumpOff = jumpOff, JumpInverted = inverted,
                 });
                 if (LogOn) Plugin.Log.Info($"[PikeJumpSync] host broadcast {eventName} seq={seq} start={start:F1} target={target:F1}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[PikeJumpSync] OnHostBossPikeJumpStarted failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        /// <summary>HOST (F4-ADDS): is this carrier a Desert ENEMY (saddled) pike with a host SpawnIndex? Yields the
-        /// addressed event name ("PikeJump:&lt;hostIdx&gt;") + the owning Desert encounter. The pike unit is the carrier's
-        /// `owner` Unit; identity = its UnitIdentifier starts with "HellshrewPike" (2/3/4-seat).</summary>
+        /// <summary>HOST (F4-ADDS, widened by PK-1): is this carrier a saddled Desert pike with a host SpawnIndex? Yields
+        /// the addressed event name ("PikeJump:&lt;hostIdx&gt;") plus the owning Desert encounter WHEN there is one. The pike
+        /// unit is the carrier's `owner` Unit; identity = its UnitIdentifier starts with "HellshrewPike" (2/3/4-seat).
+        /// <para>PK-1: the encounter is now optional. The same carrier type also drives the desert level's own ambush pikes
+        /// (isLevelSpawning), which surface far from any boss arena — requiring a started boss meant those never got a jump
+        /// event, so each end ran its own arc off its own player and the riders' positions diverged by the whole map. The
+        /// addressed event needs nothing from the encounter (the client resolves the pike by SpawnIndex), so a level pike
+        /// simply broadcasts with an empty key.</para></summary>
         private static bool TryGetDesertEnemyPikeJumpEvent(object carrier, out string eventName, out string key, out string bossType)
         {
             eventName = ""; key = ""; bossType = "";
@@ -1033,7 +1047,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (!uid.StartsWith("HellshrewPike", StringComparison.Ordinal)) return false;
             int hostIdx = NetGameplayProbeManager.GetSpawnIndexForObject(owner);
             if (hostIdx <= 0) return false;
-            // Owning encounter = the registered, started Desert boss (there is at most one).
+            // Owning encounter = the registered, started Desert boss (there is at most one) — absent for a level pike.
             object? boss = null;
             lock (_lock)
             {
@@ -1045,14 +1059,31 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     catch { }
                 }
             }
-            if (boss == null || !TryGetEncounterKeyForBoss(boss, out key, out bossType)) return false;
+            if (boss == null || !TryGetEncounterKeyForBoss(boss, out key, out bossType)) { key = ""; bossType = ""; }
             eventName = "PikeJump:" + hostIdx;
             return true;
         }
 
+        /// <summary>PK-1: drop a pike's player trigger when the entering collider belongs to one of the host's remote-player
+        /// ghosts. <c>DesertPikeCarrier.OnTriggerEnter</c> accepts any Unit with <c>isPlayer</c>, and a ghost qualifies — but
+        /// the coroutine it starts opens with <c>player.GetComponentInChildren&lt;ExtendedCameraController&gt;().gameObject
+        /// .transform</c> (it needs the look direction to pick a landing spot), and a headless ghost has no camera rig. The
+        /// NRE kills the coroutine AFTER <c>isTriggeredByPlayer</c> was already latched true, so that pike never ambushes
+        /// anyone again for the rest of the level — and its riders stay permanently vulnerable.
+        /// <para>Consequence, stated plainly: a level pike is armed by the HOST player only. A client walking past one alone
+        /// gets no ambush (the pike stays buried on every end, which is at least consistent). Arming it from a remote player
+        /// would mean feeding the native search a look direction the ghost does not carry — a separate change.</para></summary>
+        public static bool ShouldBlockPikeTriggerFromGhost(UnityEngine.Collider? other)
+        {
+            try { return RemotePlayerRegistryManager.IsGhostCollider(other); }
+            catch { return false; }
+        }
+
         /// <summary>CLIENT (LD-Sandstorm / F4-P1JMP): block the local sim's own boss-pike jumps — the host's replayed jumps
         /// (via the reentry guard) are the only ones allowed. Regular pikes and everything off-client pass through.</summary>
-        public static bool ShouldBlockClientBossPikeJump(object carrier)
+        public static bool ShouldBlockClientBossPikeJump(object carrier) => ShouldBlockClientBossPikeJump(carrier, null);
+
+        public static bool ShouldBlockClientBossPikeJump(object carrier, Vector3? localTarget)
         {
             try
             {
@@ -1068,15 +1099,316 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 {
                     // F4-ADDS: an RT3-MIRRORED enemy pike's local jumps (e.g. the OnTriggerEnter pounce) are blocked too —
                     // mirrors move only via the host's addressed "PikeJump:<hostIdx>" replays.
+                    // PK-1: the desert level's own ambush pikes are level entities, not RT3 mirrors, so they fell through
+                    // here and pounced on the client's own player — the divergence that threw clients off the map. Any pike
+                    // the client has BOUND to a host SpawnIndex is host-driven. Deliberately fail-open on unbound pikes: an
+                    // unbound one receives no addressed replay, and blocking it would leave it buried for the whole level.
                     var owner = BossReflect.GetMember(carrier, "owner");
-                    if (owner == null || !NetGameplayProbeManager.IsRuntimeMirroredEntity(owner)) return false;
-                    if (LogOn) Plugin.Log.Info("[PikeJumpSync] client blocked local MIRRORED-pike jump (host-authoritative)");
+                    if (owner == null) return false;
+                    if (!NetGameplayProbeManager.IsRuntimeMirroredEntity(owner)
+                        && !NetGameplayProbeManager.IsHostBoundEntity(owner)) return false;
+                    // PK-2: blocking alone disarmed the ambush entirely when the CLIENT is the one who walked into the pike
+                    // (Log487: 5 blocked local jumps, 0 host broadcasts — the host's ghost trigger is skipped because a
+                    // ghost has no camera rig). The blocked call already carries the landing point this client's native
+                    // search picked, so relay it: the host validates it and runs the real jump, and everyone replays that.
+                    TrySendClientPikeJumpRequest(carrier, owner, localTarget);
+                    if (LogOn) Plugin.Log.Info("[PikeJumpSync] client blocked local host-bound pike jump (host-authoritative)");
                     return true;
                 }
                 if (LogOn) Plugin.Log.Info("[PikeJumpSync] client blocked local boss-pike jump (host-authoritative)");
                 return true;
             }
             catch { return false; }
+        }
+
+        // ================================================================= PK-4: an airborne pike may not shove the client
+
+        private sealed class PikePlayerCollisionIgnore
+        {
+            public readonly List<Collider> PikeColliders   = new List<Collider>();
+            public readonly List<Collider> PlayerColliders = new List<Collider>();
+        }
+
+        private static readonly Dictionary<int, PikePlayerCollisionIgnore> _pikeCollisionIgnores = new Dictionary<int, PikePlayerCollisionIgnore>();
+        private static readonly List<Collider> _localPlayerColliderScratch = new List<Collider>();
+        private static readonly List<Collider> _pikeColliderScratch = new List<Collider>();
+        internal static int PikeCollisionIgnoresApplied;
+
+        /// <summary>CLIENT (PK-4): while a pike is in the air, stop its flight capsule from colliding with the LOCAL player.
+        /// <para>The reported "client gets thrown out of the map" is this contact. Log489 caught it three times, every one
+        /// during the pike's DESCENT, and two of them with the player standing 2-3 m from the pike's landing point — which
+        /// is where the ambush aims by design, so with PK-2 relaying a client-computed landing point the pike now comes down
+        /// next to the client every time. In single-player the identical contact merely blocks or pushes the player
+        /// (user-tested), so this is not vanilla behaviour: the difference is that on a client the pike runs as a PUPPET
+        /// (forced `isKinematic`, `StopOnCurrentPosition`, RichAI/RVO/BT off — bypassing the vanilla `physicsEnabledTarget`
+        /// state machine that owns those fields), and something in that state turns PhysX's depenetration of a descending
+        /// kinematic capsule into a launch instead of a shove. Which part of it is still unidentified — frame-time spikes,
+        /// a rigidbody-state difference and our own velocity writes were each checked and ruled out — so this fixes the
+        /// interaction rather than that unknown: the pike simply stops being able to push the local player.</para>
+        /// <para>Deliberately client-only and pike-only. The host and single-player keep the vanilla air wall; a client
+        /// loses it (it can walk through an airborne pike) and in exchange cannot be launched out of the world by one.
+        /// Nothing else about the pike changes — bullets still hit it (IgnoreCollision does not affect raycasts), riders
+        /// still dismount, and the arc is untouched.</para></summary>
+        public static void UpdatePikePlayerCollisionGuard(object carrier)
+        {
+            try
+            {
+                if (!Enabled || carrier == null) return;
+                if (!(carrier is Component carrierComponent) || carrierComponent == null) return;
+
+                int id = carrierComponent.GetInstanceID();
+                bool wantIgnore = NetGameplaySyncBridge.BossMode == NetMode.Client
+                               && BossReflect.GetMember(carrier, "isJumping") is bool jumping && jumping;
+
+                if (wantIgnore)
+                {
+                    if (!_pikeCollisionIgnores.TryGetValue(id, out var entry))
+                    {
+                        // First frame of this flight: work out both collider sets once.
+                        // PK-4b: cover EVERY solid collider on the pike, not just the carrier's `capsuleCollider` field.
+                        // Ignoring that one alone visibly changed what the player runs into but did not remove it (user:
+                        // "it isn't a wall any more, it's a capsule shape"), i.e. the pike carries more than one solid
+                        // collider — its Unit `mainCollider` among them. Rather than keep guessing which, take them all;
+                        // the intent is simply that an airborne pike cannot push the local player.
+                        CollectPikeColliders(carrierComponent, carrier, _pikeColliderScratch);
+                        CollectLocalPlayerColliders(_localPlayerColliderScratch);
+                        if (_pikeColliderScratch.Count == 0 || _localPlayerColliderScratch.Count == 0) return;
+
+                        entry = new PikePlayerCollisionIgnore();
+                        entry.PikeColliders.AddRange(_pikeColliderScratch);
+                        entry.PlayerColliders.AddRange(_localPlayerColliderScratch);
+                        _pikeCollisionIgnores[id] = entry;
+                        PikeCollisionIgnoresApplied++;
+                        if (LogOn)
+                            Plugin.Log.Info($"[PikeCollision] client ignoring pike↔player collision for this flight — "
+                                          + $"pike[{DescribeColliders(entry.PikeColliders)}] player[{DescribeColliders(entry.PlayerColliders)}]");
+                    }
+
+                    // Re-assert every frame: Unity drops an ignore pair when either collider is disabled and re-enabled,
+                    // and the pike toggles colliders during the arc (the flight capsule goes on at JumpTowards, riders
+                    // dismount mid-air). Cheap for a handful of pairs and idempotent.
+                    ApplyPikeIgnores(entry, true);
+                    return;
+                }
+
+                // Flight over (or we are no longer a client): give the collision back. Null-safe — colliders can be gone
+                // by now (death, respawn, level change) and Unity throws on a null argument.
+                if (!_pikeCollisionIgnores.TryGetValue(id, out var active)) return;
+                _pikeCollisionIgnores.Remove(id);
+                ApplyPikeIgnores(active, false);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[PikeCollision] UpdatePikePlayerCollisionGuard failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static void ApplyPikeIgnores(PikePlayerCollisionIgnore entry, bool ignore)
+        {
+            foreach (var pikeCollider in entry.PikeColliders)
+            {
+                if (pikeCollider == null) continue;
+                foreach (var playerCollider in entry.PlayerColliders)
+                {
+                    if (playerCollider == null) continue;
+                    try { Physics.IgnoreCollision(pikeCollider, playerCollider, ignore); } catch { }
+                }
+            }
+        }
+
+        private static string DescribeColliders(List<Collider> colliders)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < colliders.Count; i++)
+            {
+                var c = colliders[i];
+                if (c == null) continue;
+                if (sb.Length > 0) sb.Append(", ");
+                sb.Append(c.GetType().Name).Append(':').Append(c.name);
+            }
+            return sb.Length == 0 ? "none" : sb.ToString();
+        }
+
+        /// <summary>PK-4b/4c: every solid (non-trigger) collider belonging to the pike — the carrier's flight capsule, the
+        /// pike Unit's own body collider, and the riders currently sitting on the mount points. Triggers are left alone:
+        /// they push nothing, and the ambush trigger itself must keep working.
+        /// <para>PK-4c: collecting from the carrier alone was not enough. Log492 listed only rider colliders plus the
+        /// flight capsule — the pike Unit's own capsule never appeared, because the carrier component sits on a CHILD and
+        /// `GetComponentsInChildren` cannot see a collider on its parent. That leftover is what the player still ran into.
+        /// Start from the carrier's `owner` Unit (the pike itself) so the whole object is covered, and never from
+        /// `transform.root`: units are parented under GameManager's shared unitRoot, so a root-level sweep would pull in
+        /// every enemy in the level.</para></summary>
+        private static void CollectPikeColliders(Component carrierComponent, object carrier, List<Collider> into)
+        {
+            into.Clear();
+            AddSolidColliders(carrierComponent, into);
+            if (BossReflect.GetMember(carrier, "owner") is Component ownerComponent && ownerComponent != null)
+                AddSolidColliders(ownerComponent, into);
+        }
+
+        private static void AddSolidColliders(Component from, List<Collider> into)
+        {
+            foreach (var c in from.GetComponentsInChildren<Collider>(true))
+            {
+                if (c == null || c.isTrigger) continue;
+                if (!into.Contains(c)) into.Add(c);
+            }
+        }
+
+        /// <summary>The local player's solid colliders — the unit's own <c>mainCollider</c> plus whatever sits on its
+        /// Rigidbody's GameObject (the body that PhysX would actually eject). Hitbox children are intentionally left out:
+        /// they are not what a depenetration pushes.</summary>
+        private static void CollectLocalPlayerColliders(List<Collider> into)
+        {
+            into.Clear();
+            object? playerUnit = BossDamageReflect.ResolveHostPlayerUnit();
+            if (!(playerUnit is Component playerComponent) || playerComponent == null) return;
+
+            if (BossReflect.GetMember(playerUnit, "mainCollider") is Collider main && main != null) into.Add(main);
+            if (BossReflect.GetMember(playerUnit, "Rigidbody") is Rigidbody body && body != null)
+            {
+                foreach (var c in body.GetComponents<Collider>())
+                    if (c != null && !into.Contains(c)) into.Add(c);
+            }
+            if (into.Count == 0)
+            {
+                var fallback = playerComponent.GetComponent<Collider>();
+                if (fallback != null) into.Add(fallback);
+            }
+        }
+
+        // ============================================================================ PK-2: client-triggered pike ambush
+
+        private static readonly Dictionary<int, float> _lastPikeJumpAcceptAt = new Dictionary<int, float>();
+        private const float PikeJumpRequestCooldownSeconds = 2f;
+        private const float PikeJumpMaxTargetDistance = 60f;   // sanity bound: the native search offsets are ~10 m
+
+        /// <summary>CLIENT (PK-2): relay the landing point our own native search just picked to the host. Only for pikes the
+        /// host owns (already checked by the caller); silently does nothing without a resolvable host SpawnIndex or target.</summary>
+        private static void TrySendClientPikeJumpRequest(object carrier, object owner, Vector3? localTarget)
+        {
+            try
+            {
+                if (!localTarget.HasValue) return;
+                Vector3 target = localTarget.Value;
+                if (float.IsNaN(target.x) || float.IsNaN(target.y) || float.IsNaN(target.z)
+                    || float.IsInfinity(target.x) || float.IsInfinity(target.y) || float.IsInfinity(target.z)) return;
+                int hostIdx = NetGameplayProbeManager.GetSpawnIndexForObject(owner);
+                if (hostIdx <= 0) return;
+                if (!TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed)) { chap = ""; lvl = -1; }
+
+                NetGameplaySyncBridge.SendClientPikeJump(new NetClientPikeJump
+                {
+                    ChapterName = chap, LevelIndex = lvl, HasSeed = hasSeed, Seed = seed,
+                    HostSpawnIndex = hostIdx, Target = target,
+                    Inverted      = BossReflect.GetMember(carrier, "inverted") is bool iv && iv,
+                    ShouldJumpOff = BossReflect.GetMember(carrier, "shouldJumpOff") is bool sj && sj,
+                });
+                if (LogOn) Plugin.Log.Info($"[PikeJumpSync] client requested pike ambush hostIdx={hostIdx} target={target:F1}");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[PikeJumpSync] TrySendClientPikeJumpRequest failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>HOST (PK-2): a client asks for a pike ambush. Untrusted input — validate run, identity, state, geometry
+        /// and rate before acting. On accept the host does exactly what the native trigger would have done (make the riders
+        /// vulnerable, latch the trigger) and then runs the real <c>JumpTowards</c>, so the ordinary PK-1 postfix broadcasts
+        /// the arc to every peer and the host's own world stays the single source of truth.</summary>
+        public static void HandleClientPikeJumpRequest(NetClientPikeJump msg, string peerId)
+        {
+            try
+            {
+                if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Host) return;
+
+                if (TryGetRunContext(out string chap, out int lvl, out _, out int seed))
+                {
+                    if (!string.Equals(chap, msg.ChapterName, StringComparison.Ordinal) || lvl != msg.LevelIndex
+                        || (msg.HasSeed && seed != msg.Seed))
+                    { if (LogOn) Plugin.Log.Info($"[PikeJumpSync] host rejected pike request from {peerId}: wrong run ({msg.ToCompact()})"); return; }
+                }
+
+                Vector3 target = msg.Target;
+                if (float.IsNaN(target.x) || float.IsNaN(target.y) || float.IsNaN(target.z)
+                    || float.IsInfinity(target.x) || float.IsInfinity(target.y) || float.IsInfinity(target.z))
+                { Plugin.Log.Warn($"[PikeJumpSync] host rejected pike request from {peerId}: non-finite target"); return; }
+
+                if (msg.HostSpawnIndex <= 0
+                    || !NetGameplayProbeManager.TryGetRuntimeObjectForSpawnIndex(msg.HostSpawnIndex, out object? pike) || pike == null)
+                { if (LogOn) Plugin.Log.Info($"[PikeJumpSync] host rejected pike request from {peerId}: hostIdx unresolved ({msg.ToCompact()})"); return; }
+
+                // Identity: it must actually be a saddled pike, not any entity index the peer felt like naming.
+                string uid = BossReflect.ReadUnitId(pike) ?? "";
+                if (!uid.StartsWith("HellshrewPike", StringComparison.Ordinal))
+                { Plugin.Log.Warn($"[PikeJumpSync] host rejected pike request from {peerId}: idx {msg.HostSpawnIndex} is {uid}, not a pike"); return; }
+
+                if (!(pike is Component pikeC) || pikeC == null) return;
+                object? carrier = FindPikeCarrier(pikeC);
+                if (carrier == null) { if (LogOn) Plugin.Log.Info("[PikeJumpSync] host pike has no DesertPikeCarrier — request dropped"); return; }
+
+                if (BossReflect.GetMember(carrier, "isJumping") is bool jumping && jumping)
+                { if (LogOn) Plugin.Log.Info($"[PikeJumpSync] host ignored pike request from {peerId}: already jumping"); return; }
+
+                float distance = Vector3.Distance(pikeC.transform.position, target);
+                if (distance > PikeJumpMaxTargetDistance)
+                { Plugin.Log.Warn($"[PikeJumpSync] host rejected pike request from {peerId}: target {distance:F0}m from the pike (max {PikeJumpMaxTargetDistance:F0})"); return; }
+
+                float now = UnityEngine.Time.realtimeSinceStartup;
+                if (_lastPikeJumpAcceptAt.TryGetValue(msg.HostSpawnIndex, out float last) && now - last < PikeJumpRequestCooldownSeconds)
+                { if (LogOn) Plugin.Log.Info($"[PikeJumpSync] host ignored pike request from {peerId}: cooldown"); return; }
+                _lastPikeJumpAcceptAt[msg.HostSpawnIndex] = now;
+
+                // The native OnTriggerEnter does two things besides starting the search — reproduce them, or the host's
+                // riders stay invulnerable (every client hit on them would be rejected) and its trigger never latches.
+                ArmPikeRidersForAmbush(carrier);
+
+                BossReflect.TrySetMember(carrier, "inverted", msg.Inverted);
+                BossReflect.TrySetMember(carrier, "shouldJumpOff", msg.ShouldJumpOff);
+                var jt = carrier.GetType().GetMethod("JumpTowards",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                if (jt == null) { Plugin.Log.Warn("[PikeJumpSync] JumpTowards not found on host carrier"); return; }
+                jt.Invoke(carrier, new object?[] { target, null, null, null, null });
+                Plugin.Log.Info($"[PikeJumpSync] host accepted pike ambush from {peerId} {msg.ToCompact()} dist={distance:F1}m");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[PikeJumpSync] HandleClientPikeJumpRequest failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>The DesertPikeCarrier on a pike Unit's GameObject (identified by its `attachedUnits` list).</summary>
+        private static object? FindPikeCarrier(Component pikeC)
+        {
+            foreach (var comp in pikeC.GetComponents<Component>())
+            {
+                if (comp == null) continue;
+                if (comp.GetType().GetField("attachedUnits",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic) != null)
+                    return comp;
+            }
+            return null;
+        }
+
+        /// <summary>PK-2 (host): the rider-arming half of the native <c>OnTriggerEnter</c> — riders become vulnerable and the
+        /// trigger latches so the carrier doesn't re-arm on the host's own next overlap. Idempotent.</summary>
+        private static void ArmPikeRidersForAmbush(object carrier)
+        {
+            try
+            {
+                BossReflect.TrySetMember(carrier, "isTriggeredByPlayer", true);
+                if (!(BossReflect.GetMember(carrier, "attachedUnits") is System.Collections.IEnumerable riders)) return;
+                foreach (var rider in riders)
+                {
+                    if (!(rider is UnityEngine.Object ru) || ru == null) continue;
+                    TryInvokeBool(rider, "SetInvulnerable", false);
+                    TryInvokeBool(rider, "SetHitboxesInvulnerable", false);
+                }
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[PikeJumpSync] ArmPikeRidersForAmbush failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static void TryInvokeBool(object target, string method, bool value)
+        {
+            try
+            {
+                var m = target.GetType().GetMethod(method,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+                    null, new[] { typeof(bool) }, null);
+                m?.Invoke(target, new object[] { value });
+            }
+            catch { }
         }
 
         // ===================================================================== F4-MISSILE D1: firing-window sync
@@ -1414,20 +1746,24 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// real JumpTowards with the host's parameters so the native UpdateJump runs the identical arc locally (animator,
         /// digging effects, renderer/burrow toggles and the boss body's show/hide all fire natively at the same time and
         /// place as on the host).</summary>
-        private static void ApplyClientBossPikeJump(NetBossDiscreteEvent msg, object component)
+        private static void ApplyClientBossPikeJump(NetBossDiscreteEvent msg, object? component)
         {
             try
             {
-                // F4-ADDS: an addressed "PikeJump:<hostIdx>" targets an ENEMY (saddled) pike — resolve the RT3-mirrored
-                // unit bound to that host SpawnIndex. A plain "PikeJump" targets the client's own boss pike.
+                // F4-ADDS: an addressed "PikeJump:<hostIdx>" targets a saddled pike — resolve the unit bound to that host
+                // SpawnIndex. A plain "PikeJump" targets the client's own boss pike (needs the local encounter).
                 object? pike;
                 string name = msg.EventName ?? "PikeJump";
                 int sep = name.IndexOf(':');
                 if (sep >= 0 && int.TryParse(name.Substring(sep + 1), out int hostIdx))
                 {
-                    if (!NetGameplayProbeManager.TryGetMirroredRuntimeObject(hostIdx, out pike) || pike == null)
-                    { if (LogOn) Plugin.Log.Info($"[PikeJumpSync] no mirrored pike for hostIdx={hostIdx} — jump skipped"); return; }
+                    // PK-1: RT3 mirrors first (boss-arena adds), then the general binding map — a desert LEVEL pike is an
+                    // ordinary level entity and is never in the RT3 map.
+                    if ((!NetGameplayProbeManager.TryGetMirroredRuntimeObject(hostIdx, out pike) || pike == null)
+                        && (!NetGameplayProbeManager.TryGetHostBoundRuntimeObject(hostIdx, out pike) || pike == null))
+                    { if (LogOn) Plugin.Log.Info($"[PikeJumpSync] no bound pike for hostIdx={hostIdx} — jump skipped"); return; }
                 }
+                else if (component == null) { if (LogOn) Plugin.Log.Info("[PikeJumpSync] unaddressed PikeJump with no local encounter — skipped"); return; }
                 else pike = BossReflect.GetMember(component, "spawnedBossPike");
                 if (!(pike is Component pikeC) || pikeC == null) { if (LogOn) Plugin.Log.Info("[PikeJumpSync] client has no spawnedBossPike yet — jump skipped"); return; }
                 object? carrier = null;
@@ -1444,8 +1780,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 ownerT.position = msg.JumpStart;
                 var jt = carrier.GetType().GetMethod("JumpTowards", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
                 if (jt == null) { Plugin.Log.Warn("[PikeJumpSync] JumpTowards not found on carrier"); return; }
+                // PK-1: mirror the two flags the deciding end's FindPositionToJumpTo armed. `inverted` must be set BEFORE
+                // the call (JumpTowards reads it to flip the carrier's x scale); `shouldJumpOff` is what makes the native
+                // UpdateJump drop the riders at the arc's midpoint, which is the only way a client rider ever dismounts.
+                BossReflect.TrySetMember(carrier, "inverted", msg.JumpInverted);
+                BossReflect.TrySetMember(carrier, "shouldJumpOff", msg.JumpShouldJumpOff);
                 jt.Invoke(carrier, new object?[] { msg.Position, msg.JumpAirTimer, msg.JumpHeight, msg.JumpDepth, msg.JumpSpawnPct });
-                if (LogOn) Plugin.Log.Info($"[PikeJumpSync] client replayed {name} seq={msg.Seq} start={msg.JumpStart:F1} target={msg.Position:F1}");
+                if (LogOn) Plugin.Log.Info($"[PikeJumpSync] client replayed {name} seq={msg.Seq} start={msg.JumpStart:F1} target={msg.Position:F1} jumpOff={msg.JumpShouldJumpOff} inv={msg.JumpInverted}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[PikeJumpSync] ApplyClientBossPikeJump failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -3516,6 +3857,16 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try
             {
                 if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
+                // PK-1: an ADDRESSED pike jump ("PikeJump:<hostIdx>") resolves its target by host SpawnIndex and needs no
+                // encounter at all — the desert level's ambush pikes surface outside any boss arena, so the encounter
+                // lookup below would drop their jumps and leave the client's pikes running their own divergent arcs.
+                if (msg.EventName != null && msg.EventName.StartsWith("PikeJump:", StringComparison.Ordinal) && msg.HasJump)
+                {
+                    BeginApply();
+                    try { ApplyClientBossPikeJump(msg, null); }
+                    finally { EndApply(); }
+                    return;
+                }
                 if (!TryFindLocalEncounter(msg.EncounterKey, out var adapter, out var component))
                 {
                     // TB-DLG2b: a PRE-fight own-dialog OPEN can arrive before anything registered this end's encounter

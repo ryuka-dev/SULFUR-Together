@@ -429,12 +429,19 @@ namespace SULFURTogether.Patches
                     prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_JumpTowards_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
                     postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_JumpTowards_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 Log.Info($"[PikeJumpSync] patched DesertPikeCarrier.JumpTowards({jmp != null})");
+                // PK-1: the pike's player trigger accepts any Unit flagged isPlayer, including the host's headless remote-
+                // player ghosts — whose missing camera rig NREs the jump-search coroutine and disables that pike for good.
+                var trig = AccessTools.Method(pikeCarrier, "OnTriggerEnter");
+                if (trig != null) harmony.Patch(trig, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_PikeTrigger_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                Log.Info($"[PikeJumpSync] patched DesertPikeCarrier.OnTriggerEnter({trig != null}) — ghost-player guard");
             }
             catch (Exception ex) { Log.Error($"[BossPhaseAction] DesertPikeCarrier patch failed: {ex.Message}"); }
         }
 
-        private static void Desert_PikeUpdate_Post()
+        private static void Desert_PikeUpdate_Post(object __instance)
         {
+            // PK-4: per-carrier, per-frame — an airborne pike must not be able to shove the local player on a client.
+            NetBossEncounterManager.UpdatePikePlayerCollisionGuard(__instance);
             NetBossEncounterManager.UpdateBossPikeVisual();
             NetBossEncounterManager.ProbeDesertVisibility();
         }
@@ -443,9 +450,15 @@ namespace SULFURTogether.Patches
         private static void Desert_ActivateShooting_Pre(object __instance)
             => NetBossEncounterManager.OnHostBossPikeActivateShooting(__instance);
 
-        // CLIENT: block the local sim's own boss-pike jumps (host-authoritative; reentry-replayed jumps pass).
-        private static bool Desert_JumpTowards_Pre(object __instance)
-            => !NetBossEncounterManager.ShouldBlockClientBossPikeJump(__instance);
+        // HOST: a remote-player ghost must not arm a pike ambush (headless stand-in → NRE in the native jump search).
+        private static bool Desert_PikeTrigger_Pre(UnityEngine.Collider other)
+            => !NetBossEncounterManager.ShouldBlockPikeTriggerFromGhost(other);
+
+        // CLIENT: block the local sim's own boss-pike jumps (host-authoritative; reentry-replayed jumps pass). PK-2: the
+        // blocked call's own target is the landing point this end's native search picked — pass it along so a client can
+        // relay it to the host (the host cannot derive one for a remote player).
+        private static bool Desert_JumpTowards_Pre(object __instance, UnityEngine.Vector3 targetPosition)
+            => !NetBossEncounterManager.ShouldBlockClientBossPikeJump(__instance, targetPosition);
 
         // HOST: broadcast each boss-pike jump so clients replay the identical native arc.
         private static void Desert_JumpTowards_Post(object __instance, bool __runOriginal)

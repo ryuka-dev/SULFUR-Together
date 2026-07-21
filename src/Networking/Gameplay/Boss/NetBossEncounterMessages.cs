@@ -161,8 +161,40 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public float  JumpHeight    { get; set; }
         public float  JumpDepth     { get; set; }    // underground depth (posToJumpTowards.y - finalTarget.y)
         public float  JumpSpawnPct  { get; set; }
+        // PK-1: the two carrier flags the native arc reads but JumpTowards does NOT set — they are assigned by the
+        // carrier's own FindPositionToJumpTo, which only runs on the deciding end. Without them a replayed jump arcs
+        // correctly but never drops its riders (UpdateJump gates JumpOff on shouldJumpOff) and can face the wrong way
+        // (inverted flips the carrier's x scale), leaving the client's riders welded to the pike for good.
+        public bool   JumpShouldJumpOff { get; set; }
+        public bool   JumpInverted      { get; set; }
 
         public string ToCompact() => $"key={EncounterKey} event={EventName} pos={(HasPos ? Position.ToString("F1") : "?")} run={ChapterName}:{LevelIndex} seq={Seq}{(HasJump ? $" jump[start={JumpStart:F1} air={JumpAirTimer:F2} h={JumpHeight:F1} d={JumpDepth:F1}]" : "")}";
+    }
+
+    /// <summary>PK-2: a client asks the host to fire a desert pike's ambush jump (Client→Host).
+    /// <para>The native trigger cannot run for a remote player: <c>DesertPikeCarrier.OnTriggerEnter</c> accepts the host's
+    /// headless ghost Unit, but the coroutine it starts immediately dereferences the player's
+    /// <c>ExtendedCameraController</c> to get a look direction, and a ghost has no camera rig — the NRE leaves that pike
+    /// permanently disarmed (PK-1 blocks ghost triggers for exactly this reason). The end that HAS a real player and camera
+    /// is the client, and its own <c>FindPositionToJumpTo</c> already ran and produced a valid, navmesh-snapped landing
+    /// point before PK-1 blocked its local jump. So the client relays that point instead of the host re-deriving it: no
+    /// reimplementation of the native search, no A* dependency, and the host still decides — it validates the request and
+    /// calls the real <c>JumpTowards</c> itself, which fires the normal PK-1 broadcast so every end (the requester
+    /// included) replays the one host arc.</para></summary>
+    internal sealed class NetClientPikeJump
+    {
+        public string ChapterName  { get; set; } = "";
+        public int    LevelIndex   { get; set; } = -1;
+        public bool   HasSeed      { get; set; }
+        public int    Seed         { get; set; }
+
+        public int     HostSpawnIndex { get; set; }   // which pike (host-side SpawnIndex, the cross-end identity)
+        public Vector3 Target         { get; set; }   // the landing point the client's native search picked
+        public bool    Inverted       { get; set; }   // carrier x-scale flip the native search chose
+        public bool    ShouldJumpOff  { get; set; }   // whether the riders dismount mid-arc
+
+        public string ToCompact()
+            => $"hostIdx={HostSpawnIndex} target={Target:F1} inv={Inverted} jumpOff={ShouldJumpOff} run={ChapterName}:{LevelIndex}";
     }
 
     /// <summary>Phase 5.4-F5: a Client's report that one Lucia eye was defeated locally this eye-cycle. Lucia's eye
@@ -325,7 +357,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private const byte DynamicSpawnVersion = 1;
         private const byte BossHitVersion = 1;
         private const byte BossHitVisualVersion = 1;
-        private const byte DiscreteEventVersion = 2; // v2: + PikeJump payload (F4-P1JMP)
+        private const byte DiscreteEventVersion = 3; // v3: + PikeJump shouldJumpOff/inverted flags (PK-1)
         private const byte LuciaEyeReportVersion = 1;
         private const byte LuciaEyeStateVersion = 1;
         private const byte LuciaDeathVersion = 1;
@@ -738,6 +770,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             {
                 w.Put(e.JumpStart.x); w.Put(e.JumpStart.y); w.Put(e.JumpStart.z);
                 w.Put(e.JumpAirTimer); w.Put(e.JumpHeight); w.Put(e.JumpDepth); w.Put(e.JumpSpawnPct);
+                w.Put(e.JumpShouldJumpOff); w.Put(e.JumpInverted);
             }
         }
 
@@ -765,8 +798,47 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 {
                     e.JumpStart = new Vector3(r.GetFloat(), r.GetFloat(), r.GetFloat());
                     e.JumpAirTimer = r.GetFloat(); e.JumpHeight = r.GetFloat(); e.JumpDepth = r.GetFloat(); e.JumpSpawnPct = r.GetFloat();
+                    e.JumpShouldJumpOff = r.GetBool(); e.JumpInverted = r.GetBool();
                 }
                 result = e;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private const byte ClientPikeJumpVersion = 1;
+
+        public static void WriteClientPikeJump(NetDataWriter w, NetClientPikeJump m)
+        {
+            w.Put(ClientPikeJumpVersion);
+            w.Put(m.ChapterName ?? "");
+            w.Put(m.LevelIndex);
+            w.Put(m.HasSeed);
+            if (m.HasSeed) w.Put(m.Seed);
+            w.Put(m.HostSpawnIndex);
+            w.Put(m.Target.x); w.Put(m.Target.y); w.Put(m.Target.z);
+            w.Put(m.Inverted);
+            w.Put(m.ShouldJumpOff);
+        }
+
+        public static bool TryReadClientPikeJump(NetDataReader r, out NetClientPikeJump result)
+        {
+            result = null!;
+            try
+            {
+                if (r.GetByte() != ClientPikeJumpVersion) return false;
+                var m = new NetClientPikeJump
+                {
+                    ChapterName = r.GetString(),
+                    LevelIndex  = r.GetInt(),
+                    HasSeed     = r.GetBool(),
+                };
+                if (m.HasSeed) m.Seed = r.GetInt();
+                m.HostSpawnIndex = r.GetInt();
+                m.Target   = new Vector3(r.GetFloat(), r.GetFloat(), r.GetFloat());
+                m.Inverted = r.GetBool();
+                m.ShouldJumpOff = r.GetBool();
+                result = m;
                 return true;
             }
             catch { return false; }

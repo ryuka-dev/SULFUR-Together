@@ -325,6 +325,11 @@ namespace SULFURTogether.Networking
                     Gameplay.RemotePlayerBodyManager.SyncProxyBodies(_visualProxies);
             }
 
+            // PK-3: the safe-teleport guard needs the local player's live position to know when a teleported enemy may
+            // become solid again. Unconditional and cheap — a field write, no allocation.
+            if (_localPlayer.HasTransform && _localPlayer.LocalTransform != null)
+                Gameplay.NetGameplayProbeManager.SetLocalPlayerWorldPosition(_localPlayer.LocalTransform.position);
+
             HandleStatusTimer();
         }
 
@@ -1152,6 +1157,33 @@ namespace SULFURTogether.Networking
                 return;
             }
             Gameplay.Boss.NetBossEncounterManager.HandleHostBossDiscreteEvent(msg);
+        }
+
+        // PK-2: client→host desert-pike ambush request (the host has no camera rig for a remote player, see NetClientPikeJump).
+        internal void SendClientPikeJump(Gameplay.Boss.NetClientPikeJump msg)
+        {
+            if (_mode != NetMode.Client || _net == null || _hostPeer == null) return;
+            if (!Plugin.Cfg.EnableBossEncounterSync.Value || msg == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientPikeJump);
+                Gameplay.Boss.NetBossEncounterCodec.WriteClientPikeJump(w, msg);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[PikeJumpSync] failed to send ClientPikeJump: {ex.Message}"); }
+        }
+
+        private void HandleClientPikeJump(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Plugin.Cfg.EnableBossEncounterSync.Value) return;
+            if (!Gameplay.Boss.NetBossEncounterCodec.TryReadClientPikeJump(reader, out var msg))
+            {
+                NetLogger.Warn("[PikeJumpSync] malformed ClientPikeJump packet");
+                return;
+            }
+            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            Gameplay.Boss.NetBossEncounterManager.HandleClientPikeJumpRequest(msg, peerId);
         }
 
         // Phase 5.4-F5: Lucia eye defeat authority.
@@ -4083,6 +4115,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.HostBossDiscreteEvent:
                         HandleHostBossDiscreteEvent(peer, reader);
+                        break;
+
+                    case NetMessageType.ClientPikeJump:
+                        HandleClientPikeJump(peer, reader);
                         break;
 
                     case NetMessageType.ClientLuciaEyeReport:
