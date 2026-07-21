@@ -48,7 +48,7 @@ All three are dependency-free static entry points in namespace `Ryuka.Sulfur.Nat
 
 ### Connection state we can surface
 
-- Config: `NetworkMode` (Off/Host/Client), `HostAddress`, `HostPort`, `PlayerName`, `MaxPlayers`,
+- Config: `NetworkMode` (Off/Host/Client), `HostAddress`, `HostPort`, `PlayerName`,
   `ConnectionKey` (all `[Network]` in `CoopConfig.cs`).
 - `NetLinkState` — client linked (PageDown) / host on (toggle). Single source of truth, has
   `FormatStatus()`.
@@ -271,6 +271,7 @@ preference.
 - **No artificial cap.** This is a private virtual-LAN game (direct IP:port UDP over Radmin/ZeroTier/etc.),
   not a public server. The real ceiling is performance (per-client enemy-snapshot bandwidth/CPU scales with
   player count; ~4–8 is the practical limit), not a hard-coded number. `MaxPlayers` becomes advisory/removed.
+  **Done (MP-Cap):** the setting and both gates are gone — see `Docs/Versioning.md` §4.
 
 ---
 

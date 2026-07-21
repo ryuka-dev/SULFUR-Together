@@ -74,7 +74,7 @@ Client
 | ID | Type | Direction | Payload |
 |----|------|-----------|---------|
 | 1 | HandshakeRequest | Client → Host | magic, protocolVersion, modVersion, playerName, connectionKey |
-| 2 | HandshakeAccepted | Host → Client | assignedPeerId, assignedSlot, hostPeerId, hostPlayerName, hostModVersion, maxPlayers |
+| 2 | HandshakeAccepted | Host → Client | assignedPeerId, assignedSlot, hostPeerId, hostPlayerName, hostModVersion |
 | 3 | HandshakeRejected | Host → Client | reason string |
 | 4 | Ping | Both | (empty) |
 | 5 | Pong | Both | (empty) |
@@ -139,7 +139,7 @@ It does not spawn remote players and does not synchronize the world.
 |-------|---------|
 | PeerId | Stable id assigned by Host, e.g. `host`, `client-1` |
 | PlayerName | Name from config / handshake |
-| Slot | Host is slot 0, clients are 1..MaxPlayers-1 |
+| Slot | Host is slot 0, clients get the lowest free slot from 1 upward. Display/ordering identity only — there is no player cap. |
 | Role | Host or Client |
 | State | Connecting / Handshaking / Connected / Disconnected / Rejected |
 | JoinedAt | Local realtime when session was accepted |
@@ -159,7 +159,7 @@ Client after accepted handshake:
 
 ```
 [Session] Local session assigned: id=client-1 slot=1 name='Player2'
-[Session] Host session known: id=host name='Player' maxPlayers=4
+[Session] Host session known: id=host name='Player'
 [Net] Status: mode=Client connected=True sessions=2 [...]
 ```
 

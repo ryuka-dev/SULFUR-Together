@@ -82,9 +82,9 @@ namespace SULFURTogether.Networking
             return session;
         }
 
-        public NetPeerSession RegisterRemoteClient(string playerName, string modVersion, string endPoint, int maxPlayers, float now)
+        public NetPeerSession RegisterRemoteClient(string playerName, string modVersion, string endPoint, float now)
         {
-            int slot = AllocateClientSlot(maxPlayers);
+            int slot = AllocateClientSlot();
             string peerId = $"client-{_nextClientPeerNumber++}";
 
             var session = new NetPeerSession
@@ -134,15 +134,16 @@ namespace SULFURTogether.Networking
             return $"sessions={_sessionsById.Count} [{string.Join("; ", parts)}]";
         }
 
-        private int AllocateClientSlot(int maxPlayers)
+        /// <summary>MP-Cap: lowest free client slot, unbounded. Slot 0 is the host; slots are display/ordering
+        /// identity only (status text, run-stats ordering), so there is no upper bound to run out of. The loop
+        /// terminates because at most <c>_sessionsById.Count</c> slots can be occupied.</summary>
+        private int AllocateClientSlot()
         {
-            int safeMax = maxPlayers < 2 ? 2 : maxPlayers;
-            for (int slot = 1; slot < safeMax; slot++)
+            for (int slot = 1; ; slot++)
             {
                 bool used = _sessionsById.Values.Any(s => s.State == NetConnectionState.Connected && s.Slot == slot);
                 if (!used) return slot;
             }
-            return -1;
         }
 
         private static string SanitizeName(string value, string fallback)

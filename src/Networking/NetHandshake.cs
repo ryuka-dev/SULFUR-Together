@@ -22,7 +22,8 @@ namespace SULFURTogether.Networking
         // 24: EM-7e added EndlessInteractable (95) — host→all mirror of card-spawned non-unit interactables (chests/stations); wire set must match.
         // 25: IND-1 added EndlessWorldCard (96) — client→host Independent-mode companion routing; wire set must match.
         // 26: EM-Arena added arena-transition (event id + prefab index) to the EndlessWaveState (86) snapshot (codec v3) — wire shape must match.
-        public const int    ProtocolVersion  = 26;
+        // 27: MP-Cap dropped the trailing maxPlayers field from HandshakeAccepted — the player cap is gone entirely.
+        public const int    ProtocolVersion  = 27;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)
@@ -58,15 +59,13 @@ namespace SULFURTogether.Networking
             string assignedPeerId,
             int assignedSlot,
             string hostPeerId,
-            string hostPlayerName,
-            int maxPlayers)
+            string hostPlayerName)
         {
             w.Put(assignedPeerId ?? "");
             w.Put(assignedSlot);
             w.Put(hostPeerId ?? "host");
             w.Put(hostPlayerName ?? "Host");
             w.Put(ModInfo.Version);
-            w.Put(maxPlayers);
         }
 
         // Client reads assigned peer id / slot from HandshakeAccepted.
@@ -80,7 +79,6 @@ namespace SULFURTogether.Networking
                 data.HostPeerId     = r.GetString();
                 data.HostPlayerName = r.GetString();
                 data.HostModVersion = r.GetString();
-                data.MaxPlayers     = r.GetInt();
                 return true;
             }
             catch { return false; }
@@ -104,6 +102,5 @@ namespace SULFURTogether.Networking
         public string HostPeerId     = "host";
         public string HostPlayerName = "Host";
         public string HostModVersion = "";
-        public int    MaxPlayers     = 1;
     }
 }

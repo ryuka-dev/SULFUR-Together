@@ -77,7 +77,6 @@ namespace SULFURTogether.Config
         public Setting<string> HostAddress            { get; }
         public Setting<int>    HostPort               { get; }
         public Setting<string> PlayerName             { get; }
-        public Setting<int>    MaxPlayers             { get; }
         public Setting<string> ConnectionKey          { get; }
         public Setting<bool>   RequireSameModVersion  { get; }
         public Setting<string> LastSteamIdToJoin      { get; } // STEAM-2: last SteamID64 pasted into "Steam ID to join"
@@ -545,7 +544,6 @@ namespace SULFURTogether.Config
             HostAddress           = new Setting<string>(() => store.Values.hostAddress,           v => { store.Values.hostAddress = v; store.Save(); });
             HostPort              = new Setting<int>   (() => store.Values.hostPort,              v => { store.Values.hostPort = v; store.Save(); });
             ConnectionKey         = new Setting<string>(() => store.Values.connectionKey,         v => { store.Values.connectionKey = v ?? ""; store.Save(); });
-            MaxPlayers            = new Setting<int>   (() => store.Values.maxPlayers,            v => { store.Values.maxPlayers = Mathf.Clamp(v, 2, 4); store.Save(); });
             RequireSameModVersion = new Setting<bool>  (() => store.Values.requireSameModVersion, v => { store.Values.requireSameModVersion = v; store.Save(); });
             EnableCoopToasts      = new Setting<bool>  (() => store.Values.enableCoopToasts,      v => { store.Values.enableCoopToasts = v; store.Save(); });
             LastSteamIdToJoin     = new Setting<string>(() => store.Values.lastSteamIdToJoin,      v => { store.Values.lastSteamIdToJoin = v ?? ""; store.Save(); });
@@ -648,7 +646,7 @@ namespace SULFURTogether.Config
                 "Skip the summary output if all delta counters are zero.");
 
             // network — role is runtime-only; the connection settings (PlayerName/HostAddress/HostPort/ConnectionKey/
-            // MaxPlayers/RequireSameModVersion) moved to CoopSettings (JSON store), bound above. Only the ping tuning
+            // RequireSameModVersion) moved to CoopSettings (JSON store), bound above. Only the ping tuning
             // knob stays a standard .cfg entry.
             SendPingIntervalSeconds = cfg.Bind("Network", "SendPingIntervalSeconds", 2f,
                 "How often (seconds) to send a Ping to peers.");

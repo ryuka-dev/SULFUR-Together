@@ -28,7 +28,6 @@ namespace SULFURTogether.Config
             public string hostAddress           = "127.0.0.1";
             public int    hostPort              = 9050;
             public string connectionKey         = "SULFUR_TOGETHER_DEV";
-            public int    maxPlayers            = 4;
             public bool   requireSameModVersion = true;
             public bool   enableCoopToasts      = true;
             public string lastSteamIdToJoin     = ""; // STEAM-2: last SteamID64 pasted into "Steam ID to join"
@@ -205,7 +204,6 @@ namespace SULFURTogether.Config
             if (TryGetOrphan(orphans, "HostAddress", out s))              Values.hostAddress   = s;
             if (TryGetOrphan(orphans, "HostPort", out s) && int.TryParse(s, out var port)) Values.hostPort = port;
             if (TryGetOrphan(orphans, "ConnectionKey", out s))            Values.connectionKey = s;
-            if (TryGetOrphan(orphans, "MaxPlayers", out s) && int.TryParse(s, out var mp))  Values.maxPlayers = Mathf.Clamp(mp, 2, 4);
             if (TryGetOrphan(orphans, "RequireSameModVersion", out s) && bool.TryParse(s, out var rq)) Values.requireSameModVersion = rq;
             if (TryGetOrphan(orphans, "EnableCoopToasts", out s) && bool.TryParse(s, out var ct))      Values.enableCoopToasts = ct;
         }

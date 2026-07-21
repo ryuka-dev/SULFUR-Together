@@ -3867,13 +3867,8 @@ namespace SULFURTogether.Networking
         {
             if (_mode != NetMode.Host) { request.Reject(); return; }
 
-            if (_clients.Count >= Plugin.Cfg.MaxPlayers.Value - 1)
-            {
-                NetLogger.Info($"[Net] Rejected (server full): {_clients.Count + 1}/{Plugin.Cfg.MaxPlayers.Value}");
-                request.Reject();
-                return;
-            }
-
+            // MP-Cap: no player-count gate. This is a private session over direct IP or the Steam relay, not a
+            // public server — the real ceiling is per-client bandwidth/CPU, not a hard-coded number.
             // Basic accept. Full key + version validation happens in HandshakeRequest message.
             request.Accept();
         }
@@ -4307,7 +4302,6 @@ namespace SULFURTogether.Networking
                 data.PlayerName,
                 data.ModVersion,
                 peer.Address.ToString(),
-                Plugin.Cfg.MaxPlayers.Value,
                 now);
             _peerIds[peer] = session.PeerId;
             session.DevEntitlement = data.DevEntitlement;
@@ -4325,8 +4319,7 @@ namespace SULFURTogether.Networking
                 session.PeerId,
                 session.Slot,
                 "host",
-                Plugin.Cfg.PlayerName.Value,
-                Plugin.Cfg.MaxPlayers.Value);
+                Plugin.Cfg.PlayerName.Value);
             peer.Send(w, DeliveryMethod.ReliableOrdered);
             SendRunState(peer, _runStates.LocalState);
             // FF-1: push the host-authoritative session settings so a (re)joining client knows the friendly-fire
@@ -4363,7 +4356,7 @@ namespace SULFURTogether.Networking
 
                 NetLogger.Info("[Net] Handshake accepted by host — session established");
                 NetLogger.Info($"[Session] Local session assigned: id={local.PeerId} slot={local.Slot} name='{local.PlayerName}'");
-                NetLogger.Info($"[Session] Host session known: id={data.HostPeerId} name='{data.HostPlayerName}' maxPlayers={data.MaxPlayers}");
+                NetLogger.Info($"[Session] Host session known: id={data.HostPeerId} name='{data.HostPlayerName}'");
                 UI.CoopToasts.Notify(UI.CoopLoc.Format("toast.connectedTo", "Connected to {host}", ("host", data.HostPlayerName)));
                 NetConnectFeedback.ReportConnected();
                 SendRunState(peer, _runStates.LocalState);

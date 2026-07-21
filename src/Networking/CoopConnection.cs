@@ -241,7 +241,6 @@ namespace SULFURTogether.Networking
                     mode.ToString(),
                     Plugin.Cfg.HostAddress.Value,
                     Plugin.Cfg.HostPort.Value.ToString(),
-                    Plugin.Cfg.MaxPlayers.Value.ToString(),
                     Plugin.Cfg.ConnectionKey.Value,
                     Plugin.Cfg.PlayerName.Value,
                 });
