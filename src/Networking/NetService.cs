@@ -1159,6 +1159,58 @@ namespace SULFURTogether.Networking
             Gameplay.Boss.NetBossEncounterManager.HandleHostBossDiscreteEvent(msg);
         }
 
+        // ST-1: client→host on-hit status modifiers (weapon enchantment) against a host-bound puppet enemy.
+        internal void SendClientUnitStatusRequest(Gameplay.NetClientUnitStatusRequest req)
+        {
+            if (_mode != NetMode.Client || _net == null || _hostPeer == null || req == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientUnitStatusRequest);
+                Gameplay.NetUnitStatusCodec.WriteClientRequest(w, req);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[UnitStatus] failed to send ClientUnitStatusRequest: {ex.Message}"); }
+        }
+
+        private void HandleClientUnitStatusRequest(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Gameplay.NetUnitStatusCodec.TryReadClientRequest(reader, out var req))
+            {
+                NetLogger.Warn("[UnitStatus] malformed ClientUnitStatusRequest packet");
+                return;
+            }
+            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            Gameplay.UnitStatusSyncManager.HandleClientStatusRequest(req, peerId);
+        }
+
+        // ST-2: host→all clients status start/end edge on a roster-bound enemy.
+        internal void BroadcastHostUnitStatus(Gameplay.NetHostUnitStatusState state)
+        {
+            if (_mode != NetMode.Host || _net == null || state == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostUnitStatusState);
+                    Gameplay.NetUnitStatusCodec.WriteHostState(w, state);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[UnitStatus] failed to send HostUnitStatusState: {ex.Message}"); }
+            }
+        }
+
+        private void HandleHostUnitStatusState(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Gameplay.NetUnitStatusCodec.TryReadHostState(reader, out var state))
+            {
+                NetLogger.Warn("[UnitStatus] malformed HostUnitStatusState packet");
+                return;
+            }
+            Gameplay.UnitStatusSyncManager.ApplyHostUnitStatus(state);
+        }
+
         // PK-2: client→host desert-pike ambush request (the host has no camera rig for a remote player, see NetClientPikeJump).
         internal void SendClientPikeJump(Gameplay.Boss.NetClientPikeJump msg)
         {
@@ -4119,6 +4171,14 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.ClientPikeJump:
                         HandleClientPikeJump(peer, reader);
+                        break;
+
+                    case NetMessageType.ClientUnitStatusRequest:
+                        HandleClientUnitStatusRequest(peer, reader);
+                        break;
+
+                    case NetMessageType.HostUnitStatusState:
+                        HandleHostUnitStatusState(peer, reader);
                         break;
 
                     case NetMessageType.ClientLuciaEyeReport:

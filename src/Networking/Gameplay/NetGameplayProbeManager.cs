@@ -465,6 +465,8 @@ namespace SULFURTogether.Networking.Gameplay
         // ClientHit skip-on-dead counters.
         private static int _clientHitSkipPendingDead;
         private static int _clientHitSkipTerminalDead;
+        // ST-2: local status terminals (frozen-solid shatter) that produced a non-finite local damage value.
+        private static int _clientHitSkipNonFiniteDamage;
 
         // ----------------------------------------------------------------
         // Phase 5.3-E: Host-authoritative level manifest + diff/reconcile.
@@ -2082,6 +2084,9 @@ namespace SULFURTogether.Networking.Gameplay
             Plugin.Log.Info($"[GameplayProbe] Summary traderExcluded={_traderExcludedFromEnemySync} nonCombatExcluded={_nonCombatExcludedFromEnemySync} deathClaimRejectedNonCombat={_deathClaimRejectedNonCombat} combatProbeRejectedNonCombat={_combatProbeRejectedNonCombat}");
             Plugin.Log.Info($"[GameplayProbe] Summary rootReplayAttempts={_clientRootReplayAttempts} rootReplays={_clientCombatRootReplays} rootReplaySkippedDup={_clientRootReplaySkippedDuplicate} rootReplayUnsupported={_clientRootReplayUnsupported} rootReplayFailed={_clientRootReplayFailed} childAfterRoot={_clientAuthorizedChildAfterRoot} childBlockedBeforeRoot={_clientChildBlockedBeforeRootReplay}");
             Plugin.Log.Info($"[GameplayProbe] Summary typeMismatch={_entityTypeMismatchRejected} deathTypeMismatch={_deathMirrorRejectedTypeMismatch} stateTypeMismatch={_stateApplyRejectedTypeMismatch}");
+            // ST-1/ST-2 enemy status effect authority. clientForwarded=0 while a client is landing enchantment procs is
+            // the signature of a broken ApplyHitModifiers hook; clientEdgesDropped rising means unbound puppets.
+            Plugin.Log.Info($"[GameplayProbe] UnitStatus {UnitStatusSyncManager.FormatSummary()} clientHitNonFinite={_clientHitSkipNonFiniteDamage}");
             Plugin.Log.Info($"[GameplayProbe] Summary rosterSent={_hostRosterRecordsSent} rosterReceived={_clientRosterRecordsReceived} rosterBound={_clientRosterBound} rosterOneToOne={_rosterOneToOneBound} rosterHostOnly={_clientRosterHostOnlyMissing} rosterClientOnly={_clientRosterClientOnlyQuarantined} quarantined={_clientOnlyCombatQuarantined} quarantineSuppressed={_quarantinedCombatSuppressed} rosterTypeMismatch={_clientRosterTypeMismatch} rosterFingerprintMismatch={_clientRosterFingerprintMismatch} rosterBindings={ClientHostToLocalKeyByHostSpawnIndex.Count} deathBound={_deathAppliedByBinding} deathUnbound={_deathRejectedUnboundNetEntity} deathBoundDrift={_deathBoundDriftWarning} deathBoundBigDrift={_deathAppliedBoundDespiteDrift}");
             Plugin.Log.Info($"[GameplayProbe] Summary alive={alive} npcAlive={npc} dead={dead} totalSeen={EntitiesByLocalId.Count} newSpawns={_newSpawns} spawnEvents={_spawnEvents} duplicateSpawnEvents={_duplicateSpawnEvents} damageEvents={_damageEvents} deathEvents={_deathEvents} enemyStateTargets={PendingEnemyStateTargets.Count} enemyStateQueued={_enemyStateTargetsQueued} enemyStateApplied={_enemyStateTargetsApplied} enemyStateSnapped={_enemyStateTargetsSnapped} enemyPuppets={ActiveEnemyPuppets.Count} enemyPuppetsActivated={_clientEnemyPuppetsActivated} enemyPuppetsReleased={_clientEnemyPuppetsReleased} puppetTargetClears={_clientEnemyPuppetTargetClears} puppetTargetBlocks={_clientEnemyPuppetTargetBlocks} puppetCombatBlocks={_clientEnemyPuppetCombatBlocks} enemyCombatProbeEvents={_enemyCombatProbeEvents} hostCombatActions={_hostEnemyCombatActionMarks} clientCombatTriggers={_clientCombatAnimatorTriggerApplies} clientCombatStates={_clientCombatAnimatorStateApplies} clientCombatVisualReplays={_clientCombatVisualActionReplays} clientCombatFallbacks={_clientCombatAnimatorFallbacks} genericCombatStates={_clientGenericCombatAnimatorStateApplies} genericCombatSkipped={_genericCombatStateSkippedDuringAuthorizedIntent} visualProjectiles={_clientVisualProjectileMirrors} activeVisualProjectiles={ClientVisualProjectiles.Count} projectileProbeEvents={_projectileProbeEvents} hostDamageChecks={_hostEnemyDamageChecks} hostDamageHits={_hostEnemyDamageHits} hostAiIntents={_hostEnemyAiIntentMarks} clientAiIntents={_clientEnemyAiIntentApplies} clientAiCorrections={_clientEnemyAiIntentCorrections} driftSkipLoco={_driftSkippedIntentLocomotion} driftSkipCombat={_driftSkippedAuthorizedCombat} hardDrift={_hardDriftCorrections} softDrift={_softDriftCorrections} clientIntentWindows={_clientIntentWindows} activeIntentWindows={_clientAuthorizedIntentByNpcId.Count} clientRootReplays={_clientCombatRootReplays} clientRootSkipped={_clientCombatRootReplaySkippedDuplicate} clientAuthorizedAttacks={_clientAuthorizedAttackPasses} clientAuthorizedChild={_clientAuthorizedChildPasses} clientBlockedSpontaneous={_clientBlockedSpontaneousCombatCalls} clientUnauthorizedBlocks={_clientUnauthorizedAttackBlocks} clientAuthorizedMelee={_clientAuthorizedMeleeEvents} clientSuppressedDamage={_clientSuppressedNativeEnemyDamage} pendingContext={PendingStableSpawnLogs.Count} suppressedContextEvents={_suppressedContextEvents} context={context}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.0 hostAttackPhaseEventsSent={_hostAttackPhaseEventsSent} clientAttackPhaseEventsReceived={_clientAttackPhaseEventsReceived} clientAttackPhaseAnimatorApplies={_clientAttackPhaseAnimatorApplies} clientPuppetDamageSuppressed={_clientPuppetDamageSuppressed} interestManagementFarSkipped={_interestManagementFarSkipped} interestEngagedExempt={_interestEngagedExempt} attackPhaseThrottled={_attackPhaseThrottled} enemyDamageEventThrottled={_enemyDamageEventThrottled}");
@@ -7140,6 +7145,48 @@ namespace SULFURTogether.Networking.Gameplay
             return 0;
         }
 
+        /// <summary>ST-2 (host): the addressing pair — SpawnIndex + UnitIdentifier — for one of THIS end's tracked
+        /// entities. The identifier travels alongside the index as the type guard every addressed channel uses, so a
+        /// stale index can never be applied to a different kind of unit on the other end.</summary>
+        public static bool TryGetHostEntityBinding(object? entity, out int spawnIndex, out string unitIdentifier)
+        {
+            spawnIndex = 0;
+            unitIdentifier = "";
+            try
+            {
+                if (entity == null) return false;
+                if (entity is UnityEngine.Object uo && uo == null) return false;
+                if (!EntitiesByLocalId.TryGetValue(LocalKeyForObject(entity), out var snap) || snap == null) return false;
+                if (snap.SpawnIndex <= 0) return false;
+                spawnIndex = snap.SpawnIndex;
+                unitIdentifier = snap.EntityId?.UnitIdentifier ?? "";
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>ST-1 (client): the host SpawnIndex + UnitIdentifier this local puppet answers to, or false when the
+        /// NPC is not a host-driven puppet (client-only / quarantined entities keep their vanilla local behaviour).</summary>
+        public static bool TryGetClientPuppetBinding(object? npc, out int hostSpawnIndex, out string unitIdentifier)
+        {
+            hostSpawnIndex = 0;
+            unitIdentifier = "";
+            try
+            {
+                if (npc == null) return false;
+                if (npc is UnityEngine.Object uo && uo == null) return false;
+                int npcId = ObjectIdentity(npc);
+                if (npcId == 0 || !ActiveEnemyPuppetsByNpcId.TryGetValue(npcId, out var record) || record == null) return false;
+                string localKey = record.Key;
+                if (string.IsNullOrEmpty(localKey)) return false;
+                if (!ClientLocalKeyToHostSpawnIndex.TryGetValue(localKey, out int hostIdx) || hostIdx <= 0) return false;
+                hostSpawnIndex = hostIdx;
+                unitIdentifier = record.Snapshot?.EntityId?.UnitIdentifier ?? "";
+                return true;
+            }
+            catch { return false; }
+        }
+
         /// <summary>Bind a client-mirrored runtime spawn to the host SpawnIndex so the existing EnemyPuppet / state /
         /// death pipeline (all keyed by host SpawnIndex) drives the mirrored unit.</summary>
         private static float _rtSpawnProbeNext;
@@ -9407,6 +9454,17 @@ namespace SULFURTogether.Networking.Gameplay
                 {
                     _clientHitRequestsSkippedNoPuppet++;
                     return false;
+                }
+
+                // ST-2: a mirrored status can now reach its native terminal on the CLIENT too — NegativeEffect_Frozen at
+                // 100 runs AttributeEffect.DelayedFrozenSolid, which shatters the unit with float.PositiveInfinity Frost
+                // damage. That is a local consequence of a host-owned status: the host's own copy of the status hits the
+                // same terminal and kills the real NPC authoritatively. Swallow it rather than forwarding a non-finite
+                // damage candidate (and never let one reach the wire).
+                if (float.IsNaN(damage) || float.IsInfinity(damage))
+                {
+                    _clientHitSkipNonFiniteDamage++;
+                    return true;
                 }
 
                 // Get local key and puppet record for this NPC instance.

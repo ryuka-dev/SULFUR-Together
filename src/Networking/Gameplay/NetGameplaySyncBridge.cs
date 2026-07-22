@@ -246,6 +246,11 @@ namespace SULFURTogether.Networking.Gameplay
             return _service.FormatBossConvergence(out allConverged);
         }
 
+        // ST-1/ST-2 — enemy status effect authority.
+        public static void SendClientUnitStatusRequest(NetClientUnitStatusRequest req) => _service?.SendClientUnitStatusRequest(req);
+
+        public static void BroadcastHostUnitStatus(NetHostUnitStatusState state) => _service?.BroadcastHostUnitStatus(state);
+
         // PK-2 — client→host desert-pike ambush request.
         public static void SendClientPikeJump(SULFURTogether.Networking.Gameplay.Boss.NetClientPikeJump msg) => _service?.SendClientPikeJump(msg);
 

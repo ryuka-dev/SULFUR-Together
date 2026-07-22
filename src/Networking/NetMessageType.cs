@@ -456,5 +456,21 @@ namespace SULFURTogether.Networking
         // ghosts do not have. The host validates the request and runs the real JumpTowards, which broadcasts the arc back
         // through the existing PikeJump discrete event.
         ClientPikeJump          = 97,
+
+        // ST-1 (client → host, ReliableOrdered): the on-hit status modifiers (weapon enchantment — Petrification,
+        // Fire, Frost, ...) the local player's attack rolled against a host-bound puppet enemy. Applying a status and
+        // applying damage are two independent calls (Unit.ApplyHitModifiers vs Unit.ReceiveDamage), and the host applies
+        // a ClientHitRequest with a raw health write that never runs the former — so before this the client's
+        // enchantment landed on its local puppet only: petrified material and shatter VFX on the client while the host's
+        // real NPC, which owns the movement the puppet mirrors, kept walking. The host applies the forwarded entries
+        // through the vanilla ModifyStatus, keeping resistances / diminishing returns / caps host-owned.
+        ClientUnitStatusRequest = 98,
+
+        // ST-2 (host → all clients, ReliableOrdered): a negative status effect on a roster-bound enemy started or ended,
+        // taken from Unit.OnStatusUpdated — the same callback the game uses to raise the effect's own presentation.
+        // Only the edges travel (the per-frame decay runs locally on every end). Clients write it absolutely with
+        // SetStatus, which makes the host the single authority for what every screen shows and also fixes the converse
+        // gap: a status the HOST applied used to be invisible on the client.
+        HostUnitStatusState     = 99,
     }
 }

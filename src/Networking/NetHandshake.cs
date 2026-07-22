@@ -25,7 +25,9 @@ namespace SULFURTogether.Networking
         // 27: MP-Cap dropped the trailing maxPlayers field from HandshakeAccepted — the player cap is gone entirely.
         // 28: PK-1 added shouldJumpOff/inverted to the PikeJump payload of HostBossDiscreteEvent (codec v3) — wire shape must match.
         // 29: PK-2 added ClientPikeJump (97) — client→host desert-pike ambush request; wire set must match.
-        public const int    ProtocolVersion  = 29;
+        // 30: ST-1/ST-2 added ClientUnitStatusRequest (98) + HostUnitStatusState (99) — enemy status effect authority;
+        //     wire set must match (an older peer would apply enchantment statuses locally only, the bug this fixes).
+        public const int    ProtocolVersion  = 30;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

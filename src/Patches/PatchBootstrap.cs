@@ -32,6 +32,7 @@ namespace SULFURTogether.Patches
             EndlessSyncPatches.Apply(harmony);
             EndlessBossBarFixPatches.Apply(harmony);
             GhostPlayerPatches.Apply(harmony);
+            UnitStatusPatches.Apply(harmony);
             Plugin.Log.Info("[PatchBootstrap] Done.");
         }
     }
