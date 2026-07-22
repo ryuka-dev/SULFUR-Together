@@ -119,12 +119,11 @@ namespace SULFURTogether.Networking.Gameplay
                     {
                         if (GateSyncManager.CloseGate(target)) n++;
                     }
-                    else if (string.Equals(method, "SetActive", StringComparison.Ordinal))
-                    {
-                        GameObject go = target as GameObject ?? (target as Component)?.gameObject;
-                        if (go != null && go.name.IndexOf("door", StringComparison.OrdinalIgnoreCase) >= 0)
-                        { if (!go.activeSelf) go.SetActive(true); n++; }
-                    }
+                    // Only replay a SetActive that the trigger itself uses to CLOSE the door. Replaying the opposite
+                    // (a room-exit trigger's SetActive(false)) would put a door BACK that vanilla had just removed.
+                    else if (string.Equals(method, "SetActive", StringComparison.Ordinal)
+                             && ResolveClosingDoor(evt, i, target) is GameObject go)
+                    { if (!go.activeSelf) go.SetActive(true); n++; }
                 }
             }
             catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] CloseArenaDoorsLocal failed: {ex.Message}"); }
@@ -205,6 +204,87 @@ namespace SULFURTogether.Networking.Gameplay
             return go;
         }
 
+        // ----------------------------------------------------------------- LD-Crypt: SetActive argument discrimination
+
+        // UnityEvent exposes a persistent call's TARGET and METHOD NAME publicly, but NOT its inspector-configured
+        // argument. Without that argument `SetActive` is ambiguous: an arena seal calls SetActive(TRUE) to put its door
+        // in place, while a room-EXIT trigger calls SetActive(FALSE) to take a door away. Matching on the method name
+        // alone made the desert crypt's LeaveTrigger (persistent = [TeleportPlayer.DoTeleport, GameObject.SetActive,
+        // GameObject.SetActive, FogChangeTrigger.Trigger, SoundscapeTrigger.Trigger], door target set to OFF) look like
+        // a seal: the lockdown started, and 5 s later CloseArenaDoorsLocal forced that door back ON — on every end,
+        // with no release path (a SetActive door has no MetalGate, so the LD-2c gate-reopen signal never arrives).
+        // Whoever had not yet stepped through was shut in for the rest of the level. Log521.
+        //
+        // The argument lives in the serialized call group, so it is read reflectively (fields verified against
+        // UnityEngine.CoreModule): UnityEventBase.m_PersistentCalls : PersistentCallGroup → m_Calls :
+        // List<PersistentCall> (indexed exactly like the public GetPersistent* accessors) → m_Arguments : ArgumentCache
+        // → m_BoolArgument.
+        private static FieldInfo? _fPersistentCalls, _fCalls, _fArguments, _fBoolArgument;
+        private static bool _argReflectResolved, _argReflectOk;
+
+        /// <summary>LD-Crypt: the door that persistent call <paramref name="index"/> CLOSES — non-null only for a
+        /// <c>SetActive(true)</c> on a door-named GameObject. A <c>SetActive(false)</c> on the same object OPENS it and
+        /// must never be treated as a seal. Returns null when the argument cannot be read: not sealing degrades an
+        /// arena to vanilla behaviour, whereas forcing a door shut can lock a player in with no way out.</summary>
+        internal static GameObject? ResolveClosingDoor(UnityEventBase evt, int index, UnityEngine.Object target)
+        {
+            try
+            {
+                GameObject? door = target as GameObject ?? (target as Component)?.gameObject;
+                if (door == null || door.name.IndexOf("door", StringComparison.OrdinalIgnoreCase) < 0) return null;
+                if (TryGetPersistentBoolArg(evt, index, out bool activate) && activate) return door;
+
+                if (LogOn) NetLogger.Info($"[ArenaLockdown] door-named SetActive on '{door.name}' does not CLOSE it "
+                                        + "— not a seal (a room-exit trigger opens its door)");
+                return null;
+            }
+            catch { return null; }
+        }
+
+        private static bool TryGetPersistentBoolArg(UnityEventBase evt, int index, out bool value)
+        {
+            value = false;
+            try
+            {
+                if (evt == null || index < 0 || !ResolveArgReflection()) return false;
+                object? group = _fPersistentCalls!.GetValue(evt);
+                if (group == null) return false;
+                if (!(_fCalls!.GetValue(group) is System.Collections.IList calls) || index >= calls.Count) return false;
+                object? call = calls[index];
+                if (call == null) return false;
+                object? args = _fArguments!.GetValue(call);
+                if (args == null) return false;
+                if (!(_fBoolArgument!.GetValue(args) is bool b)) return false;
+                value = b;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private static bool ResolveArgReflection()
+        {
+            if (_argReflectResolved) return _argReflectOk;
+            _argReflectResolved = true;
+            try
+            {
+                const BindingFlags BF = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+                _fPersistentCalls = typeof(UnityEventBase).GetField("m_PersistentCalls", BF);
+                _fCalls = _fPersistentCalls?.FieldType.GetField("m_Calls", BF);
+                Type? callType = _fCalls != null && _fCalls.FieldType.IsGenericType
+                    ? _fCalls.FieldType.GetGenericArguments()[0] : null;
+                _fArguments = callType?.GetField("m_Arguments", BF);
+                _fBoolArgument = _fArguments?.FieldType.GetField("m_BoolArgument", BF);
+                _argReflectOk = _fPersistentCalls != null && _fCalls != null && _fArguments != null
+                             && _fBoolArgument != null && _fBoolArgument.FieldType == typeof(bool);
+            }
+            catch { _argReflectOk = false; }
+
+            if (!_argReflectOk)
+                NetLogger.Warn("[ArenaLockdown] UnityEvent persistent-argument reflection unresolved — SetActive-door "
+                             + "arenas will not be sealed by the mod (MetalGate arenas are unaffected).");
+            return _argReflectOk;
+        }
+
         // ----------------------------------------------------------------- door resolution (from the seal trigger)
 
         /// <summary>Door anchor(s) the trigger seals: a MetalGate (LD-1 Close) or a door-named GameObject (LD-1b
@@ -229,18 +309,16 @@ namespace SULFURTogether.Networking.Gameplay
                     if (string.Equals(method, "Close", StringComparison.Ordinal)
                         && target.GetType().Name.IndexOf("MetalGate", StringComparison.Ordinal) >= 0)
                     {
-                        var go = (target as Component)?.gameObject;
-                        if (go != null) AddAnchor(list, go);
+                        var gate = (target as Component)?.gameObject;
+                        if (gate != null) AddAnchor(list, gate);
                         continue;
                     }
 
-                    // LD-1b GameObject.SetActive("...door...") → that GameObject is the door.
-                    if (string.Equals(method, "SetActive", StringComparison.Ordinal))
-                    {
-                        GameObject go = target as GameObject ?? (target as Component)?.gameObject;
-                        if (go != null && go.name.IndexOf("door", StringComparison.OrdinalIgnoreCase) >= 0)
-                            AddAnchor(list, go);
-                    }
+                    // LD-1b GameObject.SetActive(true, "...door...") → that GameObject is the door. A SetActive(FALSE)
+                    // on a door is the trigger REMOVING one (a room exit), never a seal — see IsDoorClosingSetActive.
+                    if (string.Equals(method, "SetActive", StringComparison.Ordinal)
+                        && ResolveClosingDoor(evt, i, target) is GameObject go)
+                        AddAnchor(list, go);
                 }
             }
             catch { }

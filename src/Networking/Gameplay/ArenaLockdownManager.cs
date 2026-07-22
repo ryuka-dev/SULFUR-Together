@@ -883,12 +883,12 @@ namespace SULFURTogether.Networking.Gameplay
                         && target.GetType().Name.IndexOf("MetalGate", StringComparison.Ordinal) >= 0)
                         return true;
 
-                    if (string.Equals(method, "SetActive", StringComparison.Ordinal))
-                    {
-                        GameObject go = target as GameObject ?? (target as Component)?.gameObject;
-                        if (go != null && go.name.IndexOf("door", StringComparison.OrdinalIgnoreCase) >= 0)
-                            return true;
-                    }
+                    // LD-Crypt: a seal PUTS a door in place — SetActive(TRUE). The desert crypt's LeaveTrigger calls
+                    // SetActive(FALSE) on its door (it opens the way out) and must not be read as a seal, or the
+                    // lockdown closes that door 5 s later with nothing to ever reopen it (Log521).
+                    if (string.Equals(method, "SetActive", StringComparison.Ordinal)
+                        && ArenaBarrierManager.ResolveClosingDoor(evt, i, target) != null)
+                        return true;
                 }
             }
             catch { }
