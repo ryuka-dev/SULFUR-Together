@@ -247,6 +247,9 @@ namespace SULFURTogether.Config
         // ----- Phase KD (crypt sync) locked OpenableDoor (crypt key door) open sync -----
         public Fixed<bool>         EnableOpenableDoorSync { get; } // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogOpenableDoorSync { get; }
+        // ----- Phase SP/AC (crypt sync) host-authoritative crypt challenge (spawn + outcome) -----
+        public Fixed<bool>         EnableCryptSync { get; } // functional: always on (release-hardcoded)
+        public ConfigEntry<bool>   LogCryptSync { get; }
         // SL-2 (Shared-loot): host-authoritative chest (Container) open + state sync. Functional, always on (but only
         // takes effect while shared loot is enabled — ShareAllLoot).
         public Fixed<bool>         EnableChestSync { get; }
@@ -904,6 +907,15 @@ namespace SULFURTogether.Config
             EnableOpenableDoorSync = new Fixed<bool>(true); // Phase KD crypt/locked door open sync — functional, always on.
             LogOpenableDoorSync = cfg.Bind("Destructibles", "LogOpenableDoorSync", true,
                 "Phase KD (crypt sync): verbose log for locked OpenableDoor open sync (capture / broadcast / mirror match).");
+
+            // Phase SP/AC (crypt sync): the desert crypt challenge is a host-authoritative shared-world event. The host
+            // runs the challenge (selection is already seeded by CS); its CryptPeriodicEnemySpawner spawns are broadcast
+            // as RuntimeSpawn puppets (bound 1:1 by host index, so a host kill maps exactly), and a linked client
+            // suppresses its own crypt challenge entirely (no divergent spawns, no premature win/lose). The host
+            // broadcasts the outcome so a shared failure kills every player and a shared completion is uniform.
+            EnableCryptSync = new Fixed<bool>(true); // Phase SP/AC host-authoritative crypt challenge — functional, always on.
+            LogCryptSync = cfg.Bind("NetworkEnemy", "LogCryptSync", true,
+                "Phase SP/AC (crypt sync): verbose log for the host-authoritative crypt challenge (client challenge suppression, host spawn broadcast, outcome).");
 
             EnableChestSync = new Fixed<bool>(true); // SL-2 shared-loot chest sync — functional, gated at runtime by ShareAllLoot.
             LogChestSync = cfg.Bind("WorldItems", "LogChestSync", true,

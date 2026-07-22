@@ -192,6 +192,16 @@ namespace SULFURTogether.Networking.Gameplay
         {
             string tn = owner.GetType().Name;
             if (tn == "DevToolsManager") return "DevTools";
+            // SP (crypt sync): the desert crypt challenge is host-authoritative. Its CryptPeriodicEnemySpawner spawns
+            // (async SpawnUnitAsync, global-RNG type + point per spawn) diverge per end, so a host kill can't strict-match
+            // the client's differently-typed local enemy — the client's enemy loses AI and freezes instead of dying
+            // (Log525). The linked client suppresses its whole crypt challenge (CryptChallengePatches), so the host's
+            // crypt spawns are one-sided and safe to mirror as puppets bound 1:1 by host index → a host kill maps exactly.
+            if (tn == "CryptPeriodicEnemySpawner")
+            {
+                try { if (!Plugin.Cfg.EnableCryptSync.Value) return null; } catch { return null; }
+                return "Crypt";
+            }
             // Issue #5: a one-shot TriggerSpawner (Caves maze skeleton ambush, ...) is host-authoritative — the client's
             // local spawn is suppressed (see TriggerSpawnSyncManager), so the host's is one-sided and safe to mirror.
             if (tn == "TriggerSpawner") return "TriggerSpawn";

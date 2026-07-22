@@ -2,6 +2,8 @@ using System;
 using System.Reflection;
 using HarmonyLib;
 using PerfectRandom.Sulfur.Core;
+using SULFURTogether.Networking;
+using SULFURTogether.Networking.Gameplay;
 using UnityEngine;
 
 namespace SULFURTogether.Patches
@@ -35,6 +37,16 @@ namespace SULFURTogether.Patches
         public static int SelectionsSeeded;
         public static int SelectionsSkippedNoSeed;
 
+        /// <summary>SP (crypt sync phase 3): a linked client owns no crypt challenge — the host does. The host runs the
+        /// challenge and its <c>CryptPeriodicEnemySpawner</c> spawns are mirrored to the client 1:1 (RuntimeSpawn), so a
+        /// host kill maps exactly. If the client ALSO ran the challenge it would spawn its own divergent enemies and,
+        /// worse, its own win/lose timer (a failure calls <c>PlayerUnit.Die()</c>). Block the whole thing on the client.</summary>
+        private static bool IsLinkedClient =>
+            NetGameplaySyncBridge.BossMode == NetMode.Client && NetLinkState.ClientLinked;
+
+        private static bool CryptSyncEnabled { get { try { return Plugin.Cfg.EnableCryptSync.Value; } catch { return false; } } }
+        private static bool LogOn { get { try { return Plugin.Cfg.LogCryptSync.Value; } catch { return false; } } }
+
         public static void Apply(Harmony harmony)
         {
             var mi = AccessTools.DeclaredMethod(typeof(CryptChallengeManager), "SelectRandomChallenge");
@@ -54,6 +66,32 @@ namespace SULFURTogether.Patches
             {
                 Plugin.Log.Error($"[CryptChallenge] SelectRandomChallenge patch failed: {ex.Message}");
             }
+
+            // SP: block the whole crypt challenge on a linked client (host-authoritative; the client mirrors host enemies).
+            var start = AccessTools.DeclaredMethod(typeof(CryptChallengeManager), "StartChallenge");
+            if (start != null)
+            {
+                try
+                {
+                    harmony.Patch(start, prefix: new HarmonyMethod(
+                        typeof(CryptChallengePatches).GetMethod(nameof(StartChallenge_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Plugin.Log.Info("[CryptChallenge] patched CryptChallengeManager.StartChallenge (client challenge suppression).");
+                }
+                catch (Exception ex) { Plugin.Log.Error($"[CryptChallenge] StartChallenge patch failed: {ex.Message}"); }
+            }
+            else Plugin.Log.Warn("[CryptChallenge] CryptChallengeManager.StartChallenge not found — client challenge suppression disabled.");
+        }
+
+        // Returns false (skip original) on a linked client so its crypt challenge — selection, spawners, timer, win/lose —
+        // never runs. The host is authoritative; the client only sees host-mirrored crypt enemies + a host outcome (AC).
+        private static bool StartChallenge_Pre()
+        {
+            if (CryptSyncEnabled && IsLinkedClient)
+            {
+                if (LogOn) Plugin.Log.Info("[CryptChallenge] linked client — crypt challenge suppressed (host-authoritative; mirroring host enemies)");
+                return false;
+            }
+            return true;
         }
 
         private static void SelectRandomChallenge_Pre(CryptChallengeManager __instance, ref UnityEngine.Random.State? __state)
