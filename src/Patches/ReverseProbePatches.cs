@@ -275,6 +275,9 @@ namespace SULFURTogether.Patches
             // client's 联机状态 so a re-entered save starts unlinked.
             TryPatch(harmony, t, "GoToMainMenu",  Pre(nameof(GM_GoToMainMenu_Pre)),  null);
             TryPatch(harmony, t, "PlayerDied",    Pre(nameof(GM_PlayerDied_Pre)),    null);
+            // AWAIT-1: the canonical entry/exit of the press-to-continue window (level generated, player has not
+            // entered yet). Diagnostic only — NetAwaitStartLevel reads the game's flag directly, it never mirrors it.
+            TryPatch(harmony, t, "SetAwaitBeforeStartLevel", null, Post(nameof(GM_SetAwaitBeforeStartLevel_Post)));
         }
 
         private static void GM_AddPlayer_Post(object __instance, object player)
@@ -306,6 +309,13 @@ namespace SULFURTogether.Patches
             try { ReverseProbeSummary.IncrementGmEvent(); Log.Info($"[GM] RemoveNpc << {F(npc)}"); }
             catch (Exception ex) { Log.Error($"[GM.RemoveNpc] {ex.Message}"); }
         }
+        // AWAIT-1: log entering/leaving the press-to-continue window. Postfix so it reports the settled state.
+        private static void GM_SetAwaitBeforeStartLevel_Post(bool state)
+        {
+            try { NetAwaitStartLevel.NoteAwaitStateChanged(state); }
+            catch (Exception ex) { Log.Error($"[AwaitStart] {ex.Message}"); }
+        }
+
         private static void GM_SetState_Pre(object __instance, object state)
         {
             try
