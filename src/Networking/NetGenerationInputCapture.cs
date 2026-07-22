@@ -232,6 +232,12 @@ namespace SULFURTogether.Networking
                     snap.SeedCandidate = _pending?.SeedCandidate ?? 0;
                 }
 
+                // SEED-1: this generation has consumed GlobalSettings.ForceLevelSeed (GameManager.currentSeed is
+                // already fixed by the time the first graph node runs). Release it so it cannot pin the NEXT
+                // local generation to this map — a client that falls back to generating on its own, or unlinks
+                // and plays solo, must roll a fresh seed.
+                NetLevelSeed.ReleaseAppliedForceLevelSeed("generation-finalize");
+
                 if (!hadPending && NetRunStateBridge.TryGetLocalRunState(out var run))
                 {
                     if (run.HasLevel) { snap.Chapter = run.ChapterName; if (snap.LevelIndex < 0) snap.LevelIndex = run.LevelIndex; }

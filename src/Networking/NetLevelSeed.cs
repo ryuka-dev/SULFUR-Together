@@ -19,6 +19,14 @@ namespace SULFURTogether.Networking
         private static bool _forceLevelSeedResolved;
         private static FieldInfo? _forceLevelSeedField;
 
+        // SEED-1: ForceLevelSeed is a ONE-SHOT generation input, not a persistent setting. It is written to
+        // reproduce the host's instance for the NEXT generation and must be released once that generation has
+        // consumed it — StartLevelRoutineGraph only rolls a fresh random seed when the field reads 0, so a
+        // leftover value silently pins every later local generation to the same map. Remember what we wrote so
+        // a value set by someone else (game dev tools) is never cleared out from under them.
+        private static bool _forceSeedAppliedByUs;
+        private static int  _forceSeedAppliedValue;
+
         private static bool _currentSeedResolved;
         private static PropertyInfo? _currentSeedProperty;
         private static FieldInfo? _currentSeedField;
@@ -152,6 +160,8 @@ namespace SULFURTogether.Networking
                 }
 
                 field.SetValue(null, seed);
+                _forceSeedAppliedByUs = true;
+                _forceSeedAppliedValue = seed;
                 result = $"Set {field.DeclaringType?.FullName ?? "GlobalSettings"}.ForceLevelSeed={seed}";
                 return true;
             }
@@ -159,6 +169,38 @@ namespace SULFURTogether.Networking
             {
                 result = $"ForceLevelSeed apply failed: {ex.GetType().Name}: {ex.Message}";
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// SEED-1: release the forced seed once the generation it was written for has consumed it (called at the
+        /// generation-input finalize point, where GameManager.currentSeed is already fixed). Only clears the exact
+        /// value this class wrote — if the field now holds something else, someone else owns it and we leave it.
+        /// </summary>
+        public static void ReleaseAppliedForceLevelSeed(string source)
+        {
+            if (!_forceSeedAppliedByUs) return;
+            try
+            {
+                var field = ResolveForceLevelSeedField();
+                if (field == null) { _forceSeedAppliedByUs = false; return; }
+
+                int current = Convert.ToInt32(field.GetValue(null) ?? 0);
+                if (current != _forceSeedAppliedValue)
+                {
+                    // Overwritten by the game / dev tools since we applied it — not ours to clear.
+                    _forceSeedAppliedByUs = false;
+                    return;
+                }
+
+                field.SetValue(null, 0);
+                _forceSeedAppliedByUs = false;
+                SULFURTogether.Plugin.Log.Info($"[LevelSeed] released ForceLevelSeed={_forceSeedAppliedValue} (consumed by generation) source={source}");
+            }
+            catch (Exception ex)
+            {
+                _forceSeedAppliedByUs = false;
+                SULFURTogether.Plugin.Log.Warn($"[LevelSeed] release ForceLevelSeed failed: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
