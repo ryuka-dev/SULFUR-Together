@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.2.3 — Desert crypt co-op
+
+The desert crypt — the locked room with the key and the timed trial — now works in co-op from the
+door to the reward room. Before this, only the player carrying the key could get in, the two sides
+were given different trials, and finishing one could leave someone shut in. This release changes
+the network protocol, so everyone in a session must update together.
+
+**Fixed:**
+- **You can no longer be shut inside the crypt after finishing it.** Stepping on the crypt's exit
+  was mistaken for entering a sealed combat room, so the way out was closed again a few seconds
+  later — with nothing that could ever reopen it. Whoever had not already stepped through was
+  trapped for the rest of the level. Room exits are no longer treated as arena seals.
+- **The crypt key door now opens for everyone.** Only one key exists in a run, and the door opened
+  only for the player who used it — everyone else walked into an invisible wall and could never
+  enter. The door now opens on every screen, and nobody else needs a key.
+- **Both players now get the same trial.** The trial was picked from unsynced randomness, so one
+  player could be hunting chickens while the other was killing enemies in the same room. The trial
+  is now decided by the level seed, like the rest of the level.
+- **Crypt enemies are now run by the host.** Each side used to spawn its own, so the same spot
+  could hold a different enemy for each player. When the host killed one, the other player's enemy
+  did not die — it just lost its AI and stood there. Crypt enemies are now spawned once by the host
+  and mirrored, so a kill lands for everyone.
+- **The reward room now opens for everyone.** Completing the trial opened the reward room — which
+  holds the way out — only for the host. Everyone now gets it.
+- **A failed trial is now shared.** A failure used to punish only the host. Now the whole group
+  fails together.
+- **The trial progress bar is now visible to everyone.** Only the host could see what the trial was
+  or how long was left. The bar now shows on every screen, in your own language.
+- **The Protect trial's altars are now visible to everyone.** The altars you have to defend — and
+  their highlight — only appeared for the host, leaving everyone else with nothing to protect.
+- **The statue at the crypt entrance no longer slides around.** It could be mistaken for an enemy
+  and dragged across the room by whatever that enemy was doing.
+
 ## 1.2.2 — Desync, desert and status-effect fixes
 
 A round of sync fixes from player reports: repeated maps, the loading-screen desync, invisible
