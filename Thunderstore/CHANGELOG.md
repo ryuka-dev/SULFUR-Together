@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.2.2 — Desync, desert and status-effect fixes
+
+A round of sync fixes from player reports: repeated maps, the loading-screen desync, invisible
+ghosts, and enemies that ignored a status effect. This release changes the network protocol, so
+everyone in a session must update together.
+
+**New:**
+- **The four-player limit is gone.** Sessions no longer cap the number of players — a fifth player
+  used to sit on "joining" forever, on both Steam and Direct IP. There is no artificial limit now;
+  the practical ceiling is your host's connection and CPU.
+
+**Fixed:**
+- **Levels no longer repeat for a player who joined a host.** After following the host into a level
+  once, that player's own later levels were all generated from the host's old seed, so the same map
+  kept coming back. Each level now rolls a fresh layout again.
+- **Walking ahead while someone is still on the loading screen no longer desyncs the run.** If a
+  player was sitting on the "press to continue" screen and someone else took the exit, players,
+  map and enemies would drift apart until the next level reset it. That screen is now handled as
+  its own state: the waiting player is led along properly, and the abandoned loading step is shut
+  down instead of running its ending against the level that replaced it.
+- **Ghosts are no longer invisible to other players.** Ghost enemies picked their species from
+  unsynced randomness, so two out of three times the host and the other players disagreed about
+  what a ghost was — the enemy stayed invisible on one side while still attacking. Ghost species
+  now follows the level seed like the rest of the level does.
+- **Status effects from a weapon enchantment now actually affect the enemy.** A Petrification
+  enchantment used by anyone but the host would show the petrified look and shatter effect while
+  the enemy kept walking. Status effects are now applied on the host, for every player, and are
+  shown on everyone's screen — including effects the host applied, which used to be invisible to
+  the others.
+- **Desert sandworms no longer throw players out of the map or freeze the game.** The ambushing
+  sandworms in the desert are now run by the host and mirrored properly: they emerge and land the
+  same way for everyone, standing on a landing spot no longer launches you across the level, their
+  riders are no longer fought over by two machines, and the frame-long freezes around them are
+  gone. A non-host player can also trigger a sandworm ambush now.
+
 ## 1.2.1 — Endless boss fixes
 
 Fixes for Endless Mode bosses in co-op. Updating is recommended for everyone in a session.

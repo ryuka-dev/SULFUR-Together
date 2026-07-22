@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.2.0 — Public Beta: Endless Mode co-op.[/b] It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+> [b]Version 1.2.2 — Public Beta.[/b] It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
 
 [line]
 
@@ -397,6 +397,53 @@ SULFUR Together は共有キャラクターセーブを[b]使いません[/b]。
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.2.2 — Desync, desert and status-effect fixes[/b][/color]
+
+A round of sync fixes from player reports: repeated maps, the loading-screen desync, invisible
+ghosts, and enemies that ignored a status effect. This release changes the network protocol, so
+everyone in a session must update together.
+
+[b]New:[/b]
+[list]
+[*][b]The four-player limit is gone.[/b] Sessions no longer cap the number of players — a fifth player[/*]
+[/list]
+  used to sit on "joining" forever, on both Steam and Direct IP. There is no artificial limit now;
+  the practical ceiling is your host's connection and CPU.
+
+[b]Fixed:[/b]
+[list]
+[*][b]Levels no longer repeat for a player who joined a host.[/b] After following the host into a level[/*]
+[/list]
+  once, that player's own later levels were all generated from the host's old seed, so the same map
+  kept coming back. Each level now rolls a fresh layout again.
+[list]
+[*][b]Walking ahead while someone is still on the loading screen no longer desyncs the run.[/b] If a[/*]
+[/list]
+  player was sitting on the "press to continue" screen and someone else took the exit, players,
+  map and enemies would drift apart until the next level reset it. That screen is now handled as
+  its own state: the waiting player is led along properly, and the abandoned loading step is shut
+  down instead of running its ending against the level that replaced it.
+[list]
+[*][b]Ghosts are no longer invisible to other players.[/b] Ghost enemies picked their species from[/*]
+[/list]
+  unsynced randomness, so two out of three times the host and the other players disagreed about
+  what a ghost was — the enemy stayed invisible on one side while still attacking. Ghost species
+  now follows the level seed like the rest of the level does.
+[list]
+[*][b]Status effects from a weapon enchantment now actually affect the enemy.[/b] A Petrification[/*]
+[/list]
+  enchantment used by anyone but the host would show the petrified look and shatter effect while
+  the enemy kept walking. Status effects are now applied on the host, for every player, and are
+  shown on everyone's screen — including effects the host applied, which used to be invisible to
+  the others.
+[list]
+[*][b]Desert sandworms no longer throw players out of the map or freeze the game.[/b] The ambushing[/*]
+[/list]
+  sandworms in the desert are now run by the host and mirrored properly: they emerge and land the
+  same way for everyone, standing on a landing spot no longer launches you across the level, their
+  riders are no longer fought over by two machines, and the frame-long freezes around them are
+  gone. A non-host player can also trigger a sandworm ambush now.
 
 [color=RoyalBlue][b]1.2.1 — Endless boss fixes[/b][/color]
 
