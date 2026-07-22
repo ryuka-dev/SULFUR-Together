@@ -80,19 +80,124 @@ namespace SULFURTogether.Patches
                 catch (Exception ex) { Plugin.Log.Error($"[CryptChallenge] StartChallenge patch failed: {ex.Message}"); }
             }
             else Plugin.Log.Warn("[CryptChallenge] CryptChallengeManager.StartChallenge not found — client challenge suppression disabled.");
+
+            // AC: host broadcasts the challenge OUTCOME so the client opens the reward room (completion) / shares the
+            // death (failure). OnChallengeCompleted / OnChallengeFailed are the private methods that run the outcome.
+            HookOutcome(harmony, "OnChallengeCompleted", nameof(OnChallengeCompleted_Post));
+            HookOutcome(harmony, "OnChallengeFailed",    nameof(OnChallengeFailed_Post));
+
+            // AC: mirror the native CryptUI bar to the client (host-localized label). Hook the singleton's UpdateInfo /
+            // TurnOff — the single chokepoint for the crypt progress bar.
+            var cryptUi = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.CryptUI") ?? AccessTools.TypeByName("CryptUI");
+            if (cryptUi != null)
+            {
+                var update = AccessTools.Method(cryptUi, "UpdateInfo", new[] { typeof(string), typeof(bool) });
+                if (update != null)
+                    TryPatch(harmony, update, nameof(CryptUI_UpdateInfo_Post));
+                var turnOff = AccessTools.Method(cryptUi, "TurnOff", Type.EmptyTypes);
+                if (turnOff != null)
+                    TryPatch(harmony, turnOff, nameof(CryptUI_TurnOff_Post));
+                Plugin.Log.Info($"[CryptChallenge] patched CryptUI.UpdateInfo({update != null})/TurnOff({turnOff != null}) (client bar mirror).");
+            }
+            else Plugin.Log.Warn("[CryptChallenge] CryptUI type not found — client bar mirror disabled.");
+        }
+
+        private static void HookOutcome(Harmony harmony, string method, string postfixName)
+        {
+            var mi = AccessTools.DeclaredMethod(typeof(CryptChallengeManager), method);
+            if (mi == null) { Plugin.Log.Warn($"[CryptChallenge] CryptChallengeManager.{method} not found — outcome sync partial."); return; }
+            try
+            {
+                harmony.Patch(mi, postfix: new HarmonyMethod(
+                    typeof(CryptChallengePatches).GetMethod(postfixName, BindingFlags.Static | BindingFlags.NonPublic)));
+            }
+            catch (Exception ex) { Plugin.Log.Error($"[CryptChallenge] {method} patch failed: {ex.Message}"); }
+        }
+
+        private static void TryPatch(Harmony harmony, MethodInfo target, string postfixName)
+        {
+            try
+            {
+                harmony.Patch(target, postfix: new HarmonyMethod(
+                    typeof(CryptChallengePatches).GetMethod(postfixName, BindingFlags.Static | BindingFlags.NonPublic)));
+            }
+            catch (Exception ex) { Plugin.Log.Error($"[CryptChallenge] {target.Name} patch failed: {ex.Message}"); }
+        }
+
+        // Host: the challenge just completed / failed on this end — broadcast so the client replays the outcome.
+        private static void OnChallengeCompleted_Post(CryptChallengeManager __instance, bool __runOriginal)
+        {
+            if (!__runOriginal) return;
+            CryptChallengeSyncManager.HostBroadcastOutcome(__instance, completed: true);
+        }
+
+        private static void OnChallengeFailed_Post(CryptChallengeManager __instance, bool __runOriginal)
+        {
+            if (!__runOriginal) return;
+            CryptChallengeSyncManager.HostBroadcastOutcome(__instance, completed: false);
+        }
+
+        // Host: the crypt bar label changed / cleared — mirror it to the client (a re-entrant apply is guarded out).
+        private static void CryptUI_UpdateInfo_Post(string challengeInfo, bool useAsTimer, bool __runOriginal)
+        {
+            if (!__runOriginal || CryptChallengeSyncManager.IsApplyingUi) return;
+            CryptChallengeSyncManager.HostBroadcastUi(challengeInfo, useAsTimer);
+        }
+
+        private static void CryptUI_TurnOff_Post(bool __runOriginal)
+        {
+            if (!__runOriginal || CryptChallengeSyncManager.IsApplyingUi) return;
+            CryptChallengeSyncManager.HostBroadcastUiClear();
         }
 
         // Returns false (skip original) on a linked client so its crypt challenge — selection, spawners, timer, win/lose —
         // never runs. The host is authoritative; the client only sees host-mirrored crypt enemies + a host outcome (AC).
-        private static bool StartChallenge_Pre()
+        // Before skipping, replay the challenge's client-VISIBLE static setup that OnStartChallenge would have done —
+        // for the Protect trial that means revealing the altars + their see-through highlight (otherwise the client sees
+        // nothing to protect: the altars sit hidden by the challenge's own Start() and are only un-hidden in the blocked
+        // OnStartChallenge). Enemy visuals come from SP's host mirror; the bar comes from AC.
+        private static bool StartChallenge_Pre(CryptChallengeManager __instance)
         {
             if (CryptSyncEnabled && IsLinkedClient)
             {
+                RevealProtectAltarsIfSelected(__instance);
                 if (LogOn) Plugin.Log.Info("[CryptChallenge] linked client — crypt challenge suppressed (host-authoritative; mirroring host enemies)");
                 return false;
             }
             return true;
         }
+
+        // Client visual-only: if the selected challenge is a Protect trial, un-hide its altars + outline highlight the
+        // same way CryptProtectTargetChallenge.OnStartChallenge does — WITHOUT spawning the units or running any
+        // gameplay (no roster entry, no damage handlers, no spawners). Altar damage state stays host-side; this is
+        // purely "the client can see what it is protecting".
+        private static void RevealProtectAltarsIfSelected(CryptChallengeManager mgr)
+        {
+            try
+            {
+                if (mgr == null) return;
+                _selectedChallengeField ??= AccessTools.Field(typeof(CryptChallengeManager), "selectedChallenge");
+                if (_selectedChallengeField?.GetValue(mgr) is not CryptProtectTargetChallenge protect) return;
+                if (protect.protectTargets == null) return;
+
+                int shown = 0;
+                foreach (var target in protect.protectTargets)
+                {
+                    var unit = target?.unit;
+                    if (unit == null) continue;
+                    if (!unit.TryGetComponent<CryptColumnDamageController>(out var col)) continue;
+                    if (col.root != null) col.root.SetActive(true);
+                    if (col.outlineObjects != null)
+                        foreach (var o in col.outlineObjects)
+                            if (o != null) o.SetActive(true);
+                    shown++;
+                }
+                if (LogOn) Plugin.Log.Info($"[CryptChallenge] client revealed {shown} protect altar(s) + outline highlight");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[CryptChallenge] reveal altars failed: {ex.Message}"); }
+        }
+
+        private static FieldInfo? _selectedChallengeField;
 
         private static void SelectRandomChallenge_Pre(CryptChallengeManager __instance, ref UnityEngine.Random.State? __state)
         {

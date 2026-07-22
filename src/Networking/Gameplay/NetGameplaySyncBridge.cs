@@ -168,6 +168,12 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalOpenableDoorOpen(msg);
         }
 
+        // Phase AC (crypt sync) — host-authoritative crypt challenge outcome + UI (Host → clients).
+        public static void ReportLocalCryptChallengeState(NetCryptChallengeState msg)
+        {
+            _service?.BroadcastLocalCryptChallengeState(msg);
+        }
+
         // Phase LD-2a — arena lockdown membership + run-state queries (host membership/timer; see ArenaLockdownManager).
         public static void SendClientArenaEnter(NetClientArenaEnter msg) => _service?.SendClientArenaEnter(msg);
 

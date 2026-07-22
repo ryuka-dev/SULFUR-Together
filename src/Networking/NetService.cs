@@ -2643,6 +2643,53 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- Phase AC (crypt sync) host-authoritative outcome + UI
+
+        internal void BroadcastLocalCryptChallengeState(Gameplay.NetCryptChallengeState msg)
+        {
+            if (_net == null || _mode != NetMode.Host || msg == null) return; // host-authoritative: only the host sends
+            if (!Plugin.Cfg.EnableCryptSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            foreach (var peer in _clients.ToArray())
+                SendCryptChallengeState(peer, msg);
+        }
+
+        private void SendCryptChallengeState(NetPeer peer, Gameplay.NetCryptChallengeState msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.CryptChallengeState);
+                Gameplay.NetCryptChallengeStateCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[CryptChallenge] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleCryptChallengeState(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableCryptSync.Value) return;
+            if (!Gameplay.NetCryptChallengeStateCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[CryptChallenge] malformed CryptChallengeState packet");
+                return;
+            }
+            if (_mode != NetMode.Client) return; // host-authoritative Host → clients only
+            if (msg.MatchesScene(_runStates.LocalState))
+                Gameplay.CryptChallengeSyncManager.ApplyRemote(msg);
+        }
+
         // ---------------------------------------------------------------- Phase LD-1b combat-room door (SetActive) sync
 
         internal void BroadcastLocalTriggerDoors(Gameplay.NetTriggerDoors msg)
@@ -4341,6 +4388,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.OpenableDoorOpen:
                         HandleOpenableDoorOpen(peer, reader);
+                        break;
+
+                    case NetMessageType.CryptChallengeState:
+                        HandleCryptChallengeState(peer, reader);
                         break;
 
                     case NetMessageType.GateState:

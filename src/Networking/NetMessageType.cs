@@ -478,5 +478,10 @@ namespace SULFURTogether.Networking
         // door's real Open() with no key consumed. One-way (closeable toggle doors are excluded on capture), so the
         // mirror is idempotent and needs no arbitration.
         OpenableDoorOpen        = 100,
+
+        // AC (crypt sync): host-authoritative crypt challenge outcome + UI. Host → clients: challenge completed (open the
+        // reward room), failed (shared death), or a CryptUI bar label update / clear. The client runs no crypt challenge
+        // (SP), so these results and the on-screen bar are host-driven.
+        CryptChallengeState     = 101,
     }
 }
