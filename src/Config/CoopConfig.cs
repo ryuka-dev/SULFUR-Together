@@ -244,6 +244,9 @@ namespace SULFURTogether.Config
         // ----- Phase DB-1 inter-chunk hold-to-open door (DoorBlocker) sync -----
         public Fixed<bool>         EnableDoorBlockerSync { get; } // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogDoorBlockerSync { get; }
+        // ----- Phase KD (crypt sync) locked OpenableDoor (crypt key door) open sync -----
+        public Fixed<bool>         EnableOpenableDoorSync { get; } // functional: always on (release-hardcoded)
+        public ConfigEntry<bool>   LogOpenableDoorSync { get; }
         // SL-2 (Shared-loot): host-authoritative chest (Container) open + state sync. Functional, always on (but only
         // takes effect while shared loot is enabled — ShareAllLoot).
         public Fixed<bool>         EnableChestSync { get; }
@@ -893,6 +896,14 @@ namespace SULFURTogether.Config
             EnableDoorBlockerSync = new Fixed<bool>(true); // Phase DB-1 inter-chunk door sync — functional, always on.
             LogDoorBlockerSync = cfg.Bind("Destructibles", "LogDoorBlockerSync", true,
                 "Phase DB-1: verbose log for inter-chunk door sync (capture / broadcast / mirror match).");
+
+            // Phase KD (crypt sync): mirror a locked OpenableDoor's open to every end, keyed by the door's world
+            // position. The desert crypt key door (and other one-way doors) open off the local player's key/interaction
+            // only, so a door one player opens stays shut and impassable for everyone else — and with a single shared
+            // crypt key the other player cannot otherwise get in. Closeable toggle doors are excluded (open-only sync).
+            EnableOpenableDoorSync = new Fixed<bool>(true); // Phase KD crypt/locked door open sync — functional, always on.
+            LogOpenableDoorSync = cfg.Bind("Destructibles", "LogOpenableDoorSync", true,
+                "Phase KD (crypt sync): verbose log for locked OpenableDoor open sync (capture / broadcast / mirror match).");
 
             EnableChestSync = new Fixed<bool>(true); // SL-2 shared-loot chest sync — functional, gated at runtime by ShareAllLoot.
             LogChestSync = cfg.Bind("WorldItems", "LogChestSync", true,

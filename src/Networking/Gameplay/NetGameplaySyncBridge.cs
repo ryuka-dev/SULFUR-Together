@@ -162,6 +162,12 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalDoorBlockerOpen(msg);
         }
 
+        // Phase KD (crypt sync) — locked OpenableDoor (crypt key door) open channel. Same routing as DoorBlockerOpen.
+        public static void ReportLocalOpenableDoorOpen(NetOpenableDoorOpen msg)
+        {
+            _service?.BroadcastLocalOpenableDoorOpen(msg);
+        }
+
         // Phase LD-2a — arena lockdown membership + run-state queries (host membership/timer; see ArenaLockdownManager).
         public static void SendClientArenaEnter(NetClientArenaEnter msg) => _service?.SendClientArenaEnter(msg);
 

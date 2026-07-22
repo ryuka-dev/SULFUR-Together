@@ -2558,6 +2558,91 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // ---------------------------------------------------------------- Phase KD (crypt sync) locked OpenableDoor open
+
+        internal void BroadcastLocalOpenableDoorOpen(Gameplay.NetOpenableDoorOpen msg)
+        {
+            if (_net == null || _mode == NetMode.Off || msg == null) return;
+            if (!Plugin.Cfg.EnableOpenableDoorSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (_mode == NetMode.Host)
+            {
+                foreach (var peer in _clients.ToArray())
+                    SendOpenableDoorOpen(peer, msg);
+            }
+            else if (_hostPeer != null)
+            {
+                SendOpenableDoorOpen(_hostPeer, msg);
+            }
+        }
+
+        private void SendOpenableDoorOpen(NetPeer peer, Gameplay.NetOpenableDoorOpen msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.OpenableDoorOpen);
+                Gameplay.NetOpenableDoorOpenCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[KeyDoor] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleOpenableDoorOpen(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableOpenableDoorSync.Value) return;
+            if (!Gameplay.NetOpenableDoorOpenCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[KeyDoor] malformed OpenableDoorOpen packet");
+                return;
+            }
+
+            if (_mode == NetMode.Host)
+            {
+                if (!_peerIds.TryGetValue(peer, out var peerId))
+                {
+                    if (Plugin.Cfg.EnableDebugLog.Value)
+                        NetLogger.Debug($"[KeyDoor] ignoring door from unregistered peer {peer.Address}");
+                    return;
+                }
+                msg.PeerId = peerId;
+
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.OpenableDoorSyncManager.ApplyRemoteOpen(msg);
+
+                RelayOpenableDoorOpenToOtherClients(peer, msg);
+                return;
+            }
+
+            if (_mode == NetMode.Client)
+            {
+                if (msg.PeerId == _runStates.LocalState.PeerId) return; // never mirror my own open
+                if (msg.MatchesScene(_runStates.LocalState))
+                    Gameplay.OpenableDoorSyncManager.ApplyRemoteOpen(msg);
+            }
+        }
+
+        private void RelayOpenableDoorOpenToOtherClients(NetPeer sourcePeer, Gameplay.NetOpenableDoorOpen msg)
+        {
+            if (_mode != NetMode.Host) return;
+            foreach (var client in _clients.ToArray())
+            {
+                if (client == sourcePeer) continue;
+                SendOpenableDoorOpen(client, msg);
+            }
+        }
+
         // ---------------------------------------------------------------- Phase LD-1b combat-room door (SetActive) sync
 
         internal void BroadcastLocalTriggerDoors(Gameplay.NetTriggerDoors msg)
@@ -4252,6 +4337,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.DoorBlockerOpen:
                         HandleDoorBlockerOpen(peer, reader);
+                        break;
+
+                    case NetMessageType.OpenableDoorOpen:
+                        HandleOpenableDoorOpen(peer, reader);
                         break;
 
                     case NetMessageType.GateState:

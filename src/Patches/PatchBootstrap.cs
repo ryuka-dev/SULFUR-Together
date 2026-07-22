@@ -21,6 +21,7 @@ namespace SULFURTogether.Patches
             TriggerSpawnPatches.Apply(harmony);
             MetalGatePatches.Apply(harmony);
             DoorBlockerPatches.Apply(harmony);
+            OpenableDoorPatches.Apply(harmony);
             PickupPatches.Apply(harmony);
             LootRollSuppressionPatches.Apply(harmony);
             ChestPatches.Apply(harmony);

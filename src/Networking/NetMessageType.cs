@@ -472,5 +472,11 @@ namespace SULFURTogether.Networking
         // SetStatus, which makes the host the single authority for what every screen shows and also fixes the converse
         // gap: a status the HOST applied used to be invisible on the client.
         HostUnitStatusState     = 99,
+
+        // KD (crypt sync): a locked OpenableDoor (the desert crypt key door, and other one-way doors) was opened by a
+        // player. Peer → everyone else, keyed by the door's deterministic world position; the receiver invokes its own
+        // door's real Open() with no key consumed. One-way (closeable toggle doors are excluded on capture), so the
+        // mirror is idempotent and needs no arbitration.
+        OpenableDoorOpen        = 100,
     }
 }

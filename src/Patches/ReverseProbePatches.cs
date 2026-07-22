@@ -358,6 +358,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.ThrowableEffectManager.Clear(); // HZ-2 drop prev level's thrown-throwable tags
                 SULFURTogether.Networking.Gameplay.GateSyncManager.Clear();        // Phase LD-1 drop prev level's gate registry
                 SULFURTogether.Networking.Gameplay.DoorBlockerSyncManager.Clear(); // Phase DB-1 drop prev level's door registry
+                SULFURTogether.Networking.Gameplay.OpenableDoorSyncManager.Clear(); // Phase KD drop prev level's key-door cache
                 SULFURTogether.Networking.Gameplay.ChestSyncManager.Clear();       // SL-2 drop prev level's chest registry
                 SULFURTogether.Networking.Gameplay.LootableSyncManager.Clear();     // SL-2b drop prev level's lootable registry
                 SULFURTogether.Networking.Gameplay.TargetDummySyncManager.Clear();  // TD-1 drop prev level's target-dummy registry
@@ -641,6 +642,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.ThrowableEffectManager.Clear(); // HZ-2 drop prev level's thrown-throwable tags
                 SULFURTogether.Networking.Gameplay.GateSyncManager.Clear();        // Phase LD-1 drop prev level's gate registry
                 SULFURTogether.Networking.Gameplay.DoorBlockerSyncManager.Clear(); // Phase DB-1 drop prev level's door registry
+                SULFURTogether.Networking.Gameplay.OpenableDoorSyncManager.Clear(); // Phase KD drop prev level's key-door cache
                 SULFURTogether.Networking.Gameplay.ChestSyncManager.Clear();       // SL-2 drop prev level's chest registry
                 SULFURTogether.Networking.Gameplay.LootableSyncManager.Clear();     // SL-2b drop prev level's lootable registry
                 SULFURTogether.Networking.Gameplay.TargetDummySyncManager.Clear();  // TD-1 drop prev level's target-dummy registry

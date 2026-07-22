@@ -27,7 +27,8 @@ namespace SULFURTogether.Networking
         // 29: PK-2 added ClientPikeJump (97) — client→host desert-pike ambush request; wire set must match.
         // 30: ST-1/ST-2 added ClientUnitStatusRequest (98) + HostUnitStatusState (99) — enemy status effect authority;
         //     wire set must match (an older peer would apply enchantment statuses locally only, the bug this fixes).
-        public const int    ProtocolVersion  = 30;
+        // 31: KD added OpenableDoorOpen (100) — crypt/locked door open sync; peers must agree on the wire set.
+        public const int    ProtocolVersion  = 31;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)
