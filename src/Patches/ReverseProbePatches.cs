@@ -422,6 +422,12 @@ namespace SULFURTogether.Patches
 
                 NetGenerationInputCapture.CaptureLevelTransition(chapterName, envId, levelIndex, loadingMode, spawn, "SwitchLevelRoutinePrefix");
 
+                // AWAIT-3: every route that reaches generation passes through SwitchLevelRoutine, so this is the
+                // one place to notice "we are leaving while still parked at press-to-continue". StartLevelRoutineGraph
+                // will shortly release the old ShowLevelNode's wait; arm its retirement before that happens so its
+                // tail never runs against the incoming level.
+                AwaitStartLevelPatches.ArmIfParked("SwitchLevelRoutine");
+
                 // Phase 5.6-LK-P2 (Type B): catch-all latch for any host transition reaching generation.
                 if (NetClientLoadGate.CurrentMode == NetMode.Host
                     && (loadingMode ?? "").IndexOf("menu", StringComparison.OrdinalIgnoreCase) < 0)

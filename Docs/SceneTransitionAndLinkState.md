@@ -105,6 +105,44 @@ All-players-down used to double-load the client (stale combat request → combat
 
 ---
 
+## 8b. The press-to-continue window (AWAIT-1/2/3)
+
+`LevelGeneration.ShowLevelNode` is the last generation node. It parks on the press-to-continue screen and only
+*afterwards* flips the world live:
+
+```csharp
+if (env.awaitUserStartLevel && !GlobalSettings.Debug.SkipLevelStartWait) {
+    gameManager.SetAwaitBeforeStartLevel(true);
+    while (gameManager.awaitingStartLevel) yield return null;   // parked here, indefinitely
+}
+Physics.simulationMode = FixedUpdate;
+gameManager.SetState(GameState.Running);          // until here, GameState is still Loading
+gameManager.SetTimeScale(1f);                     // until here, timeScale is 0
+loadingOverlay.SetState(Hidden); LoadingFade(false);
+for (j...) { npcs[j].enabled = true; aliveNpcs.Add(npcs[j]); }   // enemies were disabled until here
+```
+
+So a peer on that screen has a **fully generated map** but reports `GameState=Loading`, runs at `timeScale 0`, and
+has no active enemies. Modelling "loading" as one boolean off `GameState` conflated this with "still generating"
+and produced three defects:
+
+- **Host parked ⇒ client diverges.** The relay handler deferred on `GameState.Contains("load")`, so a parked host
+  refused every relay until the client's 15s timeout fired and it generated its own level. **AWAIT-2**: a parked
+  host is led anyway — it has not entered the level, so there is nothing to preserve.
+- **Client parked ⇒ stale node runs against the next level.** `StartLevelRoutineGraph` opens with
+  `ClearLevel(); SetAwaitBeforeStartLevel(false);`, releasing the *old* node's wait. Nothing stops that coroutine,
+  so its tail ran during the new level's teardown: `SetState(Running)` mid-generation, the fresh black fade torn
+  off under the still-showing loading overlay, and the previous level's destroyed NPCs re-enabled into
+  `aliveNpcs`. **AWAIT-3**: `SwitchLevelRoutine` arms a one-shot abandon and the stale node's next `MoveNext`
+  returns false. Everything it would have done is re-applied by the incoming level's own `ShowLevelNode`.
+- **Forced seed leaked.** `GlobalSettings.ForceLevelSeed` was written on follow and never cleared, and
+  `StartLevelRoutineGraph` only rolls a random seed when it reads 0 — so the timeout fallback above reproduced the
+  *previous* level's seed. **SEED-1**: released at generation finalize.
+
+`NetAwaitStartLevel.IsLocalAwaitingStartLevel` is the single query. It is a read-only view of the game's own flag
+(the game stays the owner, nothing is mirrored) and **local-only** — every consumer asks about the peer it runs
+on, so no protocol change was needed.
+
 ## 9. Key files & config
 
 | File | Role |
@@ -118,6 +156,8 @@ All-players-down used to double-load the client (stale combat request → combat
 | `NetLoadingFade.cs` | Native black fade for client-initiated loads |
 | `NetHostTransitionGuard.cs` | Both-ends double-generate race guard |
 | `NetSceneClassify.cs` / `NetSceneName.cs` | Hub/combat classification + name canonicalization |
+| `NetAwaitStartLevel.cs` | The press-to-continue window (§8b) — read-only view of `GameManager.awaitingStartLevel` |
+| `AwaitStartLevelPatches.cs` | Retires the abandoned `ShowLevelNode` when a parked peer is led away (§8b) |
 
 Config (group `NetworkSceneAuthority` unless noted): `ClientWaitHostGenerationInputBeforeFirstLoad`, `ClientLoadGateTimeoutSeconds`, `ClientLoadGateRequestIntervalSeconds`, `EnableAutoFollowHostSceneRequest`, `EnableClientTransitionRelay`, `AllowClientInitiatedLevelLoad`, `ClientInitiatedLoadTimeoutSeconds`, `ClientGateDeathRespawnUntilHostHub`, `ClientGateDeathRespawnTimeoutSeconds`, `ClientLinkedByDefault`, `ClientUnlinkKey`, `HostLinkToggleKey`, `ManualClientSceneFollowKey`, `SyncHostUsedSetsOnManualFollow`. (`HostLinkedByDefault` is hardcoded `Fixed<bool>(true)` — retired from the `.cfg`.) Seed match: `EnableLevelSeedAuthority` / `RequireSameLevelSeedForSceneMatch` (group `NetworkLevelSeed`).
 
