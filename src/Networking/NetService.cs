@@ -4996,12 +4996,23 @@ namespace SULFURTogether.Networking
                 return;
             }
 
-            // Host busy loading — let the in-flight transition settle; the client follows it.
-            if (!string.IsNullOrEmpty(host.GameState) && host.GameState.ToLowerInvariant().Contains("load"))
+            // AWAIT-2: GameState==Loading covers two situations that must not be treated alike.
+            //   - Genuinely mid-generation: defer, the in-flight transition settles and the client follows it.
+            //   - Parked on the press-to-continue screen: the level is already GENERATED and the host is waiting
+            //     on a keypress that may never come. Deferring here stalled every relay for as long as the host
+            //     stood there, until the client's own timeout fired and it advanced locally — generating a
+            //     divergent instance (the "different maps" desync).
+            // A parked host has not entered the level yet (timeScale 0, enemies inactive, nothing to lose), so
+            // leading it away is free. The client leads; both generate the same next level from the host's seed.
+            bool hostParkedAtStartPrompt = NetAwaitStartLevel.IsLocalAwaitingStartLevel;
+            if (!hostParkedAtStartPrompt
+                && !string.IsNullOrEmpty(host.GameState) && host.GameState.ToLowerInvariant().Contains("load"))
             {
                 NetLogger.Info($"[TransitionRelay] defer from {peerId}: host is loading (state={host.GameState})");
                 return;
             }
+            if (hostParkedAtStartPrompt)
+                NetLogger.Info($"[TransitionRelay] host parked at press-to-continue (state={host.GameState}); leading anyway target={chapter}:{level}");
 
             // Phase 5.6-LK-P2 (Type B): the host is mid its OWN transition (the Cinematic window before GameState
             // flips to Loading, where run state still reads the old level). Defer so we never double-generate the
