@@ -10,6 +10,7 @@ namespace SULFURTogether.Patches
             ReverseProbePatches.Apply(harmony);
             AwaitStartLevelPatches.Apply(harmony);
             GhostSpawnPatches.Apply(harmony);
+            CryptChallengePatches.Apply(harmony);
             LevelGenTracePatches.Apply(harmony);
             BossEncounterPatches.Apply(harmony);
             BossSpawnPatches.Apply(harmony);

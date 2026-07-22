@@ -7482,6 +7482,12 @@ namespace SULFURTogether.Networking.Gameplay
             if (_pendingHostBindLedger.Count == 0) return;
             if (snap == null || snap.IsDead) return;
             if (IsPlayerEntitySnapshot(snap)) return;
+            // A Trader / interactive dialog NPC (e.g. the desert crypt entrance turtle statue) is static and identical
+            // on both ends (deterministic gen), so it needs no host binding — and binding it makes it a movement puppet
+            // driven by the bound host slot. The initial roster already quarantines these as "client-only non-combat";
+            // retro-bind was the one path missing the same guard, which under crypt-challenge divergence let the statue
+            // bind to a host slot and slide with a host enemy (Log524). Every other sync path already excludes these.
+            if (IsNonCombatForSync(snap)) return;
             string unitId = snap.EntityId.UnitIdentifier ?? "";
             if (string.IsNullOrWhiteSpace(unitId)) return;
 
