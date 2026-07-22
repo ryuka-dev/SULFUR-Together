@@ -468,6 +468,10 @@ namespace SULFURTogether.Patches
                 NetGenerationInputCapture.CaptureFromStartLevelRoutineGraph(__instance, __args, __originalMethod);
             }
             catch (Exception ex) { Log.Error($"[GenerationInputSnapshot] StartLevelRoutineGraph prefix failed: {ex.Message}"); }
+
+            // GH-1: a new generation pass — arm the next SpawnGhost species pick to be seeded.
+            try { GhostSpawnPatches.ResetForNewGeneration(); }
+            catch (Exception ex) { Log.Error($"[GhostSpawn] generation reset failed: {ex.Message}"); }
         }
 
         // Phase 5.6-CL: bool prefix. SULFUR advances in-run sub-levels via CompleteLevel → SwitchLevelRoutine

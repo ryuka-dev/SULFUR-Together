@@ -9,6 +9,7 @@ namespace SULFURTogether.Patches
             Plugin.Log.Info("[PatchBootstrap] Applying reverse probe patches...");
             ReverseProbePatches.Apply(harmony);
             AwaitStartLevelPatches.Apply(harmony);
+            GhostSpawnPatches.Apply(harmony);
             LevelGenTracePatches.Apply(harmony);
             BossEncounterPatches.Apply(harmony);
             BossSpawnPatches.Apply(harmony);
