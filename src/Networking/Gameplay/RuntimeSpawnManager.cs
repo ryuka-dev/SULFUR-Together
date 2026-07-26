@@ -224,6 +224,10 @@ namespace SULFURTogether.Networking.Gameplay
                 if (Patches.EndlessSyncPatches.HostShopSpawnDepth > 0) return "EndlessShop"; // EM-7d
                 return null;
             }
+            // A companion mod may declare its own spawner host-authoritative through the public API
+            // (SULFURTogether.Api.NetExternalSpawns). ST deliberately learns nothing about the mod: the mod
+            // promises only the host spawns these, and they mirror exactly like any other one-sided source.
+            if (NetExternalSpawnOwners.IsRegistered(owner)) return "ExternalMod";
             return null;
         }
 
