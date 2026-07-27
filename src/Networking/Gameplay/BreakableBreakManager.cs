@@ -27,6 +27,12 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static int _captureSeq;
 
+        // Breakables a companion mod has claimed as its own (by instance id, so nothing is kept alive). ST neither
+        // broadcasts their destruction nor offers them as the local match for somebody else's — a mod that creates
+        // destructibles at runtime replicates them itself, and the position key this channel matches on cannot tell
+        // one of a heap of them from another.
+        private static readonly HashSet<int> _external = new HashSet<int>();
+
         // Max distance (m) between an incoming spawn-position key and a local breakable's spawn position to count as a
         // match. Deterministic generation makes these near-identical; the slack absorbs float drift / minor divergence.
         private const float MatchEpsilon = 0.75f;
@@ -38,8 +44,33 @@ namespace SULFURTogether.Networking.Gameplay
         public static void Register(Breakable b)
         {
             if (b == null) return;
-            try { _registry[b] = b.transform.position; }
+            try
+            {
+                if (IsExternal(b)) return;                                  // a mod's own; not ours to match
+                _registry[b] = b.transform.position;
+            }
             catch { }
+        }
+
+        /// <summary>API (see <c>SULFURTogether.Api.NetExternalDestructibles</c>): a mod claims this destructible.
+        /// Also withdraws it from the live registry, since a runtime-created one has usually already joined.</summary>
+        public static void ExcludeExternal(GameObject go)
+        {
+            if (go == null) return;
+            try
+            {
+                _external.Add(go.GetInstanceID());
+                var b = go.GetComponent<Breakable>();
+                if (b != null) _registry.Remove(b);
+            }
+            catch { }
+        }
+
+        private static bool IsExternal(Breakable b)
+        {
+            if (_external.Count == 0 || b == null) return false;
+            try { return _external.Contains(b.gameObject.GetInstanceID()); }
+            catch { return false; }
         }
 
         // Called from the Die prefix (real OR mirrored break): the breakable is dying, so drop it from the live registry
@@ -63,6 +94,7 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!Plugin.Cfg.EnableBreakableSync.Value) return;
                 if (!NetGameplaySyncBridge.IsSessionActive) return;        // skip all work in solo play
                 if (b == null) return;
+                if (IsExternal(b)) return;                                  // a mod's own; it replicates its own
                 if (!_broadcasted.Add(b)) return;                          // already broadcast this breakable
 
                 Vector3 key = ResolveSpawnPos(b);
