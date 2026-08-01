@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.4 — Support for companion mods
+
+Co-op itself is unchanged. This release only adds three small hooks that let *another* mod make its
+own content work inside a session — raised while getting **False Gods** to run in co-op. The network
+protocol is untouched, so a 1.2.4 session behaves exactly like a 1.2.3 one. Everyone should still run
+the same version, and the same set of mods.
+
+None of these hooks name a specific mod: SULFUR Together does not learn about any mod, it just lets a
+mod say something about itself.
+
+**Added:**
+- **A mod can hand its own spawns to the host.** Enemies that a mod summons during a fight only
+  existed on the screen of whoever's game created them — a boss could call in minions and one player
+  would be fighting an empty room. A mod can now declare that only the host creates its units, and
+  from then on they are mirrored to everyone and fought, hit, and killed like any other enemy.
+- **A mod can keep its own breakables out of the shared mirror.** Destructible objects are matched
+  between players by where they were created, which works for the level's own scenery but not for
+  objects a mod builds at runtime and stacks in one place: breaking one could destroy an unrelated
+  one on the other screen, including objects still flying through the air, so crates burst in
+  mid-air and loot appeared in a run where nobody had fired. A mod can now exclude its own objects
+  and replicate them itself.
+- **A mod can ask whether a player is out of the fight.** A mod that picks its own targets could
+  keep attacking someone who was already down — hitting a helpless player, and wasting attacks that
+  should have gone to whoever could still fight back. It can now ask, and leave a downed player
+  alone.
+
 ## 1.2.3 — Desert crypt co-op
 
 The desert crypt — the locked room with the key and the timed trial — now works in co-op from the

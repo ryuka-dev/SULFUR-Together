@@ -4,7 +4,7 @@ Co-op multiplayer for **SULFUR**.
 
 **Language:** **English** · [简体中文](#简体中文) · [日本語](#日本語)
 
-> **Version 1.2.2 — Public Beta.** It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+> **Version 1.2.4 — Public Beta.** It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
 
 ---
 
@@ -95,6 +95,14 @@ SULFUR Together does **not** use a shared character save. Each player keeps thei
 ### No-pause multiplayer
 
 The world does **not pause** while multiplayer is active — opening the inventory, the pause menu, dialogue, or moving the window out of focus does not stop the game. This is intentional, so players don't desync. **Get to a safe spot before opening menus.**
+
+### Playing with other mods
+
+SULFUR Together does not synchronize other mods. Content another mod adds — its enemies, its objects, its effects — normally exists only on the screen of whoever's game created it, so it can look broken in co-op even when both players have the mod installed.
+
+Mods that want their content to work in a session can integrate with SULFUR Together directly. There is a small public API for handing spawns to the host, keeping a mod's own objects out of the shared mirror, sending a mod's own messages between players, and asking whether a player is down. **False Gods** uses it. If you are a mod author, the details are in the GitHub repository.
+
+Everyone in a session should run the **same set of mods**, not just the same version of this one.
 
 ### Known issues
 
@@ -213,6 +221,14 @@ SULFUR Together **不使用**共享角色存档。每位玩家保留自己的角
 
 联机进行时游戏世界**不会暂停**——打开背包、暂停菜单、对话或把窗口切到后台都不会让游戏停下。这是**有意为之**，以避免玩家之间不同步。**打开菜单前请先到安全的位置。**
 
+### 与其他模组一起游玩
+
+SULFUR Together 不会同步其他模组。别的模组添加的内容——它的敌人、物件、特效——通常只存在于生成它的那一方的画面上，所以即使双方都装了同一个模组，联机时看起来也可能是坏的。
+
+希望自己的内容在联机中正常工作的模组，可以直接与 SULFUR Together 对接。这里提供了一套小而完整的公开 API：把生成交给主机、把模组自己的物件排除在共享镜像之外、在玩家之间收发模组自己的消息，以及查询某位玩家是否已经倒地。**False Gods** 正在使用它。模组作者可在 GitHub 仓库中查看细节。
+
+同一房间内的所有人应当使用**相同的模组组合**，而不只是本模组的相同版本。
+
 ### 已知问题
 
 - 客机若比房主提前进入 Boss 关，可能不同步（例如表亲“无限对话”）。
@@ -329,6 +345,14 @@ SULFUR Together は共有キャラクターセーブを**使いません**。各
 ### 一時停止しないマルチプレイ
 
 マルチプレイ中はゲーム世界が**停止しません**——インベントリ、ポーズメニュー、会話を開いても、ウィンドウを非アクティブにしてもゲームは止まりません。これはプレイヤー間のずれを防ぐための**意図的な仕様**です。**メニューを開く前に安全な場所へ移動してください。**
+
+### 他のMODと一緒に遊ぶ
+
+SULFUR Together は他のMODを同期しません。他のMODが追加した内容——その敵・オブジェクト・エフェクト——は通常、それを生成した側の画面にしか存在しないため、両者が同じMODを入れていても協力プレイでは壊れて見えることがあります。
+
+自分の内容をセッション内で正しく動かしたいMODは、SULFUR Together と直接連携できます。生成をホストに委ねる、MOD自身のオブジェクトを共有ミラーから除外する、MOD独自のメッセージをプレイヤー間でやり取りする、プレイヤーがダウンしているかを問い合わせる——ための小さな公開APIが用意されています。**False Gods** がこれを利用しています。MOD作者の方は GitHub リポジトリに詳細があります。
+
+同じセッションの全員が、本MODの同じバージョンだけでなく、**同じMOD構成**で遊んでください。
 
 ### 既知の問題
 

@@ -4,7 +4,7 @@ namespace SULFURTogether
     {
         public const string GUID    = "com.ryuka.sulfur.together";
         public const string Name    = "SULFUR Together";
-        public const string Version = "1.2.3";
+        public const string Version = "1.2.4";
         public const string Author  = "ryuka";
     }
 }

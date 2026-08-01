@@ -7,7 +7,7 @@ like "RM-2a" look opaque. This document is the single source of truth for both.
 
 ## 1. Plugin version (semver) — the release number
 
-- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.2.2`** (Public Beta — desync, desert and status-effect fixes).
+- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.2.4`** (Public Beta — companion-mod API: XS + XD + PL; protocol unchanged at 32).
 - This is the only number a *player* ever sees (Thunderstore, BepInEx load line).
 - Bumped **only at a Thunderstore release milestone**, MAJOR.MINOR.PATCH:
   - **PATCH** (0.2.0 → 0.2.1): bug-fix release. During Public Beta, all players should still update to the same version when a fix touches network messages.

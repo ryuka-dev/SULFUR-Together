@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.2.2 — Public Beta.[/b] It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+> [b]Version 1.2.4 — Public Beta.[/b] It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
 
 [line]
 
@@ -106,6 +106,14 @@ SULFUR Together does [b]not[/b] use a shared character save. Each player keeps t
 [color=DodgerBlue][b]No-pause multiplayer[/b][/color]
 
 The world does [b]not pause[/b] while multiplayer is active — opening the inventory, the pause menu, dialogue, or moving the window out of focus does not stop the game. This is intentional, so players don't desync. [b]Get to a safe spot before opening menus.[/b]
+
+[color=DodgerBlue][b]Playing with other mods[/b][/color]
+
+SULFUR Together does not synchronize other mods. Content another mod adds — its enemies, its objects, its effects — normally exists only on the screen of whoever's game created it, so it can look broken in co-op even when both players have the mod installed.
+
+Mods that want their content to work in a session can integrate with SULFUR Together directly. There is a small public API for handing spawns to the host, keeping a mod's own objects out of the shared mirror, sending a mod's own messages between players, and asking whether a player is down. [b]False Gods[/b] uses it. If you are a mod author, the details are in the GitHub repository.
+
+Everyone in a session should run the [b]same set of mods[/b], not just the same version of this one.
 
 [color=DodgerBlue][b]Known issues[/b][/color]
 
@@ -237,6 +245,14 @@ SULFUR Together [b]不使用[/b]共享角色存档。每位玩家保留自己的
 
 联机进行时游戏世界[b]不会暂停[/b]——打开背包、暂停菜单、对话或把窗口切到后台都不会让游戏停下。这是[b]有意为之[/b]，以避免玩家之间不同步。[b]打开菜单前请先到安全的位置。[/b]
 
+[color=DodgerBlue][b]与其他模组一起游玩[/b][/color]
+
+SULFUR Together 不会同步其他模组。别的模组添加的内容——它的敌人、物件、特效——通常只存在于生成它的那一方的画面上，所以即使双方都装了同一个模组，联机时看起来也可能是坏的。
+
+希望自己的内容在联机中正常工作的模组，可以直接与 SULFUR Together 对接。这里提供了一套小而完整的公开 API：把生成交给主机、把模组自己的物件排除在共享镜像之外、在玩家之间收发模组自己的消息，以及查询某位玩家是否已经倒地。[b]False Gods[/b] 正在使用它。模组作者可在 GitHub 仓库中查看细节。
+
+同一房间内的所有人应当使用[b]相同的模组组合[/b]，而不只是本模组的相同版本。
+
 [color=DodgerBlue][b]已知问题[/b][/color]
 
 [list]
@@ -367,6 +383,14 @@ SULFUR Together は共有キャラクターセーブを[b]使いません[/b]。
 
 マルチプレイ中はゲーム世界が[b]停止しません[/b]——インベントリ、ポーズメニュー、会話を開いても、ウィンドウを非アクティブにしてもゲームは止まりません。これはプレイヤー間のずれを防ぐための[b]意図的な仕様[/b]です。[b]メニューを開く前に安全な場所へ移動してください。[/b]
 
+[color=DodgerBlue][b]他のMODと一緒に遊ぶ[/b][/color]
+
+SULFUR Together は他のMODを同期しません。他のMODが追加した内容——その敵・オブジェクト・エフェクト——は通常、それを生成した側の画面にしか存在しないため、両者が同じMODを入れていても協力プレイでは壊れて見えることがあります。
+
+自分の内容をセッション内で正しく動かしたいMODは、SULFUR Together と直接連携できます。生成をホストに委ねる、MOD自身のオブジェクトを共有ミラーから除外する、MOD独自のメッセージをプレイヤー間でやり取りする、プレイヤーがダウンしているかを問い合わせる——ための小さな公開APIが用意されています。[b]False Gods[/b] がこれを利用しています。MOD作者の方は GitHub リポジトリに詳細があります。
+
+同じセッションの全員が、本MODの同じバージョンだけでなく、[b]同じMOD構成[/b]で遊んでください。
+
 [color=DodgerBlue][b]既知の問題[/b][/color]
 
 [list]
@@ -397,6 +421,38 @@ SULFUR Together は共有キャラクターセーブを[b]使いません[/b]。
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.2.4 — Support for companion mods[/b][/color]
+
+Co-op itself is unchanged. This release only adds three small hooks that let [i]another[/i] mod make its
+own content work inside a session — raised while getting [b]False Gods[/b] to run in co-op. The network
+protocol is untouched, so a 1.2.4 session behaves exactly like a 1.2.3 one. Everyone should still run
+the same version, and the same set of mods.
+
+None of these hooks name a specific mod: SULFUR Together does not learn about any mod, it just lets a
+mod say something about itself.
+
+[b]Added:[/b]
+[list]
+[*][b]A mod can hand its own spawns to the host.[/b] Enemies that a mod summons during a fight only[/*]
+[/list]
+  existed on the screen of whoever's game created them — a boss could call in minions and one player
+  would be fighting an empty room. A mod can now declare that only the host creates its units, and
+  from then on they are mirrored to everyone and fought, hit, and killed like any other enemy.
+[list]
+[*][b]A mod can keep its own breakables out of the shared mirror.[/b] Destructible objects are matched[/*]
+[/list]
+  between players by where they were created, which works for the level's own scenery but not for
+  objects a mod builds at runtime and stacks in one place: breaking one could destroy an unrelated
+  one on the other screen, including objects still flying through the air, so crates burst in
+  mid-air and loot appeared in a run where nobody had fired. A mod can now exclude its own objects
+  and replicate them itself.
+[list]
+[*][b]A mod can ask whether a player is out of the fight.[/b] A mod that picks its own targets could[/*]
+[/list]
+  keep attacking someone who was already down — hitting a helpless player, and wasting attacks that
+  should have gone to whoever could still fight back. It can now ask, and leave a downed player
+  alone.
 
 [color=RoyalBlue][b]1.2.3 — Desert crypt co-op[/b][/color]
 
