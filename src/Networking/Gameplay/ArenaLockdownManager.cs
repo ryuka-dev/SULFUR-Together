@@ -796,9 +796,22 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
         /// <summary>Local player's root transform (for the doorway sensor to match its own player and ignore remote ghosts).</summary>
-        public static Transform LocalPlayerRoot()
+        // The local player's root cannot change within a frame, and the doorway sensor asks for it once per collider
+        // crossing — so answer from a per-frame cache. Keyed on frame count, so a level change or a respawn is picked
+        // up on the very next frame without any explicit invalidation.
+        private static Transform? _localRootCache;
+        private static int _localRootFrame = -1;
+
+        public static Transform? LocalPlayerRoot()
         {
-            try { return ResolveLocalPlayerUnit() is Component c && c != null ? c.transform.root : null; }
+            try
+            {
+                int frame = Time.frameCount;
+                if (_localRootFrame == frame) return _localRootCache;
+                _localRootFrame = frame;
+                _localRootCache = ResolveLocalPlayerUnit() is Component c && c != null ? c.transform.root : null;
+                return _localRootCache;
+            }
             catch { return null; }
         }
 
@@ -839,14 +852,36 @@ namespace SULFURTogether.Networking.Gameplay
             catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] teleport failed: {ex.Message}"); return false; }
         }
 
-        private static object ResolveLocalPlayerUnit()
+        // Resolved once per session, not once per call. This used to do AccessTools.TypeByName + two property lookups
+        // on every invocation, which was survivable from a Tick but not from where it is actually called the most:
+        // ArenaDoorwaySensor's OnTriggerEnter/OnTriggerExit. Those fire for every collider crossing a seal trigger, and
+        // the Emperor worm sweeps ten section colliders plus the thirty-two ground-enter shockwave trigger parts through
+        // that volume on every burrow — hundreds of callbacks inside a single physics step, each one scanning every
+        // loaded assembly for a type by name. That cost is charged to the physics phase, where none of the mod's own
+        // profiler scopes can see it, which is why a Host session ran the Emperor fight at ~52 fps with ~1.7 s stalls
+        // per burrow while single-player held 118 fps. Turning the whole subsystem off restored single-player numbers
+        // exactly; caching the lookup removes the cost without changing any behaviour.
+        private static Type? _gmType;
+        private static PropertyInfo? _gmInstanceProp, _gmPlayerUnitProp;
+        private static bool _gmResolved;
+
+        private static object? ResolveLocalPlayerUnit()
         {
             try
             {
-                Type gmType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.GameManager");
-                object gm = gmType == null ? null : AccessTools.Property(gmType, "Instance")?.GetValue(null, null);
+                if (!_gmResolved)
+                {
+                    _gmResolved = true;
+                    _gmType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.GameManager");
+                    if (_gmType != null)
+                    {
+                        _gmInstanceProp   = AccessTools.Property(_gmType, "Instance");
+                        _gmPlayerUnitProp = AccessTools.Property(_gmType, "PlayerUnit");
+                    }
+                }
+                object? gm = _gmInstanceProp?.GetValue(null, null);
                 if (gm == null) return null;
-                object pu = AccessTools.Property(gmType, "PlayerUnit")?.GetValue(gm, null);
+                object? pu = _gmPlayerUnitProp?.GetValue(gm, null);
                 if (pu is UnityEngine.Object uo && uo == null) return null;
                 return pu;
             }
