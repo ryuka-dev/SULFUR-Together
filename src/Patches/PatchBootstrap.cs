@@ -10,6 +10,7 @@ namespace SULFURTogether.Patches
             ReverseProbePatches.Apply(harmony);
             AwaitStartLevelPatches.Apply(harmony);
             SeamlessStartLevelPatches.Apply(harmony);   // NP-3 — must follow AWAIT-3 (shares its MoveNext seam)
+            RangedShootProbePatches.Apply(harmony);     // FH-6 — split the TriggerShoot stall (diagnostic)
             GhostSpawnPatches.Apply(harmony);
             CryptChallengePatches.Apply(harmony);
             LevelGenTracePatches.Apply(harmony);
