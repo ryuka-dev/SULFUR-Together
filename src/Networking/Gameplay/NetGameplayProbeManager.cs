@@ -832,6 +832,7 @@ namespace SULFURTogether.Networking.Gameplay
         // Phase 4.4.0-O3-B root replay counters.
         private static int _clientRootReplayAttempts;
         private static int _clientRootReplaySkippedDuplicate;
+        private static int _clientRootReplaySkippedInactive;   // RR-INACTIVE
         private static int _clientRootReplayUnsupported;
         private static int _clientRootReplayFailed;
         // Phase 4.4.0-O3-B child gate counters.
@@ -1018,6 +1019,7 @@ namespace SULFURTogether.Networking.Gameplay
             _combatProbeRejectedNonCombat = 0;
             _clientRootReplayAttempts = 0;
             _clientRootReplaySkippedDuplicate = 0;
+            _clientRootReplaySkippedInactive = 0;
             _clientRootReplayUnsupported = 0;
             _clientRootReplayFailed = 0;
             _clientAuthorizedChildAfterRoot = 0;
@@ -2153,7 +2155,7 @@ namespace SULFURTogether.Networking.Gameplay
                 return;
 
             Plugin.Log.Info($"[GameplayProbe] Summary traderExcluded={_traderExcludedFromEnemySync} nonCombatExcluded={_nonCombatExcludedFromEnemySync} deathClaimRejectedNonCombat={_deathClaimRejectedNonCombat} combatProbeRejectedNonCombat={_combatProbeRejectedNonCombat}");
-            Plugin.Log.Info($"[GameplayProbe] Summary rootReplayAttempts={_clientRootReplayAttempts} rootReplays={_clientCombatRootReplays} rootReplaySkippedDup={_clientRootReplaySkippedDuplicate} rootReplayUnsupported={_clientRootReplayUnsupported} rootReplayFailed={_clientRootReplayFailed} childAfterRoot={_clientAuthorizedChildAfterRoot} childBlockedBeforeRoot={_clientChildBlockedBeforeRootReplay}");
+            Plugin.Log.Info($"[GameplayProbe] Summary rootReplayAttempts={_clientRootReplayAttempts} rootReplays={_clientCombatRootReplays} rootReplaySkippedDup={_clientRootReplaySkippedDuplicate} rootReplaySkippedInactive={_clientRootReplaySkippedInactive} rootReplayUnsupported={_clientRootReplayUnsupported} rootReplayFailed={_clientRootReplayFailed} childAfterRoot={_clientAuthorizedChildAfterRoot} childBlockedBeforeRoot={_clientChildBlockedBeforeRootReplay}");
             Plugin.Log.Info($"[GameplayProbe] Summary typeMismatch={_entityTypeMismatchRejected} deathTypeMismatch={_deathMirrorRejectedTypeMismatch} stateTypeMismatch={_stateApplyRejectedTypeMismatch}");
             // ST-1/ST-2 enemy status effect authority. clientForwarded=0 while a client is landing enchantment procs is
             // the signature of a broken ApplyHitModifiers hook; clientEdgesDropped rising means unbound puppets.
@@ -3553,6 +3555,25 @@ namespace SULFURTogether.Networking.Gameplay
                 _clientRootReplayFailed++;
                 if (Plugin.Cfg.LogHostAuthorizedIntentExecution.Value)
                     Plugin.Log.Info($"[EnemyIntent] Client root-replay skipped npcId={record.NpcId} seq={window.Sequence} reason=stale window");
+                return;
+            }
+
+            // RR-INACTIVE: never drive a puppet whose GameObject is switched off. The NPC LOD deactivates enemies away
+            // from the local player, and replaying a combat method onto a deactivated one achieves nothing — there is
+            // no visible enemy to animate — while `Npc.TriggerShoot` ends in `StartCoroutine`, which on an inactive
+            // GameObject makes Unity emit "Coroutine couldn't be started because the game object 'X' is inactive!".
+            // Emitting that ONE message cost 7129 ms of a 7135 ms frame on the reporting client: FH-6 attributed the
+            // whole stall to the `onShootingDirection + StartCoroutine` bucket while the probe's own context read
+            // `active=False target=null weapon=null`, and the client's Player.log carries exactly one such message,
+            // naming exactly that unit. (Unity resolves a full native stack for it — UnityPlayer/kernel32/ntdll — and
+            // that resolution is what takes the seconds; none of it reaches the BepInEx log, which showed 0 errors.)
+            // The same "we drove a deactivated puppet" mistake is behind the ST-2 null-coroutine errors, tracked
+            // separately.
+            if (runtimeNpc is Component npcComponent && npcComponent != null && !npcComponent.gameObject.activeInHierarchy)
+            {
+                _clientRootReplaySkippedInactive++;
+                if (Plugin.Cfg.LogHostAuthorizedIntentExecution.Value)
+                    Plugin.Log.Info($"[EnemyIntent] Client root-replay skipped npcId={record.NpcId} seq={window.Sequence} reason=puppet GameObject inactive");
                 return;
             }
 
