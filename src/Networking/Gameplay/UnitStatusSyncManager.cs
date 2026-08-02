@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using PerfectRandom.Sulfur.Core;
 using PerfectRandom.Sulfur.Core.Stats;
@@ -385,6 +385,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static int _clientEdgesApplied;
         private static int _clientEdgesDropped;
+        private static int _clientEdgesDroppedInactive;   // ST-2-INACTIVE
 
         public static void ApplyHostUnitStatus(NetHostUnitStatusState msg)
         {
@@ -407,6 +408,26 @@ namespace SULFURTogether.Networking.Gameplay
                     if (Plugin.Cfg.LogUnitStatusSync.Value)
                         NetLogger.Info($"[UnitStatus] client drop seq={msg.Sequence} hostIdx={msg.HostSpawnIndex} " +
                                        $"{(EntityAttributes)msg.Attribute}={value:F1} ({(value > 0f ? "start" : "end")}) (no bound puppet)");
+                    return;
+                }
+
+                // ST-2-INACTIVE: never write onto a puppet the NPC LOD has switched off. The owner callback below is
+                // the whole point of this mirror, and it ends in `AttributeEffect` starting a per-effect coroutine:
+                //     Coroutine item = unit.StartCoroutine(routine);
+                //     value.Add(item);            // unconditional
+                // `StartCoroutine` returns NULL on an inactive GameObject, and vanilla adds that null to the unit's
+                // `effectUpdates` list regardless. Every later `RemoveEffect` then walks the list and logs one
+                // "Unit 'X' has a null coroutine in its effect update list" per null — 28 of them on a single unit in
+                // Log534, none of which reach the BepInEx log. Each carries a full native stack, and resolving one of
+                // those is what cost seconds per frame in the RR-INACTIVE stall, so this is not a cosmetic concern.
+                // Skipping loses nothing: a deactivated puppet renders nothing, and the host re-broadcasts the status
+                // edges, so the next edge after it comes back reinstates the right state.
+                if (!npc.gameObject.activeInHierarchy)
+                {
+                    _clientEdgesDroppedInactive++;
+                    if (Plugin.Cfg.LogUnitStatusSync.Value)
+                        NetLogger.Info($"[UnitStatus] client drop seq={msg.Sequence} hostIdx={msg.HostSpawnIndex} " +
+                                       $"{(EntityAttributes)msg.Attribute}={value:F1} (puppet GameObject inactive)");
                     return;
                 }
 
@@ -441,6 +462,6 @@ namespace SULFURTogether.Networking.Gameplay
             => $"clientIntercepted={_clientIntercepted} clientForwarded={_clientForwarded} " +
                $"clientNoProc={_clientNoProc} clientNotLocalAttacker={_clientNotLocalAttacker} clientLocalOnly={_clientLocalOnlyApplied} " +
                $"hostRecv={_hostRequestsRecv} hostApplied={_hostRequestsApplied} hostRejected={_hostRequestsRejected} " +
-               $"hostEdgesSent={_hostEdgesSent} clientEdgesApplied={_clientEdgesApplied} clientEdgesDropped={_clientEdgesDropped}";
+               $"hostEdgesSent={_hostEdgesSent} clientEdgesApplied={_clientEdgesApplied} clientEdgesDropped={_clientEdgesDropped} clientEdgesDroppedInactive={_clientEdgesDroppedInactive}";
     }
 }

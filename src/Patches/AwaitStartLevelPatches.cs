@@ -90,7 +90,7 @@ namespace SULFURTogether.Patches
                 // ran its tail and completed behind our black screen. There is no stale coroutine left to retire, so
                 // arming here would only leave the arm waiting for the INCOMING level's legitimate ShowLevelNode
                 // until the frame budget expired.
-                if (SeamlessStartLevelPatches.IsCurtainUp)
+                if (SeamlessStartLevelPatches.HasNodeAlreadyCompleted)
                 {
                     Plugin.Log.Info($"[AwaitStart] transition while parked, but the level was already handed over (NP-3) — no stale node to retire source={source}");
                     return;

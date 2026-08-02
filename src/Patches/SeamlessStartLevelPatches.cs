@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -60,10 +60,25 @@ namespace SULFURTogether.Patches
 
         public static int HandoversPerformed;
 
-        /// <summary>True while this peer's level is live behind our own black screen. AWAIT-3 uses it to skip arming
-        /// a stale-node retirement: the node has already completed, so there is nothing stale to retire and the arm
-        /// would only sit there waiting for the NEXT level's legitimate node until its frame budget expired.</summary>
+        /// <summary>True while this peer's level is live behind our own black screen.</summary>
         public static bool IsCurtainUp => _curtainUp;
+
+        // Whether the ShowLevelNode for the level this peer is currently on has already run its tail. AWAIT-3 asks
+        // this before arming a stale-node retirement: a node that completed cannot be stale, so arming would only
+        // leave the arm waiting out its frame budget against the INCOMING level's legitimate node.
+        //
+        // It deliberately does NOT track the curtain. The first attempt used `IsCurtainUp`, and Log533 shows why that
+        // is the wrong fact: the ordering on a client-led transition is `level handed over` → `black screen dropped
+        // (cleared)` → `transition while parked … retiring stale ShowLevelNode` → `arm expired unused after 10
+        // frames`. The level-clear site tears the curtain down BEFORE `ArmIfParked` runs, so the guard read false and
+        // armed anyway. Nothing broke — AWAIT-3's frame budget exists for exactly that — but it was correct by the
+        // safety valve rather than by the guard. This flag is cleared when a NEW node starts waiting, not when the
+        // level clears, so it stays true across the whole teardown.
+        private static bool _nodeHandedOver;
+
+        /// <summary>True when this peer's current <c>ShowLevelNode</c> has already completed (NP-3 handed the level
+        /// over early), so there is no stale coroutine for AWAIT-3 to retire.</summary>
+        public static bool HasNodeAlreadyCompleted => _nodeHandedOver;
 
         public static void Apply(Harmony harmony)
         {
@@ -112,6 +127,11 @@ namespace SULFURTogether.Patches
                 var gm = StaticInstance<GameManager>.Instance;
                 if (gm == null || !gm.awaitingStartLevel) return true;   // not at the prompt — nothing to release
 
+                // A node is parked at the prompt again: whatever we handed over previously belonged to the
+                // level we have since left, so the "already completed" fact is retired here rather than at
+                // level-clear time (see the comment on _nodeHandedOver).
+                _nodeHandedOver = false;
+
                 // Only lie when the flag is ALREADY set on entry. The node itself calls SetAwaitBeforeStartLevel(true)
                 // inside a MoveNext; lying across that call would have the postfix restore the pre-call value and
                 // silently strip the prompt state the node had just established.
@@ -151,6 +171,7 @@ namespace SULFURTogether.Patches
         {
             if (_curtainUp) return;
             _curtainUp = true;
+            _nodeHandedOver = true;   // survives DropCurtain; only a NEW node waiting clears it
             HandoversPerformed++;
 
             try
