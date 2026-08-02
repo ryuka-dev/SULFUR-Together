@@ -45,20 +45,23 @@ namespace SULFURTogether.Patches
         public static int AbandonedNodesRetired;
         public static int ArmsExpiredUnused;
 
-        public static void Apply(Harmony harmony)
+        /// <summary>The <c>ShowLevelNode.Execute</c> state machine's <c>MoveNext</c> — the one seam onto the
+        /// press-to-continue window. Shared with NP-3 (<see cref="SeamlessStartLevelPatches"/>) so the two patches
+        /// cannot drift onto different resolutions of the same method.</summary>
+        public static MethodInfo? ResolveShowLevelNodeMoveNext()
         {
             Type? nodeType = FindShowLevelNode();
-            if (nodeType == null)
-            {
-                Plugin.Log.Warn("[AwaitStart] ShowLevelNode type not found — stale-node retirement inactive.");
-                return;
-            }
-
+            if (nodeType == null) return null;
             Type? sm = ResolveExecuteStateMachine(nodeType);
-            MethodInfo? moveNext = sm?.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            return sm?.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        }
+
+        public static void Apply(Harmony harmony)
+        {
+            MethodInfo? moveNext = ResolveShowLevelNodeMoveNext();
             if (moveNext == null)
             {
-                Plugin.Log.Warn($"[AwaitStart] {nodeType.FullName}.Execute state machine not resolved — stale-node retirement inactive.");
+                Plugin.Log.Warn("[AwaitStart] ShowLevelNode.Execute state machine not resolved — stale-node retirement inactive.");
                 return;
             }
 
@@ -66,7 +69,7 @@ namespace SULFURTogether.Patches
             {
                 harmony.Patch(moveNext, prefix: new HarmonyMethod(
                     typeof(AwaitStartLevelPatches).GetMethod(nameof(ShowLevelNode_MoveNext_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
-                Plugin.Log.Info($"[AwaitStart] patched {sm!.FullName}.MoveNext (stale ShowLevelNode retirement)");
+                Plugin.Log.Info($"[AwaitStart] patched {moveNext.DeclaringType?.FullName}.MoveNext (stale ShowLevelNode retirement)");
             }
             catch (Exception ex)
             {
@@ -83,6 +86,15 @@ namespace SULFURTogether.Patches
             try
             {
                 if (!NetAwaitStartLevel.IsLocalAwaitingStartLevel) return;
+                // NP-3: this peer still reports "parked" (the flag is deliberately restored), but its node already
+                // ran its tail and completed behind our black screen. There is no stale coroutine left to retire, so
+                // arming here would only leave the arm waiting for the INCOMING level's legitimate ShowLevelNode
+                // until the frame budget expired.
+                if (SeamlessStartLevelPatches.IsCurtainUp)
+                {
+                    Plugin.Log.Info($"[AwaitStart] transition while parked, but the level was already handed over (NP-3) — no stale node to retire source={source}");
+                    return;
+                }
                 _armed = true;
                 _armedFrame = Time.frameCount;
                 _armSource = source ?? "";

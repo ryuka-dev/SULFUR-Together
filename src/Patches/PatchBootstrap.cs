@@ -9,6 +9,7 @@ namespace SULFURTogether.Patches
             Plugin.Log.Info("[PatchBootstrap] Applying reverse probe patches...");
             ReverseProbePatches.Apply(harmony);
             AwaitStartLevelPatches.Apply(harmony);
+            SeamlessStartLevelPatches.Apply(harmony);   // NP-3 — must follow AWAIT-3 (shares its MoveNext seam)
             GhostSpawnPatches.Apply(harmony);
             CryptChallengePatches.Apply(harmony);
             LevelGenTracePatches.Apply(harmony);

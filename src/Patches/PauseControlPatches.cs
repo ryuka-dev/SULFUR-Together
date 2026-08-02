@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Reflection.Emit;
 using HarmonyLib;
 using UnityEngine;
 using SULFURTogether.Networking;
@@ -76,6 +79,82 @@ namespace SULFURTogether.Patches
                     catch (Exception ex) { Plugin.Log.Warn($"[PauseControl] OnApplicationFocus patch failed: {ex.Message}"); }
                 }
             }
+
+            ApplyDevToolsAiPatches(harmony);
+        }
+
+        // ----------------------------------------------------------------- NP-4: F3 dev tools freeze every enemy
+
+        // The dev tools (F3) are a player-facing creative mode here, not just a developer aid — and opening them stops
+        // every enemy dead, on every end, because the HOST's behaviour trees stop. This is NOT the pause padlock (that
+        // one is already suppressed above): `BehaviourTreeCode_Gameplay.ManualUpdate` — the driver that ticks every
+        // NPC's behaviour tree, registered into `ProjectileSystem.RunWhileWritingInstanceData` — opens with a hard
+        //     if (StaticInstance<DevToolsManager>.Instance.shouldShow) return;
+        // so no amount of keeping gameState Running or Time.timeScale live can reach it. `GooEyeManager.ManualUpdate`
+        // carries the same guard.
+        //
+        // Rather than reimplement those loops (they walk private `trees`/`npcs` lists), splice a single call in right
+        // after the `shouldShow` read and let our own predicate decide whether the freeze still applies. That is one
+        // instruction against an IL shape we do not otherwise depend on, it costs nothing per frame (no reflection),
+        // and outside a co-op session it returns the value the game just computed — single-player is untouched.
+        private static void ApplyDevToolsAiPatches(Harmony harmony)
+        {
+            TryPatchDevToolsGuard(harmony, "PerfectRandom.Sulfur.Gameplay.BehaviourTreeCode_Gameplay", "ManualUpdate");
+            TryPatchDevToolsGuard(harmony, "PerfectRandom.Sulfur.Gameplay.GooEyeManager", "ManualUpdate");
+        }
+
+        private static void TryPatchDevToolsGuard(Harmony harmony, string typeName, string methodName)
+        {
+            try
+            {
+                var type = AccessTools.TypeByName(typeName);
+                if (type == null) { Plugin.Log.Warn($"[PauseControl] {typeName} not found — F3 will still freeze its AI"); return; }
+                var method = AccessTools.Method(type, methodName);
+                if (method == null) { Plugin.Log.Warn($"[PauseControl] {typeName}.{methodName} not found — F3 will still freeze its AI"); return; }
+
+                _guardSpliceCount = 0;
+                harmony.Patch(method, transpiler: new HarmonyMethod(
+                    typeof(PauseControlPatches).GetMethod(nameof(DevToolsGuard_Transpiler),
+                        BindingFlags.Static | BindingFlags.NonPublic)));
+
+                if (_guardSpliceCount > 0)
+                    Plugin.Log.Info($"[PauseControl] Patched {type.Name}.{methodName} — dev-tools AI freeze is now co-op aware ({_guardSpliceCount} guard(s))");
+                else
+                    Plugin.Log.Warn($"[PauseControl] {type.Name}.{methodName} has no shouldShow guard to splice — F3 behaviour unchanged there");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[PauseControl] {typeName}.{methodName} transpiler failed: {ex.Message}"); }
+        }
+
+        private static int _guardSpliceCount;
+
+        private static IEnumerable<CodeInstruction> DevToolsGuard_Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var hook = typeof(PauseControlPatches).GetMethod(nameof(DevToolsShouldFreezeAi),
+                BindingFlags.Static | BindingFlags.Public);
+
+            foreach (var ins in instructions)
+            {
+                yield return ins;
+                // `... .shouldShow` leaves a bool on the stack; our hook consumes and replaces it, so the surrounding
+                // branch is untouched whatever shape it has (a bare `if` here, one arm of an `||` chain there).
+                if ((ins.opcode == OpCodes.Call || ins.opcode == OpCodes.Callvirt)
+                    && ins.operand is MethodInfo m
+                    && string.Equals(m.Name, "get_shouldShow", StringComparison.Ordinal)
+                    && hook != null)
+                {
+                    yield return new CodeInstruction(OpCodes.Call, hook);
+                    _guardSpliceCount++;
+                }
+            }
+        }
+
+        /// <summary>NP-4: does the dev-tools panel still stop AI? Only outside a co-op session. Public because the
+        /// transpiler above emits a call to it.</summary>
+        public static bool DevToolsShouldFreezeAi(bool shouldShow)
+        {
+            if (!shouldShow) return false;      // panel closed — nothing changes
+            try { return !SuppressPause(); }    // linked session — the other player's world keeps running
+            catch { return true; }              // anything unexpected → vanilla behaviour
         }
 
         /// <summary>

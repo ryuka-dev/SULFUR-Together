@@ -1,4 +1,4 @@
-using HarmonyLib;
+﻿using HarmonyLib;
 using System;
 using System.Linq;
 using System.Reflection;
@@ -314,6 +314,10 @@ namespace SULFURTogether.Patches
         {
             try { NetAwaitStartLevel.NoteAwaitStateChanged(state); }
             catch (Exception ex) { Log.Error($"[AwaitStart] {ex.Message}"); }
+            // NP-3: state==false is the player pressing continue, or a transition clearing the prompt out from under
+            // them. Either way our black screen, controller lock and invulnerability come down with it.
+            try { SeamlessStartLevelPatches.OnAwaitStateChanged(state); }
+            catch (Exception ex) { Log.Error($"[SeamlessStart] {ex.Message}"); }
         }
 
         private static void GM_SetState_Pre(object __instance, object state)
@@ -367,6 +371,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.TriggerSpawnSyncManager.Clear(); // Issue #5 drop prev level's fired-trigger set
                 SULFURTogether.Networking.Gameplay.EndlessSyncManager.Reset();      // EM-3 drop prev Endless run's wave-state baseline
                 SULFURTogether.Networking.Gameplay.EndlessCardManager.Reset();      // EM-6b drop prev run's card-manifest event state
+                SeamlessStartLevelPatches.Clear();                                  // NP-3 our black screen must never outlive its level
                 string chapterName = chapterSO?.ToString() ?? "<unknown>";
                 string loadingModeName = loadingMode?.ToString() ?? "";
                 string spawn = spawnIdentifier ?? "";
@@ -651,6 +656,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.TriggerSpawnSyncManager.Clear(); // Issue #5 drop prev level's fired-trigger set
                 SULFURTogether.Networking.Gameplay.EndlessSyncManager.Reset();      // EM-3 drop prev Endless run's wave-state baseline
                 SULFURTogether.Networking.Gameplay.EndlessCardManager.Reset();      // EM-6b drop prev run's card-manifest event state
+                SeamlessStartLevelPatches.Clear();                                  // NP-3 our black screen must never outlive its level
                 NetRunStateBridge.ReportClearLevel();
                 Log.Info("[GM] ClearLevel <<");
             }
