@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -872,6 +872,27 @@ namespace SULFURTogether.Networking.Gameplay
             long now = _tickProf.ElapsedMilliseconds;
             _tickStepMs[index] = now - previousElapsed;
             return now;
+        }
+
+        // ---- FH-5: which CALL inside applyEnemyState -------------------------------------------------------------
+        // FH-2 narrowed the Town brawl stall to `applyEnemyState`, and the numbers rule out crowd scale: the baseline
+        // is 5–50 ms for 10–34 puppets, and the two bad frames were 7122 ms and 1602 ms for 19 and 18. So one call
+        // blocks, rarely. `Physics.SyncTransforms` is already excluded (safeTeleports=2 for the whole session) and so
+        // is the manifest reconcile (took=7ms worst). This times each per-puppet operation and names the unit and the
+        // operation as soon as ONE call crosses the threshold — a stall this size needs no sampling to catch.
+        // Free-running: started once and read, never restarted, so timing a call is two reads and no allocation.
+        // A lambda-based wrapper was rejected — a closure per puppet per frame would add the GC churn this is
+        // supposed to be measuring.
+        private static readonly System.Diagnostics.Stopwatch _puppetOpProf = System.Diagnostics.Stopwatch.StartNew();
+        private const long SlowPuppetOpMs = 50;
+
+        private static long OpBegin() => _puppetOpProf.ElapsedMilliseconds;
+
+        private static void OpEnd(long began, string op, string? unit)
+        {
+            long ms = _puppetOpProf.ElapsedMilliseconds - began;
+            if (ms < SlowPuppetOpMs) return;
+            NetLogger.Info($"[FrameHitch] SLOW puppet op={op} unit={unit ?? "?"} took={ms}ms — this single call is the stall");
         }
 
         public static void Tick()
@@ -2923,7 +2944,9 @@ namespace SULFURTogether.Networking.Gameplay
                     // PK-1: any unit welded to a carrier mount — the carrier owns its transform (see IsMountedOnCarrier).
                     || IsMountedOnCarrier(runtimeObject);
 
-                EnsureClientEnemyPuppetMode(key, snapshot, target.HostSnapshot, runtimeObject, now);
+                { long _op = OpBegin();
+                  EnsureClientEnemyPuppetMode(key, snapshot, target.HostSnapshot, runtimeObject, now);
+                  OpEnd(_op, "ensurePuppetMode", snapshot.ActorName); }   // FH-5
 
                 // Phase 4.4.0-O/O2: create/refresh per-NPC authorization window; determine control mode.
                 int puppetNpcId = ObjectIdentity(runtimeObject);
@@ -2939,7 +2962,9 @@ namespace SULFURTogether.Networking.Gameplay
                             && ActiveEnemyPuppetsByNpcId.TryGetValue(puppetNpcId, out var rootReplayRecord)
                             && rootReplayRecord.Npc != null)
                         {
-                            TryExecuteClientEnemyIntentRootReplay(rootReplayRecord, newIntentWindow, rootReplayRecord.Npc, target.HostSnapshot);
+                            { long _op = OpBegin();
+                              TryExecuteClientEnemyIntentRootReplay(rootReplayRecord, newIntentWindow, rootReplayRecord.Npc, target.HostSnapshot);
+                              OpEnd(_op, "rootReplay", snapshot.ActorName); }   // FH-5
                         }
                     }
 
@@ -2986,7 +3011,9 @@ namespace SULFURTogether.Networking.Gameplay
                 // O2: AuthorizedCombat blocks NavMesh steering to prevent ranged enemies chasing targets.
                 if (intentDriven && controlMode != ClientEnemyControlMode.AuthorizedCombat
                     && ActiveEnemyPuppets.TryGetValue(key, out var intentRecord))
-                    TryApplyClientEnemyAiIntent(intentRecord, runtimeObject, target.HostSnapshot, now);
+                    { long _op = OpBegin();
+                      TryApplyClientEnemyAiIntent(intentRecord, runtimeObject, target.HostSnapshot, now);
+                      OpEnd(_op, "aiIntent", snapshot.ActorName); }   // FH-5
 
                 float distanceToHostTarget = Vector3.Distance(current, target.Position);
                 float distanceToDesired = Vector3.Distance(current, desiredPosition);
@@ -3064,7 +3091,9 @@ namespace SULFURTogether.Networking.Gameplay
                 }
 
                 if (Vector3.Distance(current, nextPosition) > 0.001f)
-                    ApplyPuppetPosition(key, runtimeObject, transform, current, nextPosition);   // PK-3: teleports go in non-solid
+                    { long _op = OpBegin();
+                      ApplyPuppetPosition(key, runtimeObject, transform, current, nextPosition);   // PK-3: teleports go in non-solid
+                      OpEnd(_op, "posApply", snapshot.ActorName); }   // FH-5
                 snapshot.HasPosition = true;
                 snapshot.Position = nextPosition;
                 snapshot.LastSeenAt = now;
