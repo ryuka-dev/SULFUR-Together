@@ -56,6 +56,19 @@ namespace SULFURTogether.Api
         /// <summary>The local peer's stable session id ("" when offline).</summary>
         public static string LocalPeerId => SULFURTogether.Networking.NetExternalBridge.LocalPeerId;
 
+        /// <summary>
+        /// Whether players may damage each other in this session. Host-authoritative: the host reads its own
+        /// setting live, a client mirrors what the host broadcast and reads <c>false</c> until told otherwise,
+        /// and an offline end reads <c>false</c>.
+        ///
+        /// <para>Exposed because a companion mod that deals its own damage has to answer the same question this
+        /// setting already answers, and a second policy beside it would let one mod hurt a teammate the session
+        /// says is protected. Read it; do not add a toggle of your own.</para>
+        ///
+        /// <para>Read-only, and read per hit rather than cached — the host can change it mid-session.</para>
+        /// </summary>
+        public static bool FriendlyFireEnabled => SULFURTogether.Networking.NetSessionSettings.FriendlyFireEnabled;
+
         /// <summary>Snapshot of currently-connected session members, including the local peer. Empty when offline.</summary>
         public static IReadOnlyList<ExternalPeer> Peers => SULFURTogether.Networking.NetExternalBridge.Peers;
     }
