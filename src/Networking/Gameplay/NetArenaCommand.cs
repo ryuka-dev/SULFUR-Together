@@ -29,5 +29,14 @@ namespace SULFURTogether.Networking.Gameplay
         public ArenaCommandKind Kind { get; set; }
         public Vector3 ArenaPos { get; set; }
         public List<string> TargetPeerIds { get; set; } = new List<string>();
+
+        // LD-TP (Popup / Release): the host-computed place a locked-out player lands when it enters. ArenaPos is the SEAL
+        // TRIGGER's pivot — an arena key, never a standing spot: the Emperor's trigger sits ~50 m from its gate deep in
+        // the cave, the Cousin's sits at the doorway that is by then closed and barriered. Deriving a destination from it
+        // locally put players on the roof (a downward ray cast from 30 m up lands on the arena CEILING) or right back
+        // outside the sealed gate. The host owns the in-room set and every player's position, so it — and only it —
+        // resolves a spot beside the player who started the fight and ships it with the command.
+        public bool    HasEntryPos { get; set; }
+        public Vector3 EntryPos    { get; set; }
     }
 }

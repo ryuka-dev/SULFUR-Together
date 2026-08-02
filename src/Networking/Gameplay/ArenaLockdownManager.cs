@@ -29,6 +29,9 @@ namespace SULFURTogether.Networking.Gameplay
             public float   T0;
             public string  Chapter = ""; public int Level = -1; public bool HasSeed; public int Seed;
             public readonly HashSet<string> InRoom = new HashSet<string>();
+            // LD-TP: the t0 crosser — the player who started this fight. Its live position is the entry anchor a
+            // locked-out player is teleported beside (a real player is, by construction, standing on real arena floor).
+            public string FirstPeer = "";
             public bool SealFired;
             public bool TeleportFired;
             public bool Released;
@@ -93,6 +96,16 @@ namespace SULFURTogether.Networking.Gameplay
         // Gate-lockdown (no sphere): how close a teammate must be to the seal trigger to count as "in the arena" and
         // serve as the valid-floor teleport anchor. Generous — the trigger and the arena floor are co-located.
         private const float GateEntryAnchorRadius = 25f;
+        // LD-TP: how far beside the entry anchor a pulled-in player lands (far enough not to spawn inside them, near
+        // enough that the floor under the anchor is still the floor under the destination — so no ray cast is needed,
+        // and none is WANTED: the old "cast down from 30 m above the seal trigger" fallback hit the arena's ceiling
+        // from above and dropped players onto/into the roof of the Emperor cave).
+        private const float GateEntryBesideOffset = 1.5f;
+        // LD-TP: a seal trigger further than this from the door it seals is NOT a doorway — it is an interior trigger
+        // (the Emperor's sits ~50 m inside the cave from its gate). Doorway in/out parity is only meaningful on a real
+        // doorway; on an interior trigger, ordinary fighting movement across the volume flips the local player to
+        // "outside" and hands them the locked-out banner mid-fight.
+        private const float DoorwayColocationRadius = 15f;
         // How close a gate-open (boss death / AllDeadTrigger) must be to an arena to count as "this fight ended".
         private const float GateReleaseRadius    = 10f;
         // Trigger→gate proximity: the seal trigger and the gate it controls are co-located but distinct objects.
@@ -104,6 +117,10 @@ namespace SULFURTogether.Networking.Gameplay
         // ---- LD-2c local arm state (the popup target waits for confirm / boss death) ----
         private static bool    _armed;
         private static Vector3 _armedArena;
+        // LD-TP: the host-computed landing spot that came with the Popup (see NetArenaCommand.EntryPos). Held until the
+        // player confirms — an arena's floor does not move, so a spot resolved at t0+10 s is still valid at confirm.
+        private static bool    _armedHasEntry;
+        private static Vector3 _armedEntry;
 
         /// <summary>LD-2c popup UI seam — a confirm prompt. Defaults to logging only; a native UI (SULFUR Native UI Lib)
         /// can assign these later to render a real popup. <see cref="ShowPrompt"/> gets the prompt text; <see cref="HidePrompt"/>
@@ -248,6 +265,7 @@ namespace SULFURTogether.Networking.Gameplay
                 created = true;
                 NetLogger.Info($"[ArenaLockdown] START arena={key} level={chap}:{lvl} seed={(hasSeed ? seed.ToString() : "?")} t0 by {peerId}");
             }
+            if (string.IsNullOrEmpty(ld.FirstPeer)) ld.FirstPeer = peerId; // LD-TP: t0 crosser = the entry anchor
             if (ld.InRoom.Add(peerId))
             {
                 NetLogger.Info($"[ArenaLockdown] in-room += {peerId} arena={key} members=[{string.Join(",", ld.InRoom)}]");
@@ -403,20 +421,65 @@ namespace SULFURTogether.Networking.Gameplay
             return anchor + outward.normalized * SandstormPullBesideOffset;
         }
 
-        /// <summary>Gate-lockdown teleport destination. The seal trigger's own pivot Y is often BELOW the standing floor,
-        /// so teleporting straight to it (the old <c>arenaPos + up*0.5</c>) drops the player through the map. Prefer to
-        /// land beside a teammate already in the arena (valid floor — the host is in-room by the time a client confirms),
-        /// else raycast down onto the floor, else fall back to the trigger pos.</summary>
-        private static Vector3 ResolveGateTeleportDest(Vector3 arenaPos)
+        // ----------------------------------------------------------------- LD-TP: arena entry destination
+
+        /// <summary>HOST: where a locked-out player should land when it enters this arena — beside the player who
+        /// started the fight (<see cref="Lockdown.FirstPeer"/>), falling back to any other in-room member. Returns false
+        /// when no in-room player's position is known, in which case NOTHING is teleported: the seal trigger's pivot is
+        /// an arena KEY, not a standing spot, and every attempt to turn it into one geometrically (drop to it, ray cast
+        /// down to the floor under it) put players outside the sealed gate or on top of the arena's ceiling.</summary>
+        private static bool TryResolveArenaEntryPos(Lockdown ld, out Vector3 dest)
+        {
+            dest = Vector3.zero;
+            Vector3 anchor;
+            if (!TryGetPeerPosition(ld.FirstPeer, out anchor))
+            {
+                bool ok = false;
+                foreach (var p in ld.InRoom) { if (TryGetPeerPosition(p, out anchor)) { ok = true; break; } }
+                if (!ok) return false;
+            }
+            // Offset AWAY from the seal trigger, i.e. deeper into the room, so the arrival never straddles the doorway.
+            Vector3 dir = anchor - ld.Pos; dir.y = 0f;
+            dir = dir.sqrMagnitude < 0.01f ? Vector3.forward : dir.normalized;
+            // No ray cast: the anchor is a live player, so its feet are already on valid floor, and a metre and a half
+            // to the side of it is the same floor. A cast could just as easily land on the boss standing next to them.
+            dest = anchor + dir * GateEntryBesideOffset + Vector3.up * 0.5f;
+            return true;
+        }
+
+        /// <summary>Live world position of a session peer — the local player unit for this end's own id, otherwise that
+        /// peer's visual proxy. False when the peer has no known position here (not in this scene / proxy timed out).</summary>
+        private static bool TryGetPeerPosition(string peerId, out Vector3 pos)
+        {
+            pos = Vector3.zero;
+            if (string.IsNullOrEmpty(peerId)) return false;
+            try
+            {
+                if (string.Equals(peerId, NetGameplaySyncBridge.LocalPeerId, StringComparison.Ordinal))
+                {
+                    if (ResolveLocalPlayerUnit() is Component c && c != null) { pos = c.transform.position; return true; }
+                    return false;
+                }
+                Vector3 hit = Vector3.zero; bool found = false;
+                NetGameplaySyncBridge.ForEachRemotePlayerPositionWithPeer((pid, p) =>
+                {
+                    if (!found && string.Equals(pid, peerId, StringComparison.Ordinal)) { hit = p; found = true; }
+                });
+                pos = hit;
+                return found;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Local fallback destination, used only when a command carried no host-computed entry position (an
+        /// out-of-date host, or a host that could not see any in-room player). Same rule: land beside a team-mate this
+        /// end can actually see inside the arena, or do not teleport at all.</summary>
+        private static bool TryResolveLocalGateTeleportDest(Vector3 arenaPos, out Vector3 dest)
         {
             // Exclude the local player: it is the one being pulled in (outside, maybe below floor). Only teammates anchor.
             Vector3 beside = ResolveArenaEntryTarget(arenaPos, GateEntryAnchorRadius, includeLocal: false, out bool found);
-            if (found) return beside + Vector3.up * 0.5f;
-            // Solo / everyone entering at once: raycast straight down onto the floor (ignore trigger colliders).
-            if (Physics.Raycast(arenaPos + Vector3.up * 30f, Vector3.down, out RaycastHit hit, 60f,
-                                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
-                return hit.point + Vector3.up * 0.1f;
-            return arenaPos + Vector3.up * 0.5f; // last resort (may be slightly low, but better than nothing)
+            dest = beside + Vector3.up * 0.5f;
+            return found;
         }
 
         private static void HostTick()
@@ -470,15 +533,28 @@ namespace SULFURTogether.Networking.Gameplay
                 return;
             }
 
-            NetLogger.Info($"[ArenaLockdown] {kind} arena={Key(ld.Pos)} inRoom=[{string.Join(",", ld.InRoom)}] targets=[{string.Join(",", targets)}]");
+            // LD-TP: the two commands that can move a player carry a host-resolved landing spot; every other kind
+            // (toasts, door close, membership) leaves it unset.
+            bool hasEntry = false; Vector3 entry = Vector3.zero;
+            if (kind == ArenaCommandKind.Popup || kind == ArenaCommandKind.Release)
+            {
+                hasEntry = TryResolveArenaEntryPos(ld, out entry);
+                if (!hasEntry)
+                    NetLogger.Warn($"[ArenaLockdown] {kind} arena={Key(ld.Pos)} — no in-room player position known "
+                                 + $"(first={ld.FirstPeer}); sending WITHOUT an entry position, ends will fall back locally");
+            }
+
+            NetLogger.Info($"[ArenaLockdown] {kind} arena={Key(ld.Pos)} inRoom=[{string.Join(",", ld.InRoom)}] targets=[{string.Join(",", targets)}]"
+                         + (hasEntry ? $" entry={entry:F1} (beside {ld.FirstPeer})" : ""));
 
             // Host applies its own target locally (no packet to itself).
             if (targets.Contains(NetGameplaySyncBridge.LocalPeerId))
-                ApplyLocalCommand(kind, ld.Pos);
+                ApplyLocalCommand(kind, ld.Pos, hasEntry, entry);
 
             NetGameplaySyncBridge.BroadcastArenaCommand(new NetArenaCommand
             {
                 Kind = kind, ArenaPos = ld.Pos, TargetPeerIds = targets,
+                HasEntryPos = hasEntry, EntryPos = entry,
             });
         }
 
@@ -504,7 +580,7 @@ namespace SULFURTogether.Networking.Gameplay
                 NetLogger.Info($"[ArenaLockdown] client received PullIn arena={Key(m.ArenaPos)} me={localPeerId} targets=[{(m.TargetPeerIds == null ? "" : string.Join(",", m.TargetPeerIds))}] targeted={targeted}");
             }
             if (m.TargetPeerIds == null || !m.TargetPeerIds.Contains(localPeerId)) return;
-            ApplyLocalCommand(m.Kind, m.ArenaPos);
+            ApplyLocalCommand(m.Kind, m.ArenaPos, m.HasEntryPos, m.EntryPos);
         }
 
         /// <summary>HOST: broadcast an arena's current in-room peer set so clients can filter the boss arm's group attack.</summary>
@@ -561,8 +637,10 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return true; }
         }
 
-        /// <summary>Run a command against THIS end's local door / player.</summary>
-        private static void ApplyLocalCommand(ArenaCommandKind kind, Vector3 arenaPos)
+        /// <summary>Run a command against THIS end's local door / player. <paramref name="entryPos"/> (LD-TP) is the
+        /// host-resolved landing spot inside the arena that came with a Popup / Release; <paramref name="hasEntry"/> is
+        /// false for every other kind and whenever the host had no in-room player to anchor on.</summary>
+        private static void ApplyLocalCommand(ArenaCommandKind kind, Vector3 arenaPos, bool hasEntry = false, Vector3 entryPos = default)
         {
             try
             {
@@ -608,6 +686,8 @@ namespace SULFURTogether.Networking.Gameplay
                         if (!ArenaBarrierManager.IsSealed(arenaPos)) ArenaBarrierManager.Seal(arenaPos);
                         _armed = true;
                         _armedArena = arenaPos;
+                        _armedHasEntry = hasEntry;   // LD-TP: remember where the host says "inside" is
+                        _armedEntry = entryPos;
                         string keyName = "?";
                         try { keyName = Plugin.Cfg.ArenaEnterConfirmKey.Value.ToString(); } catch { }
                         string text = UI.CoopLoc.Format("arena.enterPrompt", "Press [{key}] to enter the arena", ("key", keyName));
@@ -619,9 +699,14 @@ namespace SULFURTogether.Networking.Gameplay
                         // LD-2f: fight over — the mod releases the door (stop blocking reopens for this arena).
                         _heldGates.Remove(Key(arenaPos));
                         _gracedGates.Remove(Key(arenaPos));
+                        // LD-TP: drop the prompt FIRST, unconditionally. The armed state used to be cleared only inside
+                        // TeleportIntoArena, so a player the popup had wrongly armed while they were in fact in the
+                        // arena kept the "you missed the entry" banner across their screen for the rest of the level —
+                        // the release path returned right here without ever hiding it.
+                        Disarm(arenaPos);
                         if (IsEffectivelyInArena(arenaPos)) break; // already inside — nothing to do
                         if (LogOn) NetLogger.Info($"[ArenaLockdown] RELEASE arena=({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0}) — fight over, entering");
-                        TeleportIntoArena(arenaPos);
+                        TeleportIntoArena(arenaPos, hasEntry, entryPos);
                         break;
 
                     case ArenaCommandKind.PullIn:
@@ -677,44 +762,66 @@ namespace SULFURTogether.Networking.Gameplay
             if (!_armed) return;
             try
             {
+                // LD-TP: the popup is armed once, from a snapshot of "is this end outside" taken at t0+10 s. If that end
+                // is inside now — it walked in, or the reading was wrong to begin with — the prompt is stale and must
+                // go: telling a player fighting the boss that they missed the entry is the visible half of this bug.
+                if (IsEffectivelyInArena(_armedArena))
+                {
+                    if (LogOn) NetLogger.Info($"[ArenaLockdown] prompt cleared arena={Key(_armedArena)} — local player is in the arena");
+                    Disarm(_armedArena);
+                    return;
+                }
                 if (Plugin.Cfg.ArenaEnterConfirmKey.Value.IsDown())
-                    TeleportIntoArena(_armedArena);
+                    TeleportIntoArena(_armedArena, _armedHasEntry, _armedEntry);
             }
             catch { }
         }
 
-        /// <summary>Teleport the local player into the arena, drop the barrier, and become in-room.</summary>
-        private static void TeleportIntoArena(Vector3 arenaPos)
+        /// <summary>Clear the armed teleport + hide the prompt for this arena (no-op for any other arena).</summary>
+        private static void Disarm(Vector3 arenaPos)
+        {
+            if (!_armed || Key(_armedArena) != Key(arenaPos)) return;
+            _armed = false;
+            _armedHasEntry = false;
+            _armedEntry = Vector3.zero;
+            if (HidePrompt != null) { try { HidePrompt(); } catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] HidePrompt failed: {ex.Message}"); } }
+        }
+
+        /// <summary>Teleport the local player into the arena, drop the barrier, and become in-room. The destination is
+        /// the host-resolved <paramref name="entryPos"/> (LD-TP) — a spot beside the player who started the fight. When
+        /// the host sent none, a team-mate visible to THIS end is used instead; when there is no anchor at all the
+        /// player is NOT moved. The barrier still drops, so the worst case is "walk in yourself", never "materialise
+        /// outside the sealed gate" or "materialise inside the ceiling", which is what deriving a destination from the
+        /// seal trigger's pivot produced.</summary>
+        private static void TeleportIntoArena(Vector3 arenaPos, bool hasEntry, Vector3 entryPos)
         {
             try
             {
-                object unit = ResolveLocalPlayerUnit();
-                if (unit != null)
+                Vector3 dest = Vector3.zero;
+                string src = "";
+                if (hasEntry) { dest = entryPos; src = "host"; }
+                else if (TryResolveLocalGateTeleportDest(arenaPos, out dest)) src = "local-teammate";
+                else
+                    NetLogger.Warn($"[ArenaLockdown] enter arena=({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0}) — no known "
+                                 + "in-arena anchor, NOT teleporting (barrier dropped; walk in through the door)");
+
+                if (src.Length > 0 && MoveLocalPlayerTo(ResolveLocalPlayerUnit(), dest))
                 {
-                    // Land on valid floor (beside a teammate / raycast to ground), NOT the seal trigger pivot whose Y is
-                    // often below the floor → the player would fall through the map.
-                    Vector3 dest = ResolveGateTeleportDest(arenaPos);
-                    var tp = AccessTools.Method(unit.GetType(), "TeleportTo", new[] { typeof(Vector3) })
-                          ?? AccessTools.Method(unit.GetType(), "TeleportTo");
-                    if (tp != null) tp.Invoke(unit, new object[] { dest });
-                    else if (unit is Component c && c != null) c.transform.position = dest;
-                    NetLogger.Info($"[ArenaLockdown] teleported local player into arena arena=({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0}) dest={dest:F1}");
+                    NetLogger.Info($"[ArenaLockdown] teleported local player into arena arena=({arenaPos.x:0.0},{arenaPos.y:0.0},{arenaPos.z:0.0}) dest={dest:F1} src={src}");
                     // Player-facing → localize (Docs/Localization.md).
                     Toast(UI.CoopLoc.Get("arena.entering.title", "Arena"),
                           UI.CoopLoc.Get("arena.entering.msg", "Entering the arena."));
                 }
-                else NetLogger.Warn("[ArenaLockdown] teleport: local player unit missing");
             }
             catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] teleport failed: {ex.Message}"); }
 
             ArenaBarrierManager.Unseal(arenaPos);
-            if (_armed && Key(_armedArena) == Key(arenaPos))
-            {
-                _armed = false;
-                if (HidePrompt != null) { try { HidePrompt(); } catch { } }
-            }
-            // Now inside (teleported, not walked through the door): mark crossed + force parity ODD = inside, so a later
-            // walk-OUT toggles to outside correctly. Then tell the host.
+            Disarm(arenaPos);
+            // Treated as inside from here (arrived by teleport, not through the door): mark crossed + force parity ODD =
+            // inside, so a later walk-OUT toggles to outside correctly. Then tell the host. This also runs in the "no
+            // anchor, not moved" case above — the barrier is down and the player is free to walk in, and claiming them
+            // for the arena is the forgiving read: it gets them the intro-dialog catch-up and stops the prompt being
+            // re-armed at them after they have already answered it.
             string k = Key(arenaPos);
             _localCrossed.Add(k);
             _doorwayCrossings.TryGetValue(k, out int dc);
@@ -776,13 +883,15 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
         /// <summary>Called by <see cref="ArenaDoorwaySensor"/> each time the local player fully passes through the
-        /// doorway. Toggles the inside/outside parity for that arena.</summary>
-        public static void OnLocalDoorwayTraversed(string arenaKey, Vector3 arenaPos)
+        /// doorway. Toggles the inside/outside parity for that arena. <paramref name="latchOnly"/> (LD-TP) marks a
+        /// sensor sitting on an INTERIOR trigger rather than a doorway: there a pass tells us the player is inside and
+        /// nothing more, so the parity latches instead of toggling.</summary>
+        public static void OnLocalDoorwayTraversed(string arenaKey, Vector3 arenaPos, bool latchOnly = false)
         {
             _doorwayCrossings.TryGetValue(arenaKey, out int c);
-            c += 1;
+            c = latchOnly ? 1 : c + 1;
             _doorwayCrossings[arenaKey] = c;
-            if (LogOn) NetLogger.Info($"[ArenaLockdown] doorway traversal arena={arenaKey} count={c} inside={(c % 2 == 1)}");
+            if (LogOn) NetLogger.Info($"[ArenaLockdown] doorway traversal arena={arenaKey} count={c} inside={(c % 2 == 1)}{(latchOnly ? " (latched — interior trigger)" : "")}");
             // TB-DLG2b (Log363): the seal PlayerTrigger is CONSUMED on every end by the TB-INTRO entrance mirror
             // (hasBeenTriggered && onlyOnce), so a player later WALKING in never re-fires Trigger() — the membership
             // feed on it stays silent, this player never enters the in-room set, and the pre-fight dialog catch-up
@@ -825,10 +934,23 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!(trigger is Component c) || c == null) return;
                 if (!IsSealTrigger(trigger, out Vector3 pos)) return;
                 if (c.GetComponent<ArenaDoorwaySensor>() != null) return; // already attached
+
+                // LD-TP: the sensor's in/out parity assumes "one pass through the volume = one crossing of the doorway",
+                // which only holds when the trigger volume IS the doorway. Some arenas put the seal trigger deep inside
+                // the room instead (the Emperor's dialog trigger is ~50 m from the gate it closes). There, running back
+                // over the volume mid-fight flips the local player to "outside", and at t0+10 s they are handed the
+                // locked-out banner while standing in the middle of the arena. Measure the trigger against the door it
+                // actually seals: far away ⇒ the sensor still REPORTS the first crossing (TB-DLG2b needs that: the seal
+                // PlayerTrigger is consumed by onlyOnce, so this is the only entry event a later walk-in produces) but
+                // it may no longer flip back to "outside". Unmeasurable ⇒ keep today's behaviour.
+                bool latchOnly = ArenaBarrierManager.TryGetNearestDoorDistance(trigger, out float doorDist)
+                              && doorDist > DoorwayColocationRadius;
+
                 var sensor = c.gameObject.AddComponent<ArenaDoorwaySensor>();
-                sensor.ArenaKey = Key(pos);
-                sensor.ArenaPos = pos;
-                if (LogOn) NetLogger.Info($"[ArenaLockdown] doorway sensor attached arena={Key(pos)}");
+                sensor.ArenaKey  = Key(pos);
+                sensor.ArenaPos  = pos;
+                sensor.LatchOnly = latchOnly;
+                if (LogOn) NetLogger.Info($"[ArenaLockdown] doorway sensor attached arena={Key(pos)} doorDist={doorDist:0.0}m latchOnly={latchOnly}");
             }
             catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] AttachDoorwaySensor failed: {ex.Message}"); }
         }
@@ -837,7 +959,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         /// <summary>Teleport an already-resolved local player unit to a world position (real <c>Unit.TeleportTo</c> if
         /// present, else a raw transform move). Returns false if the unit is missing.</summary>
-        private static bool MoveLocalPlayerTo(object unit, Vector3 dest)
+        private static bool MoveLocalPlayerTo(object? unit, Vector3 dest)
         {
             try
             {
@@ -948,6 +1070,8 @@ namespace SULFURTogether.Networking.Gameplay
             _clientArenaKey = "";
             ArenaBarrierManager.Clear();
             _armed = false;
+            _armedHasEntry = false;
+            _armedEntry = Vector3.zero;
             if (HidePrompt != null) { try { HidePrompt(); } catch { } }
         }
     }

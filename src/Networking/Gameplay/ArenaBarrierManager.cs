@@ -171,6 +171,34 @@ namespace SULFURTogether.Networking.Gameplay
         public static List<int> ResolveMetalGateIdsFromArena(Vector3 arenaPos)
             => ResolveMetalGateIds(FindMatchTrigger(arenaPos));
 
+        /// <summary>LD-TP: distance from a seal trigger to the nearest door it seals. Tells a DOORWAY trigger (the
+        /// player walks through it and the gate right there) apart from an INTERIOR trigger placed deep inside the room
+        /// (the Emperor's is ~50 m from its gate). False when no door anchor resolves — the caller must then keep
+        /// whatever it does today rather than treat "unmeasured" as "far".</summary>
+        public static bool TryGetNearestDoorDistance(object trigger, out float distance)
+        {
+            distance = 0f;
+            try
+            {
+                if (!(trigger is Component c) || c == null) return false;
+                var anchors = ResolveDoorAnchors(trigger);
+                float best = float.MaxValue;
+                foreach (var a in anchors)
+                {
+                    if (a.t == null) continue;
+                    // Use the door's renderer bounds when it has them: a wide gate's pivot can sit off to one side.
+                    float d = a.hasBounds
+                        ? Mathf.Sqrt(a.bounds.SqrDistance(c.transform.position))
+                        : Vector3.Distance(a.t.position, c.transform.position);
+                    if (d < best) best = d;
+                }
+                if (best == float.MaxValue) return false;
+                distance = best;
+                return true;
+            }
+            catch { return false; }
+        }
+
         // ----------------------------------------------------------------- barrier construction
 
         private static GameObject BuildBarrier((Transform t, Bounds bounds, bool hasBounds, int layer) anchor)

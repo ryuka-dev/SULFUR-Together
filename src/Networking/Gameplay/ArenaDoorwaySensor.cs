@@ -17,6 +17,12 @@ namespace SULFURTogether.Networking.Gameplay
         public string  ArenaKey;
         public Vector3 ArenaPos;
 
+        /// <summary>LD-TP: this seal trigger is NOT at the door it seals (measured at attach time — the Emperor's sits
+        /// ~50 m inside the cave from its gate), so a pass through the volume means "the player is in the room" and
+        /// nothing more. Toggling on it turned ordinary fighting movement into "this player left the arena" and handed
+        /// them the locked-out banner mid-fight. Latch inside instead of toggling.</summary>
+        public bool    LatchOnly;
+
         private int   _overlap;        // # of local-player colliders currently inside the doorway volume
         private float _lastToggleTime; // debounce: collapse rapid multi-collider toggles from one pass
 
@@ -37,7 +43,7 @@ namespace SULFURTogether.Networking.Gameplay
             float now = Time.unscaledTime;
             if (now - _lastToggleTime < DebounceSeconds) return; // same pass, already counted
             _lastToggleTime = now;
-            ArenaLockdownManager.OnLocalDoorwayTraversed(ArenaKey, ArenaPos);
+            ArenaLockdownManager.OnLocalDoorwayTraversed(ArenaKey, ArenaPos, LatchOnly);
         }
 
         private static bool IsLocalPlayer(Collider other)
