@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.3.0 — The freezes
+
+Several unrelated things could stop the game for seconds at a time — the Emperor fight, enemies
+fighting each other somewhere else, and the host sitting on the post-load screen. This release fixes
+all of them, along with the arena entry prompt that put you on the wrong side of the door. The
+network protocol is unchanged from 1.2.4, but everyone should still run the same version.
+
+**Fixed:**
+- **The Emperor's boss room no longer stutters.** Hosting that fight ran at roughly half the frame
+  rate of single player, with a stall of well over a second every time the worm burrowed. The mod
+  was doing an expensive lookup inside a physics callback, and the worm sweeps dozens of colliders
+  through the arena doorway on every burrow — hundreds of those lookups inside a single physics
+  step. Measured on one machine, same level, boss fighting: 53 fps with 23 stalls before, 113–118
+  fps with none after, which is single player exactly.
+- **You no longer freeze for seconds when enemies fight each other somewhere else.** If two enemy
+  factions started shooting at each other away from you, the game could lock up for as long as
+  seven seconds at a time — sometimes still going after the fight had ended. When an enemy far
+  enough away has been switched off to save performance, the game refuses to animate it, and the
+  complaint it raises about that turned out to cost seconds on its own. Those attacks are no longer
+  replayed onto enemies that are switched off.
+- **"Press to enter the arena" now puts you in the arena.** If you arrived at a boss gate late, the
+  prompt teleported you to the wrong side of the door you were being let through — unable to help,
+  unable to collect loot, and if anyone went down inside while you were stuck outside, the run could
+  not continue. In the Emperor's cave it frequently dropped you into the ceiling instead. The host
+  now decides where you land and puts you beside the player who started the fight.
+- **The "you missed the entry" banner no longer sticks to your screen.** Players who had gone
+  through the gate could be handed the banner anyway, and it stayed there for the rest of the level.
+  It is now cleared when the fight ends, and it clears itself if you are in the arena after all.
+- **The host reading the post-load screen no longer freezes everyone.** While the host sat on the
+  black "press to continue" screen, no enemy anywhere would move, on anyone's screen. The level is
+  now handed over to the game as soon as it is ready; the host still gets the same black screen and
+  the same keypress, and is invulnerable while it is up. Enemies will be waiting for you.
+- **The developer console no longer stops every enemy.** Opening it froze all enemy behaviour for
+  everyone in the session, which made it unusable as a creative mode while someone else was playing.
+  Enemies now keep acting while it is open.
+
+**Added:**
+- **A mod can ask whether friendly fire is on.** A companion mod that deals its own damage can now
+  read the session's setting instead of deciding for itself, so it cannot hurt a teammate the
+  session says is protected.
+
 ## 1.2.4 — Support for companion mods
 
 Co-op itself is unchanged. This release only adds three small hooks that let *another* mod make its
