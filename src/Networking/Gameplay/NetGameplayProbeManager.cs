@@ -851,25 +851,75 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _clientRosterFingerprintMismatch;
         private static float _lastSummaryAt;
 
+        // ---- FH-2: per-step attribution inside this Tick ----------------------------------------------------------
+        // The frame probe could say "the stall is inside NetGameplayProbeManager.Tick" but not which of its sixteen
+        // steps, which is as far as the Town brawl investigation could get from a log. Timing each step costs one
+        // Stopwatch read per step into a preallocated array — no allocation, nothing to gate — and the numbers are
+        // only ever formatted on a frame the hitch probe already decided to report.
+        private static readonly System.Diagnostics.Stopwatch _tickProf = new System.Diagnostics.Stopwatch();
+        private static readonly string[] TickStepNames =
+        {
+            "flushSpawnLogs", "applyEnemyState", "animBoolResets", "visualProjectiles", "hitFlashes",
+            "pendingDead", "flushHitDamage", "deferredManifest", "releaseStalePuppets", "pruneCombatActions",
+            "pruneAiIntents", "pruneIntentWindows", "expireHealthStates", "expireHostBinds", "summary",
+        };
+        private static readonly long[] _tickStepMs = new long[15];
+        // Held one frame, because the hitch probe pairs a frame's duration with that same frame's body (see below).
+        private static readonly long[] _prevTickStepMs = new long[15];
+
+        private static long TickStep(int index, long previousElapsed)
+        {
+            long now = _tickProf.ElapsedMilliseconds;
+            _tickStepMs[index] = now - previousElapsed;
+            return now;
+        }
+
         public static void Tick()
         {
             if (!IsEnabled()) return;
 
-            TryFlushPendingStableSpawnLogs();
-            ApplyPendingEnemyStateTargets();
-            UpdateCombatAnimatorBoolResets();
-            UpdateClientVisualProjectiles();
-            UpdateClientHitFlashes();
-            UpdateClientPendingDead();
-            FlushPendingClientHitDamage();
-            TryProcessDeferredManifest();
-            ReleaseStaleEnemyPuppets();
-            PruneExpiredHostEnemyCombatActions();
-            PruneExpiredHostEnemyAiIntents();
-            PruneExpiredAuthorizedIntentWindows(Time.realtimeSinceStartup);
-            ExpireOldPendingHealthStates();
-            ExpireStalePendingHostBinds();   // Phase 5.7-RB
-            MaybeLogSummary();
+            Array.Copy(_tickStepMs, _prevTickStepMs, _tickStepMs.Length);
+            _tickProf.Restart();
+            long e = 0;
+
+            TryFlushPendingStableSpawnLogs();                            e = TickStep(0,  e);
+            ApplyPendingEnemyStateTargets();                             e = TickStep(1,  e);
+            UpdateCombatAnimatorBoolResets();                            e = TickStep(2,  e);
+            UpdateClientVisualProjectiles();                             e = TickStep(3,  e);
+            UpdateClientHitFlashes();                                    e = TickStep(4,  e);
+            UpdateClientPendingDead();                                   e = TickStep(5,  e);
+            FlushPendingClientHitDamage();                               e = TickStep(6,  e);
+            TryProcessDeferredManifest();                                e = TickStep(7,  e);
+            ReleaseStaleEnemyPuppets();                                  e = TickStep(8,  e);
+            PruneExpiredHostEnemyCombatActions();                        e = TickStep(9,  e);
+            PruneExpiredHostEnemyAiIntents();                            e = TickStep(10, e);
+            PruneExpiredAuthorizedIntentWindows(Time.realtimeSinceStartup); e = TickStep(11, e);
+            ExpireOldPendingHealthStates();                              e = TickStep(12, e);
+            ExpireStalePendingHostBinds();   // Phase 5.7-RB              e = TickStep(13, e);
+            MaybeLogSummary();                                           TickStep(14, e);
+        }
+
+        /// <summary>FH-2: the steps of the frame the hitch probe is reporting on, worst first, above a threshold.
+        /// Allocates, so it is only ever called from the hitch log itself.</summary>
+        private static string FormatSlowTickSteps(long minMs)
+        {
+            string worst = "";
+            long total = 0;
+            for (int i = 0; i < _prevTickStepMs.Length; i++) total += _prevTickStepMs[i];
+            // Small fixed set — a selection sort by hand beats allocating a list to sort.
+            for (int rank = 0; rank < 3; rank++)
+            {
+                int best = -1;
+                for (int i = 0; i < _prevTickStepMs.Length; i++)
+                {
+                    if (_prevTickStepMs[i] < minMs) continue;
+                    if (worst.IndexOf(TickStepNames[i], StringComparison.Ordinal) >= 0) continue; // already listed
+                    if (best < 0 || _prevTickStepMs[i] > _prevTickStepMs[best]) best = i;
+                }
+                if (best < 0) break;
+                worst += $" {TickStepNames[best]}={_prevTickStepMs[best]}ms";
+            }
+            return worst.Length == 0 ? $" tickTotal={total}ms (no single step over {minMs}ms)" : $" tickTotal={total}ms worstSteps:{worst}";
         }
 
         public static void ClearLevelScoped(string source)
@@ -6357,12 +6407,31 @@ namespace SULFURTogether.Networking.Gameplay
         // the Terrorbaum stutter scales with the craws. Gated behind LogClientFrameHitch (debug-only).
         private static float _lastHitchLogTime = -999f;
         private static int _lastHitchGc0 = -1;
+
+        // FH-1: `Time.unscaledDeltaTime` read during frame N's Update reports how long frame N-1 took, while the body
+        // measurements handed in describe frame N. Comparing them directly is comparing two different frames — which
+        // is exactly how this probe's verdict came to read "cost is native, not mod code" on frames whose body was
+        // 2.1 s of a 2.2 s frame. Hold each frame's measurements for one frame and pair dt with the body it belongs to.
+        private static long _pendingUpdateBodyMs, _pendingGameplayMs;
+        private static bool _havePendingFrameBody;
+
         public static void ClientFrameHitchTick(long updateBodyMs, long gameplayMs)
         {
             try
             {
                 if (!Plugin.Cfg.LogClientFrameHitch.Value) return;
-                if (NetGameplaySyncBridge.BossMode != NetMode.Client) return;
+                // FH-3: both ends. The probe used to return early off-client, so a HOST stall produced no measurement
+                // at all — which is why "the host was smooth" has only ever been someone's impression.
+                var mode = NetGameplaySyncBridge.BossMode;
+                if (mode != NetMode.Client && mode != NetMode.Host) return;
+
+                long bodyMs = _pendingUpdateBodyMs, gpMs = _pendingGameplayMs;
+                bool paired = _havePendingFrameBody;
+                _pendingUpdateBodyMs = updateBodyMs;
+                _pendingGameplayMs = gameplayMs;
+                _havePendingFrameBody = true;
+                if (!paired) return;   // first frame — nothing to pair dt against yet
+
                 float dt = Time.unscaledDeltaTime;
                 if (dt < 0.05f) return; // only ~<20 fps frames
                 float now = Time.realtimeSinceStartup;
@@ -6379,7 +6448,15 @@ namespace SULFURTogether.Networking.Gameplay
                 int gc0 = GC.CollectionCount(0);
                 int gc0Delta = _lastHitchGc0 < 0 ? 0 : gc0 - _lastHitchGc0;
                 _lastHitchGc0 = gc0;
-                NetLogger.Info($"[FrameHitch] dt={dt * 1000f:F0}ms (~{(dt > 0 ? 1f / dt : 0f):F0}fps) updateBody={updateBodyMs}ms (gameplay={gameplayMs}ms) puppets={puppets} craws={craws} gc0Δ={gc0Delta} — hitch>>updateBody ⇒ cost is native (physics/render), not mod code");
+
+                float dtMs = dt * 1000f;
+                // State what was measured, not a fixed conclusion. The body is now the SAME frame's body as dt.
+                string verdict = bodyMs >= dtMs * 0.5f
+                    ? $"mod Update body is {(dtMs > 0f ? bodyMs * 100f / dtMs : 0f):F0}% of the frame ⇒ cost is OUR code"
+                    : "body is a small part of the frame ⇒ cost is outside our Update (native physics/render)";
+                string steps = bodyMs >= dtMs * 0.5f || gpMs >= 20 ? FormatSlowTickSteps(5) : "";
+
+                NetLogger.Info($"[FrameHitch] role={mode} dt={dtMs:F0}ms (~{(dt > 0 ? 1f / dt : 0f):F0}fps) updateBody={bodyMs}ms (gameplay={gpMs}ms) puppets={puppets} craws={craws} gc0Δ={gc0Delta}{steps} — {verdict}");
             }
             catch { }
         }
@@ -8170,6 +8247,12 @@ namespace SULFURTogether.Networking.Gameplay
         /// </summary>
         private static void ReconcileHostManifest(NetLevelManifest host, NetLevelManifest client)
         {
+            // FH-4: the two worst frames of the Town brawl capture (17.4 s and 5.8 s) landed 9 and 1 log lines after a
+            // reconcile pass, and their cost was NOT in the probe Tick (gameplay=39ms) — so this pass, which runs off
+            // a network message rather than a fixed tick, is the other candidate. It matches host units to local ones
+            // by scanning candidates (`bind ambiguous ... candidates=9 closest=8.7m`), so it should scale with the
+            // square of a crowd. Timed unconditionally: it runs a handful of times per level, not per frame.
+            var reconcileProf = System.Diagnostics.Stopwatch.StartNew();
             int bound = 0, quarantined = 0, hostOnly = 0;
 
             // Build a lookup of local snapshots by unitId for binding.
@@ -8311,7 +8394,7 @@ namespace SULFURTogether.Networking.Gameplay
             // Phase 5.7-RB: drop ledger entries bound this pass; keep the unmatched ones parked for later local spawns.
             PruneBoundPendingHostBinds();
 
-            NetLogger.Info($"[LevelManifest] Reconcile complete bound={bound} hostOnly={hostOnly} currentClientOnly={_currentClientOnlyUnits} (combat={_currentClientOnlyCombatUnits} nonCombat={_currentClientOnlyNonCombatUnits}) quarantineAppliedThisPass={_currentClientOnlyQuarantineApplied} alreadyQuarantined={_currentClientOnlyAlreadyQuarantined} noRuntime={_currentClientOnlyNoRuntime} retroLedger={_pendingHostBindLedger.Count} retroBound={_retroBindSuccess}");
+            NetLogger.Info($"[LevelManifest] Reconcile complete took={reconcileProf.ElapsedMilliseconds}ms hostUnits={host?.Units?.Count ?? -1} localTracked={EntitiesByLocalId.Count} bound={bound} hostOnly={hostOnly} currentClientOnly={_currentClientOnlyUnits} (combat={_currentClientOnlyCombatUnits} nonCombat={_currentClientOnlyNonCombatUnits}) quarantineAppliedThisPass={_currentClientOnlyQuarantineApplied} alreadyQuarantined={_currentClientOnlyAlreadyQuarantined} noRuntime={_currentClientOnlyNoRuntime} retroLedger={_pendingHostBindLedger.Count} retroBound={_retroBindSuccess}");
         }
 
         /// <summary>
