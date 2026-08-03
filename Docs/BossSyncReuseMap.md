@@ -8,6 +8,8 @@ A navigation map, **not** a spec — it points at the detailed docs and says *wh
   lockdown (LD), teleport/convergence.
 - [BossSourceAudit.md](BossSourceAudit.md) — reverse-engineered per-boss mechanics (the 10-point summary).
 - [EmperorBossAudit.md](EmperorBossAudit.md) — the Emperor worm deep-dive (EMP-1…3d).
+- [CardinalFightSync.md](CardinalFightSync.md) — the Black Guild Cardinal (BGC): audit + slice for a **room
+  encounter** that is deliberately *outside* the framework (ordinary roster enemies, no `BossFightHelper`).
 - [Versioning.md](Versioning.md) §4 — the live phase registry (status of every slice).
 
 The lesson from doing Cousin, Lucia, Witch and Emperor: **the low-level primitives are genuinely universal; the
@@ -145,7 +147,8 @@ dialog unreachable. Design intent captured from discussion:
   close (door closed immediately) and held never blocked the reopen. Fixed by resolving the gate the trigger drives
   (`ArenaBarrierManager.ResolveMetalGateIds`, reads `onTriggerEvents` MetalGate.Close/Open targets):
   - **grace** = `_gracedGates` (arenaKey→gate ids): a `MetalGate.Close` prefix blocks that gate's close during the
-    ~5 s grace, so the trigger's bundled close is deferred to the host's t0+5 s CloseDoor (matches "don't close
+    grace, so the trigger's bundled close is deferred to the host's CloseDoor (LD-2h: when the whole party is in,
+    else the cap) — matches "don't close
     immediately, close at the 5 s node").
   - **held** = `_heldGates` (arenaKey→gate ids): at CloseDoor the gate is closed for real + registered held; a
     `MetalGate.Open` prefix blocks that gate's reopen until release, EXCEPT host-vetted mirror opens and the one
@@ -162,8 +165,8 @@ dialog unreachable. Design intent captured from discussion:
     death). The host's now-passing open then drives the normal `OnGateOpened` → Release chain (held gates cleared
     everywhere, out-of-room players teleported in). A client that never subscribed `OnBossDead` (joined mid-fight,
     no TriggerFight) still opens via the host-vetted GateSync mirror (`IsApplyingMirror` bypasses the hold).
-- Timing note: `SealDelaySeconds`/`TeleportDelaySeconds` are already centralised as consts in
-  `ArenaLockdownManager` — the "change 5s/10s in one place" requirement is satisfied; keep any new door timing
+- Timing note: `SealMaxWaitSeconds`/`PopupDelayAfterSealSeconds` are centralised as consts in
+  `ArenaLockdownManager` — the "change the door timing in one place" requirement is satisfied; keep any new door timing
   there too.
 
 **Dialog (delete is NOT available on the Emperor — §4b — so CLOSE + gate is the model).** Reproduce Cousin's
@@ -205,8 +208,9 @@ a registered encounter.
    `TryRemoveDialogInteractable`) when the speaker Npc is statically reachable; fall back to CLOSE + block when the
    dialog is scene-scripted with no static speaker (Emperor).
 2. **Gate lock** — does the arena seal via a vanilla trigger→`MetalGate.Close` / door `SetActive`? If the CLOSE is
-   **bundled onto a dialog/other trigger**, it must be excised so the mod owns the door (close at the lockdown t+5
-   node, keep it closed through teleport-in). Confirm the trigger wiring with a probe before excising.
+   **bundled onto a dialog/other trigger**, it must be excised so the mod owns the door (close at the lockdown's
+   seal node — LD-2h: everyone-in, or the cap — and keep it closed through teleport-in). Confirm the trigger wiring
+   with a probe before excising.
 
 Both requirements sit on a **shared substrate: the in-room player list** (who has crossed into the arena). Most
 bosses need it — for dialog catch-up/scoping AND for the lockdown's seal/teleport targeting. Reuse one in-room
@@ -214,7 +218,7 @@ list, don't grow a second per boss (Emperor uses the arena-lockdown in-room set;
 RM `_roomMembers`; unify where practical).
 
 Keep the boundaries clean and the knobs central: door/lockdown timing lives as consts in `ArenaLockdownManager`
-(`SealDelaySeconds`/`TeleportDelaySeconds`/…) — one place to change 5s/10s.
+(`SealMaxWaitSeconds`/`PopupDelayAfterSealSeconds`/…) — one place to change the door timing.
 
 ---
 

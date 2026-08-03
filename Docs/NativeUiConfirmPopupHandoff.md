@@ -13,7 +13,7 @@ Native UI Lib repo (its own git / build / docs / conventions) and then wired bac
 ## 1. Why this lives in Native UI Lib (and the dependency direction)
 
 The FF14 arena lockdown (phase LD-2) seals out-of-room players behind an invisible barrier
-(LD-2b) and then, at t0+10 s, shows a confirm prompt → on confirm (or boss death) the player
+(LD-2b) and then, 5 s after the seal, shows a confirm prompt → on confirm (or boss death) the player
 teleports into the arena and the barrier drops (LD-2c). See
 [`Docs/BossPreFightFlow.md`](BossPreFightFlow.md) §2 and the phase memory `phase-ld-arena-lockdown`.
 
@@ -45,7 +45,7 @@ public static Action<string> ShowPrompt;  // called with the prompt text when th
 public static Action         HidePrompt;  // called when the player enters / the prompt is dismissed
 ```
 
-- `ShowPrompt(text)` is invoked at t0+10 s with text like `"Press [Return] to enter the arena"`.
+- `ShowPrompt(text)` is invoked 5 s after the seal with text like `"Press [Return] to enter the arena"`.
 - `HidePrompt()` is invoked when the player teleports in (confirm / boss-death release) or on
   scene change / `Clear()`.
 - **The confirm keypress is owned by the mod**, not the popup. `ArenaLockdownManager.LocalTick()`
@@ -103,7 +103,7 @@ follow-up, not required now. Ship 3.1 first.
 ## 4. Requirements / acceptance for the banner
 
 - **In-game HUD overlay**, not the options screen. Must render during normal play and combat.
-- **Persistent** until `HideBanner()` (the prompt stays for the whole t0+10 s → confirm window,
+- **Persistent** until `HideBanner()` (the prompt stays for the whole seal+5 s → confirm window,
   which can be many seconds).
 - **Centered, readable, native-looking.** Match the game's UI font/style where practical.
 - **Does not pause the game / steal input.** The mod runs a no-pause multiplayer model (see
@@ -129,7 +129,7 @@ follow-up, not required now. Ship 3.1 first.
 Back in SULFUR Together:
 1. Add the BepInEx dependency on `ryuka.sulfur.nativeui` (hard or soft+guarded).
 2. Assign `ArenaLockdownManager.ShowPrompt` / `HidePrompt` to the lib API in `Plugin` init.
-3. In-game verify: out-of-room player at t0+10 s sees the centered prompt; pressing the confirm
+3. In-game verify: out-of-room player 5 s after the seal sees the centered prompt; pressing the confirm
    key teleports them in and the prompt disappears; boss death also clears it.
 
 Until then LD-2c is fully functional minus the visual — the confirm key already teleports the

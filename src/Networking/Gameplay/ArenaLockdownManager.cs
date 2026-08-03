@@ -33,6 +33,9 @@ namespace SULFURTogether.Networking.Gameplay
             // locked-out player is teleported beside (a real player is, by construction, standing on real arena floor).
             public string FirstPeer = "";
             public bool SealFired;
+            // LD-2h: when the seal actually fired. The popup is scheduled from THIS, not from T0 — the seal moment is no
+            // longer a fixed offset, so a t0-relative popup could otherwise land before it.
+            public float SealedAt;
             public bool TeleportFired;
             public bool Released;
         }
@@ -83,8 +86,14 @@ namespace SULFURTogether.Networking.Gameplay
         private static readonly HashSet<string> _clientArenaMembers = new HashSet<string>();
         private static string _clientArenaKey = "";
 
-        private const float SealDelaySeconds     = 5f;
-        private const float TeleportDelaySeconds = 10f;
+        // LD-2h: the seal is driven by WHO IS IN, not by a stopwatch. The door stays open until every end in the level has
+        // entered the arena; only if someone never shows up does the cap force it shut. A fixed 5 s slammed the door on
+        // teammates who were still walking (Log537: the cardinal room's own close trigger fires the moment you step
+        // through the doorway, so the 5 s was all the walk-in time anyone ever got, and the far player was reduced to the
+        // teleport popup every time). The popup then follows the seal by a fixed gap — an arena that seals at 15 s must
+        // not have offered the pull-in at 10 s.
+        private const float SealMaxWaitSeconds        = 15f;
+        private const float PopupDelayAfterSealSeconds = 5f;
         // LD-Sandstorm: how long after the boss dialog trigger before out-of-room players are pulled into the arena,
         // and how far from the centre still counts as "in" (matches vanilla DesertClause's >20 m keep-in threshold).
         private const float SandstormPullDelaySeconds = 3f;
@@ -162,7 +171,7 @@ namespace SULFURTogether.Networking.Gameplay
                 if (_gracedGates.ContainsKey(key)) return;
                 var ids = ArenaBarrierManager.ResolveMetalGateIds(trigger); // the gate this trigger drives (id, not pos)
                 _gracedGates[key] = new HashSet<int>(ids);
-                if (LogOn) NetLogger.Info($"[ArenaLockdown] grace begin arena={key} gates=[{string.Join(",", ids)}] (held open ~{SealDelaySeconds:0}s)");
+                if (LogOn) NetLogger.Info($"[ArenaLockdown] grace begin arena={key} gates=[{string.Join(",", ids)}] (held open until everyone is in, max {SealMaxWaitSeconds:0}s)");
             }
             catch (Exception ex) { NetLogger.Warn($"[ArenaLockdown] BeginLocalGrace failed: {ex.Message}"); }
         }
@@ -492,14 +501,24 @@ namespace SULFURTogether.Networking.Gameplay
                 var ld = kv.Value;
                 if (ld.Released) continue;
                 float el = now - ld.T0;
-                if (!ld.SealFired && el >= SealDelaySeconds)
+                if (!ld.SealFired)
                 {
-                    ld.SealFired = true;
-                    // Grace over: close the gate that was held open for everyone in the level, then barrier the out-of-room.
-                    if (GraceEnabled) IssueCommand(ld, ArenaCommandKind.CloseDoor);
-                    IssueCommand(ld, ArenaCommandKind.Seal);
+                    // LD-2h: seal as soon as the whole party is inside — there is nothing left to wait for — otherwise
+                    // hold the door for the stragglers until the cap.
+                    bool everyoneIn = IsEveryoneInLevelInRoom(ld);
+                    if (everyoneIn || el >= SealMaxWaitSeconds)
+                    {
+                        ld.SealFired = true;
+                        ld.SealedAt  = now;
+                        if (LogOn)
+                            NetLogger.Info($"[ArenaLockdown] seal arena={Key(ld.Pos)} after {el:0.0}s — "
+                                         + (everyoneIn ? "everyone in the level is in the arena" : $"cap {SealMaxWaitSeconds:0}s reached, inRoom=[{string.Join(",", ld.InRoom)}]"));
+                        // Grace over: close the gate that was held open for everyone in the level, then barrier the out-of-room.
+                        if (GraceEnabled) IssueCommand(ld, ArenaCommandKind.CloseDoor);
+                        IssueCommand(ld, ArenaCommandKind.Seal);
+                    }
                 }
-                if (!ld.TeleportFired && el >= TeleportDelaySeconds)
+                if (ld.SealFired && !ld.TeleportFired && now - ld.SealedAt >= PopupDelayAfterSealSeconds)
                 {
                     ld.TeleportFired = true;
                     IssueCommand(ld, ArenaCommandKind.Popup);
@@ -868,6 +887,20 @@ namespace SULFURTogether.Networking.Gameplay
         /// <summary>Every end in the arena's level (CloseDoor/Seal/Popup/Release targets — each self-decides in/out).</summary>
         private static List<string> ComputeAllInLevel(Lockdown ld)
             => NetGameplaySyncBridge.GetPeerIdsInLevel(ld.Chapter, ld.Level, ld.HasSeed, ld.Seed);
+
+        /// <summary>LD-2h: has every end in the arena's level entered the arena? This is what replaces the fixed seal
+        /// timer — with nobody left outside, holding the door open buys nothing.
+        /// <para>An empty roster returns <c>false</c> on purpose: "nobody is in the level" is a missing/!ready peer list,
+        /// not a full party, and sealing on it would close the door instantly. That case falls through to the cap, which
+        /// is the same conservative direction as a membership report that is still one RTT in flight.</para></summary>
+        private static bool IsEveryoneInLevelInRoom(Lockdown ld)
+        {
+            var endsInLevel = ComputeAllInLevel(ld);
+            if (endsInLevel == null || endsInLevel.Count == 0) return false;
+            foreach (var id in endsInLevel)
+                if (!ld.InRoom.Contains(id)) return false;
+            return true;
+        }
 
         /// <summary>LD-2e real-time, event-driven in/out via DOORWAY-CROSSING PARITY (user-chosen): the local player is
         /// inside iff it has traversed this arena's doorway an odd number of times (in / out / in …). Counted by
