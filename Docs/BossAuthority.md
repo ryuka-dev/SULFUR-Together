@@ -91,6 +91,11 @@ Client `WitchDeath` crashed because `witchMainUnit` is roster-bound → generic 
 | Emperor | `PerfectRandom.EmperorBossFightHelper` | main | (diagnostic) two-worm | worms | (extension point) |
 | Desert | `DesertClauseBossFightHelper` via `BossFightHelperAdapter` | main (`bossUnit`) | `BossPhase` (health-%), **host-authoritative** (client suppressed) | pikes / mount / diggas / missiles / saddled-pike adds (all synced) | (extension point) |
 | Terrorbaum | `TerrorbaumBossFightHelper` via `BossFightHelperAdapter` (`TriggerFight`, non-dialog) | main | client boss is a puppet (host-driven, attacks synced) | craws (`CrawWatcher` flyers) via RT3 | (extension point) |
+| Black Guild Cardinal | `CardinalFightHelper` — **not** a `BossFightHelper`, no adapter | ordinary roster enemies (generic `ClientHitRequest`) | none; fixed-alcove teleport events (msg 102) | none | ordinary roster death |
+
+The Cardinal is the one entry here that stays **outside** the encounter framework: it is a room of ordinary `Npc`
+units, so position/health/damage/death already ride the roster puppet pipeline and only three vanilla-local
+decisions needed authority. Audit + slice: **[CardinalFightSync.md](CardinalFightSync.md)** (Phase BGC).
 
 ### Desert (host-authoritative composite)
 

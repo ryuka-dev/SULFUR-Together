@@ -13,6 +13,7 @@ namespace SULFURTogether.Patches
             RangedShootProbePatches.Apply(harmony);     // FH-6 — split the TriggerShoot stall (diagnostic)
             GhostSpawnPatches.Apply(harmony);
             CryptChallengePatches.Apply(harmony);
+            CardinalPatches.Apply(harmony);             // BGC — Black Guild Cardinal alcove fight
             LevelGenTracePatches.Apply(harmony);
             BossEncounterPatches.Apply(harmony);
             BossSpawnPatches.Apply(harmony);

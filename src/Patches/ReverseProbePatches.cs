@@ -367,6 +367,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.LootableSyncManager.Clear();     // SL-2b drop prev level's lootable registry
                 SULFURTogether.Networking.Gameplay.TargetDummySyncManager.Clear();  // TD-1 drop prev level's target-dummy registry
                 SULFURTogether.Networking.Gameplay.ArenaLockdownManager.Clear();    // Phase LD-2a drop prev level's lockdowns
+                SULFURTogether.Networking.Gameplay.CardinalFightSyncManager.Clear(); // Phase BGC drop prev level's cardinal-room state
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
                 SULFURTogether.Networking.Gameplay.TriggerSpawnSyncManager.Clear(); // Issue #5 drop prev level's fired-trigger set
                 SULFURTogether.Networking.Gameplay.EndlessSyncManager.Reset();      // EM-3 drop prev Endless run's wave-state baseline
@@ -652,6 +653,7 @@ namespace SULFURTogether.Patches
                 SULFURTogether.Networking.Gameplay.LootableSyncManager.Clear();     // SL-2b drop prev level's lootable registry
                 SULFURTogether.Networking.Gameplay.TargetDummySyncManager.Clear();  // TD-1 drop prev level's target-dummy registry
                 SULFURTogether.Networking.Gameplay.ArenaLockdownManager.Clear();    // Phase LD-2a drop prev level's lockdowns
+                SULFURTogether.Networking.Gameplay.CardinalFightSyncManager.Clear(); // Phase BGC drop prev level's cardinal-room state
                 SULFURTogether.Networking.Gameplay.WorldPickupManager.Clear();     // World item-drop: drop prev level's pickup registry
                 SULFURTogether.Networking.Gameplay.TriggerSpawnSyncManager.Clear(); // Issue #5 drop prev level's fired-trigger set
                 SULFURTogether.Networking.Gameplay.EndlessSyncManager.Reset();      // EM-3 drop prev Endless run's wave-state baseline

@@ -250,6 +250,9 @@ namespace SULFURTogether.Config
         // ----- Phase SP/AC (crypt sync) host-authoritative crypt challenge (spawn + outcome) -----
         public Fixed<bool>         EnableCryptSync { get; } // functional: always on (release-hardcoded)
         public ConfigEntry<bool>   LogCryptSync { get; }
+        // ----- Phase BGC Black Guild Cardinal alcove fight (seeded cull + host-authoritative start/teleport) -----
+        public Fixed<bool>         EnableCardinalSync { get; } // functional: always on (release-hardcoded)
+        public ConfigEntry<bool>   LogCardinalSync { get; }
         // SL-2 (Shared-loot): host-authoritative chest (Container) open + state sync. Functional, always on (but only
         // takes effect while shared loot is enabled — ShareAllLoot).
         public Fixed<bool>         EnableChestSync { get; }
@@ -916,6 +919,15 @@ namespace SULFURTogether.Config
             EnableCryptSync = new Fixed<bool>(true); // Phase SP/AC host-authoritative crypt challenge — functional, always on.
             LogCryptSync = cfg.Bind("NetworkEnemy", "LogCryptSync", true,
                 "Phase SP/AC (crypt sync): verbose log for the host-authoritative crypt challenge (client challenge suppression, host spawn broadcast, outcome).");
+
+            // Phase BGC: the Black Guild Cardinal alcove fight. Vanilla decides three things with local-only state —
+            // WHICH cardinals survive its Start() cull (global RNG), WHEN the fight starts (a scene-wired StartFight
+            // that lifts every cardinal's invulnerability, so an end that misses it holds an unkillable room), and
+            // WHERE a cardinal teleports (another global-RNG roll). The first is made a function of the level seed;
+            // the other two become host-authoritative.
+            EnableCardinalSync = new Fixed<bool>(true); // Phase BGC cardinal fight authority — functional, always on.
+            LogCardinalSync = cfg.Bind("NetworkEnemy", "LogCardinalSync", true,
+                "Phase BGC: verbose log for the Black Guild Cardinal fight (seeded cull, host fight start, teleport mirror, destination veto).");
 
             EnableChestSync = new Fixed<bool>(true); // SL-2 shared-loot chest sync — functional, gated at runtime by ShareAllLoot.
             LogChestSync = cfg.Bind("WorldItems", "LogChestSync", true,

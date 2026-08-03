@@ -29,7 +29,8 @@ namespace SULFURTogether.Networking
         //     wire set must match (an older peer would apply enchantment statuses locally only, the bug this fixes).
         // 31: KD added OpenableDoorOpen (100) — crypt/locked door open sync; peers must agree on the wire set.
         // 32: AC added CryptChallengeState (101) — host-authoritative crypt challenge outcome + UI; wire set must match.
-        public const int    ProtocolVersion  = 32;
+        // 33: BGC added CardinalFightEvent (102) — Black Guild Cardinal fight start + teleport authority; wire set must match.
+        public const int    ProtocolVersion  = 33;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

@@ -2690,6 +2690,71 @@ namespace SULFURTogether.Networking
                 Gameplay.CryptChallengeSyncManager.ApplyRemote(msg);
         }
 
+        // ---------------------------------------------------------------- Phase BGC Black Guild Cardinal fight authority
+
+        // One channel, two directions, routed by kind: a client only ever sends the start REQUEST (its player crossed
+        // the scene-wired trigger); the host sends the commit and the teleport events. Anything else is dropped at the
+        // sender so a bug cannot turn a client into a second authority.
+        internal void BroadcastLocalCardinalFightEvent(Gameplay.NetCardinalFightEvent msg)
+        {
+            if (_net == null || msg == null) return;
+            if (!Plugin.Cfg.EnableCardinalSync.Value) return;
+
+            var local = _runStates.LocalState;
+            msg.PeerId = local.PeerId;
+            msg.ChapterName = local.ChapterName;
+            msg.LevelIndex = local.LevelIndex;
+            msg.HasLevelSeed = local.HasLevelSeed;
+            msg.LevelSeed = local.LevelSeed;
+            msg.SentAt = Now();
+
+            if (msg.Kind == Gameplay.NetCardinalFightEvent.KindFightStartRequest)
+            {
+                if (_mode != NetMode.Client || _hostPeer == null) return;
+                SendCardinalFightEvent(_hostPeer, msg);
+                return;
+            }
+
+            if (_mode != NetMode.Host) return;
+            foreach (var peer in _clients.ToArray())
+                SendCardinalFightEvent(peer, msg);
+        }
+
+        private void SendCardinalFightEvent(NetPeer peer, Gameplay.NetCardinalFightEvent msg)
+        {
+            try
+            {
+                var w = NetMessage.For(NetMessageType.CardinalFightEvent);
+                Gameplay.NetCardinalFightEventCodec.Write(w, msg);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                if (Plugin.Cfg.EnableDebugLog.Value)
+                    NetLogger.Debug($"[Cardinal] failed to send: {ex.Message}");
+            }
+        }
+
+        private void HandleCardinalFightEvent(NetPeer peer, NetDataReader reader)
+        {
+            if (!Plugin.Cfg.EnableCardinalSync.Value) return;
+            if (!Gameplay.NetCardinalFightEventCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[Cardinal] malformed CardinalFightEvent packet");
+                return;
+            }
+            if (!msg.MatchesScene(_runStates.LocalState)) return;
+
+            if (msg.Kind == Gameplay.NetCardinalFightEvent.KindFightStartRequest)
+            {
+                if (_mode != NetMode.Host) return;                       // only the host serves requests
+                Gameplay.CardinalFightSyncManager.HandleClientStartRequest(msg);
+                return;
+            }
+            if (_mode != NetMode.Client) return;                          // commits/teleports are host → clients only
+            Gameplay.CardinalFightSyncManager.ApplyRemote(msg);
+        }
+
         // ---------------------------------------------------------------- Phase LD-1b combat-room door (SetActive) sync
 
         internal void BroadcastLocalTriggerDoors(Gameplay.NetTriggerDoors msg)
@@ -4392,6 +4457,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.CryptChallengeState:
                         HandleCryptChallengeState(peer, reader);
+                        break;
+
+                    case NetMessageType.CardinalFightEvent:
+                        HandleCardinalFightEvent(peer, reader);
                         break;
 
                     case NetMessageType.GateState:

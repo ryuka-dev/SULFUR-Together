@@ -174,6 +174,13 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.BroadcastLocalCryptChallengeState(msg);
         }
 
+        // Phase BGC — Black Guild Cardinal fight. Bidirectional on one channel: the request kind travels client→host,
+        // the commit/teleport kinds host→all. NetService routes by kind (see BroadcastLocalCardinalFightEvent).
+        public static void ReportLocalCardinalFightEvent(NetCardinalFightEvent msg)
+        {
+            _service?.BroadcastLocalCardinalFightEvent(msg);
+        }
+
         // Phase LD-2a — arena lockdown membership + run-state queries (host membership/timer; see ArenaLockdownManager).
         public static void SendClientArenaEnter(NetClientArenaEnter msg) => _service?.SendClientArenaEnter(msg);
 

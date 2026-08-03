@@ -483,5 +483,11 @@ namespace SULFURTogether.Networking
         // reward room), failed (shared death), or a CryptUI bar label update / clear. The client runs no crypt challenge
         // (SP), so these results and the on-screen bar are host-driven.
         CryptChallengeState     = 101,
+
+        // BGC (Black Guild Cardinal): the alcove fight's two host-authoritative decisions on one channel —
+        // client→host "my trigger fired StartFight", host→all "start the fight now" / "cardinal N teleports to alcove
+        // S". Both are vanilla-local decisions (a scene-wired StartFight, and a getUnoccupiedSpawn roll on the global
+        // RNG) that would otherwise leave the two ends with a differently-armed room and differently-placed cardinals.
+        CardinalFightEvent      = 102,
     }
 }
