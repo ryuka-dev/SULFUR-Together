@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.3.1 — The Cardinal, and a door that waits for you
+
+The Black Guild Cardinal fight had never been synced, so the two of you were not fighting the same
+room. That is fixed, and while testing it the arena door turned out to slam shut on whoever was a
+few steps behind — so it now waits for the whole party instead of running a stopwatch. **The network
+protocol changed in this release, so everyone must update to 1.3.1 together — a 1.3.0 player cannot
+join a 1.3.1 session.**
+
+**Fixed:**
+- **The Black Guild Cardinal fight is now shared.** Each player used to get a different set of
+  cardinals in the alcoves: one of you would find a cardinal frozen in place and unkillable, while
+  the other was being shot at by one nobody could see. The room now picks the same cardinals for
+  everyone.
+- **The Cardinal fight starts for both of you.** Whoever walked in started the fight only on their
+  own screen. The other player's cardinals stayed asleep behind their doors and could not be hurt —
+  and if that was the host, none of your shots counted at all. Either player walking in now starts
+  it for everyone, with the same music and the same opening.
+- **Cardinals teleport to the same alcove on both screens.** They pick a new alcove constantly, and
+  each player's game was picking its own, so you were shooting at different places. Everyone now
+  sees the same jump, with the same alcove door opening and the same sound.
+- **A cardinal will not teleport on top of you.** The fight avoids landing on a player, but it only
+  ever knew about one — so it happily dropped onto anyone else, which could fling you across the
+  room. It now avoids every player.
+
+**Changed:**
+- **Boss and elite arena doors wait for the whole party.** The door used to close five seconds after
+  the first player stepped in, which is barely enough time on rooms whose trigger sits in the
+  doorway — the second player was routinely sealed out and teleported in instead of simply walking.
+  The door now closes as soon as everyone has made it inside, and only falls back to a timer
+  (fifteen seconds) if someone never arrives. Anyone still outside at that point is offered the
+  entry prompt exactly as before.
+
 ## 1.3.0 — The freezes
 
 Several unrelated things could stop the game for seconds at a time — the Emperor fight, enemies

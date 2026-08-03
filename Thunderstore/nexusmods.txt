@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.2.4 — Public Beta.[/b] It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+> [b]Version 1.3.1 — Public Beta.[/b] It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
 
 [line]
 
@@ -90,7 +90,7 @@ Your settings save automatically as you type. Quick keys still exist: [b]Page Do
 [*]Remote players, held weapons, and player projectiles[/*]
 [*]Enemy movement/combat sync; host-authoritative enemy damage, deaths, and ranged attacks[/*]
 [*]Co-op downed / revive / death flow with an on-screen rescue prompt[/*]
-[*]Boss-encounter sync for several bosses (Cousin, Witch, Lucia, Desert boss, …)[/*]
+[*]Boss-encounter sync for several bosses (Cousin, Witch, Lucia, Desert boss, Terrorbaum, Black Guild Cardinal, …)[/*]
 [*]Synced destructible objects and player-dropped items[/*]
 [*]Independent per-player character, inventory, equipment, progression, and save[/*]
 [*]Friendly-fire session setting (chosen by the host)[/*]
@@ -228,7 +228,7 @@ This is an unofficial, fan-made mod. It is [b]not[/b] affiliated with or endorse
 [*]远程玩家、手持武器与玩家子弹同步[/*]
 [*]敌人移动/战斗同步；主机权威的敌人伤害、死亡与远程攻击[/*]
 [*]合作的倒地/救援/死亡流程，附带屏幕救援提示[/*]
-[*]多个 Boss 的战斗同步（大表哥、女巫、Lucia、沙漠 Boss……）[/*]
+[*]多个 Boss 的战斗同步（大表哥、女巫、Lucia、沙漠 Boss、恐怖树、黑帮红衣主教……）[/*]
 [*]可破坏物件与玩家丢落物品的同步[/*]
 [*]每位玩家独立的角色、背包、装备、进度与存档[/*]
 [*]友军伤害（友伤）会话开关（由房主决定）[/*]
@@ -366,7 +366,7 @@ Co-op は[b]セーブをロードした状態[/b]でホスト／参加します�
 [*]リモートプレイヤー、手持ち武器、プレイヤーの弾丸の同期[/*]
 [*]敵の移動／戦闘同期、ホスト権威の敵ダメージ・死亡・遠距離攻撃[/*]
 [*]ダウン／蘇生／死亡の協力フロー（画面上の救助プロンプト付き）[/*]
-[*]複数ボスの戦闘同期（カズン、ウィッチ、Lucia、砂漠ボス ほか）[/*]
+[*]複数ボスの戦闘同期（カズン、ウィッチ、Lucia、砂漠ボス、テラーバウム、ブラックギルド枢機卿 ほか）[/*]
 [*]破壊可能オブジェクトとプレイヤーが落としたアイテムの同期[/*]
 [*]プレイヤーごとに独立したキャラクター・インベントリ・装備・進行・セーブ[/*]
 [*]フレンドリーファイア（同士討ち）のセッション設定（ホストが決定）[/*]
@@ -421,6 +421,48 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.3.1 — The Cardinal, and a door that waits for you[/b][/color]
+
+The Black Guild Cardinal fight had never been synced, so the two of you were not fighting the same
+room. That is fixed, and while testing it the arena door turned out to slam shut on whoever was a
+few steps behind — so it now waits for the whole party instead of running a stopwatch. **The network
+protocol changed in this release, so everyone must update to 1.3.1 together — a 1.3.0 player cannot
+join a 1.3.1 session.**
+
+[b]Fixed:[/b]
+[list]
+[*][b]The Black Guild Cardinal fight is now shared.[/b] Each player used to get a different set of[/*]
+[/list]
+  cardinals in the alcoves: one of you would find a cardinal frozen in place and unkillable, while
+  the other was being shot at by one nobody could see. The room now picks the same cardinals for
+  everyone.
+[list]
+[*][b]The Cardinal fight starts for both of you.[/b] Whoever walked in started the fight only on their[/*]
+[/list]
+  own screen. The other player's cardinals stayed asleep behind their doors and could not be hurt —
+  and if that was the host, none of your shots counted at all. Either player walking in now starts
+  it for everyone, with the same music and the same opening.
+[list]
+[*][b]Cardinals teleport to the same alcove on both screens.[/b] They pick a new alcove constantly, and[/*]
+[/list]
+  each player's game was picking its own, so you were shooting at different places. Everyone now
+  sees the same jump, with the same alcove door opening and the same sound.
+[list]
+[*][b]A cardinal will not teleport on top of you.[/b] The fight avoids landing on a player, but it only[/*]
+[/list]
+  ever knew about one — so it happily dropped onto anyone else, which could fling you across the
+  room. It now avoids every player.
+
+[b]Changed:[/b]
+[list]
+[*][b]Boss and elite arena doors wait for the whole party.[/b] The door used to close five seconds after[/*]
+[/list]
+  the first player stepped in, which is barely enough time on rooms whose trigger sits in the
+  doorway — the second player was routinely sealed out and teleported in instead of simply walking.
+  The door now closes as soon as everyone has made it inside, and only falls back to a timer
+  (fifteen seconds) if someone never arrives. Anyone still outside at that point is offered the
+  entry prompt exactly as before.
 
 [color=RoyalBlue][b]1.3.0 — The freezes[/b][/color]
 

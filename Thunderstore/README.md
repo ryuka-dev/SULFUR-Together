@@ -4,7 +4,7 @@ Co-op multiplayer for **SULFUR**.
 
 **Language:** **English** · [简体中文](#简体中文) · [日本語](#日本語)
 
-> **Version 1.2.4 — Public Beta.** It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+> **Version 1.3.1 — Public Beta.** It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
 
 ---
 
@@ -79,7 +79,7 @@ Your settings save automatically as you type. Quick keys still exist: **Page Dow
 - Remote players, held weapons, and player projectiles
 - Enemy movement/combat sync; host-authoritative enemy damage, deaths, and ranged attacks
 - Co-op downed / revive / death flow with an on-screen rescue prompt
-- Boss-encounter sync for several bosses (Cousin, Witch, Lucia, Desert boss, …)
+- Boss-encounter sync for several bosses (Cousin, Witch, Lucia, Desert boss, Terrorbaum, Black Guild Cardinal, …)
 - Synced destructible objects and player-dropped items
 - Independent per-player character, inventory, equipment, progression, and save
 - Friendly-fire session setting (chosen by the host)
@@ -204,7 +204,7 @@ This is an unofficial, fan-made mod. It is **not** affiliated with or endorsed b
 - 远程玩家、手持武器与玩家子弹同步
 - 敌人移动/战斗同步；主机权威的敌人伤害、死亡与远程攻击
 - 合作的倒地/救援/死亡流程，附带屏幕救援提示
-- 多个 Boss 的战斗同步（大表哥、女巫、Lucia、沙漠 Boss……）
+- 多个 Boss 的战斗同步（大表哥、女巫、Lucia、沙漠 Boss、恐怖树、黑帮红衣主教……）
 - 可破坏物件与玩家丢落物品的同步
 - 每位玩家独立的角色、背包、装备、进度与存档
 - 友军伤害（友伤）会话开关（由房主决定）
@@ -329,7 +329,7 @@ Co-op は**セーブをロードした状態**でホスト／参加します（�
 - リモートプレイヤー、手持ち武器、プレイヤーの弾丸の同期
 - 敵の移動／戦闘同期、ホスト権威の敵ダメージ・死亡・遠距離攻撃
 - ダウン／蘇生／死亡の協力フロー（画面上の救助プロンプト付き）
-- 複数ボスの戦闘同期（カズン、ウィッチ、Lucia、砂漠ボス ほか）
+- 複数ボスの戦闘同期（カズン、ウィッチ、Lucia、砂漠ボス、テラーバウム、ブラックギルド枢機卿 ほか）
 - 破壊可能オブジェクトとプレイヤーが落としたアイテムの同期
 - プレイヤーごとに独立したキャラクター・インベントリ・装備・進行・セーブ
 - フレンドリーファイア（同士討ち）のセッション設定（ホストが決定）
