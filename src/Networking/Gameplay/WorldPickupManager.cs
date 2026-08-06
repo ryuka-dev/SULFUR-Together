@@ -194,6 +194,49 @@ namespace SULFURTogether.Networking.Gameplay
                 NetLogger.Info($"[WorldPickup] take request key={e.Key}");
         }
 
+        // ----------------------------------------------------------------- external consumption (mod API)
+
+        /// <summary>Whether this pickup is one the session mirrors — the same object on every peer, whose removal is
+        /// the host's to declare. False for un-synced pickups (loot in Independent mode), which exist only on the
+        /// machine that spawned them and are that machine's to dispose of.</summary>
+        public static bool IsTracked(Pickup p) => p != null && _byPickup.ContainsKey(p);
+
+        /// <summary>
+        /// Host: retire a synced pickup as <b>consumed</b> — removed everywhere, received by nobody.
+        ///
+        /// <para>Same arbitration as a take (first claim on a key wins, so a pickup already granted to a taker is not
+        /// stolen back from them), with an empty taker — the case <see cref="NetWorldPickupRemoved"/> reserved from the
+        /// start. A client gets false and must leave the pickup alone: the host is running the same effect and will
+        /// retire it a moment later.</para>
+        /// </summary>
+        /// <returns>False if the pickup is not synced, this peer is not the host, or the key was already claimed.</returns>
+        public static bool HostConsume(Pickup p)
+        {
+            try
+            {
+                if (p == null) return false;
+                if (!_byPickup.TryGetValue(p, out var e)) return false;
+                if (!NetGameplaySyncBridge.IsSessionActive || !NetGameplaySyncBridge.IsHost) return false;
+
+                string key = e.OwnerPeerId + "#" + e.Seq;
+                if (!_claimed.Add(key)) return false;   // already granted to a taker
+
+                var rm = new NetWorldPickupRemoved { OwnerPeerId = e.OwnerPeerId, Seq = e.Seq, TakenByPeerId = "" };
+                NetGameplaySyncBridge.BroadcastWorldPickupRemoved(rm);  // → clients
+                EnqueueRemoval(key, "");                                // local (host)
+
+                if (Plugin.Cfg.LogWorldItemDropSync.Value)
+                    NetLogger.Info($"[WorldPickup] consumed key={key}");
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                NetLogger.Warn($"[WorldPickup] consume failed: {ex.Message}");
+                return false;
+            }
+        }
+
         // ----------------------------------------------------------------- host arbitration
 
         /// <summary>Host: a client asked to take a pickup. Grant to the first valid requester.</summary>

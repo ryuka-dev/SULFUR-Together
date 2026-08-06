@@ -28,7 +28,7 @@ namespace SULFURTogether.Api
     public static class NetExternalSpawns
     {
         /// <summary>Bumped on any breaking change to this API. A companion mod may gate on it.</summary>
-        public const int ApiVersion = 1;
+        public const int ApiVersion = 2;
 
         /// <summary>
         /// Declare that units <paramref name="owner"/> spawns through the game's own
@@ -41,5 +41,49 @@ namespace SULFURTogether.Api
         /// <exception cref="ArgumentNullException"><paramref name="owner"/> is null.</exception>
         public static IExternalSpawnOwnerRegistration RegisterHostAuthoritativeOwner(MonoBehaviour owner)
             => SULFURTogether.Networking.NetExternalSpawnOwners.Register(owner);
+
+        // ------------------------------------------------------------------ naming a mirrored unit
+        //
+        // Mirroring copies the spawn, not everything the spawner then did to it. A mod that strengthens, shrinks,
+        // recolours or otherwise alters a unit after spawning it applies that on the host, and the puppet on each
+        // client is a plain instance of the same UnitSO — right kind, right place, wrong appearance. ST cannot fix
+        // that generally: it does not know which of the thousands of things a mod might change are worth carrying,
+        // and a blanket state mirror would fight the host-driven puppet pipeline.
+        //
+        // What it can do is lend the mod a name. ST already assigns every tracked unit a spawn index and already
+        // binds host index to local puppet on each client — that is how host damage, death and state reach the right
+        // object. These two calls expose that same pair of lookups so a mod can say "this unit, the one you know as
+        // N" over its own channel, and have every peer apply its own change to its own copy.
+        //
+        // The id is meaningful only within one level and one session; it is not a save-safe identifier and must not
+        // be stored as one. A mod addressing a unit by id should carry its own type guard alongside it — the unit
+        // definition it expects — exactly as ST's own addressed channels do, so that an id which has been recycled
+        // cannot deliver a change to the wrong unit.
+
+        /// <summary>
+        /// Host: the session's id for a unit, or 0 when it has none yet or this peer is not tracking it.
+        /// </summary>
+        /// <param name="unit">The object carrying the game's <c>Unit</c>/<c>Npc</c>, or the component itself.</param>
+        public static int GetSpawnId(Component unit)
+        {
+            if (unit == null) return 0;
+            return SULFURTogether.Networking.Gameplay.NetGameplayProbeManager
+                .TryGetHostEntityBinding(unit, out int spawnIndex, out _) ? spawnIndex : 0;
+        }
+
+        /// <summary>
+        /// Client: the local puppet bound to a host spawn id, or null when nothing is bound to it yet.
+        /// </summary>
+        /// <remarks>
+        /// Null is an ordinary answer, not a failure: a mirror spawn is asynchronous, so a message about a unit can
+        /// arrive before the unit does. A caller should keep the change pending and try again for a second or two
+        /// rather than dropping it.
+        /// </remarks>
+        public static Component ResolveSpawn(int spawnId)
+        {
+            if (spawnId <= 0) return null;
+            return SULFURTogether.Networking.Gameplay.NetGameplayProbeManager
+                .TryGetHostBoundRuntimeObject(spawnId, out object runtime) ? runtime as Component : null;
+        }
     }
 }
