@@ -6649,8 +6649,12 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
         public static bool TryGetClientCorpse(int hostSpawnIndex, out PerfectRandom.Sulfur.Core.Units.Npc? corpse)
+            => TryGetClientCorpse(hostSpawnIndex, out corpse, out _);
+
+        public static bool TryGetClientCorpse(int hostSpawnIndex, out PerfectRandom.Sulfur.Core.Units.Npc? corpse, out string detail)
         {
             corpse = null;
+            detail = "";
             try
             {
                 string? localKey = null;
@@ -6667,15 +6671,16 @@ namespace SULFURTogether.Networking.Gameplay
                 // to the new unit, not the tombstone) and a body the game has already collected fails the runtime-object
                 // check below on its own.
 
-                if (string.IsNullOrWhiteSpace(localKey)) return false;
-                if (!EntitiesByLocalId.TryGetValue(localKey!, out var snapshot) || snapshot == null) return false;
-                if (!snapshot.TryGetRuntimeObject(out var runtimeObject) || runtimeObject == null) return false;
-                if (runtimeObject is UnityEngine.Object uo && uo == null) return false;
+                if (string.IsNullOrWhiteSpace(localKey)) { detail = "no binding and no tombstone"; return false; }
+                if (!EntitiesByLocalId.TryGetValue(localKey!, out var snapshot) || snapshot == null) { detail = "entity dropped from the registry"; return false; }
+                if (!snapshot.TryGetRuntimeObject(out var runtimeObject) || runtimeObject == null) { detail = "runtime object released"; return false; }
+                if (runtimeObject is UnityEngine.Object uo && uo == null) { detail = "body already destroyed"; return false; }
 
                 corpse = runtimeObject as PerfectRandom.Sulfur.Core.Units.Npc;
+                if (corpse == null) detail = $"not an Npc ({runtimeObject.GetType().Name})";
                 return corpse != null;
             }
-            catch { return false; }
+            catch (Exception ex) { detail = $"{ex.GetType().Name}"; return false; }
         }
 
         private static void ReleaseEnemyPuppet(string key, string reason, bool resumeLocalControl = true)

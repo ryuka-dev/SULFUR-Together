@@ -97,11 +97,13 @@ namespace SULFURTogether.Networking.Gameplay
                     return;
                 }
 
-                if (!NetGameplayProbeManager.TryGetClientCorpse(msg.HostSpawnIndex, out Npc? corpse) || corpse == null)
+                if (!NetGameplayProbeManager.TryGetClientCorpse(msg.HostSpawnIndex, out Npc? corpse, out string lookupDetail) || corpse == null)
                 {
                     _clientGibsNoCorpse++;
-                    if (Plugin.Cfg.LogCorpseGibSync.Value)
-                        NetLogger.Info($"[CorpseGib] client drop {msg.ToCompact()} (no local body)");
+                    // Logged unconditionally with the reason: Log24 left 4 of these unexplained, and "no local body"
+                    // covers three quite different situations — never bound, tombstoned but the entity is gone, or the
+                    // body already collected by the game.
+                    NetLogger.Info($"[CorpseGib] client NO BODY {msg.ToCompact()} reason={lookupDetail}");
                     return;
                 }
 
@@ -128,8 +130,14 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _clientCorpseHitsSent;
         private static int _hostCorpseHitsRecv;
         private static int _hostCorpseHitsApplied;
-        private static int _hostCorpseHitsRejected;
         private static int _hostCorpseHitsRateLimited;   // split out: Log23 could not tell a full budget from a bad packet
+        // Rejections split by reason for the same lesson twice over — Log23 hid 647 throws behind one number, and
+        // Log24 then hid a perfectly normal outcome (hits arriving after the body already burst) behind another.
+        private static int _hostRejScene;
+        private static int _hostRejGone;      // body already burst or despawned — the expected post-burst tail
+        private static int _hostRejType;
+        private static int _hostRejAlive;
+        private static int _hostRejPayload;
 
         /// <summary>Per-peer arrival budget. Sized off what a multi-pellet weapon actually produces, not off "five
         /// hits": vanilla counts every pellet as its own <c>frozenDamageInstances</c>, so one shotgun blast is already
@@ -165,6 +173,11 @@ namespace SULFURTogether.Networking.Gameplay
                 // Only a body the host owns. A client-only corpse is this end's business and vanilla is right for it.
                 if (!NetGameplayProbeManager.TryGetClientCorpseSpawnIndex(corpse, out int hostIdx, out string unitIdentifier))
                     return false;
+
+                // Already burst as far as this end knows. Log24 spent 105 of 201 forwarded hits on bodies the host had
+                // finished with — shots that kept landing during the round trip and after it. Still claimed, so the
+                // local copy cannot burst on its own, but not sent.
+                if (_gibbedSpawnIndices.Contains(hostIdx)) return true;
 
                 if (!NetRunStateBridge.TryGetLocalRunState(out var state) || !state.HasLevel)
                     return true;   // claimed but unsendable — still must not burst locally
@@ -211,35 +224,35 @@ namespace SULFURTogether.Networking.Gameplay
                 _hostCorpseHitsRecv++;
 
                 if (!NetRunStateBridge.TryGetLocalRunState(out var hostState) || !msg.MatchesScene(hostState))
-                { _hostCorpseHitsRejected++; return; }
+                { _hostRejScene++; return; }
 
                 if (!ConsumePeerBudget(peerId)) { _hostCorpseHitsRateLimited++; return; }
 
                 if (!NetGameplayProbeManager.TryGetRuntimeObjectForSpawnIndex(msg.TargetHostSpawnIndex, out object? runtimeObject)
                     || runtimeObject is not Npc corpse || corpse == null)
-                { _hostCorpseHitsRejected++; return; }
+                { _hostRejGone++; return; }
 
                 // Type guard, same shape as every other addressed-by-index channel here.
                 if (!string.IsNullOrEmpty(msg.TargetUnitIdentifier)
                     && NetGameplayProbeManager.TryGetHostEntityBinding(corpse, out _, out string hostUnitId)
                     && !string.IsNullOrEmpty(hostUnitId)
                     && !string.Equals(hostUnitId, msg.TargetUnitIdentifier, StringComparison.Ordinal))
-                { _hostCorpseHitsRejected++; return; }
+                { _hostRejType++; return; }
 
                 // The whole point is the dead-unit section. A living unit reached through this channel would take
                 // real damage outside the validated hit path, so it is refused rather than clamped.
-                if (corpse.IsAlive) { _hostCorpseHitsRejected++; return; }
+                if (corpse.IsAlive) { _hostRejAlive++; return; }
 
                 float damage = msg.Damage;
-                if (float.IsNaN(damage) || float.IsInfinity(damage) || damage < 0f) { _hostCorpseHitsRejected++; return; }
+                if (float.IsNaN(damage) || float.IsInfinity(damage) || damage < 0f) { _hostRejPayload++; return; }
                 if (damage > MaxCorpseHitDamage) damage = MaxCorpseHitDamage;
 
                 // DamageTypes is `: byte`. Handing Enum.IsDefined an int for a byte-backed enum does not return false,
                 // it THROWS — which is how Log23 lost all 647 hits that got past the rate limit, each one caught by
                 // this method's own catch and therefore counted as neither applied nor rejected.
-                if (msg.DamageTypeInt < 0 || msg.DamageTypeInt > byte.MaxValue) { _hostCorpseHitsRejected++; return; }
+                if (msg.DamageTypeInt < 0 || msg.DamageTypeInt > byte.MaxValue) { _hostRejPayload++; return; }
                 byte damageTypeByte = (byte)msg.DamageTypeInt;
-                if (!Enum.IsDefined(typeof(DamageTypes), damageTypeByte)) { _hostCorpseHitsRejected++; return; }
+                if (!Enum.IsDefined(typeof(DamageTypes), damageTypeByte)) { _hostRejPayload++; return; }
                 var damageType = (DamageTypes)damageTypeByte;
 
                 Unit? source = null;
@@ -285,7 +298,7 @@ namespace SULFURTogether.Networking.Gameplay
             => $"hostGibsSent={_hostGibsSent} clientGibsApplied={_clientGibsApplied} " +
                $"clientGibsNoCorpse={_clientGibsNoCorpse} clientGibsDuplicate={_clientGibsDuplicate} " +
                $"clientCorpseHitsSent={_clientCorpseHitsSent} hostCorpseHitsRecv={_hostCorpseHitsRecv} " +
-               $"hostCorpseHitsApplied={_hostCorpseHitsApplied} hostCorpseHitsRejected={_hostCorpseHitsRejected} " +
-               $"hostCorpseHitsRateLimited={_hostCorpseHitsRateLimited}";
+               $"hostCorpseHitsApplied={_hostCorpseHitsApplied} hostCorpseHitsRateLimited={_hostCorpseHitsRateLimited} " +
+               $"rejScene={_hostRejScene} rejGone={_hostRejGone} rejType={_hostRejType} rejAlive={_hostRejAlive} rejPayload={_hostRejPayload}";
     }
 }
