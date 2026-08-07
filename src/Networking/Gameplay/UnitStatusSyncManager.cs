@@ -560,6 +560,7 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _clientFrozenRollsSuppressed;
         private static int _clientShattersReplayed;
         private static int _clientShatterUnreached;
+        private static int _clientShatterUnobservable;
 
         /// <summary>Set only while this class is driving a host-authorised shatter through vanilla.</summary>
         private static bool _clientShatterAuthorised;
@@ -583,6 +584,15 @@ namespace SULFURTogether.Networking.Gameplay
             if (npc.Stats.GetStatus(frozen) >= target)
                 npc.Stats.SetStatus(frozen, target - 1f, skipOwnerCallback: true);
 
+            // ST-3-PROBE. Whether the branch RAN is taken from the branch's own first synchronous act: before it pins
+            // the value and starts DelayedFrozenSolid it stops and CLEARS this status' effect-update coroutines.
+            //
+            // `IsFrozenSolid` cannot answer this question, and the first cut's use of it was worthless: it is
+            // `GetStatus(Frozen) >= 100`, which this method has just written itself, so it reads true whether or not
+            // the branch was ever reached. Log541/Log17 therefore reported a full count of replayed shatters while the
+            // maintainer was watching the ice fail to appear.
+            int coroutinesBefore = CountEffectUpdates(npc, frozen);
+
             bool previousMaxChance = GlobalSettings.Debug.MaxFrozenSolidChance;
             _clientShatterAuthorised = true;
             try
@@ -596,16 +606,45 @@ namespace SULFURTogether.Networking.Gameplay
                 _clientShatterAuthorised = false;
             }
 
-            if (npc.IsFrozenSolid) _clientShattersReplayed++;
-            else
+            int coroutinesAfter = CountEffectUpdates(npc, frozen);
+
+            if (coroutinesBefore > 0 && coroutinesAfter == 0)
             {
-                // The remaining vanilla guard is `newValue >= 100 && (health <= 0 || !IsAlive) → skip`, i.e. the
-                // puppet's mirrored health already reached zero before this edge landed. The enemy is dying anyway;
-                // the only loss is the ice.
-                _clientShatterUnreached++;
-                if (Plugin.Cfg.LogUnitStatusSync.Value)
-                    NetLogger.Info($"[UnitStatus] client shatter not reached unit={npc.name} (health/alive guard)");
+                _clientShattersReplayed++;
+                return;
             }
+
+            if (coroutinesBefore == 0)
+            {
+                // Nothing was there to be cleared, so the probe cannot separate "ran" from "refused" — the puppet had
+                // no live effect coroutine for this status (it already shattered here, or the effect was raised while
+                // the GameObject could not start one). Counted apart so it inflates neither verdict.
+                _clientShatterUnobservable++;
+                if (Plugin.Cfg.LogUnitStatusSync.Value)
+                    NetLogger.Info($"[UnitStatus] client shatter unobservable unit={npc.name} (no live Frozen effect coroutine to clear)");
+                return;
+            }
+
+            // The branch was reached and refused. The only vanilla guard left is
+            // `newValue >= 100 && (health <= 0 || !IsAlive)`, so this is the mirrored death/health landing ahead of the
+            // flagged edge. Dump both of its inputs — that is the whole diagnosis.
+            _clientShatterUnreached++;
+            NetLogger.Info($"[UnitStatus] client SHATTER MISSED unit={npc.name} " +
+                           $"hp={npc.Stats.GetStatus(EntityAttributes.Status_CurrentHealth):F1} alive={npc.IsAlive} " +
+                           $"state={npc.unitState} frozen={npc.Stats.GetStatus(frozen):F1} coroutines={coroutinesBefore}→{coroutinesAfter}");
+        }
+
+        /// <summary>Live effect-update coroutines vanilla is holding for this status on this unit. Public field on
+        /// <c>Unit</c>; read defensively because it is the game's own collection.</summary>
+        private static int CountEffectUpdates(Unit unit, EntityAttributes id)
+        {
+            try
+            {
+                var map = unit.effectUpdates;
+                if (map != null && map.TryGetValue(id, out var list) && list != null) return list.Count;
+            }
+            catch { }
+            return 0;
         }
 
         /// <summary>
@@ -647,6 +686,7 @@ namespace SULFURTogether.Networking.Gameplay
                $"hostRecv={_hostRequestsRecv} hostApplied={_hostRequestsApplied} hostRejected={_hostRequestsRejected} " +
                $"hostEdgesSent={_hostEdgesSent} hostEdgesRaise={_hostEdgesRaise} hostEdgesCoalesced={_hostEdgesCoalesced} hostFrozenSolid={_hostFrozenSolidSent} " +
                $"clientEdgesApplied={_clientEdgesApplied} clientEdgesDropped={_clientEdgesDropped} clientEdgesDroppedInactive={_clientEdgesDroppedInactive} " +
-               $"clientFrozenRollsSuppressed={_clientFrozenRollsSuppressed} clientShattersReplayed={_clientShattersReplayed} clientShatterUnreached={_clientShatterUnreached}";
+               $"clientFrozenRollsSuppressed={_clientFrozenRollsSuppressed} clientShattersReplayed={_clientShattersReplayed} " +
+               $"clientShatterUnreached={_clientShatterUnreached} clientShatterUnobservable={_clientShatterUnobservable}";
     }
 }
