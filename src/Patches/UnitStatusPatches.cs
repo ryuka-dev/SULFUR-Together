@@ -169,14 +169,22 @@ namespace SULFURTogether.Patches
 
         // ST-3-DIFF. Diagnostic only: record which of the two bool-owning methods ran, with the arguments that decide
         // whether RemoveEffect takes its early return, and the state of the animator bool afterwards.
+        //
+        // This is the frequent half of the probe — every Frozen transition on every unit, several hundred a session —
+        // and it has already answered its question (the Frozen effect declares no animatorParameter, so neither of
+        // these methods touches the pose and only DelayedFrozenSolid does). Gated behind the diagnostic switch rather
+        // than deleted: it is what would name the culprit again if the pose ever diverges a second time. The
+        // death-time diff line stays unconditional — it is rare, and it is the regression canary for ST-3e.
         private static void ApplyEffect_Post(AttributeEffect __instance, Unit unit, float attrValue)
         {
+            if (!Plugin.Cfg.LogUnitStatusSync.Value) return;
             if (__instance.id != EntityAttributes.NegativeEffect_Frozen || unit is not Npc npc) return;
             FrozenSolidDiffProbe.NoteTransition(unit, $"A{attrValue:F0}:{AnimBool(__instance, npc)}");
         }
 
         private static void RemoveEffect_Post(AttributeEffect __instance, Unit unit, bool died, bool forceFullRemove, float removeValue)
         {
+            if (!Plugin.Cfg.LogUnitStatusSync.Value) return;
             if (__instance.id != EntityAttributes.NegativeEffect_Frozen || unit is not Npc npc) return;
             FrozenSolidDiffProbe.NoteTransition(unit,
                 $"R(d={(died ? 'T' : 'F')},f={(forceFullRemove ? 'T' : 'F')},v={removeValue:F0}):{AnimBool(__instance, npc)}");
