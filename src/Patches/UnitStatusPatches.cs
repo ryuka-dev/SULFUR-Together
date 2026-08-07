@@ -123,6 +123,18 @@ namespace SULFURTogether.Patches
                 postfix: new HarmonyMethod(typeof(UnitStatusPatches).GetMethod(nameof(ReApplyEffect_Post), BindingFlags.Static | BindingFlags.NonPublic)));
 
             Plugin.Log.Info("[UnitStatus] Patched AttributeEffect.ReApplyEffect (frozen-solid authority).");
+
+            // ST-3-DIFF: diagnostic-only postfixes on the ONLY two methods that touch the frozen animator bool —
+            // ApplyEffect sets it, RemoveEffect clears it. Neither postfix changes anything; they record what ran.
+            var applyEffect  = AccessTools.DeclaredMethod(typeof(AttributeEffect), "ApplyEffect");
+            var removeEffect = AccessTools.DeclaredMethod(typeof(AttributeEffect), "RemoveEffect");
+            if (applyEffect != null)
+                harmony.Patch(applyEffect, postfix: new HarmonyMethod(
+                    typeof(UnitStatusPatches).GetMethod(nameof(ApplyEffect_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+            if (removeEffect != null)
+                harmony.Patch(removeEffect, postfix: new HarmonyMethod(
+                    typeof(UnitStatusPatches).GetMethod(nameof(RemoveEffect_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+            Plugin.Log.Info($"[UnitStatus] Patched AttributeEffect.ApplyEffect({applyEffect != null})/RemoveEffect({removeEffect != null}) (frozen transition trail, diagnostic).");
         }
 
         private static bool ReApplyEffect_Pre(AttributeEffect __instance, Unit unit, float newValue)
@@ -147,6 +159,34 @@ namespace SULFURTogether.Patches
                 Plugin.Log.Warn($"[UnitStatus] ReApplyEffect_Pre failed: {ex.GetType().Name}: {ex.Message}");
                 return true; // on our own failure, let the vanilla application run
             }
+        }
+
+        // ST-3-DIFF. Diagnostic only: record which of the two bool-owning methods ran, with the arguments that decide
+        // whether RemoveEffect takes its early return, and the state of the animator bool afterwards.
+        private static void ApplyEffect_Post(AttributeEffect __instance, Unit unit, float attrValue)
+        {
+            if (__instance.id != EntityAttributes.NegativeEffect_Frozen || unit is not Npc npc) return;
+            FrozenSolidDiffProbe.NoteTransition(unit, $"A{attrValue:F0}:{AnimBool(__instance, npc)}");
+        }
+
+        private static void RemoveEffect_Post(AttributeEffect __instance, Unit unit, bool died, bool forceFullRemove, float removeValue)
+        {
+            if (__instance.id != EntityAttributes.NegativeEffect_Frozen || unit is not Npc npc) return;
+            FrozenSolidDiffProbe.NoteTransition(unit,
+                $"R(d={(died ? 'T' : 'F')},f={(forceFullRemove ? 'T' : 'F')},v={removeValue:F0}):{AnimBool(__instance, npc)}");
+        }
+
+        /// <summary>The animator bool this effect owns, read back after the call. '-' when the effect declares none.</summary>
+        private static string AnimBool(AttributeEffect effect, Npc npc)
+        {
+            try
+            {
+                string param = ResolveActiveEffect(effect, npc).animatorParameter;
+                if (string.IsNullOrEmpty(param)) return "-";
+                var a = npc.animator;
+                return a == null ? "?" : (a.GetBool(param) ? "T" : "F");
+            }
+            catch { return "?"; }
         }
 
         private static void ReApplyEffect_Post(AttributeEffect __instance, Unit unit)

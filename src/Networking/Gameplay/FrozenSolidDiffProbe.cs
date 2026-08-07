@@ -27,6 +27,11 @@ namespace SULFURTogether.Networking.Gameplay
         /// <c>Die()</c>, the puppet release, vanilla's own death coroutines — has already landed.</summary>
         private const int ReportDelayFrames = 4;
 
+        /// <summary>A second, later sample. Log19 showed one client corpse already at <c>frozen=98.0</c> while the host
+        /// sat at 100: the decay coroutines are still running on a non-shattered corpse, so "de-ices over time on one
+        /// end only" is a live possibility that a single early sample cannot see.</summary>
+        private const int LateReportDelayFrames = 60;
+
         /// <summary>Bounded so a pathological session cannot grow this without limit; a frozen-solid death is rare
         /// enough (94 in the busiest round so far) that this is never reached in practice.</summary>
         private const int MaxPending = 64;
@@ -37,9 +42,46 @@ namespace SULFURTogether.Networking.Gameplay
             public int    HostSpawnIndex;
             public int    ReportFrame;
             public bool   Shattered;
+            public string Sample = "";
         }
 
         private static readonly List<Pending> _pending = new List<Pending>();
+
+        // ---- effect transition trail -------------------------------------------------------------------------
+        // Log19 localised the divergence to ONE field: the frozen animator bool, absent on the client for exactly the
+        // deaths that did NOT shatter (11 of 12) and present on the host for all of them. Only two vanilla methods
+        // touch that bool — ApplyEffect sets it, RemoveEffect clears it — so recording which of them ran, in order,
+        // with their arguments and the resulting bool, names the culprit instead of guessing at a fourth mechanism.
+        // Bounded in both directions and cleared with the rest of the client state.
+
+        private const int MaxTrailUnits = 128;
+        private const int MaxTrailChars = 200;
+        private static readonly Dictionary<int, string> _trail = new Dictionary<int, string>();
+
+        /// <summary>Diagnostic: append one Frozen effect transition for this unit.</summary>
+        public static void NoteTransition(Unit unit, string entry)
+        {
+            try
+            {
+                if (unit == null) return;
+                int id = unit.GetInstanceID();
+                if (!_trail.TryGetValue(id, out string? s))
+                {
+                    if (_trail.Count >= MaxTrailUnits) return;
+                    s = "";
+                }
+                s = s!.Length == 0 ? entry : s + ">" + entry;
+                if (s.Length > MaxTrailChars) s = "…" + s.Substring(s.Length - MaxTrailChars);
+                _trail[id] = s;
+            }
+            catch { }
+        }
+
+        private static string Trail(Unit unit)
+        {
+            try { return _trail.TryGetValue(unit.GetInstanceID(), out string? s) ? s! : "-"; }
+            catch { return "?"; }
+        }
 
         /// <summary>Spawn indices whose frozen-solid came from a real shatter (vanilla's roll on the host, the replay
         /// on a client) rather than merely dying with the status at the cap. The two look different in vanilla and
@@ -57,6 +99,7 @@ namespace SULFURTogether.Networking.Gameplay
         {
             _pending.Clear();
             _shattered.Clear();
+            _trail.Clear();
         }
 
         public static void Schedule(object? runtimeObject, int hostSpawnIndex)
@@ -64,14 +107,19 @@ namespace SULFURTogether.Networking.Gameplay
             try
             {
                 if (runtimeObject is not Npc npc || npc == null) return;
-                if (_pending.Count >= MaxPending) return;
-                _pending.Add(new Pending
-                {
-                    Unit           = npc,
-                    HostSpawnIndex = hostSpawnIndex,
-                    ReportFrame    = Time.frameCount + ReportDelayFrames,
-                    Shattered      = DidShatter(hostSpawnIndex),
-                });
+                if (_pending.Count + 2 > MaxPending) return;
+
+                // One death reaches this from two places on a client — the death-mirror apply and the local death
+                // report that the mirrored Die() itself raises — which is why Log19 carried two identical client lines
+                // per unit. Same unit already queued means the same death.
+                for (int i = 0; i < _pending.Count; i++)
+                    if (ReferenceEquals(_pending[i].Unit, npc)) return;
+
+                int now = Time.frameCount;
+                _pending.Add(new Pending { Unit = npc, HostSpawnIndex = hostSpawnIndex, Shattered = DidShatter(hostSpawnIndex),
+                                           ReportFrame = now + ReportDelayFrames,     Sample = "settle" });
+                _pending.Add(new Pending { Unit = npc, HostSpawnIndex = hostSpawnIndex, Shattered = DidShatter(hostSpawnIndex),
+                                           ReportFrame = now + LateReportDelayFrames, Sample = "late" });
             }
             catch { }
         }
@@ -97,7 +145,7 @@ namespace SULFURTogether.Networking.Gameplay
 
             if (npc == null)
             {
-                NetLogger.Info($"[FrozenDiff] role={role} idx={p.HostSpawnIndex} shattered={p.Shattered} unit=DESTROYED");
+                NetLogger.Info($"[FrozenDiff] role={role} sample={p.Sample} idx={p.HostSpawnIndex} shattered={p.Shattered} unit=DESTROYED");
                 return;
             }
 
@@ -151,9 +199,9 @@ namespace SULFURTogether.Networking.Gameplay
             catch { }
 
             NetLogger.Info(
-                $"[FrozenDiff] role={role} idx={p.HostSpawnIndex} shattered={p.Shattered} unit={npc.name} " +
+                $"[FrozenDiff] role={role} sample={p.Sample} idx={p.HostSpawnIndex} shattered={p.Shattered} unit={npc.name} " +
                 $"frozen={frozen:F1} isSolid={isSolid} state={npc.unitState} active={npc.gameObject.activeInHierarchy} " +
-                $"{anim} {mat} {phys}");
+                $"{anim} {mat} {phys} trail={Trail(npc)}");
         }
 
         private static string SafeGetBool(Animator a, string name)

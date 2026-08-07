@@ -1060,6 +1060,7 @@ namespace SULFURTogether.Networking.Gameplay
             _deathRejectedUnboundNetEntity = 0;
             _clientOnlyCombatQuarantined = 0;
             _quarantinedCombatSuppressed = 0;
+            FrozenSolidDiffProbe.Reset();   // ST-3-DIFF: pending samples and effect trails are per-level
             // Phase 5.1: clear health caches and event sequences.
             ClientPuppetHealthBySpawnIndex.Clear();
             ClientPuppetMaxHealthBySpawnIndex.Clear();
