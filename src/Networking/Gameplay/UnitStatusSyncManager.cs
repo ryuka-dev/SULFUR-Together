@@ -560,91 +560,83 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _clientFrozenRollsSuppressed;
         private static int _clientShattersReplayed;
         private static int _clientShatterUnreached;
-        private static int _clientShatterUnobservable;
-
-        /// <summary>Set only while this class is driving a host-authorised shatter through vanilla.</summary>
-        private static bool _clientShatterAuthorised;
 
         /// <summary>
-        /// Client: reproduce the host's frozen-solid on a bound puppet by letting VANILLA do it, rather than
-        /// re-implementing the ice material, the animator bool, the shatter sound and the gib mode by hand.
-        /// <para>Two things have to hold for <c>ReApplyEffectImp</c> to reach its shatter branch: the write must be an
-        /// INCREASE, and the roll must pass. The increase is guaranteed by nudging a puppet that is somehow already at
-        /// the cap back below it (an unobservable write — owner callback off); the roll is made certain by the game's
-        /// own <c>GlobalSettings.Debug.MaxFrozenSolidChance</c>, which forces the health term to 1, against a value of
-        /// 100 where the value term is already 1. The window is strictly synchronous — <c>ReApplyEffectImp</c> does its
-        /// roll before it starts any coroutine — so no other unit, and no player, can be rolled inside it.</para>
+        /// Client: reproduce the host's frozen-solid on a bound puppet. The roll is never re-run here — the host has
+        /// already made that decision — but every visible consequence of it is still produced by the game's own code
+        /// rather than restated: the frost material through the ordinary status write, and the pose, ice shader and
+        /// shatter sound by running vanilla's <c>DelayedFrozenSolid</c> itself.
         /// </summary>
         private static void ApplyHostFrozenSolid(Npc npc, float value)
         {
             const EntityAttributes frozen = EntityAttributes.NegativeEffect_Frozen;
             float target = Mathf.Max(value, 100f);
 
-            // Vanilla breaks out of the shatter branch unless newValue > prevValue.
-            if (npc.Stats.GetStatus(frozen) >= target)
-                npc.Stats.SetStatus(frozen, target - 1f, skipOwnerCallback: true);
+            // 1. Value + presentation through the normal owner callback, so the frost material reaches full coverage by
+            //    the game's own path. Our ReApplyEffect prefix keeps the roll from firing here, which is also what stops
+            //    a second DelayedFrozenSolid from being queued behind the one step 3 runs.
+            _clientFrozenValueWriteInProgress = true;
+            try { npc.Stats.SetStatus(frozen, target); }
+            finally { _clientFrozenValueWriteInProgress = false; }
 
-            // ST-3-PROBE. Whether the branch RAN is taken from the branch's own first synchronous act: before it pins
-            // the value and starts DelayedFrozenSolid it stops and CLEARS this status' effect-update coroutines.
+            // 2. What vanilla's shatter branch does next: stop this status' own effect coroutines. Not optional — the
+            //    frost otherwise keeps decaying and `IsFrozenSolid`, an exact `>= 100` test, drops back to false within
+            //    a frame or two, taking the ice corpse with it.
+            int stopped = StopEffectUpdates(npc, frozen);
+
+            // 3. Run vanilla's DelayedFrozenSolid NOW instead of leaving it queued as a coroutine.
             //
-            // `IsFrozenSolid` cannot answer this question, and the first cut's use of it was worthless: it is
-            // `GetStatus(Frozen) >= 100`, which this method has just written itself, so it reads true whether or not
-            // the branch was ever reached. Log541/Log17 therefore reported a full count of replayed shatters while the
-            // maintainer was watching the ice fail to appear.
-            int coroutinesBefore = CountEffectUpdates(npc, frozen);
+            //    Its first statement is `yield return null`, and on the host that costs nothing because the coroutine is
+            //    itself the cause of the death: pose and ice shader go on, and only then does it deal the lethal damage.
+            //    A client has no such ordering. Log543 caught the inversion directly — the flagged status edge and the
+            //    death event arrive in the SAME frame (`f=13394`), so `Npc.Die()` ran while the coroutine had not
+            //    executed a single line, and it resumed a frame later against a corpse already playing its death
+            //    animation, where `SetBool("Frozen")` no longer reaches the frozen pose. Driving the same vanilla body
+            //    synchronously removes the frame the client cannot afford, and changes nothing else about it.
+            //
+            //    Its last statement is `ReceiveDamage(+infinity)`, which is swallowed here by TrySendClientHitRequest's
+            //    non-finite guard — guaranteed, not hoped for: this method is only reached through a puppet the caller
+            //    resolved via its host binding, which is exactly what that guard requires to be in place.
+            bool played = SULFURTogether.Patches.UnitStatusPatches.TryPlayFrozenSolidNow(npc, out string detail);
 
-            bool previousMaxChance = GlobalSettings.Debug.MaxFrozenSolidChance;
-            _clientShatterAuthorised = true;
-            try
-            {
-                GlobalSettings.Debug.MaxFrozenSolidChance = true;
-                npc.Stats.SetStatus(frozen, target);
-            }
-            finally
-            {
-                GlobalSettings.Debug.MaxFrozenSolidChance = previousMaxChance;
-                _clientShatterAuthorised = false;
-            }
-
-            int coroutinesAfter = CountEffectUpdates(npc, frozen);
-
-            if (coroutinesBefore > 0 && coroutinesAfter == 0)
+            if (played)
             {
                 _clientShattersReplayed++;
-                return;
-            }
-
-            if (coroutinesBefore == 0)
-            {
-                // Nothing was there to be cleared, so the probe cannot separate "ran" from "refused" — the puppet had
-                // no live effect coroutine for this status (it already shattered here, or the effect was raised while
-                // the GameObject could not start one). Counted apart so it inflates neither verdict.
-                _clientShatterUnobservable++;
                 if (Plugin.Cfg.LogUnitStatusSync.Value)
-                    NetLogger.Info($"[UnitStatus] client shatter unobservable unit={npc.name} (no live Frozen effect coroutine to clear)");
+                    NetLogger.Info($"[UnitStatus] client replayed frozen-solid unit={npc.name} ({detail}, {stopped} decay coroutine(s) stopped)");
                 return;
             }
 
-            // The branch was reached and refused. The only vanilla guard left is
-            // `newValue >= 100 && (health <= 0 || !IsAlive)`, so this is the mirrored death/health landing ahead of the
-            // flagged edge. Dump both of its inputs — that is the whole diagnosis.
+            // Success here means vanilla's own body ran to completion — something this code cannot fake, which the
+            // first two attempts at measuring this could (`IsFrozenSolid` was tautological, and the effect-coroutine
+            // count became tautological the moment step 2 started clearing it here).
             _clientShatterUnreached++;
-            NetLogger.Info($"[UnitStatus] client SHATTER MISSED unit={npc.name} " +
+            NetLogger.Info($"[UnitStatus] client SHATTER MISSED unit={npc.name} reason={detail} " +
                            $"hp={npc.Stats.GetStatus(EntityAttributes.Status_CurrentHealth):F1} alive={npc.IsAlive} " +
-                           $"state={npc.unitState} frozen={npc.Stats.GetStatus(frozen):F1} coroutines={coroutinesBefore}→{coroutinesAfter}");
+                           $"state={npc.unitState} frozen={npc.Stats.GetStatus(frozen):F1}");
         }
 
-        /// <summary>Live effect-update coroutines vanilla is holding for this status on this unit. Public field on
-        /// <c>Unit</c>; read defensively because it is the game's own collection.</summary>
-        private static int CountEffectUpdates(Unit unit, EntityAttributes id)
+        /// <summary>Stop and clear the effect-update coroutines vanilla is holding for this status, exactly as its own
+        /// shatter branch does. <c>Unit.effectUpdates</c> is a public field; read defensively because it is the game's
+        /// own collection, and skip nulls (vanilla adds a null whenever <c>StartCoroutine</c> was called on an inactive
+        /// object — the ST-2-INACTIVE defect).</summary>
+        private static int StopEffectUpdates(Npc npc, EntityAttributes id)
         {
+            int stopped = 0;
             try
             {
-                var map = unit.effectUpdates;
-                if (map != null && map.TryGetValue(id, out var list) && list != null) return list.Count;
+                var map = npc.effectUpdates;
+                if (map == null || !map.TryGetValue(id, out var list) || list == null) return 0;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i] == null) continue;
+                    npc.StopCoroutine(list[i]);
+                    stopped++;
+                }
+                list.Clear();
             }
             catch { }
-            return 0;
+            return stopped;
         }
 
         /// <summary>
@@ -658,11 +650,12 @@ namespace SULFURTogether.Networking.Gameplay
         public static bool SuppressClientFrozenSolidRoll(Unit unit, EntityAttributes id)
         {
             if (id != EntityAttributes.NegativeEffect_Frozen) return false;
-            if (_clientShatterAuthorised) return false;
 
-            // ST-3c: the pre-death assert wants the VALUE and the frost material, never a roll — and it may run on a
-            // puppet whose binding was already released, which the ordinary test below would wave through to vanilla.
-            if (_clientDeathFrozenAssertInProgress)
+            // This class is writing the value itself and wants only the material out of the callback, never a roll.
+            // Unconditional, ahead of the binding test below: the pre-death assert can run on a puppet whose binding
+            // was already released, and the shatter replay resolves its target through a different map than the test
+            // uses — in either case falling through to vanilla would queue a second DelayedFrozenSolid.
+            if (_clientFrozenValueWriteInProgress)
             {
                 _clientFrozenRollsSuppressed++;
                 return true;
@@ -687,7 +680,7 @@ namespace SULFURTogether.Networking.Gameplay
         // decay between them, sits a fraction under the cap and loses an exact comparison. See
         // NetGameplayDeathEvent.FlagFrozenSolid.
 
-        private static bool _clientDeathFrozenAssertInProgress;
+        private static bool _clientFrozenValueWriteInProgress;
         private static int  _clientDeathFrozenAsserted;
         private static int  _clientDeathFrozenAlready;
 
@@ -717,9 +710,9 @@ namespace SULFURTogether.Networking.Gameplay
                 // ST-2-INACTIVE: never drive the effect pipeline onto a puppet the NPC LOD switched off.
                 if (!npc.gameObject.activeInHierarchy) return;
 
-                _clientDeathFrozenAssertInProgress = true;
+                _clientFrozenValueWriteInProgress = true;
                 try { npc.Stats.SetStatus(EntityAttributes.NegativeEffect_Frozen, 100f); }
-                finally { _clientDeathFrozenAssertInProgress = false; }
+                finally { _clientFrozenValueWriteInProgress = false; }
 
                 _clientDeathFrozenAsserted++;
                 if (Plugin.Cfg.LogUnitStatusSync.Value)
@@ -751,7 +744,7 @@ namespace SULFURTogether.Networking.Gameplay
                $"hostEdgesSent={_hostEdgesSent} hostEdgesRaise={_hostEdgesRaise} hostEdgesCoalesced={_hostEdgesCoalesced} hostFrozenSolid={_hostFrozenSolidSent} " +
                $"clientEdgesApplied={_clientEdgesApplied} clientEdgesDropped={_clientEdgesDropped} clientEdgesDroppedInactive={_clientEdgesDroppedInactive} " +
                $"clientFrozenRollsSuppressed={_clientFrozenRollsSuppressed} clientShattersReplayed={_clientShattersReplayed} " +
-               $"clientShatterUnreached={_clientShatterUnreached} clientShatterUnobservable={_clientShatterUnobservable} " +
+               $"clientShatterUnreached={_clientShatterUnreached} " +
                $"clientDeathFrozenAsserted={_clientDeathFrozenAsserted} clientDeathFrozenAlready={_clientDeathFrozenAlready}";
     }
 }

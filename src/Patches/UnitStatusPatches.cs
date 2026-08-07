@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
@@ -39,6 +40,7 @@ namespace SULFURTogether.Patches
         // is the EMP-DW mistake.
         private static MethodInfo? _getPotentialOverride;   // AttributeEffect GetPotentialOverride(Unit)
         private static MethodInfo? _updateMovementSpeed;    // void UpdateMovementSpeed(Npc)
+        private static MethodInfo? _delayedFrozenSolid;     // IEnumerator DelayedFrozenSolid(Npc)
 
         public static void Apply(Harmony harmony)
         {
@@ -110,8 +112,11 @@ namespace SULFURTogether.Patches
 
             _getPotentialOverride = AccessTools.DeclaredMethod(typeof(AttributeEffect), "GetPotentialOverride");
             _updateMovementSpeed  = AccessTools.DeclaredMethod(typeof(AttributeEffect), "UpdateMovementSpeed");
+            _delayedFrozenSolid   = AccessTools.DeclaredMethod(typeof(AttributeEffect), "DelayedFrozenSolid");
             if (_updateMovementSpeed == null)
                 Plugin.Log.Warn("[UnitStatus] AttributeEffect.UpdateMovementSpeed not found — a suppressed frozen re-apply will not refresh puppet slow speed.");
+            if (_delayedFrozenSolid == null)
+                Plugin.Log.Error("[UnitStatus] AttributeEffect.DelayedFrozenSolid not found — a mirrored shatter will not show the ice pose on clients.");
 
             harmony.Patch(reApplyEffect,
                 prefix:  new HarmonyMethod(typeof(UnitStatusPatches).GetMethod(nameof(ReApplyEffect_Pre),  BindingFlags.Static | BindingFlags.NonPublic)),
@@ -161,17 +166,66 @@ namespace SULFURTogether.Patches
         {
             if (unit is not Npc npc) return;
 
-            // An effect asset can be overridden per unit (UnitSO.attributeEffectOverrides), and the override owns its
-            // own shaderParameter — vanilla resolves it before touching anything, so this must too.
-            AttributeEffect active = effect;
-            if (_getPotentialOverride != null
-                && _getPotentialOverride.Invoke(effect, new object[] { unit }) is AttributeEffect resolved && resolved != null)
-                active = resolved;
+            AttributeEffect active = ResolveActiveEffect(effect, unit);
 
             if (!string.IsNullOrEmpty(active.shaderParameter))
                 npc.SetMaterialFloat(active.shaderParameter, newValue / 100f);
 
             _updateMovementSpeed?.Invoke(active, new object[] { npc });
+        }
+
+        /// <summary>An effect asset can be overridden per unit (<c>UnitSO.attributeEffectOverrides</c>), and the
+        /// override owns its own <c>shaderParameter</c> and sounds. Vanilla resolves that before touching anything.</summary>
+        private static AttributeEffect ResolveActiveEffect(AttributeEffect effect, Unit unit)
+        {
+            if (_getPotentialOverride != null
+                && _getPotentialOverride.Invoke(effect, new object[] { unit }) is AttributeEffect resolved && resolved != null)
+                return resolved;
+            return effect;
+        }
+
+        /// <summary>
+        /// ST-3d. Run vanilla's <c>AttributeEffect.DelayedFrozenSolid</c> to completion RIGHT NOW rather than leaving it
+        /// queued as a coroutine — the pose, the solid-ice shader time, the shatter sound and the (swallowed) lethal
+        /// frost damage, all from the game's own body.
+        /// <para>The coroutine opens with <c>yield return null</c>. That costs the host nothing, because there the
+        /// coroutine is itself the cause of the death and everything visible is applied before it deals the killing
+        /// blow. A client has no such ordering: the status edge and the death event are separate messages that arrive
+        /// together, so <c>Die()</c> runs first and the coroutine wakes a frame later against a corpse already playing
+        /// its death animation. Driving the same body synchronously removes exactly that frame.</para>
+        /// </summary>
+        internal static bool TryPlayFrozenSolidNow(Npc npc, out string detail)
+        {
+            detail = "";
+            if (_delayedFrozenSolid == null) { detail = "DelayedFrozenSolid unresolved"; return false; }
+
+            try
+            {
+                // Same lookup Unit.OnStatusUpdated uses to pick an NPC's effect, then the unit's own override.
+                EntityAttribute asset = EntityAttributes.NegativeEffect_Frozen.GetAsset();
+                AttributeEffect? baseEffect = asset != null ? asset.effectSettings.GetAttributeEffects() : null;
+                if (baseEffect == null) { detail = "no AttributeEffect for Frozen"; return false; }
+
+                if (_delayedFrozenSolid.Invoke(ResolveActiveEffect(baseEffect, npc), new object[] { npc }) is not IEnumerator routine)
+                { detail = "DelayedFrozenSolid returned no enumerator"; return false; }
+
+                // Bounded: vanilla's body is one `yield return null` and then a straight run to the end. The cap only
+                // stops a future version that started waiting on something from being spun here.
+                const int MaxSteps = 8;
+                int steps = 0;
+                while (routine.MoveNext())
+                {
+                    if (++steps >= MaxSteps) { detail = $"enumerator still running after {steps} steps"; return false; }
+                }
+
+                detail = $"ran synchronously in {steps + 1} step(s)";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                detail = $"{ex.GetType().Name}: {ex.Message}";
+                return false;
+            }
         }
     }
 }
