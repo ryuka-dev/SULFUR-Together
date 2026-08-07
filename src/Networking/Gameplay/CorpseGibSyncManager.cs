@@ -129,10 +129,13 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _hostCorpseHitsRecv;
         private static int _hostCorpseHitsApplied;
         private static int _hostCorpseHitsRejected;
+        private static int _hostCorpseHitsRateLimited;   // split out: Log23 could not tell a full budget from a bad packet
 
-        /// <summary>Per-peer arrival budget. Smashing a body is a hand-paced action, and five ranged hits is the most
-        /// vanilla ever needs; a peer exceeding this is malformed or hostile either way.</summary>
-        private const int MaxCorpseHitsPerPeerPerSecond = 30;
+        /// <summary>Per-peer arrival budget. Sized off what a multi-pellet weapon actually produces, not off "five
+        /// hits": vanilla counts every pellet as its own <c>frozenDamageInstances</c>, so one shotgun blast is already
+        /// several arrivals and a dropped one silently stalls a burst at four. Still bounded — a body disappears within
+        /// a handful of hits, so a peer sustaining this rate is malformed or hostile either way.</summary>
+        private const int MaxCorpseHitsPerPeerPerSecond = 60;
         private static readonly Dictionary<string, (float WindowStart, int Count)> _hostPeerBudget = new Dictionary<string, (float, int)>();
 
         /// <summary>
@@ -210,7 +213,7 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!NetRunStateBridge.TryGetLocalRunState(out var hostState) || !msg.MatchesScene(hostState))
                 { _hostCorpseHitsRejected++; return; }
 
-                if (!ConsumePeerBudget(peerId)) { _hostCorpseHitsRejected++; return; }
+                if (!ConsumePeerBudget(peerId)) { _hostCorpseHitsRateLimited++; return; }
 
                 if (!NetGameplayProbeManager.TryGetRuntimeObjectForSpawnIndex(msg.TargetHostSpawnIndex, out object? runtimeObject)
                     || runtimeObject is not Npc corpse || corpse == null)
@@ -231,8 +234,13 @@ namespace SULFURTogether.Networking.Gameplay
                 if (float.IsNaN(damage) || float.IsInfinity(damage) || damage < 0f) { _hostCorpseHitsRejected++; return; }
                 if (damage > MaxCorpseHitDamage) damage = MaxCorpseHitDamage;
 
-                if (!Enum.IsDefined(typeof(DamageTypes), msg.DamageTypeInt)) { _hostCorpseHitsRejected++; return; }
-                var damageType = (DamageTypes)msg.DamageTypeInt;
+                // DamageTypes is `: byte`. Handing Enum.IsDefined an int for a byte-backed enum does not return false,
+                // it THROWS — which is how Log23 lost all 647 hits that got past the rate limit, each one caught by
+                // this method's own catch and therefore counted as neither applied nor rejected.
+                if (msg.DamageTypeInt < 0 || msg.DamageTypeInt > byte.MaxValue) { _hostCorpseHitsRejected++; return; }
+                byte damageTypeByte = (byte)msg.DamageTypeInt;
+                if (!Enum.IsDefined(typeof(DamageTypes), damageTypeByte)) { _hostCorpseHitsRejected++; return; }
+                var damageType = (DamageTypes)damageTypeByte;
 
                 Unit? source = null;
                 try { source = GameManager.Instance != null ? GameManager.Instance.PlayerUnit : null; } catch { }
@@ -277,6 +285,7 @@ namespace SULFURTogether.Networking.Gameplay
             => $"hostGibsSent={_hostGibsSent} clientGibsApplied={_clientGibsApplied} " +
                $"clientGibsNoCorpse={_clientGibsNoCorpse} clientGibsDuplicate={_clientGibsDuplicate} " +
                $"clientCorpseHitsSent={_clientCorpseHitsSent} hostCorpseHitsRecv={_hostCorpseHitsRecv} " +
-               $"hostCorpseHitsApplied={_hostCorpseHitsApplied} hostCorpseHitsRejected={_hostCorpseHitsRejected}";
+               $"hostCorpseHitsApplied={_hostCorpseHitsApplied} hostCorpseHitsRejected={_hostCorpseHitsRejected} " +
+               $"hostCorpseHitsRateLimited={_hostCorpseHitsRateLimited}";
     }
 }
