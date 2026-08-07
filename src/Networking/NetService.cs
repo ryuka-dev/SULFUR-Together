@@ -1211,6 +1211,33 @@ namespace SULFURTogether.Networking
             Gameplay.UnitStatusSyncManager.ApplyHostUnitStatus(state);
         }
 
+        // CG-1a: host→all corpse gib mirror.
+        internal void BroadcastHostCorpseGib(Gameplay.NetHostCorpseGib msg)
+        {
+            if (_mode != NetMode.Host || _net == null || msg == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostCorpseGib);
+                    Gameplay.NetHostCorpseGibCodec.Write(w, msg);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[CorpseGib] failed to send HostCorpseGib: {ex.Message}"); }
+            }
+        }
+
+        private void HandleHostCorpseGib(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (!Gameplay.NetHostCorpseGibCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[CorpseGib] malformed HostCorpseGib packet");
+                return;
+            }
+            Gameplay.CorpseGibSyncManager.ApplyHostCorpseGib(msg);
+        }
+
         // PK-2: client→host desert-pike ambush request (the host has no camera rig for a remote player, see NetClientPikeJump).
         internal void SendClientPikeJump(Gameplay.Boss.NetClientPikeJump msg)
         {
@@ -4374,6 +4401,9 @@ namespace SULFURTogether.Networking
                         HandleClientUnitStatusRequest(peer, reader);
                         break;
 
+                    case NetMessageType.HostCorpseGib:
+                        HandleHostCorpseGib(peer, reader);
+                        break;
                     case NetMessageType.HostUnitStatusState:
                         HandleHostUnitStatusState(peer, reader);
                         break;

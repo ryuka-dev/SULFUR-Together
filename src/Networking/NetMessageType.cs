@@ -489,5 +489,8 @@ namespace SULFURTogether.Networking
         // S". Both are vanilla-local decisions (a scene-wired StartFight, and a getUnoccupiedSpawn roll on the global
         // RNG) that would otherwise leave the two ends with a differently-armed room and differently-placed cardinals.
         CardinalFightEvent      = 102,
+
+        /// <summary>CG-1a host→all: a corpse burst into gibs (see NetHostCorpseGib).</summary>
+        HostCorpseGib           = 103,
     }
 }

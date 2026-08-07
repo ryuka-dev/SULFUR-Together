@@ -270,6 +270,9 @@ namespace SULFURTogether.Networking.Gameplay
 
         public static void BroadcastHostUnitStatus(NetHostUnitStatusState state) => _service?.BroadcastHostUnitStatus(state);
 
+        // CG-1a — host→all corpse gib mirror.
+        public static void BroadcastHostCorpseGib(NetHostCorpseGib msg) => _service?.BroadcastHostCorpseGib(msg);
+
         // PK-2 — client→host desert-pike ambush request.
         public static void SendClientPikeJump(SULFURTogether.Networking.Gameplay.Boss.NetClientPikeJump msg) => _service?.SendClientPikeJump(msg);
 

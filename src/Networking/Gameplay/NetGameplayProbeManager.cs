@@ -1061,6 +1061,7 @@ namespace SULFURTogether.Networking.Gameplay
             _clientOnlyCombatQuarantined = 0;
             _quarantinedCombatSuppressed = 0;
             FrozenSolidDiffProbe.Reset();   // ST-3-DIFF: pending samples and effect trails are per-level
+            CorpseGibSyncManager.Reset();   // CG-1a: gibbed-index set is per-level (spawn indices are reused)
             // Phase 5.1: clear health caches and event sequences.
             ClientPuppetHealthBySpawnIndex.Clear();
             ClientPuppetMaxHealthBySpawnIndex.Clear();
@@ -2179,6 +2180,7 @@ namespace SULFURTogether.Networking.Gameplay
             // inert instead of handing it back to local AI/navmesh/RVO/rigidbody. These two should track each other —
             // every host-death release is a corpse. (Both were write-only counters until this line existed.)
             Plugin.Log.Info($"[GameplayProbe] Summary releasedOnHostDeath={_releasedPuppetsOnHostDeath} corpseReleasesKeptInert={_corpseReleasesKeptInert}");
+            Plugin.Log.Info($"[GameplayProbe] CorpseGib {CorpseGibSyncManager.FormatSummary()}");
 
             // ST-1/ST-2 enemy status effect authority. clientForwarded=0 while a client is landing enchantment procs is
             // the signature of a broken ApplyHitModifiers hook; clientEdgesDropped rising means unbound puppets.
@@ -6601,6 +6603,35 @@ namespace SULFURTogether.Networking.Gameplay
         /// <param name="resumeLocalControl">Hand the unit back to its own AI, navmesh, RVO and rigidbody. True for
         /// every release where the enemy outlives the binding; false on the host-death path, where it is a corpse and
         /// restarting any of that overrides what <c>Die()</c> just settled.</param>
+        /// <summary>
+        /// CG-1a: the local body for a host spawn index, alive or dead. A live puppet resolves through its roster
+        /// binding as usual; a corpse does not, because the host-death release drops that binding both ways — so this
+        /// falls back to the binding tombstone the release writes, whose local key still names the entity. Without
+        /// this a corpse has no cross-end identity at all, which is why no corpse interaction was ever syncable.
+        /// </summary>
+        public static bool TryGetClientCorpse(int hostSpawnIndex, out PerfectRandom.Sulfur.Core.Units.Npc? corpse)
+        {
+            corpse = null;
+            try
+            {
+                string? localKey = null;
+                if (ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(hostSpawnIndex, out var boundKey))
+                    localKey = boundKey;
+                else if (_bindingTombstones.TryGetValue(hostSpawnIndex, out var ts)
+                      && Time.realtimeSinceStartup - ts.ReleasedAt <= TombstoneMaxAge)
+                    localKey = ts.LocalKey;
+
+                if (string.IsNullOrWhiteSpace(localKey)) return false;
+                if (!EntitiesByLocalId.TryGetValue(localKey!, out var snapshot) || snapshot == null) return false;
+                if (!snapshot.TryGetRuntimeObject(out var runtimeObject) || runtimeObject == null) return false;
+                if (runtimeObject is UnityEngine.Object uo && uo == null) return false;
+
+                corpse = runtimeObject as PerfectRandom.Sulfur.Core.Units.Npc;
+                return corpse != null;
+            }
+            catch { return false; }
+        }
+
         private static void ReleaseEnemyPuppet(string key, string reason, bool resumeLocalControl = true)
         {
             if (string.IsNullOrWhiteSpace(key)) return;

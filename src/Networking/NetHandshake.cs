@@ -32,7 +32,8 @@ namespace SULFURTogether.Networking
         // 33: BGC added CardinalFightEvent (102) — Black Guild Cardinal fight start + teleport authority; wire set must match.
         // 34: ST-3 added a Flags byte to HostUnitStatusState (99) — carries the host's frozen-solid decision; wire shape must match.
         // 35: ST-3c added a Flags byte to the enemy death event — carries whether the unit died frozen-solid; wire shape must match.
-        public const int    ProtocolVersion  = 35;
+        // 36: CG-1a added HostCorpseGib (103) — corpse gib mirror; wire set must match.
+        public const int    ProtocolVersion  = 36;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

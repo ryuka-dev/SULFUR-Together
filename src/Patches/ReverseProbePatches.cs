@@ -222,7 +222,7 @@ namespace SULFURTogether.Patches
                     Log.Error("[DamageForward] Npc.ReceiveDamage(DamageSourceData) not found — client→host hit forwarding is INACTIVE");
                 else
                 {
-                    try { harmony.Patch(m, prefix: Pre(nameof(Npc_ReceiveDamage_Pre))); }
+                    try { harmony.Patch(m, prefix: Pre(nameof(Npc_ReceiveDamage_Pre)), postfix: Post(nameof(Npc_ReceiveDamage_Post))); }
                     catch (Exception ex) { Log.Error($"[DamageForward] Npc.ReceiveDamage patch failed: {ex.Message}"); }
                 }
             }
@@ -1721,8 +1721,38 @@ namespace SULFURTogether.Patches
         // Hitmesh.Data, Vector3?) — its sole override, and the real damage implementation (Unit's wrapper overload is
         // deliberately not patched). Used to tell a real player hit from physics/environment, and it carries the
         // DamageTypes value the signature no longer passes separately.
-        private static bool Npc_ReceiveDamage_Pre(object __instance, float damage, object source)
+        // CG-1a: was this unit ALREADY a corpse when the hit arrived, and was it an ice one? Captured in the prefix
+        // because the gib branches destroy or pool the body before the postfix can ask. A struct in __state rather
+        // than a field: ReceiveDamage nests (a corpse burst can damage what is around it).
+        private struct CorpseHitState { public bool WasDead; public bool WasFrozenSolid; }
+
+        private static void Npc_ReceiveDamage_Post(object __instance, bool __result, object __state)
         {
+            try
+            {
+                if (__state is not CorpseHitState st || !st.WasDead || !__result) return;
+                // Vanilla's dead-unit section returns true ONLY from its four gib branches, and false from every other
+                // path through it — so this exact combination is "the body just burst", with no need to predict which
+                // branch fired or to reproduce its frozenDamageInstances counting.
+                SULFURTogether.Networking.Gameplay.CorpseGibSyncManager.ReportHostCorpseGib(__instance, st.WasFrozenSolid);
+            }
+            catch (Exception ex) { Log.Warn($"[CorpseGib] Npc.ReceiveDamage postfix failed: {ex.Message}"); }
+        }
+
+        private static bool Npc_ReceiveDamage_Pre(object __instance, float damage, object source, out object __state)
+        {
+            __state = null!;
+            try
+            {
+                if (__instance is PerfectRandom.Sulfur.Core.Units.Npc corpseCandidate && corpseCandidate != null)
+                    __state = new CorpseHitState
+                    {
+                        WasDead        = !corpseCandidate.IsAlive,
+                        WasFrozenSolid = corpseCandidate.Stats != null && corpseCandidate.IsFrozenSolid,
+                    };
+            }
+            catch { }
+
             try
             {
                 // Phase 5.4-G3: BossDamageAuthority takes PRIORITY over the ordinary puppet path. A boss phase target may

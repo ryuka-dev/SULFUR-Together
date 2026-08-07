@@ -461,6 +461,7 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LogClientHitRequests    { get; }
         // ST-1/ST-2 enemy status effect authority — functional, always on; this is its diagnostic log only.
         public ConfigEntry<bool>   LogUnitStatusSync       { get; }
+        public ConfigEntry<bool>   LogCorpseGibSync        { get; }
         public Fixed<bool>         FilterNonPlayerPuppetDamage { get; }      // RT3-A2: only forward local-player damage
         public Fixed<bool>         MakeClientPuppetsKinematic { get; }       // RT3-A3: kinematic host-driven puppets
         public Fixed<bool>         StableWorldRosterBinding { get; }         // RT3-A7: stable roster binding
@@ -1189,6 +1190,10 @@ namespace SULFURTogether.Config
             LogUnitStatusSync = cfg.Bind("HostDrivenProxy", "LogUnitStatusSync", false,
                 "Log enemy status effect sync — a client forwarding its weapon enchantment procs (ST-1) and the host " +
                 "broadcasting status start/end edges (ST-2). Per-hit volume; off by default.");
+
+            LogCorpseGibSync = cfg.Bind("HostDrivenProxy", "LogCorpseGibSync", false,
+                "Log the corpse-gib mirror (CG-1): the host reporting that a body burst, and clients bursting theirs. " +
+                "Low volume — one line per corpse — but off by default like every other diagnostic here.");
             // RT3-A2/A3/A7 + SC3 + DB/DB2 + RB puppet-binding hardening + hit-request range/rate — all functional/tuning,
             // hardcoded (Fixed). (Behaviour and rationale documented in git history / EnemyActivation docs.)
             FilterNonPlayerPuppetDamage = new Fixed<bool>(true);
