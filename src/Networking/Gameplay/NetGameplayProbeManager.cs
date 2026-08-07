@@ -6617,9 +6617,16 @@ namespace SULFURTogether.Networking.Gameplay
                 string? localKey = null;
                 if (ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(hostSpawnIndex, out var boundKey))
                     localKey = boundKey;
-                else if (_bindingTombstones.TryGetValue(hostSpawnIndex, out var ts)
-                      && Time.realtimeSinceStartup - ts.ReleasedAt <= TombstoneMaxAge)
+                else if (_bindingTombstones.TryGetValue(hostSpawnIndex, out var ts))
                     localKey = ts.LocalKey;
+
+                // Deliberately NOT bounded by TombstoneMaxAge. That 60 s window is right for the consumers it was
+                // written for — classifying a late death event, or a health state arriving for something that just
+                // unbound — where a stale answer would be wrong. A body is different: it lies there until the game
+                // pools it, and Log22 lost 3 of 33 bursts to corpses older than the window. Nothing is risked by
+                // dropping the bound here, because a live binding is consulted first (so a reused spawn index resolves
+                // to the new unit, not the tombstone) and a body the game has already collected fails the runtime-object
+                // check below on its own.
 
                 if (string.IsNullOrWhiteSpace(localKey)) return false;
                 if (!EntitiesByLocalId.TryGetValue(localKey!, out var snapshot) || snapshot == null) return false;
