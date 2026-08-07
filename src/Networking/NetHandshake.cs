@@ -31,7 +31,8 @@ namespace SULFURTogether.Networking
         // 32: AC added CryptChallengeState (101) — host-authoritative crypt challenge outcome + UI; wire set must match.
         // 33: BGC added CardinalFightEvent (102) — Black Guild Cardinal fight start + teleport authority; wire set must match.
         // 34: ST-3 added a Flags byte to HostUnitStatusState (99) — carries the host's frozen-solid decision; wire shape must match.
-        public const int    ProtocolVersion  = 34;
+        // 35: ST-3c added a Flags byte to the enemy death event — carries whether the unit died frozen-solid; wire shape must match.
+        public const int    ProtocolVersion  = 35;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

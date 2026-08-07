@@ -1903,6 +1903,12 @@ namespace SULFURTogether.Networking.Gameplay
             // flag so a death re-apply can never double-credit. Personal XP stays client-owned; the kill stays host-authoritative.
             TryCreditLocalWeaponXpForKill(runtimeObject);
 
+            // ST-3c: if the sender died frozen-solid, make that true here BEFORE Die() reads it — Die is what decides
+            // whether the corpse stays a rigid statue or settles into a ragdoll. Never set for a client death claim,
+            // whose sender does not own the status.
+            if (deathEvent.FrozenSolid)
+                UnitStatusSyncManager.AssertFrozenSolidForIncomingDeath(runtimeObject);
+
             var die = FindNoArgInstanceMethod(runtimeObject.GetType(), "Die");
             if (die == null)
             {
@@ -1989,6 +1995,11 @@ namespace SULFURTogether.Networking.Gameplay
                 Source = source,
                 SentAt = Time.realtimeSinceStartup,
             };
+
+            // ST-3c: state whether this unit died frozen-solid. A client cannot re-derive it — that is an exact
+            // `GetStatus(Frozen) >= 100` test, and its mirror of a capped status is always a little under the cap.
+            if (snapshot.TryGetRuntimeObject(out var dyingUnit) && UnitStatusSyncManager.IsUnitFrozenSolid(dyingUnit))
+                evt.FrozenSolid = true;
 
             NetGameplaySyncBridge.ReportLocalEnemyDeath(evt);
         }

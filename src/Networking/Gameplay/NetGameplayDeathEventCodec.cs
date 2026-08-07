@@ -32,6 +32,7 @@ namespace SULFURTogether.Networking.Gameplay
             w.Put(evt.DamageCount);
             w.Put(evt.Source ?? "");
             w.Put(evt.SentAt);
+            w.Put(evt.Flags);
         }
 
         public static bool TryRead(NetDataReader r, out NetGameplayDeathEvent evt)
@@ -65,6 +66,7 @@ namespace SULFURTogether.Networking.Gameplay
                 evt.DamageCount    = r.GetInt();
                 evt.Source         = r.GetString();
                 evt.SentAt         = r.GetFloat();
+                evt.Flags          = r.GetByte();
                 return true;
             }
             catch

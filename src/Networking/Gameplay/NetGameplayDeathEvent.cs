@@ -35,6 +35,31 @@ namespace SULFURTogether.Networking.Gameplay
         public string Source { get; set; } = "";
         public float SentAt { get; set; }
 
+        /// <summary>ST-3c flag bits. A byte so later death-time facts can be added without another protocol bump;
+        /// unknown bits are ignored by design.</summary>
+        public byte Flags { get; set; }
+
+        /// <summary>Bit 0 — the unit was <c>IsFrozenSolid</c> on the sender at the moment it died.
+        /// <para><b>Why this has to be stated rather than derived.</b> <c>IsFrozenSolid</c> is literally
+        /// <c>GetStatus(Frozen) &gt;= 100f</c>, an exact threshold, and it does NOT require the shatter — an enemy simply
+        /// killed while its frost sits at the cap dies as an ice statue. The host meets that threshold by construction:
+        /// the bullet that kills it runs <c>ApplyHitModifiers</c> (frost, clamped to 100) and only then
+        /// <c>ReceiveDamage</c>, so the status is exactly 100 when <c>Die()</c> runs. A client cannot reproduce that. It
+        /// receives the status and the death as two independent messages and runs the vanilla 10/s decay in between, so
+        /// its mirror sits a fraction below the cap and <c>&gt;= 100f</c> fails. The visible result is
+        /// <c>UpdatePhysicsEnabling</c> settling the corpse into a ragdoll on the client while the host keeps a rigid,
+        /// smashable statue (Log542: 32 units reached the cap, only 2 of them actually shattered, and the other 30 are
+        /// exactly this case).</para>
+        /// <para>Carried on the DEATH event rather than the status channel on purpose: it is read at one instant, and
+        /// travelling in the same message as the death removes the ordering race by construction.</para></summary>
+        public const byte FlagFrozenSolid = 1 << 0;
+
+        public bool FrozenSolid
+        {
+            get => (Flags & FlagFrozenSolid) != 0;
+            set => Flags = (byte)(value ? (Flags | FlagFrozenSolid) : (Flags & ~FlagFrozenSolid));
+        }
+
         public string SceneKey => $"{ChapterName}:{LevelIndex}";
         public string SeedText => HasLevelSeed ? LevelSeed.ToString() : "?";
         public string PositionText => HasPosition ? $"({Position.x:F2},{Position.y:F2},{Position.z:F2})" : "(?)";
@@ -50,7 +75,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         public string ToCompactString()
         {
-            return $"event={EventId} src={SourcePeerId} seq={Sequence} idx={SpawnIndex} candidate={CandidateKey} category={Category} actor={ActorName} pos={PositionText} scene={SceneKey} seed={SeedText} damageCount={DamageCount} source={Source}";
+            return $"event={EventId} src={SourcePeerId} seq={Sequence} idx={SpawnIndex} candidate={CandidateKey} category={Category} actor={ActorName} pos={PositionText} scene={SceneKey} seed={SeedText} damageCount={DamageCount} source={Source}{(FrozenSolid ? " frozenSolid=True" : "")}";
         }
     }
 }

@@ -657,14 +657,78 @@ namespace SULFURTogether.Networking.Gameplay
         /// </summary>
         public static bool SuppressClientFrozenSolidRoll(Unit unit, EntityAttributes id)
         {
-            if (_clientShatterAuthorised) return false;
             if (id != EntityAttributes.NegativeEffect_Frozen) return false;
+            if (_clientShatterAuthorised) return false;
+
+            // ST-3c: the pre-death assert wants the VALUE and the frost material, never a roll — and it may run on a
+            // puppet whose binding was already released, which the ordinary test below would wave through to vanilla.
+            if (_clientDeathFrozenAssertInProgress)
+            {
+                _clientFrozenRollsSuppressed++;
+                return true;
+            }
+
             if (NetConfig.GetMode() != NetMode.Client) return false;
             if (unit is not Npc) return false;
             if (!NetGameplayProbeManager.TryGetClientPuppetBinding(unit, out _, out _)) return false;
 
             _clientFrozenRollsSuppressed++;
             return true;
+        }
+
+        // ----------------------------------------------------------------
+        // ST-3c — frozen-solid AT DEATH is host-stated too
+        // ----------------------------------------------------------------
+        //
+        // `IsFrozenSolid` is `GetStatus(Frozen) >= 100f` and needs no shatter: an enemy killed while its frost sits at
+        // the cap dies as an ice statue, and `Unit.UpdatePhysicsEnabling` then refuses to settle the corpse into a
+        // ragdoll. The host meets that threshold by construction — the killing bullet applies the frost and only then
+        // the damage, in one call — while a client, receiving the two as separate messages and running the vanilla
+        // decay between them, sits a fraction under the cap and loses an exact comparison. See
+        // NetGameplayDeathEvent.FlagFrozenSolid.
+
+        private static bool _clientDeathFrozenAssertInProgress;
+        private static int  _clientDeathFrozenAsserted;
+        private static int  _clientDeathFrozenAlready;
+
+        /// <summary>Host: was this unit frozen-solid as it died? Read at the death-mirror broadcast, which is safe
+        /// because <c>Die</c> does not clear the status (no end edge follows a shatter — established in Log541).</summary>
+        public static bool IsUnitFrozenSolid(object? runtimeObject)
+        {
+            try
+            {
+                return runtimeObject is Npc npc && npc != null && npc.Stats != null && npc.IsFrozenSolid;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Client: the host says this unit was frozen-solid when it died, so make that true here before the
+        /// mirrored <c>Die()</c> reads it. Written through the normal owner callback so vanilla takes the frost
+        /// material to full coverage by its own path; the roll that callback could otherwise reach is suppressed for
+        /// the duration.</summary>
+        public static void AssertFrozenSolidForIncomingDeath(object? runtimeObject)
+        {
+            try
+            {
+                if (NetConfig.GetMode() != NetMode.Client) return;
+                if (runtimeObject is not Npc npc || npc == null || npc.Stats == null) return;
+                if (npc.IsFrozenSolid) { _clientDeathFrozenAlready++; return; }
+
+                // ST-2-INACTIVE: never drive the effect pipeline onto a puppet the NPC LOD switched off.
+                if (!npc.gameObject.activeInHierarchy) return;
+
+                _clientDeathFrozenAssertInProgress = true;
+                try { npc.Stats.SetStatus(EntityAttributes.NegativeEffect_Frozen, 100f); }
+                finally { _clientDeathFrozenAssertInProgress = false; }
+
+                _clientDeathFrozenAsserted++;
+                if (Plugin.Cfg.LogUnitStatusSync.Value)
+                    NetLogger.Info($"[UnitStatus] client asserted frozen-solid before death unit={npc.name}");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"[UnitStatus] AssertFrozenSolidForIncomingDeath failed: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         // ----------------------------------------------------------------
@@ -687,6 +751,7 @@ namespace SULFURTogether.Networking.Gameplay
                $"hostEdgesSent={_hostEdgesSent} hostEdgesRaise={_hostEdgesRaise} hostEdgesCoalesced={_hostEdgesCoalesced} hostFrozenSolid={_hostFrozenSolidSent} " +
                $"clientEdgesApplied={_clientEdgesApplied} clientEdgesDropped={_clientEdgesDropped} clientEdgesDroppedInactive={_clientEdgesDroppedInactive} " +
                $"clientFrozenRollsSuppressed={_clientFrozenRollsSuppressed} clientShattersReplayed={_clientShattersReplayed} " +
-               $"clientShatterUnreached={_clientShatterUnreached} clientShatterUnobservable={_clientShatterUnobservable}";
+               $"clientShatterUnreached={_clientShatterUnreached} clientShatterUnobservable={_clientShatterUnobservable} " +
+               $"clientDeathFrozenAsserted={_clientDeathFrozenAsserted} clientDeathFrozenAlready={_clientDeathFrozenAlready}";
     }
 }
