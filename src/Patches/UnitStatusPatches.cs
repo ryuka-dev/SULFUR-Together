@@ -137,16 +137,22 @@ namespace SULFURTogether.Patches
             Plugin.Log.Info($"[UnitStatus] Patched AttributeEffect.ApplyEffect({applyEffect != null})/RemoveEffect({removeEffect != null}) (frozen transition trail, diagnostic).");
         }
 
+        /// <summary>Frozen effect coroutines counted on the way in, so the postfix can tell whether the shatter branch
+        /// cleared them. Only ever holds a value across one synchronous call, but vanilla re-enters itself, so it is a
+        /// stack rather than a field.</summary>
+        private static readonly Stack<int> _frozenCoroutinesOnEntry = new Stack<int>();
+
         private static bool ReApplyEffect_Pre(AttributeEffect __instance, Unit unit, float newValue)
         {
             try
             {
                 if (unit == null) return true;
 
-                // Host: bracket the shatter decision. Anything this call writes back into the status is attributable
-                // to it, which is how the resulting edge learns it is a shatter rather than an ordinary raise.
+                // ST-3e. Host: remember how many effect coroutines the Frozen status is holding. The shatter branch
+                // stops and clears them before it pins the value, and that is the only synchronous fingerprint the
+                // roll leaves — the status write it makes can be a 100→100 no-op that no edge ever carries.
                 if (__instance.id == EntityAttributes.NegativeEffect_Frozen && NetConfig.GetMode() == NetMode.Host)
-                    UnitStatusSyncManager.BeginHostFrozenReapply(unit);
+                    _frozenCoroutinesOnEntry.Push(UnitStatusSyncManager.CountFrozenEffectUpdates(unit));
 
                 if (!UnitStatusSyncManager.SuppressClientFrozenSolidRoll(unit, __instance.id))
                     return true;
@@ -191,10 +197,23 @@ namespace SULFURTogether.Patches
 
         private static void ReApplyEffect_Post(AttributeEffect __instance, Unit unit)
         {
-            // Unconditional counterpart to the prefix's arm — no mode check, because a mode change between the two
-            // would otherwise strand the depth. EndHostFrozenReapply is a no-op for a unit that was never armed.
-            if (unit != null && __instance.id == EntityAttributes.NegativeEffect_Frozen)
-                UnitStatusSyncManager.EndHostFrozenReapply(unit);
+            if (unit == null || __instance.id != EntityAttributes.NegativeEffect_Frozen) return;
+            if (_frozenCoroutinesOnEntry.Count == 0) return;   // client side never pushed, or the original threw
+
+            try
+            {
+                int before = _frozenCoroutinesOnEntry.Pop();
+                // A Harmony postfix does not run when the original throws, so a leaked entry would shift every later
+                // pair by one. Nothing legitimately nests this deep.
+                if (_frozenCoroutinesOnEntry.Count > 8) _frozenCoroutinesOnEntry.Clear();
+
+                if (before > 0 && UnitStatusSyncManager.CountFrozenEffectUpdates(unit) == 0)
+                    UnitStatusSyncManager.ReportHostFrozenSolidShatter(unit);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"[UnitStatus] ReApplyEffect_Post failed: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         /// <summary>

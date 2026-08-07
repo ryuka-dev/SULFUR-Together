@@ -341,47 +341,6 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static long RaiseKey(int spawnIndex, ushort attribute) => ((long)spawnIndex << 16) | attribute;
 
-        // Frozen-solid arming. Set while the host is inside AttributeEffect.ReApplyEffect for a Frozen status on this
-        // unit — the only place vanilla's shatter roll happens. The roll's success is a nested SetStatus(Frozen,100)
-        // that re-enters OnStatusUpdated, so an edge reported for this unit while armed, at 100, IS the shatter.
-        //
-        // It has to be a DEPTH, not a flag. Vanilla re-enters itself: the shatter's SetStatus(Frozen,100) raises
-        // OnStatusUpdated, whose `newValue > 0` branch calls ReApplyEffect AGAIN, and only the innermost of those calls
-        // breaks out. Our OnStatusUpdated postfix — the thing that reports the edge — runs AFTER the nested
-        // ReApplyEffect has already returned and run its own postfix, so a single flag would be cleared by the inner
-        // call before the edge carrying the 100 was ever reported, and the shatter would cross the wire unlabelled.
-        //
-        // Frame- and unit-bounded on top of that: a Harmony postfix does not run when the original throws, so the
-        // depth could otherwise leak and label an unrelated later write as a shatter.
-        private static Unit? _hostFrozenReapplyUnit;
-        private static int   _hostFrozenReapplyFrame = -1;
-        private static int   _hostFrozenReapplyDepth;
-
-        public static void BeginHostFrozenReapply(Unit unit)
-        {
-            int frame = Time.frameCount;
-            if (frame != _hostFrozenReapplyFrame || !ReferenceEquals(_hostFrozenReapplyUnit, unit))
-            {
-                _hostFrozenReapplyUnit  = unit;
-                _hostFrozenReapplyFrame = frame;
-                _hostFrozenReapplyDepth = 0;
-            }
-            _hostFrozenReapplyDepth++;
-        }
-
-        public static void EndHostFrozenReapply(Unit unit)
-        {
-            if (!ReferenceEquals(_hostFrozenReapplyUnit, unit)) return;
-            if (--_hostFrozenReapplyDepth > 0) return;
-            _hostFrozenReapplyUnit  = null;
-            _hostFrozenReapplyFrame = -1;
-            _hostFrozenReapplyDepth = 0;
-        }
-
-        private static bool IsHostFrozenReapplyArmed(Unit unit)
-            => _hostFrozenReapplyDepth > 0
-            && ReferenceEquals(_hostFrozenReapplyUnit, unit)
-            && _hostFrozenReapplyFrame == Time.frameCount;
 
         /// <summary>
         /// Host: <c>Unit.OnStatusUpdated</c> fired. Broadcast a START, a RAISE or an END. Decay is the one transition
@@ -414,13 +373,9 @@ namespace SULFURTogether.Networking.Gameplay
                 // is already stale by the time it reaches us), and SetStatus passes its argument through unclamped.
                 float value = Mathf.Clamp(unit.Stats != null ? unit.Stats.GetStatus(id) : newValue, 0f, MaxStatusValue);
 
-                bool frozenSolid = id == EntityAttributes.NegativeEffect_Frozen
-                                && value >= 100f
-                                && IsHostFrozenReapplyArmed(unit);
-
-                // Coalesce plain raises only. A start, an end and a shatter each carry information no later message
-                // reconstructs, so they always go.
-                bool plainRaise = raised && !started && value > 0f && !frozenSolid;
+                // Coalesce plain raises only. A start and an end each carry information no later message reconstructs,
+                // so they always go. A shatter no longer rides this path at all — see ReportHostFrozenSolidShatter.
+                bool plainRaise = raised && !started && value > 0f;
                 long key = RaiseKey(spawnIndex, attribute);
                 float now = Time.realtimeSinceStartup;
                 if (plainRaise)
@@ -447,25 +402,106 @@ namespace SULFURTogether.Networking.Gameplay
                     UnitIdentifier = unitIdentifier,
                     Attribute      = attribute,
                     Value          = value,
-                    FrozenSolid    = frozenSolid,
                     Sequence       = ++_hostEdgeSeq,
                     SentAt         = now,
                 });
                 _hostEdgesSent++;
-                if (plainRaise)  _hostEdgesRaise++;
-                if (frozenSolid) { _hostFrozenSolidSent++; FrozenSolidDiffProbe.NoteShatter(spawnIndex); }
+                if (plainRaise) _hostEdgesRaise++;
 
                 if (Plugin.Cfg.LogUnitStatusSync.Value)
                 {
                     string kind = value <= 0f ? "end" : started ? "start" : "raise";
-                    NetLogger.Info($"[UnitStatus] host→clients seq={_hostEdgeSeq} hostIdx={spawnIndex} unit={unitIdentifier} " +
-                                   $"{id}={value:F1} ({kind}{(frozenSolid ? ",FROZEN-SOLID" : "")})");
+                    NetLogger.Info($"[UnitStatus] host→clients seq={_hostEdgeSeq} hostIdx={spawnIndex} unit={unitIdentifier} {id}={value:F1} ({kind})");
                 }
             }
             catch (Exception ex)
             {
                 Plugin.Log.Warn($"[UnitStatus] ReportHostUnitStatusEdge failed: {ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// ST-3e. Host: vanilla's shatter roll just fired on this unit. Broadcast it as its own message, independent of
+        /// the edge predicate and the raise coalescer.
+        ///
+        /// <para><b>Why it can no longer ride an ordinary edge.</b> ST-3 attached the flag to whichever status edge
+        /// happened to be in flight when the roll fired, and MagicMod Log20 proves that loses it outright: 11 of 29
+        /// host shatters crossed the wire unflagged, and on exactly those the client's corpse had no ice. The reason is
+        /// arithmetic. <c>ModifyStatus</c> writes the new value into <c>entityStatuses</c> BEFORE raising
+        /// <c>OnStatusUpdated</c>, so by the time the roll runs and calls <c>SetStatus(Frozen, 100)</c> the stored value
+        /// may already BE 100 — that nested write is then a 100→100 no-op, fails the "raise" test and is never
+        /// broadcast, while the outer edge that does get broadcast has already left the roll's scope. Whether the flag
+        /// survived therefore depended on whether the application happened to land below the cap or exactly on it,
+        /// which is why a weapon that accumulates in fractional steps mostly kept it and a spell that dumps a chunk
+        /// straight to the cap mostly lost it.</para>
+        ///
+        /// <para>The signal is taken from the branch's own bookkeeping instead — it stops and clears the status'
+        /// effect coroutines before pinning the value — and reported here directly. Ordering is unchanged: this runs
+        /// inside <c>ReApplyEffect</c>, which is inside <c>OnStatusUpdated</c>, so the flagged message still precedes
+        /// the ordinary edge for the same application.</para>
+        /// </summary>
+        public static void ReportHostFrozenSolidShatter(Unit unit)
+        {
+            try
+            {
+                if (NetConfig.GetMode() != NetMode.Host) return;
+                if (unit == null || unit is not Npc) return;
+
+                // Vanilla re-enters ReApplyEffect from inside its own shatter branch, so both the nested and the outer
+                // call can observe the same clear. One shatter, one message.
+                int unitId = unit.GetInstanceID();
+                int frame = Time.frameCount;
+                if (_hostShatterReportedFrame.TryGetValue(unitId, out int last) && last == frame) return;
+                _hostShatterReportedFrame[unitId] = frame;
+
+                if (!NetGameplayProbeManager.TryGetHostEntityBinding(unit, out int spawnIndex, out string unitIdentifier)) return;
+                if (!NetRunStateBridge.TryGetLocalRunState(out var state) || !state.HasLevel) return;
+
+                float value = Mathf.Clamp(unit.Stats != null ? unit.Stats.GetStatus(EntityAttributes.NegativeEffect_Frozen) : 100f, 0f, MaxStatusValue);
+                if (value < 100f) value = 100f;   // the branch pins it; a read that says otherwise is not worth trusting
+
+                NetGameplaySyncBridge.BroadcastHostUnitStatus(new NetHostUnitStatusState
+                {
+                    ChapterName    = state.ChapterName,
+                    LevelIndex     = state.LevelIndex,
+                    HasLevelSeed   = state.HasLevelSeed,
+                    LevelSeed      = state.LevelSeed,
+                    HostSpawnIndex = spawnIndex,
+                    UnitIdentifier = unitIdentifier,
+                    Attribute      = (ushort)EntityAttributes.NegativeEffect_Frozen,
+                    Value          = value,
+                    FrozenSolid    = true,
+                    Sequence       = ++_hostEdgeSeq,
+                    SentAt         = Time.realtimeSinceStartup,
+                });
+                _hostEdgesSent++;
+                _hostFrozenSolidSent++;
+                FrozenSolidDiffProbe.NoteShatter(spawnIndex);
+
+                if (Plugin.Cfg.LogUnitStatusSync.Value)
+                    NetLogger.Info($"[UnitStatus] host→clients seq={_hostEdgeSeq} hostIdx={spawnIndex} unit={unitIdentifier} " +
+                                   $"NegativeEffect_Frozen={value:F1} (FROZEN-SOLID)");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"[UnitStatus] ReportHostFrozenSolidShatter failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static readonly Dictionary<int, int> _hostShatterReportedFrame = new Dictionary<int, int>();
+
+        /// <summary>Live effect-update coroutines vanilla holds for this status. The shatter branch clears them before
+        /// it pins the value, which is the one synchronous fingerprint the roll leaves behind.</summary>
+        public static int CountFrozenEffectUpdates(Unit unit)
+        {
+            try
+            {
+                var map = unit.effectUpdates;
+                if (map != null && map.TryGetValue(EntityAttributes.NegativeEffect_Frozen, out var list) && list != null)
+                    return list.Count;
+            }
+            catch { }
+            return 0;
         }
 
         // ----------------------------------------------------------------
