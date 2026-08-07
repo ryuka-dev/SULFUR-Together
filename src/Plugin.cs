@@ -163,6 +163,7 @@ namespace SULFURTogether
             Networking.Gameplay.Boss.EndlessBossDiagnostics.Tick(); // EM-Boss: observe-only endless boss controller state (host vs client)
             Networking.Gameplay.ArenaLockdownManager.Tick(); // LD-2a: host arena lockdown timers
             Networking.Gameplay.CardinalFightSyncManager.Tick(); // BGC-2: fail open if a blocked cardinal start is never committed
+            Networking.Gameplay.FrozenSolidDiffProbe.Tick();     // ST-3-DIFF: diagnostic only — dump settled ice-corpse state
             UI.RunStatsOverlay.RunStatsOverlayManager.Tick(); // RS-2: Run-end stat cards over the Hub loading screen
             UI.DownedRescueOverlay.DownedRescueOverlayManager.Tick(); // DR-2: downed/rescue HUD (replaces the old OnGUI prompt)
             UI.VoteOverlay.VoteOverlayManager.Tick(); // UI-VOTE: session-vote HUD (issue #8 dev-mode gate)

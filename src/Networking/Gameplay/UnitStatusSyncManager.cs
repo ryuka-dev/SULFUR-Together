@@ -453,7 +453,7 @@ namespace SULFURTogether.Networking.Gameplay
                 });
                 _hostEdgesSent++;
                 if (plainRaise)  _hostEdgesRaise++;
-                if (frozenSolid) _hostFrozenSolidSent++;
+                if (frozenSolid) { _hostFrozenSolidSent++; FrozenSolidDiffProbe.NoteShatter(spawnIndex); }
 
                 if (Plugin.Cfg.LogUnitStatusSync.Value)
                 {
@@ -525,7 +525,10 @@ namespace SULFURTogether.Networking.Gameplay
                 // Absolute write with the owner callback ON: that callback is what raises/removes the vanilla effect
                 // (material, VFX, animator, movement speed) — the whole point of mirroring the status at all.
                 if (msg.FrozenSolid && attributeId == EntityAttributes.NegativeEffect_Frozen)
+                {
+                    FrozenSolidDiffProbe.NoteShatter(msg.HostSpawnIndex);
                     ApplyHostFrozenSolid(npc, value);
+                }
                 else
                     npc.Stats.SetStatus(attributeId, value);
                 _clientEdgesApplied++;

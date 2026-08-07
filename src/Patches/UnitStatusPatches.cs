@@ -174,6 +174,22 @@ namespace SULFURTogether.Patches
             _updateMovementSpeed?.Invoke(active, new object[] { npc });
         }
 
+        /// <summary>The Frozen effect asset that applies to this unit, resolved the way <c>Unit.OnStatusUpdated</c>
+        /// resolves it for an NPC, plus the unit's own override. Null if the asset tables are not up yet.</summary>
+        internal static AttributeEffect? ResolveFrozenEffect(Unit unit)
+        {
+            try
+            {
+                EntityAttribute asset = EntityAttributes.NegativeEffect_Frozen.GetAsset();
+                AttributeEffect? baseEffect = asset != null ? asset.effectSettings.GetAttributeEffects() : null;
+                return baseEffect == null ? null : ResolveActiveEffect(baseEffect, unit);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>ST-3-DIFF helper: the shader float the frost coverage is written to for this unit.</summary>
+        internal static string? GetFrozenShaderParameter(Unit unit) => ResolveFrozenEffect(unit)?.shaderParameter;
+
         /// <summary>An effect asset can be overridden per unit (<c>UnitSO.attributeEffectOverrides</c>), and the
         /// override owns its own <c>shaderParameter</c> and sounds. Vanilla resolves that before touching anything.</summary>
         private static AttributeEffect ResolveActiveEffect(AttributeEffect effect, Unit unit)
@@ -201,12 +217,10 @@ namespace SULFURTogether.Patches
 
             try
             {
-                // Same lookup Unit.OnStatusUpdated uses to pick an NPC's effect, then the unit's own override.
-                EntityAttribute asset = EntityAttributes.NegativeEffect_Frozen.GetAsset();
-                AttributeEffect? baseEffect = asset != null ? asset.effectSettings.GetAttributeEffects() : null;
-                if (baseEffect == null) { detail = "no AttributeEffect for Frozen"; return false; }
+                AttributeEffect? effect = ResolveFrozenEffect(npc);
+                if (effect == null) { detail = "no AttributeEffect for Frozen"; return false; }
 
-                if (_delayedFrozenSolid.Invoke(ResolveActiveEffect(baseEffect, npc), new object[] { npc }) is not IEnumerator routine)
+                if (_delayedFrozenSolid.Invoke(effect, new object[] { npc }) is not IEnumerator routine)
                 { detail = "DelayedFrozenSolid returned no enumerator"; return false; }
 
                 // Bounded: vanilla's body is one `yield return null` and then a straight run to the end. The cap only

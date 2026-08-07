@@ -1907,7 +1907,10 @@ namespace SULFURTogether.Networking.Gameplay
             // whether the corpse stays a rigid statue or settles into a ragdoll. Never set for a client death claim,
             // whose sender does not own the status.
             if (deathEvent.FrozenSolid)
+            {
                 UnitStatusSyncManager.AssertFrozenSolidForIncomingDeath(runtimeObject);
+                FrozenSolidDiffProbe.Schedule(runtimeObject, deathEvent.SpawnIndex);   // ST-3-DIFF (diagnostic)
+            }
 
             var die = FindNoArgInstanceMethod(runtimeObject.GetType(), "Die");
             if (die == null)
@@ -1999,7 +2002,10 @@ namespace SULFURTogether.Networking.Gameplay
             // ST-3c: state whether this unit died frozen-solid. A client cannot re-derive it — that is an exact
             // `GetStatus(Frozen) >= 100` test, and its mirror of a capped status is always a little under the cap.
             if (snapshot.TryGetRuntimeObject(out var dyingUnit) && UnitStatusSyncManager.IsUnitFrozenSolid(dyingUnit))
+            {
                 evt.FrozenSolid = true;
+                FrozenSolidDiffProbe.Schedule(dyingUnit, snapshot.SpawnIndex);   // ST-3-DIFF (diagnostic)
+            }
 
             NetGameplaySyncBridge.ReportLocalEnemyDeath(evt);
         }
@@ -2168,6 +2174,11 @@ namespace SULFURTogether.Networking.Gameplay
             Plugin.Log.Info($"[GameplayProbe] Summary traderExcluded={_traderExcludedFromEnemySync} nonCombatExcluded={_nonCombatExcludedFromEnemySync} deathClaimRejectedNonCombat={_deathClaimRejectedNonCombat} combatProbeRejectedNonCombat={_combatProbeRejectedNonCombat}");
             Plugin.Log.Info($"[GameplayProbe] Summary rootReplayAttempts={_clientRootReplayAttempts} rootReplays={_clientCombatRootReplays} rootReplaySkippedDup={_clientRootReplaySkippedDuplicate} rootReplaySkippedInactive={_clientRootReplaySkippedInactive} rootReplayUnsupported={_clientRootReplayUnsupported} rootReplayFailed={_clientRootReplayFailed} childAfterRoot={_clientAuthorizedChildAfterRoot} childBlockedBeforeRoot={_clientChildBlockedBeforeRootReplay}");
             Plugin.Log.Info($"[GameplayProbe] Summary typeMismatch={_entityTypeMismatchRejected} deathTypeMismatch={_deathMirrorRejectedTypeMismatch} stateTypeMismatch={_stateApplyRejectedTypeMismatch}");
+            // ST-3-CORPSE: puppet releases caused by a host death, and how many of those deliberately left the corpse
+            // inert instead of handing it back to local AI/navmesh/RVO/rigidbody. These two should track each other —
+            // every host-death release is a corpse. (Both were write-only counters until this line existed.)
+            Plugin.Log.Info($"[GameplayProbe] Summary releasedOnHostDeath={_releasedPuppetsOnHostDeath} corpseReleasesKeptInert={_corpseReleasesKeptInert}");
+
             // ST-1/ST-2 enemy status effect authority. clientForwarded=0 while a client is landing enchantment procs is
             // the signature of a broken ApplyHitModifiers hook; clientEdgesDropped rising means unbound puppets.
             Plugin.Log.Info($"[GameplayProbe] UnitStatus {UnitStatusSyncManager.FormatSummary()} clientHitNonFinite={_clientHitSkipNonFiniteDamage}");
@@ -6548,6 +6559,7 @@ namespace SULFURTogether.Networking.Gameplay
         // Phase 5.7-SC3: on a confirmed host death, release the bound client puppet and drop its binding so it can't
         // linger as a stale "host-bound" zombie. Called after Die() is applied. _releasedPuppetsOnHostDeath counts it.
         private static int _releasedPuppetsOnHostDeath;
+        private static int _corpseReleasesKeptInert;   // ST-3-CORPSE: releases that deliberately did NOT resume local control
         private static void ReleaseClientEnemyPuppetOnHostDeath(NetGameplayEntitySnapshot snapshot, int hostIdx, string reason)
         {
             try
@@ -6557,7 +6569,12 @@ namespace SULFURTogether.Networking.Gameplay
                 {
                     if (ActiveEnemyPuppets.ContainsKey(localKey))
                     {
-                        ReleaseEnemyPuppet(localKey, "host death (" + reason + ")");
+                        // ST-3-CORPSE: this release path is the one case where the enemy does NOT survive it. The
+                        // generic release hands the unit back to local control — SetCanMove, SetNavMeshAgentState,
+                        // ToggleRVO, ToggleBehaviourTree and the original rigidbody — which is right for a puppet that
+                        // outlives its binding and wrong for a corpse, whose pose and physics the game has just
+                        // finished deciding in Die(). Its own comment already says "if the enemy survives release".
+                        ReleaseEnemyPuppet(localKey, "host death (" + reason + ")", resumeLocalControl: false);
                         _releasedPuppetsOnHostDeath++;
                     }
                     // Drop the binding both ways so ReleaseStaleEnemyPuppets no longer treats it as host-bound.
@@ -6580,7 +6597,10 @@ namespace SULFURTogether.Networking.Gameplay
             catch { }
         }
 
-        private static void ReleaseEnemyPuppet(string key, string reason)
+        /// <param name="resumeLocalControl">Hand the unit back to its own AI, navmesh, RVO and rigidbody. True for
+        /// every release where the enemy outlives the binding; false on the host-death path, where it is a corpse and
+        /// restarting any of that overrides what <c>Die()</c> just settled.</param>
+        private static void ReleaseEnemyPuppet(string key, string reason, bool resumeLocalControl = true)
         {
             if (string.IsNullOrWhiteSpace(key)) return;
             if (!ActiveEnemyPuppets.TryGetValue(key, out var record)) return;
@@ -6619,8 +6639,8 @@ namespace SULFURTogether.Networking.Gameplay
             // began the "Rotation quaternions must be unit length" flood (a full native stack trace per FixedUpdate per
             // agent) and the process stopped responding. Repair first; if it can't be repaired, keep the unit suppressed
             // (frozen and harmless) rather than resuming AI on a poisoned transform.
-            bool safeToResumeAi = true;
-            if (npc != null && TryGetTransform(npc, out var releaseTransform) && releaseTransform != null)
+            bool safeToResumeAi = resumeLocalControl;
+            if (resumeLocalControl && npc != null && TryGetTransform(npc, out var releaseTransform) && releaseTransform != null)
             {
                 bool poisoned = !IsFinite(releaseTransform.position) || !IsFinite(releaseTransform.rotation);
                 if (poisoned)
@@ -6645,6 +6665,10 @@ namespace SULFURTogether.Networking.Gameplay
                     TryInvokeInstanceMethod(npc, "ToggleBehaviourTree", true);
 
                 RestorePuppetRigidbody(record); // RT3-A3: undo the kinematic override if the enemy survives release
+            }
+            else if (!resumeLocalControl)
+            {
+                _corpseReleasesKeptInert++;
             }
             else
             {
