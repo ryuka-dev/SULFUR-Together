@@ -1726,6 +1726,19 @@ namespace SULFURTogether.Patches
         // than a field: ReceiveDamage nests (a corpse burst can damage what is around it).
         private struct CorpseHitState { public bool WasDead; public bool WasFrozenSolid; }
 
+        /// <summary>CG-1b: vanilla bursts a frozen body on ONE melee hit but needs five ranged ones, so the blow's
+        /// melee flag is part of the decision and has to cross with it.</summary>
+        private static bool TryReadMeleeFlag(object? source)
+        {
+            try
+            {
+                if (source == null) return false;
+                var f = AccessTools.Field(source.GetType(), "melee");
+                return f != null && f.GetValue(source) is bool b && b;
+            }
+            catch { return false; }
+        }
+
         private static void Npc_ReceiveDamage_Post(object __instance, bool __result, object __state)
         {
             try
@@ -1774,6 +1787,14 @@ namespace SULFURTogether.Patches
                 // (not a puppet) so its hits aren't forwarded (Log259 clientHitSent=0). Route a client hit on the spider
                 // npc straight to the host's real spider, same single-target authority as the worm's tail.
                 if (SULFURTogether.Networking.Gameplay.Boss.NetEmperorSpiderSync.TryClientSpiderHit(__instance, damage, damageTypeInt))
+                    return false;
+
+                // CG-1b: a body the host owns. Its bindings are gone (the host-death release drops them), so every
+                // guard below keys off IsClientEnemyPuppetNpc and waves it straight through to vanilla — which bursts
+                // THIS end's corpse alone. Claimed here instead and replayed on the host through the real call, which
+                // is the only thing that reaches ReceiveDamage's dead-unit section.
+                if (SULFURTogether.Networking.Gameplay.CorpseGibSyncManager.TryForwardClientCorpseHit(
+                        __instance, damage, damageTypeInt, TryReadMeleeFlag(source)))
                     return false;
 
                 // Phase 5.5-RT3-A2: a host-driven puppet is host-authoritative over all its damage. Drop non-player

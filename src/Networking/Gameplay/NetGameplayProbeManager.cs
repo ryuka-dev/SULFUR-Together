@@ -1062,6 +1062,7 @@ namespace SULFURTogether.Networking.Gameplay
             _quarantinedCombatSuppressed = 0;
             FrozenSolidDiffProbe.Reset();   // ST-3-DIFF: pending samples and effect trails are per-level
             CorpseGibSyncManager.Reset();   // CG-1a: gibbed-index set is per-level (spawn indices are reused)
+            _clientCorpseByNpcId.Clear();   // CG-1b
             // Phase 5.1: clear health caches and event sequences.
             ClientPuppetHealthBySpawnIndex.Clear();
             ClientPuppetMaxHealthBySpawnIndex.Clear();
@@ -1926,6 +1927,9 @@ namespace SULFURTogether.Networking.Gameplay
                 _hostDeathApplyDepth++;
                 bool wasPendingDead = deathEvent.SpawnIndex >= 0 && IsClientPendingDead(deathEvent.SpawnIndex);
                 die.Invoke(runtimeObject, null);
+                // CG-1b: remember which host unit this body is, while the bindings still exist — the release below
+                // drops them, and after that nothing else can answer that question for a corpse.
+                NoteClientCorpse(runtimeObject, deathEvent.SpawnIndex, deathEvent.UnitIdentifier);
                 snapshot.IsDead = true;
                 snapshot.LastSeenAt = Time.realtimeSinceStartup;
                 // Phase 5.3-D P0-2/P0-3: death VISUAL has now run (Die set Animator "Dead"), so latch
@@ -6609,6 +6613,41 @@ namespace SULFURTogether.Networking.Gameplay
         /// falls back to the binding tombstone the release writes, whose local key still names the entity. Without
         /// this a corpse has no cross-end identity at all, which is why no corpse interaction was ever syncable.
         /// </summary>
+        // CG-1b: the reverse of TryGetClientCorpse. Recorded the moment the mirrored Die() runs, because the release
+        // that follows it a few lines later drops every map that could otherwise answer "which host unit is this body".
+        // Keyed by the same object identity the puppet maps use; cleared with the rest of the per-level client state.
+        private static readonly Dictionary<int, (int HostSpawnIndex, string UnitIdentifier)> _clientCorpseByNpcId
+            = new Dictionary<int, (int, string)>();
+
+        private static void NoteClientCorpse(object? runtimeObject, int hostSpawnIndex, string unitIdentifier)
+        {
+            try
+            {
+                if (runtimeObject == null || hostSpawnIndex < 0) return;
+                int npcId = ObjectIdentity(runtimeObject);
+                if (npcId == 0) return;
+                _clientCorpseByNpcId[npcId] = (hostSpawnIndex, unitIdentifier ?? "");
+            }
+            catch { }
+        }
+
+        /// <summary>CG-1b: which host unit this local body belongs to, for a corpse whose binding is already gone.</summary>
+        public static bool TryGetClientCorpseSpawnIndex(object? runtimeObject, out int hostSpawnIndex, out string unitIdentifier)
+        {
+            hostSpawnIndex = -1;
+            unitIdentifier = "";
+            try
+            {
+                if (runtimeObject == null) return false;
+                int npcId = ObjectIdentity(runtimeObject);
+                if (npcId == 0 || !_clientCorpseByNpcId.TryGetValue(npcId, out var rec)) return false;
+                hostSpawnIndex = rec.HostSpawnIndex;
+                unitIdentifier = rec.UnitIdentifier;
+                return true;
+            }
+            catch { return false; }
+        }
+
         public static bool TryGetClientCorpse(int hostSpawnIndex, out PerfectRandom.Sulfur.Core.Units.Npc? corpse)
         {
             corpse = null;

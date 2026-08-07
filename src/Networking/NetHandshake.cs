@@ -33,7 +33,8 @@ namespace SULFURTogether.Networking
         // 34: ST-3 added a Flags byte to HostUnitStatusState (99) — carries the host's frozen-solid decision; wire shape must match.
         // 35: ST-3c added a Flags byte to the enemy death event — carries whether the unit died frozen-solid; wire shape must match.
         // 36: CG-1a added HostCorpseGib (103) — corpse gib mirror; wire set must match.
-        public const int    ProtocolVersion  = 36;
+        // 37: CG-1b added ClientCorpseHit (104) — client→host corpse hit forwarding; wire set must match.
+        public const int    ProtocolVersion  = 37;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

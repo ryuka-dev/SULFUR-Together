@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using PerfectRandom.Sulfur.Core;
+using PerfectRandom.Sulfur.Core.Stats;
 using PerfectRandom.Sulfur.Core.Units;
 using UnityEngine;
 
@@ -118,8 +120,163 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
+        // ----------------------------------------------------------------
+        // CG-1b — client → host: a hit on a body the host owns
+        // ----------------------------------------------------------------
+
+        private static int _clientCorpseHitSeq;
+        private static int _clientCorpseHitsSent;
+        private static int _hostCorpseHitsRecv;
+        private static int _hostCorpseHitsApplied;
+        private static int _hostCorpseHitsRejected;
+
+        /// <summary>Per-peer arrival budget. Smashing a body is a hand-paced action, and five ranged hits is the most
+        /// vanilla ever needs; a peer exceeding this is malformed or hostile either way.</summary>
+        private const int MaxCorpseHitsPerPeerPerSecond = 30;
+        private static readonly Dictionary<string, (float WindowStart, int Count)> _hostPeerBudget = new Dictionary<string, (float, int)>();
+
+        /// <summary>
+        /// Client: the local player damaged a body the host owns. Returns true when the caller must SKIP the vanilla
+        /// application — always, when this claims the hit: letting it run would burst this end's copy alone, which is
+        /// the desync being fixed.
+        /// </summary>
+        public static bool TryForwardClientCorpseHit(object? npc, float damage, int damageTypeInt, bool melee)
+        {
+            try
+            {
+                if (NetConfig.GetMode() != NetMode.Client) return false;
+                if (npc is not Npc corpse || corpse == null) return false;
+                if (corpse.IsAlive) return false;                       // living units keep the ordinary hit path
+                if (float.IsNaN(damage) || float.IsInfinity(damage)) return false;
+
+                // Only hits that could actually burst the body. Vanilla's dead-unit section can only reach a gib from
+                // a frozen-solid corpse (melee, the fifth ranged hit, or a type that explodes corpses) or from
+                // Explosive above 75 on any corpse; everything else falls through to local impact effects and returns
+                // false. Claiming those too would forward a packet per shot AND silence the feedback on four of the
+                // five it takes to shatter a statue, which is a worse experience than the desync being fixed. The
+                // frozen test is trustworthy on a client now — ST-3c is what made it so.
+                bool couldBurst = corpse.IsFrozenSolid
+                               || (damageTypeInt == (int)DamageTypes.Explosive && damage > 75f);
+                if (!couldBurst) return false;
+
+                // Only a body the host owns. A client-only corpse is this end's business and vanilla is right for it.
+                if (!NetGameplayProbeManager.TryGetClientCorpseSpawnIndex(corpse, out int hostIdx, out string unitIdentifier))
+                    return false;
+
+                if (!NetRunStateBridge.TryGetLocalRunState(out var state) || !state.HasLevel)
+                    return true;   // claimed but unsendable — still must not burst locally
+
+                NetGameplaySyncBridge.SendClientCorpseHit(new NetClientCorpseHit
+                {
+                    ChapterName          = state.ChapterName,
+                    LevelIndex           = state.LevelIndex,
+                    HasLevelSeed         = state.HasLevelSeed,
+                    LevelSeed            = state.LevelSeed,
+                    RequestSeq           = ++_clientCorpseHitSeq,
+                    TargetHostSpawnIndex = hostIdx,
+                    TargetUnitIdentifier = unitIdentifier,
+                    Damage               = damage,
+                    DamageTypeInt        = damageTypeInt,
+                    Melee                = melee,
+                    SentAt               = Time.realtimeSinceStartup,
+                });
+                _clientCorpseHitsSent++;
+
+                if (Plugin.Cfg.LogCorpseGibSync.Value)
+                    NetLogger.Info($"[CorpseGib] client→host seq={_clientCorpseHitSeq} idx={hostIdx} dmg={damage:F1} type={damageTypeInt} melee={melee}");
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"[CorpseGib] TryForwardClientCorpseHit failed: {ex.GetType().Name}: {ex.Message}");
+                return false; // never swallow a hit because OUR code threw
+            }
+        }
+
+        /// <summary>
+        /// Host: replay a client's corpse hit through the REAL <c>Npc.ReceiveDamage</c>, so vanilla's dead-unit section
+        /// gets to make the decision with its own <c>frozenDamageInstances</c> counter, its own loot roll and its own
+        /// burst. If it bursts, the CG-1a postfix on that same call mirrors it back out to every end.
+        /// </summary>
+        public static void HandleClientCorpseHit(NetClientCorpseHit msg, string peerId)
+        {
+            if (msg == null) return;
+            try
+            {
+                if (NetConfig.GetMode() != NetMode.Host) return;
+                _hostCorpseHitsRecv++;
+
+                if (!NetRunStateBridge.TryGetLocalRunState(out var hostState) || !msg.MatchesScene(hostState))
+                { _hostCorpseHitsRejected++; return; }
+
+                if (!ConsumePeerBudget(peerId)) { _hostCorpseHitsRejected++; return; }
+
+                if (!NetGameplayProbeManager.TryGetRuntimeObjectForSpawnIndex(msg.TargetHostSpawnIndex, out object? runtimeObject)
+                    || runtimeObject is not Npc corpse || corpse == null)
+                { _hostCorpseHitsRejected++; return; }
+
+                // Type guard, same shape as every other addressed-by-index channel here.
+                if (!string.IsNullOrEmpty(msg.TargetUnitIdentifier)
+                    && NetGameplayProbeManager.TryGetHostEntityBinding(corpse, out _, out string hostUnitId)
+                    && !string.IsNullOrEmpty(hostUnitId)
+                    && !string.Equals(hostUnitId, msg.TargetUnitIdentifier, StringComparison.Ordinal))
+                { _hostCorpseHitsRejected++; return; }
+
+                // The whole point is the dead-unit section. A living unit reached through this channel would take
+                // real damage outside the validated hit path, so it is refused rather than clamped.
+                if (corpse.IsAlive) { _hostCorpseHitsRejected++; return; }
+
+                float damage = msg.Damage;
+                if (float.IsNaN(damage) || float.IsInfinity(damage) || damage < 0f) { _hostCorpseHitsRejected++; return; }
+                if (damage > MaxCorpseHitDamage) damage = MaxCorpseHitDamage;
+
+                if (!Enum.IsDefined(typeof(DamageTypes), msg.DamageTypeInt)) { _hostCorpseHitsRejected++; return; }
+                var damageType = (DamageTypes)msg.DamageTypeInt;
+
+                Unit? source = null;
+                try { source = GameManager.Instance != null ? GameManager.Instance.PlayerUnit : null; } catch { }
+
+                var sourceData = new DamageSourceData
+                {
+                    name       = "CoopCorpseHit",
+                    damageType = damageType,
+                    melee      = msg.Melee,
+                    isPlayer   = true,
+                    sourceUnit = source!,
+                };
+
+                corpse.ReceiveDamage(damage, sourceData, Hitmesh.Data.Default);
+                _hostCorpseHitsApplied++;
+
+                if (Plugin.Cfg.LogCorpseGibSync.Value)
+                    NetLogger.Info($"[CorpseGib] host applied peer={peerId} {msg.ToCompact()} unit={corpse.name}");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"[CorpseGib] HandleClientCorpseHit failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>Explosive over 75 bursts any body, so the ceiling only has to be above the thresholds vanilla
+        /// reads — it is an anti-forgery bound, not a balance figure.</summary>
+        private const float MaxCorpseHitDamage = 10000f;
+
+        private static bool ConsumePeerBudget(string peerId)
+        {
+            string key = peerId ?? "";
+            float now = Time.realtimeSinceStartup;
+            _hostPeerBudget.TryGetValue(key, out var slot);
+            if (now - slot.WindowStart >= 1f) slot = (now, 0);
+            if (slot.Count >= MaxCorpseHitsPerPeerPerSecond) { _hostPeerBudget[key] = slot; return false; }
+            _hostPeerBudget[key] = (slot.WindowStart, slot.Count + 1);
+            return true;
+        }
+
         public static string FormatSummary()
             => $"hostGibsSent={_hostGibsSent} clientGibsApplied={_clientGibsApplied} " +
-               $"clientGibsNoCorpse={_clientGibsNoCorpse} clientGibsDuplicate={_clientGibsDuplicate}";
+               $"clientGibsNoCorpse={_clientGibsNoCorpse} clientGibsDuplicate={_clientGibsDuplicate} " +
+               $"clientCorpseHitsSent={_clientCorpseHitsSent} hostCorpseHitsRecv={_hostCorpseHitsRecv} " +
+               $"hostCorpseHitsApplied={_hostCorpseHitsApplied} hostCorpseHitsRejected={_hostCorpseHitsRejected}";
     }
 }

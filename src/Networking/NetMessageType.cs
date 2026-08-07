@@ -492,5 +492,8 @@ namespace SULFURTogether.Networking
 
         /// <summary>CG-1a host→all: a corpse burst into gibs (see NetHostCorpseGib).</summary>
         HostCorpseGib           = 103,
+
+        /// <summary>CG-1b client→host: a hit on a body the host owns (see NetClientCorpseHit).</summary>
+        ClientCorpseHit         = 104,
     }
 }

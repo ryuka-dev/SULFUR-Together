@@ -1238,6 +1238,31 @@ namespace SULFURTogether.Networking
             Gameplay.CorpseGibSyncManager.ApplyHostCorpseGib(msg);
         }
 
+        // CG-1b: client→host corpse hit, never relayed — only the host owns the body.
+        internal void SendClientCorpseHit(Gameplay.NetClientCorpseHit msg)
+        {
+            if (_mode != NetMode.Client || _net == null || _hostPeer == null || msg == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.ClientCorpseHit);
+                Gameplay.NetClientCorpseHitCodec.Write(w, msg);
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[CorpseGib] failed to send ClientCorpseHit: {ex.Message}"); }
+        }
+
+        private void HandleClientCorpseHit(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Host) return;
+            if (!Gameplay.NetClientCorpseHitCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[CorpseGib] malformed ClientCorpseHit packet");
+                return;
+            }
+            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            Gameplay.CorpseGibSyncManager.HandleClientCorpseHit(msg, peerId);
+        }
+
         // PK-2: client→host desert-pike ambush request (the host has no camera rig for a remote player, see NetClientPikeJump).
         internal void SendClientPikeJump(Gameplay.Boss.NetClientPikeJump msg)
         {
@@ -4403,6 +4428,9 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.HostCorpseGib:
                         HandleHostCorpseGib(peer, reader);
+                        break;
+                    case NetMessageType.ClientCorpseHit:
+                        HandleClientCorpseHit(peer, reader);
                         break;
                     case NetMessageType.HostUnitStatusState:
                         HandleHostUnitStatusState(peer, reader);
