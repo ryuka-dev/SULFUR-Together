@@ -30,7 +30,8 @@ namespace SULFURTogether.Networking
         // 31: KD added OpenableDoorOpen (100) — crypt/locked door open sync; peers must agree on the wire set.
         // 32: AC added CryptChallengeState (101) — host-authoritative crypt challenge outcome + UI; wire set must match.
         // 33: BGC added CardinalFightEvent (102) — Black Guild Cardinal fight start + teleport authority; wire set must match.
-        public const int    ProtocolVersion  = 33;
+        // 34: ST-3 added a Flags byte to HostUnitStatusState (99) — carries the host's frozen-solid decision; wire shape must match.
+        public const int    ProtocolVersion  = 34;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)

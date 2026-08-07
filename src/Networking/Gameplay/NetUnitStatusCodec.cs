@@ -74,6 +74,7 @@ namespace SULFURTogether.Networking.Gameplay
             w.Put(m.UnitIdentifier ?? "");
             w.Put(m.Attribute);
             w.Put(m.Value);
+            w.Put(m.Flags);
             w.Put(m.Sequence);
             w.Put(m.SentAt);
         }
@@ -94,6 +95,7 @@ namespace SULFURTogether.Networking.Gameplay
                 msg.UnitIdentifier = r.GetString();
                 msg.Attribute      = r.GetUShort();
                 msg.Value          = r.GetFloat();
+                msg.Flags          = r.GetByte();
                 msg.Sequence       = r.GetInt();
                 msg.SentAt         = r.GetFloat();
                 m = msg;

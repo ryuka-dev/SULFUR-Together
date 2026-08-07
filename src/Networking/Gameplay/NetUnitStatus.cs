@@ -57,12 +57,21 @@ namespace SULFURTogether.Networking.Gameplay
     }
 
     /// <summary>
-    /// ST-2 (Host → all clients): a negative status effect on a host enemy crossed an EDGE — it started
-    /// (<c>Value &gt; 0</c>) or ended (<c>Value == 0</c>). Sent from the canonical transition point,
-    /// <c>Unit.OnStatusUpdated</c>, which is the same callback the game itself uses to drive the effect's visuals.
-    /// <para>Only the edges travel. A status decays every frame through the same callback, and streaming that would be
-    /// pure spam — the receiving client runs the vanilla effect coroutines itself once the status is set, so it decays
-    /// locally and the host's end-edge is the authoritative stop.</para>
+    /// ST-2 / ST-3 (Host → all clients): a negative status effect on a host enemy moved in a direction the client cannot
+    /// derive for itself. Sent from the canonical transition point, <c>Unit.OnStatusUpdated</c>, which is the same
+    /// callback the game itself uses to drive the effect's visuals.
+    /// <para><b>What travels (ST-3).</b> A status STARTED, ENDED, or was RAISED. Decay does not travel: it is per-frame,
+    /// and the receiving client runs the same vanilla decay itself once the status is set. The original ST-2 cut carried
+    /// only start and end, which silently dropped every stack after the first — with a four-pellet frost weapon the host
+    /// went 0→20→40→60→80 and the client saw only the 20, then the enemy died with no ice (Log540: 36 host edges, every
+    /// one of them 10.0 or 0.0, not a single intermediate value).</para>
+    /// <para><b><see cref="Value"/> is the status as it is RIGHT NOW on the host</b>, read back from
+    /// <c>EntityStats</c> at broadcast time — not the <c>newValue</c> the callback was handed. Two reasons, both real:
+    /// the frozen-solid branch calls <c>SetStatus(Frozen,100)</c> from <i>inside</i> this callback, so the outer
+    /// invocation would otherwise report the pre-shatter 80 <i>after</i> the nested one reported 100 and leave the client
+    /// lower than the host; and <c>EntityStats.SetStatus</c> hands the callback its UNCLAMPED argument while storing the
+    /// clamped one. Reading the truth makes every message idempotent and order-insensitive, which in turn is what makes
+    /// it safe to coalesce raises.</para>
     /// <para>The client applies it with <c>EntityStats.SetStatus</c> (absolute write, owner callback ON) so the game plays
     /// the real effect on the puppet. That makes the host the single authority for what every screen shows: it corrects
     /// any locally-applied divergence on the next edge, and it also fixes the converse of the ST-1 bug — before this,
@@ -80,8 +89,28 @@ namespace SULFURTogether.Networking.Gameplay
 
         /// <summary>Raw <c>EntityAttributes</c> id (enum is <c>ushort</c>).</summary>
         public ushort Attribute { get; set; }
-        /// <summary>Absolute status value on the host. 0 = the effect ended.</summary>
+        /// <summary>Absolute status value on the host, read back at broadcast time. 0 = the effect ended.</summary>
         public float  Value     { get; set; }
+
+        /// <summary>ST-3 flag bits. A byte rather than a bool so a later terminal can be added without another
+        /// protocol bump; unknown bits are ignored by design.</summary>
+        public byte   Flags     { get; set; }
+
+        /// <summary>Bit 0 — the host's <c>NegativeEffect_Frozen</c> shattered this unit: its
+        /// <c>AttributeEffect.ReApplyEffect</c> roll passed and pinned the status to 100.
+        /// <para><b>Why this cannot be inferred from <see cref="Value"/> == 100.</b> The roll is
+        /// <c>frozenSolidChance(value) * frozenSolidByHealthChance(healthFraction)</c>, and the health term is a step
+        /// that reads 0 above half health. So a status CAN be stacked or clamped to a flat 100 on a healthy enemy
+        /// without shattering it, and conversely a host that did shatter is not reproducible by a client re-rolling the
+        /// same formula. Whether a unit shatters is host-owned world state, not presentation, so it is stated rather
+        /// than re-derived.</para></summary>
+        public const byte FlagFrozenSolid = 1 << 0;
+
+        public bool FrozenSolid
+        {
+            get => (Flags & FlagFrozenSolid) != 0;
+            set => Flags = (byte)(value ? (Flags | FlagFrozenSolid) : (Flags & ~FlagFrozenSolid));
+        }
 
         public int    Sequence  { get; set; }
         public float  SentAt    { get; set; }

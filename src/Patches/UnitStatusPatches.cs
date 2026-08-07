@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
+using PerfectRandom.Sulfur.Core;
 using PerfectRandom.Sulfur.Core.Items;
 using PerfectRandom.Sulfur.Core.Stats;
 using PerfectRandom.Sulfur.Core.Units;
+using SULFURTogether.Networking;
 using SULFURTogether.Networking.Gameplay;
 using Unity.Collections;
 
@@ -22,15 +24,27 @@ namespace SULFURTogether.Patches
     /// effect's presentation, so it is also the authoritative transition point to broadcast from. High-frequency
     /// (every health change, every decay tick) — the manager's first test rejects non-edges.</para>
     ///
+    /// <para><c>AttributeEffect.ReApplyEffect</c> prefix/postfix (ST-3): the one place vanilla decides whether a frozen
+    /// unit shatters. On the host it brackets the decision so the resulting status write can be labelled as the
+    /// shatter; on a client it takes the decision away and leaves only the presentation. See
+    /// <see cref="UnitStatusSyncManager.SuppressClientFrozenSolidRoll"/>.</para>
+    ///
     /// <para>The game's <c>FixedList32Bytes&lt;ModifierData&gt;</c> is translated to plain tuples here so the sync
     /// manager stays free of Unity.Collections and game struct types.</para>
     /// </summary>
     internal static class UnitStatusPatches
     {
+        // AttributeEffect's two private helpers, resolved once at patch time. Never resolve reflection inside these
+        // callbacks: ReApplyEffect runs per status change on every unit, and a per-call lookup in a path at that rate
+        // is the EMP-DW mistake.
+        private static MethodInfo? _getPotentialOverride;   // AttributeEffect GetPotentialOverride(Unit)
+        private static MethodInfo? _updateMovementSpeed;    // void UpdateMovementSpeed(Npc)
+
         public static void Apply(Harmony harmony)
         {
             try
             {
+                ApplyFrozenSolidAuthority(harmony);
                 var applyHitModifiers = AccessTools.DeclaredMethod(typeof(Unit), "ApplyHitModifiers");
                 if (applyHitModifiers != null)
                     harmony.Patch(applyHitModifiers, prefix: new HarmonyMethod(
@@ -79,6 +93,85 @@ namespace SULFURTogether.Patches
         private static void OnStatusUpdated_Post(Unit __instance, EntityAttributes id, float prevValue, float newValue)
         {
             UnitStatusSyncManager.ReportHostUnitStatusEdge(__instance, id, prevValue, newValue);
+        }
+
+        // ----------------------------------------------------------------
+        // ST-3 — AttributeEffect.ReApplyEffect: the frozen-solid decision
+        // ----------------------------------------------------------------
+
+        private static void ApplyFrozenSolidAuthority(Harmony harmony)
+        {
+            var reApplyEffect = AccessTools.DeclaredMethod(typeof(AttributeEffect), "ReApplyEffect");
+            if (reApplyEffect == null)
+            {
+                Plugin.Log.Error("[UnitStatus] AttributeEffect.ReApplyEffect not found — clients will roll their OWN frozen-solid on host enemies.");
+                return;
+            }
+
+            _getPotentialOverride = AccessTools.DeclaredMethod(typeof(AttributeEffect), "GetPotentialOverride");
+            _updateMovementSpeed  = AccessTools.DeclaredMethod(typeof(AttributeEffect), "UpdateMovementSpeed");
+            if (_updateMovementSpeed == null)
+                Plugin.Log.Warn("[UnitStatus] AttributeEffect.UpdateMovementSpeed not found — a suppressed frozen re-apply will not refresh puppet slow speed.");
+
+            harmony.Patch(reApplyEffect,
+                prefix:  new HarmonyMethod(typeof(UnitStatusPatches).GetMethod(nameof(ReApplyEffect_Pre),  BindingFlags.Static | BindingFlags.NonPublic)),
+                postfix: new HarmonyMethod(typeof(UnitStatusPatches).GetMethod(nameof(ReApplyEffect_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+
+            Plugin.Log.Info("[UnitStatus] Patched AttributeEffect.ReApplyEffect (frozen-solid authority).");
+        }
+
+        private static bool ReApplyEffect_Pre(AttributeEffect __instance, Unit unit, float newValue)
+        {
+            try
+            {
+                if (unit == null) return true;
+
+                // Host: bracket the shatter decision. Anything this call writes back into the status is attributable
+                // to it, which is how the resulting edge learns it is a shatter rather than an ordinary raise.
+                if (__instance.id == EntityAttributes.NegativeEffect_Frozen && NetConfig.GetMode() == NetMode.Host)
+                    UnitStatusSyncManager.BeginHostFrozenReapply(unit);
+
+                if (!UnitStatusSyncManager.SuppressClientFrozenSolidRoll(unit, __instance.id))
+                    return true;
+
+                ApplyFrozenPresentationOnly(__instance, unit, newValue);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"[UnitStatus] ReApplyEffect_Pre failed: {ex.GetType().Name}: {ex.Message}");
+                return true; // on our own failure, let the vanilla application run
+            }
+        }
+
+        private static void ReApplyEffect_Post(AttributeEffect __instance, Unit unit)
+        {
+            // Unconditional counterpart to the prefix's arm — no mode check, because a mode change between the two
+            // would otherwise strand the depth. EndHostFrozenReapply is a no-op for a unit that was never armed.
+            if (unit != null && __instance.id == EntityAttributes.NegativeEffect_Frozen)
+                UnitStatusSyncManager.EndHostFrozenReapply(unit);
+        }
+
+        /// <summary>
+        /// Reproduce everything vanilla's frozen <c>ReApplyEffectImp</c> branch does EXCEPT decide the shatter: the
+        /// frost coverage on the material and the slow-speed refresh. Both are read straight off the effect asset and
+        /// driven through the game's own methods rather than restated, so a balance change to either follows.
+        /// </summary>
+        private static void ApplyFrozenPresentationOnly(AttributeEffect effect, Unit unit, float newValue)
+        {
+            if (unit is not Npc npc) return;
+
+            // An effect asset can be overridden per unit (UnitSO.attributeEffectOverrides), and the override owns its
+            // own shaderParameter — vanilla resolves it before touching anything, so this must too.
+            AttributeEffect active = effect;
+            if (_getPotentialOverride != null
+                && _getPotentialOverride.Invoke(effect, new object[] { unit }) is AttributeEffect resolved && resolved != null)
+                active = resolved;
+
+            if (!string.IsNullOrEmpty(active.shaderParameter))
+                npc.SetMaterialFloat(active.shaderParameter, newValue / 100f);
+
+            _updateMovementSpeed?.Invoke(active, new object[] { npc });
         }
     }
 }

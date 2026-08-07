@@ -322,16 +322,70 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
         // ----------------------------------------------------------------
-        // ST-2 — host side: broadcast start/end edges
+        // ST-2 / ST-3 — host side: broadcast start / raise / end
         // ----------------------------------------------------------------
 
         private static int _hostEdgeSeq;
         private static int _hostEdgesSent;
+        private static int _hostEdgesRaise;        // ST-3: the stacking increments the original cut dropped
+        private static int _hostEdgesCoalesced;    // raises suppressed by the per-(unit,attribute) interval
+        private static int _hostFrozenSolidSent;   // raises carrying FlagFrozenSolid
+
+        /// <summary>Minimum spacing between RAISE messages for one (unit, attribute). Starts, ends and a frozen-solid
+        /// raise are never coalesced. A raise is normally one per landed proc, which is a rare event — but a unit
+        /// standing in a hazard volume can be topped up every frame, and this channel must not become a per-frame
+        /// stream. Safe to drop a raise precisely because every message carries the CURRENT value rather than a delta:
+        /// the next one states the truth regardless of what was skipped.</summary>
+        private const float RaiseCoalesceSeconds = 0.1f;
+        private static readonly Dictionary<long, float> _hostRaiseLastSentAt = new Dictionary<long, float>();
+
+        private static long RaiseKey(int spawnIndex, ushort attribute) => ((long)spawnIndex << 16) | attribute;
+
+        // Frozen-solid arming. Set while the host is inside AttributeEffect.ReApplyEffect for a Frozen status on this
+        // unit — the only place vanilla's shatter roll happens. The roll's success is a nested SetStatus(Frozen,100)
+        // that re-enters OnStatusUpdated, so an edge reported for this unit while armed, at 100, IS the shatter.
+        //
+        // It has to be a DEPTH, not a flag. Vanilla re-enters itself: the shatter's SetStatus(Frozen,100) raises
+        // OnStatusUpdated, whose `newValue > 0` branch calls ReApplyEffect AGAIN, and only the innermost of those calls
+        // breaks out. Our OnStatusUpdated postfix — the thing that reports the edge — runs AFTER the nested
+        // ReApplyEffect has already returned and run its own postfix, so a single flag would be cleared by the inner
+        // call before the edge carrying the 100 was ever reported, and the shatter would cross the wire unlabelled.
+        //
+        // Frame- and unit-bounded on top of that: a Harmony postfix does not run when the original throws, so the
+        // depth could otherwise leak and label an unrelated later write as a shatter.
+        private static Unit? _hostFrozenReapplyUnit;
+        private static int   _hostFrozenReapplyFrame = -1;
+        private static int   _hostFrozenReapplyDepth;
+
+        public static void BeginHostFrozenReapply(Unit unit)
+        {
+            int frame = Time.frameCount;
+            if (frame != _hostFrozenReapplyFrame || !ReferenceEquals(_hostFrozenReapplyUnit, unit))
+            {
+                _hostFrozenReapplyUnit  = unit;
+                _hostFrozenReapplyFrame = frame;
+                _hostFrozenReapplyDepth = 0;
+            }
+            _hostFrozenReapplyDepth++;
+        }
+
+        public static void EndHostFrozenReapply(Unit unit)
+        {
+            if (!ReferenceEquals(_hostFrozenReapplyUnit, unit)) return;
+            if (--_hostFrozenReapplyDepth > 0) return;
+            _hostFrozenReapplyUnit  = null;
+            _hostFrozenReapplyFrame = -1;
+            _hostFrozenReapplyDepth = 0;
+        }
+
+        private static bool IsHostFrozenReapplyArmed(Unit unit)
+            => _hostFrozenReapplyDepth > 0
+            && ReferenceEquals(_hostFrozenReapplyUnit, unit)
+            && _hostFrozenReapplyFrame == Time.frameCount;
 
         /// <summary>
-        /// Host: <c>Unit.OnStatusUpdated</c> fired. Broadcast only the transitions — a start (<paramref name="prevValue"/>
-        /// at or below zero, <paramref name="newValue"/> above) or an end (the reverse). Everything in between is the
-        /// per-frame decay, which every end runs for itself.
+        /// Host: <c>Unit.OnStatusUpdated</c> fired. Broadcast a START, a RAISE or an END. Decay is the one transition
+        /// that does NOT travel — it is per-frame, and every end runs the same vanilla decay for itself.
         /// </summary>
         public static void ReportHostUnitStatusEdge(Unit unit, EntityAttributes id, float prevValue, float newValue)
         {
@@ -341,10 +395,12 @@ namespace SULFURTogether.Networking.Gameplay
                 if (unit == null || unit is not Npc) return;
 
                 // Cheapest discriminator first: this callback also carries every health change and every per-frame
-                // status decay, and neither is an edge.
+                // status decay. Decay is a decrease and is the only common case, so it is rejected before anything
+                // else is read.
                 bool started = prevValue <= 0f && newValue > 0f;
                 bool ended   = prevValue > 0f && newValue <= 0f;
-                if (!started && !ended) return;
+                bool raised  = newValue > prevValue && newValue > 0f;
+                if (!started && !ended && !raised) return;
 
                 ushort attribute = (ushort)id;
                 if (!IsSyncableStatus(attribute)) return;
@@ -353,7 +409,33 @@ namespace SULFURTogether.Networking.Gameplay
                     return; // untracked unit — no client has a puppet bound to it
                 if (!NetRunStateBridge.TryGetLocalRunState(out var state) || !state.HasLevel) return;
 
-                float value = started ? Mathf.Clamp(newValue, 0f, MaxStatusValue) : 0f;
+                // The value that is TRUE RIGHT NOW, not the one this invocation was handed. See NetHostUnitStatusState:
+                // the frozen-solid branch writes 100 from inside this very callback (so the outer invocation's newValue
+                // is already stale by the time it reaches us), and SetStatus passes its argument through unclamped.
+                float value = Mathf.Clamp(unit.Stats != null ? unit.Stats.GetStatus(id) : newValue, 0f, MaxStatusValue);
+
+                bool frozenSolid = id == EntityAttributes.NegativeEffect_Frozen
+                                && value >= 100f
+                                && IsHostFrozenReapplyArmed(unit);
+
+                // Coalesce plain raises only. A start, an end and a shatter each carry information no later message
+                // reconstructs, so they always go.
+                bool plainRaise = raised && !started && value > 0f && !frozenSolid;
+                long key = RaiseKey(spawnIndex, attribute);
+                float now = Time.realtimeSinceStartup;
+                if (plainRaise)
+                {
+                    if (_hostRaiseLastSentAt.TryGetValue(key, out float lastAt) && now - lastAt < RaiseCoalesceSeconds)
+                    {
+                        _hostEdgesCoalesced++;
+                        return;
+                    }
+                    _hostRaiseLastSentAt[key] = now;
+                }
+                else if (value <= 0f)
+                {
+                    _hostRaiseLastSentAt.Remove(key); // effect is over — don't hold a throttle slot for it
+                }
 
                 NetGameplaySyncBridge.BroadcastHostUnitStatus(new NetHostUnitStatusState
                 {
@@ -365,13 +447,20 @@ namespace SULFURTogether.Networking.Gameplay
                     UnitIdentifier = unitIdentifier,
                     Attribute      = attribute,
                     Value          = value,
+                    FrozenSolid    = frozenSolid,
                     Sequence       = ++_hostEdgeSeq,
-                    SentAt         = Time.realtimeSinceStartup,
+                    SentAt         = now,
                 });
                 _hostEdgesSent++;
+                if (plainRaise)  _hostEdgesRaise++;
+                if (frozenSolid) _hostFrozenSolidSent++;
 
                 if (Plugin.Cfg.LogUnitStatusSync.Value)
-                    NetLogger.Info($"[UnitStatus] host→clients seq={_hostEdgeSeq} hostIdx={spawnIndex} unit={unitIdentifier} {id}={value:F1} ({(started ? "start" : "end")})");
+                {
+                    string kind = value <= 0f ? "end" : started ? "start" : "raise";
+                    NetLogger.Info($"[UnitStatus] host→clients seq={_hostEdgeSeq} hostIdx={spawnIndex} unit={unitIdentifier} " +
+                                   $"{id}={value:F1} ({kind}{(frozenSolid ? ",FROZEN-SOLID" : "")})");
+                }
             }
             catch (Exception ex)
             {
@@ -431,18 +520,112 @@ namespace SULFURTogether.Networking.Gameplay
                     return;
                 }
 
+                var attributeId = (EntityAttributes)msg.Attribute;
+
                 // Absolute write with the owner callback ON: that callback is what raises/removes the vanilla effect
                 // (material, VFX, animator, movement speed) — the whole point of mirroring the status at all.
-                npc.Stats.SetStatus((EntityAttributes)msg.Attribute, value);
+                if (msg.FrozenSolid && attributeId == EntityAttributes.NegativeEffect_Frozen)
+                    ApplyHostFrozenSolid(npc, value);
+                else
+                    npc.Stats.SetStatus(attributeId, value);
                 _clientEdgesApplied++;
 
                 if (Plugin.Cfg.LogUnitStatusSync.Value)
-                    NetLogger.Info($"[UnitStatus] client applied seq={msg.Sequence} hostIdx={msg.HostSpawnIndex} {(EntityAttributes)msg.Attribute}={value:F1}");
+                    NetLogger.Info($"[UnitStatus] client applied seq={msg.Sequence} hostIdx={msg.HostSpawnIndex} {attributeId}={value:F1}" +
+                                   (msg.FrozenSolid ? " (FROZEN-SOLID)" : ""));
             }
             catch (Exception ex)
             {
                 Plugin.Log.Warn($"[UnitStatus] ApplyHostUnitStatus failed: {ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        // ----------------------------------------------------------------
+        // ST-3 — client side: the frozen-solid decision belongs to the host
+        // ----------------------------------------------------------------
+        //
+        // Vanilla rolls for the shatter inside AttributeEffect.ReApplyEffect, which every RAISE now reaches on the
+        // client too. Left alone that would make the client decide, for itself, whether a host-owned enemy turns to
+        // ice — and the odds are not marginal: frozenSolidChance(80) is ~0.95, so once frost is stacked on a wounded
+        // enemy the client would shatter its puppet on very nearly every increment. The consequences are not cosmetic
+        // either. The roll stops the status' own decay coroutines and pins it at 100, so a puppet that shattered
+        // locally stays an ice block — dragged around by the host's transform, since the real enemy is still walking —
+        // until the host's end edge finally arrives. IsFrozenSolid also changes how the unit gibs and bleeds.
+        //
+        // So the client never rolls (SuppressClientFrozenSolidRoll below) and instead replays the host's decision when
+        // the host states it. Nothing is lost by suppressing: the roll's other half, ReceiveDamage(+infinity), was
+        // already swallowed on clients by TrySendClientHitRequest's non-finite guard, so the shatter never killed the
+        // puppet here anyway — the host's death mirror does that.
+
+        private static int _clientFrozenRollsSuppressed;
+        private static int _clientShattersReplayed;
+        private static int _clientShatterUnreached;
+
+        /// <summary>Set only while this class is driving a host-authorised shatter through vanilla.</summary>
+        private static bool _clientShatterAuthorised;
+
+        /// <summary>
+        /// Client: reproduce the host's frozen-solid on a bound puppet by letting VANILLA do it, rather than
+        /// re-implementing the ice material, the animator bool, the shatter sound and the gib mode by hand.
+        /// <para>Two things have to hold for <c>ReApplyEffectImp</c> to reach its shatter branch: the write must be an
+        /// INCREASE, and the roll must pass. The increase is guaranteed by nudging a puppet that is somehow already at
+        /// the cap back below it (an unobservable write — owner callback off); the roll is made certain by the game's
+        /// own <c>GlobalSettings.Debug.MaxFrozenSolidChance</c>, which forces the health term to 1, against a value of
+        /// 100 where the value term is already 1. The window is strictly synchronous — <c>ReApplyEffectImp</c> does its
+        /// roll before it starts any coroutine — so no other unit, and no player, can be rolled inside it.</para>
+        /// </summary>
+        private static void ApplyHostFrozenSolid(Npc npc, float value)
+        {
+            const EntityAttributes frozen = EntityAttributes.NegativeEffect_Frozen;
+            float target = Mathf.Max(value, 100f);
+
+            // Vanilla breaks out of the shatter branch unless newValue > prevValue.
+            if (npc.Stats.GetStatus(frozen) >= target)
+                npc.Stats.SetStatus(frozen, target - 1f, skipOwnerCallback: true);
+
+            bool previousMaxChance = GlobalSettings.Debug.MaxFrozenSolidChance;
+            _clientShatterAuthorised = true;
+            try
+            {
+                GlobalSettings.Debug.MaxFrozenSolidChance = true;
+                npc.Stats.SetStatus(frozen, target);
+            }
+            finally
+            {
+                GlobalSettings.Debug.MaxFrozenSolidChance = previousMaxChance;
+                _clientShatterAuthorised = false;
+            }
+
+            if (npc.IsFrozenSolid) _clientShattersReplayed++;
+            else
+            {
+                // The remaining vanilla guard is `newValue >= 100 && (health <= 0 || !IsAlive) → skip`, i.e. the
+                // puppet's mirrored health already reached zero before this edge landed. The enemy is dying anyway;
+                // the only loss is the ice.
+                _clientShatterUnreached++;
+                if (Plugin.Cfg.LogUnitStatusSync.Value)
+                    NetLogger.Info($"[UnitStatus] client shatter not reached unit={npc.name} (health/alive guard)");
+            }
+        }
+
+        /// <summary>
+        /// Client: true when the caller must SKIP vanilla's <c>AttributeEffect.ReApplyEffect</c> for this unit because
+        /// running it would let this end decide the shatter. Scoped as tightly as it can be — client only, Frozen only,
+        /// host-bound puppets only, and never while <see cref="ApplyHostFrozenSolid"/> is deliberately driving it.
+        /// <para>The caller is responsible for the presentational half that is being skipped along with the roll; see
+        /// <c>UnitStatusPatches</c>. Only the Frozen branch is suppressed — the same method also carries Charmed's
+        /// faction handover and Bleed's blood puff, which are presentation and must keep running.</para>
+        /// </summary>
+        public static bool SuppressClientFrozenSolidRoll(Unit unit, EntityAttributes id)
+        {
+            if (_clientShatterAuthorised) return false;
+            if (id != EntityAttributes.NegativeEffect_Frozen) return false;
+            if (NetConfig.GetMode() != NetMode.Client) return false;
+            if (unit is not Npc) return false;
+            if (!NetGameplayProbeManager.TryGetClientPuppetBinding(unit, out _, out _)) return false;
+
+            _clientFrozenRollsSuppressed++;
+            return true;
         }
 
         // ----------------------------------------------------------------
@@ -462,6 +645,8 @@ namespace SULFURTogether.Networking.Gameplay
             => $"clientIntercepted={_clientIntercepted} clientForwarded={_clientForwarded} " +
                $"clientNoProc={_clientNoProc} clientNotLocalAttacker={_clientNotLocalAttacker} clientLocalOnly={_clientLocalOnlyApplied} " +
                $"hostRecv={_hostRequestsRecv} hostApplied={_hostRequestsApplied} hostRejected={_hostRequestsRejected} " +
-               $"hostEdgesSent={_hostEdgesSent} clientEdgesApplied={_clientEdgesApplied} clientEdgesDropped={_clientEdgesDropped} clientEdgesDroppedInactive={_clientEdgesDroppedInactive}";
+               $"hostEdgesSent={_hostEdgesSent} hostEdgesRaise={_hostEdgesRaise} hostEdgesCoalesced={_hostEdgesCoalesced} hostFrozenSolid={_hostFrozenSolidSent} " +
+               $"clientEdgesApplied={_clientEdgesApplied} clientEdgesDropped={_clientEdgesDropped} clientEdgesDroppedInactive={_clientEdgesDroppedInactive} " +
+               $"clientFrozenRollsSuppressed={_clientFrozenRollsSuppressed} clientShattersReplayed={_clientShattersReplayed} clientShatterUnreached={_clientShatterUnreached}";
     }
 }
