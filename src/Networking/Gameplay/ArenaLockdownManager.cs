@@ -922,7 +922,25 @@ namespace SULFURTogether.Networking.Gameplay
         public static void OnLocalDoorwayTraversed(string arenaKey, Vector3 arenaPos, bool latchOnly = false)
         {
             _doorwayCrossings.TryGetValue(arenaKey, out int c);
-            c = latchOnly ? 1 : c + 1;
+            int next = latchOnly ? 1 : c + 1;
+
+            // LD-TP2: our own barrier still standing for this arena is this end's explicit "I am outside" PLUS a solid
+            // two-sided BoxCollider across the door, so the local player CANNOT have got in — a pass that would claim
+            // "inside" is spurious and must not be believed. Log546 (arena 5_-4_1): that seal trigger sits 23.5 m from
+            // the door it seals, so it attached latchOnly; 45 log lines after this end sealed itself out, a pass through
+            // that far volume latched parity to inside. Two things broke at once — the Popup handler read "local player
+            // inside" and swallowed the enter prompt, and the same latch reported in-room, flipping the HOST's
+            // membership from [host] to [host,client-1] for a player stuck behind the barrier. Entering for real
+            // (TeleportIntoArena / Release) unseals before it marks parity, so this never blocks a legitimate entry;
+            // the worst case if our barrier were placed at the wrong door is a redundant prompt for someone already
+            // inside, which beats a sealed-out player getting no prompt at all.
+            if ((next % 2) == 1 && (c % 2) == 0 && ArenaBarrierManager.IsSealed(arenaPos))
+            {
+                if (LogOn) NetLogger.Info($"[ArenaLockdown] doorway traversal arena={arenaKey} IGNORED — our barrier is still up, so this end is sealed OUT and cannot have entered{(latchOnly ? " (latched — interior trigger)" : "")}");
+                return;
+            }
+
+            c = next;
             _doorwayCrossings[arenaKey] = c;
             if (LogOn) NetLogger.Info($"[ArenaLockdown] doorway traversal arena={arenaKey} count={c} inside={(c % 2 == 1)}{(latchOnly ? " (latched — interior trigger)" : "")}");
             // TB-DLG2b (Log363): the seal PlayerTrigger is CONSUMED on every end by the TB-INTRO entrance mirror
