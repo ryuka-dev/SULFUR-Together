@@ -166,7 +166,7 @@ namespace SULFURTogether.Networking.Gameplay
                 for (int i = 0; i < count; i++)
                 {
                     Vector3 dir = (m.Spread > 0f)
-                        ? Helpers.GetRandomDirectionInCode(m.Spread, central)
+                        ? Helpers.GetRandomDirectionInCone(m.Spread, central)
                         : central;
 
                     float speed = m.Speed;
@@ -175,7 +175,12 @@ namespace SULFURTogether.Networking.Gameplay
                     ProjectileRay ray = BuildRay(m, origin, dir, speed);
                     ProjectileData data = BuildData(m, homingTarget);
 
-                    if (railgun != null) railgun.FireRailgun(ray, data);
+                    // 0.19 added (BeamgunBeamCache beamCache, int beamIndex). Vanilla Weapon.Shoot passes
+                    // `isBeamgun ? beamCache : null` and only ever touches beamIndex when ray.isBeam is set; a null
+                    // cache takes FireRailgun's RailgunVFX.PushBeam branch, which is exactly the pre-0.19 path. We
+                    // replay a peer's shot, own no beamgun cache and never set ray.isBeam, so null/0 is the faithful
+                    // port. Beamgun beams consequently still mirror as railgun beams (unchanged from 0.18.5).
+                    if (railgun != null) railgun.FireRailgun(ray, data, null, 0);
                     else projSys.StartProjectile(ray, data, null);
                     spawned++;
                 }

@@ -386,8 +386,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             sb.Append(" churchFire=").Append(BossReflect.TryInvoke(BossReflect.GetMember(component, "fireSequence"), "StartChurchFire", out _));
             TrySetAnimatorTrigger(BossReflect.GetMember(component, "outsideFireAnimator"), "StartEnd");
             // MusicTrigger.StopMusic(float fadeDuration=2f) has a parameter, so the parameterless TryInvoke missed it
-            // (LogOutput41 musicStop=False). Invoke it with a single float so the client's boss music actually stops.
-            sb.Append(" musicStop=").Append(TryInvokeSingleFloat(BossReflect.GetMember(component, "musicTrigger"), "StopMusic", 2f));
+            // (LogOutput41 musicStop=False). Pass the fade explicitly so the client's boss music actually stops.
+            sb.Append(" musicStop=").Append(BossReflect.TryInvokeArg(BossReflect.GetMember(component, "musicTrigger"), "StopMusic", 2f, out _));
             TrySetBoolField(component, "fightStarted", false);
             TrySetActiveGO(BossReflect.GetMember(component, "blockadesToActivateAfterFight"), true);
             TrySetActiveGO(BossReflect.GetMember(component, "fireEffectRoot"), true);
@@ -420,22 +420,6 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         private static void TrySetAnimatorTrigger(object? animator, string trigger)
         { try { if (animator is Animator a && a != null) a.SetTrigger(trigger); } catch { } }
-
-        /// <summary>Invoke an instance method that takes a single float (e.g. MusicTrigger.StopMusic(float)).</summary>
-        private static bool TryInvokeSingleFloat(object? obj, string method, float arg)
-        {
-            if (obj == null) return false;
-            try
-            {
-                for (Type? t = obj.GetType(); t != null; t = t.BaseType)
-                {
-                    var mi = t.GetMethod(method, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic, null, new[] { typeof(float) }, null);
-                    if (mi != null) { mi.Invoke(obj, new object[] { arg }); return true; }
-                }
-            }
-            catch { }
-            return false;
-        }
 
         private static void TrySetActiveGO(object? go, bool active)
         {

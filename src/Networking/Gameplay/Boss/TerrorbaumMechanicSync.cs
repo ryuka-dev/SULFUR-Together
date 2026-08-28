@@ -550,7 +550,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         {
                             // Native SpawnProjectiles: origin = bulletSpawnpoint + local x jitter, dir = 15° cone around up.
                             Vector3 origin = spawn.TransformPoint(new Vector3(UnityEngine.Random.Range(0f, 0.5f), 0f, 0f));
-                            Vector3 dir = PerfectRandom.Sulfur.Core.Utilities.Helpers.GetRandomDirectionInCode(15f, Vector3.up);
+                            Vector3 dir = PerfectRandom.Sulfur.Core.Utilities.Helpers.GetRandomDirectionInCone(15f, Vector3.up);
                             PlayerWeaponFireManager.FireVisualStraight(origin, dir * v.Speed, v.Type, v.Caliber, v.Effect, v.Vfx, v.DamageType);
                         }
                         if (v.Remaining <= 0) v.EndAt = now + 0.4f; // shots done — brief tail then presentation off

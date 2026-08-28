@@ -18,6 +18,69 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // a non-DeclaredOnly lookup can throw AmbiguousMatchException or pick the wrong slot.
         private const BindingFlags WalkFlags = Flags | BindingFlags.DeclaredOnly;
 
+        private static readonly Func<ParameterInfo, bool>[] NoParams = Array.Empty<Func<ParameterInfo, bool>>();
+        private static readonly Func<ParameterInfo, bool>[] OneBool = { p => p.ParameterType == typeof(bool) };
+        private static readonly Func<ParameterInfo, bool>[] OneEnum = { p => p.ParameterType.IsEnum };
+
+        /// <summary>Resolve an instance method by name, matching only its <paramref name="leading"/> parameters and
+        /// requiring every parameter past them to be optional.
+        ///
+        /// Vanilla routinely *appends* an optional parameter to an existing method - 0.19 did it to both
+        /// Unit.AttachToBossUI(bool) and Npc.SetPhysicsEnabled(bool). A C# default value is a compile-time
+        /// convenience that reflection does not see: an exact GetMethod(..., new[]{ typeof(bool) }, ...) stops
+        /// matching the moment a second parameter appears, and Invoke with one argument throws. Matching a
+        /// prefix instead makes every helper here immune to that whole class of change.
+        ///
+        /// Fewest parameters wins, so an unchanged exact-arity method still resolves exactly as it did before.
+        /// Walks most-derived -> base with DeclaredOnly for the member-hiding reason above.</summary>
+        private static bool TryResolve(object obj, string method, Func<ParameterInfo, bool>[] leading,
+                                       out MethodInfo? resolved, Func<MethodInfo, bool>? accept = null)
+        {
+            resolved = null;
+            for (Type? t = obj.GetType(); t != null; t = t.BaseType)
+            {
+                MethodInfo? best = null;
+                int bestCount = int.MaxValue;
+                foreach (var cand in t.GetMethods(WalkFlags))
+                {
+                    if (cand.Name != method || cand.IsGenericMethodDefinition) continue;
+                    if (accept != null && !accept(cand)) continue;
+                    var ps = cand.GetParameters();
+                    if (ps.Length < leading.Length || ps.Length >= bestCount) continue;
+
+                    bool ok = true;
+                    for (int i = 0; i < leading.Length && ok; i++)
+                        ok = !ps[i].ParameterType.IsByRef && leading[i](ps[i]);
+                    for (int i = leading.Length; i < ps.Length && ok; i++)
+                        ok = ps[i].IsOptional;
+                    if (!ok) continue;
+
+                    best = cand;
+                    bestCount = ps.Length;
+                }
+                if (best != null) { resolved = best; return true; }
+            }
+            return false;
+        }
+
+        /// <summary>Argument array for a method resolved by <see cref="TryResolve"/>: the caller's leading arguments
+        /// plus the vanilla default of every trailing optional parameter the caller knows nothing about.</summary>
+        private static object?[] BuildArgs(MethodInfo mi, params object?[] leadingArgs)
+        {
+            var ps = mi.GetParameters();
+            if (ps.Length == leadingArgs.Length) return leadingArgs;
+            var args = new object?[ps.Length];
+            Array.Copy(leadingArgs, args, leadingArgs.Length);
+            for (int i = leadingArgs.Length; i < ps.Length; i++)
+            {
+                var p = ps[i];
+                args[i] = p.HasDefaultValue ? p.DefaultValue
+                        : p.ParameterType.IsValueType ? Activator.CreateInstance(p.ParameterType)
+                        : null;
+            }
+            return args;
+        }
+
         public static object? GetMember(object? obj, string name)
         {
             if (obj == null) return null;
@@ -97,17 +160,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch { return false; }
         }
 
-        /// <summary>True if the object's type (or a base type) declares a parameterless instance method by name.</summary>
+        /// <summary>True if the object's type (or a base type) declares an instance method by name that is callable
+        /// with no arguments (parameterless, or every parameter optional). Several adapters use this as a type
+        /// discriminator, so it stays a shape probe - a same-named method with a required parameter is not a match.</summary>
         public static bool HasMethod(object? obj, string method)
         {
             if (obj == null) return false;
-            try
-            {
-                for (Type? t = obj.GetType(); t != null; t = t.BaseType)
-                    if (t.GetMethod(method, WalkFlags, null, Type.EmptyTypes, null) != null) return true;
-            }
-            catch { }
-            return false;
+            try { return TryResolve(obj, method, NoParams, out _); }
+            catch { return false; }
         }
 
         /// <summary>Invoke a parameterless (or all-default) method by name. Returns true if invoked.</summary>
@@ -117,12 +177,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (obj == null) { detail = "null-instance"; return false; }
             try
             {
-                MethodInfo? mi = null;
-                for (Type? t = obj.GetType(); t != null && mi == null; t = t.BaseType)
-                    mi = t.GetMethod(method, WalkFlags, null, Type.EmptyTypes, null);
-
-                if (mi == null) { detail = $"method '{method}' not found"; return false; }
-                mi.Invoke(obj, null);
+                if (!TryResolve(obj, method, NoParams, out var mi))
+                { detail = $"method '{method}()' not found"; return false; }
+                mi!.Invoke(obj, BuildArgs(mi));
                 detail = $"invoked {obj.GetType().Name}.{method}()";
                 return true;
             }
@@ -145,14 +202,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (obj == null) return false;
             try
             {
-                for (Type? t = obj.GetType(); t != null; t = t.BaseType)
+                if (TryResolve(obj, method, NoParams, out var mi,
+                        m => m.ReturnType == typeof(float) || m.ReturnType == typeof(double)))
                 {
-                    var mi = t.GetMethod(method, WalkFlags, null, Type.EmptyTypes, null);
-                    if (mi != null && (mi.ReturnType == typeof(float) || mi.ReturnType == typeof(double)))
-                    {
-                        value = Convert.ToSingle(mi.Invoke(obj, null));
-                        return true;
-                    }
+                    value = Convert.ToSingle(mi!.Invoke(obj, BuildArgs(mi)));
+                    return true;
                 }
             }
             catch { }
@@ -168,20 +222,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try
             {
                 var argType = arg.GetType();
-                for (Type? t = obj.GetType(); t != null; t = t.BaseType)
-                {
-                    foreach (var mi in t.GetMethods(WalkFlags))
-                    {
-                        if (mi.Name != method) continue;
-                        var ps = mi.GetParameters();
-                        if (ps.Length != 1 || !ps[0].ParameterType.IsAssignableFrom(argType)) continue;
-                        mi.Invoke(obj, new[] { arg });
-                        detail = $"invoked {obj.GetType().Name}.{method}({argType.Name})";
-                        return true;
-                    }
-                }
-                detail = $"method '{method}({argType.Name})' not found";
-                return false;
+                var leading = new Func<ParameterInfo, bool>[] { p => p.ParameterType.IsAssignableFrom(argType) };
+                if (!TryResolve(obj, method, leading, out var mi))
+                { detail = $"method '{method}({argType.Name}, ...)' not found"; return false; }
+                mi!.Invoke(obj, BuildArgs(mi, arg));
+                detail = $"invoked {obj.GetType().Name}.{method}({argType.Name})";
+                return true;
             }
             catch (TargetInvocationException ex) { detail = $"{method} threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}"; return false; }
             catch (Exception ex) { detail = $"{method} failed: {ex.GetType().Name}"; return false; }
@@ -212,18 +258,17 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             return null;
         }
 
-        /// <summary>Invoke an instance method that takes a single bool argument (e.g. Unit.AttachToBossUI(bool)).</summary>
+        /// <summary>Invoke an instance method whose first parameter is a bool (e.g. Unit.AttachToBossUI(bool)).
+        /// Trailing optional parameters keep their vanilla defaults - see <see cref="TryResolve"/>.</summary>
         public static bool TryInvokeBool(object? obj, string method, bool arg, out string detail)
         {
             detail = "";
             if (obj == null) { detail = "null-instance"; return false; }
             try
             {
-                MethodInfo? mi = null;
-                for (Type? t = obj.GetType(); t != null && mi == null; t = t.BaseType)
-                    mi = t.GetMethod(method, WalkFlags, null, new[] { typeof(bool) }, null);
-                if (mi == null) { detail = $"method '{method}(bool)' not found"; return false; }
-                mi.Invoke(obj, new object[] { arg });
+                if (!TryResolve(obj, method, OneBool, out var mi))
+                { detail = $"method '{method}(bool, ...)' not found"; return false; }
+                mi!.Invoke(obj, BuildArgs(mi, arg));
                 detail = $"invoked {obj.GetType().Name}.{method}({arg})";
                 return true;
             }
@@ -239,21 +284,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (obj == null) { detail = "null-instance"; return false; }
             try
             {
-                for (Type? t = obj.GetType(); t != null; t = t.BaseType)
-                {
-                    foreach (var mi in t.GetMethods(WalkFlags))
-                    {
-                        if (mi.Name != method) continue;
-                        var ps = mi.GetParameters();
-                        if (ps.Length != 1 || !ps[0].ParameterType.IsEnum) continue;
-                        object arg = Enum.ToObject(ps[0].ParameterType, enumInt);
-                        mi.Invoke(obj, new[] { arg });
-                        detail = $"invoked {obj.GetType().Name}.{method}({ps[0].ParameterType.Name}={arg})";
-                        return true;
-                    }
-                }
-                detail = $"enum-method '{method}' not found";
-                return false;
+                if (!TryResolve(obj, method, OneEnum, out var mi))
+                { detail = $"enum-method '{method}' not found"; return false; }
+                Type enumType = mi!.GetParameters()[0].ParameterType;
+                object arg = Enum.ToObject(enumType, enumInt);
+                mi.Invoke(obj, BuildArgs(mi, arg));
+                detail = $"invoked {obj.GetType().Name}.{method}({enumType.Name}={arg})";
+                return true;
             }
             catch (TargetInvocationException ex)
             {

@@ -1392,23 +1392,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 foreach (var rider in riders)
                 {
                     if (!(rider is UnityEngine.Object ru) || ru == null) continue;
-                    TryInvokeBool(rider, "SetInvulnerable", false);
-                    TryInvokeBool(rider, "SetHitboxesInvulnerable", false);
+                    BossReflect.TryInvokeBool(rider, "SetInvulnerable", false, out _);
+                    BossReflect.TryInvokeBool(rider, "SetHitboxesInvulnerable", false, out _);
                 }
             }
             catch (Exception ex) { Plugin.Log.Warn($"[PikeJumpSync] ArmPikeRidersForAmbush failed: {ex.GetType().Name}: {ex.Message}"); }
-        }
-
-        private static void TryInvokeBool(object target, string method, bool value)
-        {
-            try
-            {
-                var m = target.GetType().GetMethod(method,
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-                    null, new[] { typeof(bool) }, null);
-                m?.Invoke(target, new object[] { value });
-            }
-            catch { }
         }
 
         // ===================================================================== F4-MISSILE D1: firing-window sync
