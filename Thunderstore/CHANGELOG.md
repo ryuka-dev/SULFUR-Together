@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.4.0 — SULFUR 0.19, and the things that freeze
+
+SULFUR 0.19 ("Dungeons & Magic") renamed and re-signed enough of the game that 1.3.1 simply stops
+working on it: none of the other player's shots are drawn at all, boss health bars never appear, and
+the boss loop throws an error on every single frame. This release is the port. **1.4.0 is built for
+SULFUR 0.19 and does not run on 0.18.x — if you are still on an older game build, stay on 1.3.1.**
+
+Alongside that, the status effects that stack — Frozen above all — finally build up on both screens,
+and smashing a frozen body is something you both see. **The network protocol changed (33 to 37), so
+everyone must update to 1.4.0 together — a 1.3.x player cannot join a 1.4.0 session.**
+
+**Fixed:**
+- **The mod works on SULFUR 0.19.** Two of the game's methods were renamed or given new required
+  arguments, and the mod called both of them on the path that redraws another player's bullets. The
+  failure was total rather than partial: the error was raised the moment that code was first
+  entered, so it slipped past the mod's own error handling and killed the whole message — not one
+  shot fired by anyone else was ever drawn, and the boss encounter loop died on every frame of the
+  session. Two more methods quietly gained an optional argument, which is enough to make a lookup by
+  name fail silently; that is why boss health bars stopped appearing and stopped going away. The
+  lookup now tolerates arguments being appended, so the next update of this kind will not break it.
+- **The entry prompt reaches the player who is locked out.** On arenas whose entry trigger sits deep
+  inside the room rather than in the doorway, brushing that trigger from outside marked you as
+  already inside — permanently. The prompt to enter was then swallowed, and the host was told you
+  were in the room while you stood behind the barrier. Being sealed out is now believed over a
+  stray trigger.
+
+**Added:**
+- **Status effects that stack build up on both screens.** A stacking effect only ever told the other
+  player about its first application, so on their screen an enemy sat at one stack forever: it never
+  froze solid, never shattered, and the numbers you were both watching disagreed. Every increment is
+  now carried, and whether something is frozen solid is decided in one place instead of each player
+  guessing.
+- **An enemy that died frozen solid is an ice statue for everyone.** It used to be a rigid statue
+  for the host and collapse into a ragdoll for everyone else, because the other end had to re-derive
+  "is this frozen solid" from a copy of the effect that was already melting on its own. The host now
+  states it outright at the moment of death.
+- **Smashing a frozen corpse is shared.** A frozen body bursting was purely local — you would shatter
+  one and your teammate would still be looking at it, or shoot one that had already been cleared on
+  the other screen. Either player can now break one and both of you see it go. Anything it drops
+  still comes from the host, so nothing is duplicated.
+
+**For mod authors:**
+- A companion mod can now consume a world pickup through the session and name a unit it spawned, so
+  its own objects and drops travel between players instead of existing on one screen.
+
 ## 1.3.1 — The Cardinal, and a door that waits for you
 
 The Black Guild Cardinal fight had never been synced, so the two of you were not fighting the same

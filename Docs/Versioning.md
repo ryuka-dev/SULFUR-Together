@@ -7,7 +7,7 @@ like "RM-2a" look opaque. This document is the single source of truth for both.
 
 ## 1. Plugin version (semver) — the release number
 
-- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.3.0`** (Public Beta — released as "the freezes"). Protocol is at **33** since Phase BGC; the next release must be taken by every peer together.
+- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.4.0`** (Public Beta — released as "SULFUR 0.19, and the things that freeze"; the first build that requires game 0.19). Protocol is at **37** since Phase CG-1; the next release must be taken by every peer together.
 - This is the only number a *player* ever sees (Thunderstore, BepInEx load line).
 - Bumped **only at a Thunderstore release milestone**, MAJOR.MINOR.PATCH:
   - **PATCH** (0.2.0 → 0.2.1): bug-fix release. During Public Beta, all players should still update to the same version when a fix touches network messages.

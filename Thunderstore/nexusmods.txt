@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.3.1 — Public Beta.[/b] It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+> [b]Version 1.4.0 — Public Beta.[/b] Built for [b]SULFUR 0.19[/b]; it does not run on 0.18.x — stay on 1.3.1 if you are on an older game build. It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
 
 [line]
 
@@ -421,6 +421,63 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.4.0 — SULFUR 0.19, and the things that freeze[/b][/color]
+
+SULFUR 0.19 ("Dungeons & Magic") renamed and re-signed enough of the game that 1.3.1 simply stops
+working on it: none of the other player's shots are drawn at all, boss health bars never appear, and
+the boss loop throws an error on every single frame. This release is the port. **1.4.0 is built for
+SULFUR 0.19 and does not run on 0.18.x — if you are still on an older game build, stay on 1.3.1.**
+
+Alongside that, the status effects that stack — Frozen above all — finally build up on both screens,
+and smashing a frozen body is something you both see. **The network protocol changed (33 to 37), so
+everyone must update to 1.4.0 together — a 1.3.x player cannot join a 1.4.0 session.**
+
+[b]Fixed:[/b]
+[list]
+[*][b]The mod works on SULFUR 0.19.[/b] Two of the game's methods were renamed or given new required[/*]
+[/list]
+  arguments, and the mod called both of them on the path that redraws another player's bullets. The
+  failure was total rather than partial: the error was raised the moment that code was first
+  entered, so it slipped past the mod's own error handling and killed the whole message — not one
+  shot fired by anyone else was ever drawn, and the boss encounter loop died on every frame of the
+  session. Two more methods quietly gained an optional argument, which is enough to make a lookup by
+  name fail silently; that is why boss health bars stopped appearing and stopped going away. The
+  lookup now tolerates arguments being appended, so the next update of this kind will not break it.
+[list]
+[*][b]The entry prompt reaches the player who is locked out.[/b] On arenas whose entry trigger sits deep[/*]
+[/list]
+  inside the room rather than in the doorway, brushing that trigger from outside marked you as
+  already inside — permanently. The prompt to enter was then swallowed, and the host was told you
+  were in the room while you stood behind the barrier. Being sealed out is now believed over a
+  stray trigger.
+
+[b]Added:[/b]
+[list]
+[*][b]Status effects that stack build up on both screens.[/b] A stacking effect only ever told the other[/*]
+[/list]
+  player about its first application, so on their screen an enemy sat at one stack forever: it never
+  froze solid, never shattered, and the numbers you were both watching disagreed. Every increment is
+  now carried, and whether something is frozen solid is decided in one place instead of each player
+  guessing.
+[list]
+[*][b]An enemy that died frozen solid is an ice statue for everyone.[/b] It used to be a rigid statue[/*]
+[/list]
+  for the host and collapse into a ragdoll for everyone else, because the other end had to re-derive
+  "is this frozen solid" from a copy of the effect that was already melting on its own. The host now
+  states it outright at the moment of death.
+[list]
+[*][b]Smashing a frozen corpse is shared.[/b] A frozen body bursting was purely local — you would shatter[/*]
+[/list]
+  one and your teammate would still be looking at it, or shoot one that had already been cleared on
+  the other screen. Either player can now break one and both of you see it go. Anything it drops
+  still comes from the host, so nothing is duplicated.
+
+[b]For mod authors:[/b]
+[list]
+[*]A companion mod can now consume a world pickup through the session and name a unit it spawned, so[/*]
+[/list]
+  its own objects and drops travel between players instead of existing on one screen.
 
 [color=RoyalBlue][b]1.3.1 — The Cardinal, and a door that waits for you[/b][/color]
 
