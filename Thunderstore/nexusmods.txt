@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.4.0 — Public Beta.[/b] Built for [b]SULFUR 0.19[/b]; it does not run on 0.18.x — stay on 1.3.1 if you are on an older game build. It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+> [b]Version 1.4.1 — Public Beta.[/b] Built for [b]SULFUR 0.19.9[/b]; it does not run on 0.19.3 or older game builds — stay on 1.4.0 for the earlier 0.19 builds, or 1.3.1 if you are still on 0.18.x. It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
 
 [line]
 
@@ -421,6 +421,27 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.4.1 — SULFUR 0.19.9[/b][/color]
+
+SULFUR 0.19.9 rebuilt the way tracking projectiles work, and the change lands squarely on the code
+that redraws another player's shots. **1.4.1 is built for SULFUR 0.19.9 and does not run on 0.19.3
+or older game builds — stay on 1.4.0 for the earlier 0.19 builds. The reverse is also true: 1.4.0
+is not built for 0.19.9, so if you have updated the game, update the mod.** The network protocol is
+unchanged from 1.4.0, but the mod still refuses a session where the two sides run different
+versions, so update together.
+
+[b]Fixed:[/b]
+[list]
+[*][b]Homing shots fired by other players curve again.[/b] Weapons with the homing property — the Typhoon[/*]
+[/list]
+  and the Augusta among them — send their bullets after the nearest enemy. On the screen of whoever
+  pulled the trigger that has always worked; on everyone else's screen the same burst is redrawn
+  from scratch, and on SULFUR 0.19.9 those redrawn bullets flew straight past. The game used to
+  switch tracking on by itself for any bullet that had been given a target, and 0.19.9 handed that
+  job to whoever fires the shot — the mod was still waiting for the game to do it. Other players'
+  homing bursts now bend toward whatever they are actually shooting at, and a burst fired with
+  nothing in front of it still flies straight, as it should.
 
 [color=RoyalBlue][b]1.4.0 — SULFUR 0.19, and the things that freeze[/b][/color]
 

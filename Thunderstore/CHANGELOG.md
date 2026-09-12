@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.4.1 — SULFUR 0.19.9
+
+SULFUR 0.19.9 rebuilt the way tracking projectiles work, and the change lands squarely on the code
+that redraws another player's shots. **1.4.1 is built for SULFUR 0.19.9 and does not run on 0.19.3
+or older game builds — stay on 1.4.0 for the earlier 0.19 builds. The reverse is also true: 1.4.0
+is not built for 0.19.9, so if you have updated the game, update the mod.** The network protocol is
+unchanged from 1.4.0, but the mod still refuses a session where the two sides run different
+versions, so update together.
+
+**Fixed:**
+- **Homing shots fired by other players curve again.** Weapons with the homing property — the Typhoon
+  and the Augusta among them — send their bullets after the nearest enemy. On the screen of whoever
+  pulled the trigger that has always worked; on everyone else's screen the same burst is redrawn
+  from scratch, and on SULFUR 0.19.9 those redrawn bullets flew straight past. The game used to
+  switch tracking on by itself for any bullet that had been given a target, and 0.19.9 handed that
+  job to whoever fires the shot — the mod was still waiting for the game to do it. Other players'
+  homing bursts now bend toward whatever they are actually shooting at, and a burst fired with
+  nothing in front of it still flies straight, as it should.
+
 ## 1.4.0 — SULFUR 0.19, and the things that freeze
 
 SULFUR 0.19 ("Dungeons & Magic") renamed and re-signed enough of the game that 1.3.1 simply stops

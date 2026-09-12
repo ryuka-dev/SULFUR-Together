@@ -7,7 +7,7 @@ like "RM-2a" look opaque. This document is the single source of truth for both.
 
 ## 1. Plugin version (semver) — the release number
 
-- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.4.0`** (Public Beta — released as "SULFUR 0.19, and the things that freeze"; the first build that requires game 0.19). Protocol is at **37** since Phase CG-1; the next release must be taken by every peer together.
+- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.4.1`** (Public Beta — released as "SULFUR 0.19.9"; the first build that requires game **0.19.9** — `ProjectileData.homingTarget` / `ProjectileRay.trackingMode` do not exist on 0.19.3, so 1.4.1 cannot run there, and 1.4.0 cannot run on 0.19.9). Protocol is unchanged at **37** since Phase CG-1, but `RequireSameModVersion` defaults to on, so a release must still be taken by every peer together.
 - This is the only number a *player* ever sees (Thunderstore, BepInEx load line).
 - Bumped **only at a Thunderstore release milestone**, MAJOR.MINOR.PATCH:
   - **PATCH** (0.2.0 → 0.2.1): bug-fix release. During Public Beta, all players should still update to the same version when a fix touches network messages.
