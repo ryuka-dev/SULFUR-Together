@@ -172,7 +172,7 @@ namespace SULFURTogether.Networking.Gameplay
                     float speed = m.Speed;
                     if (m.IsSpray) speed *= UnityEngine.Random.Range(0.7f, 1.3f);
 
-                    ProjectileRay ray = BuildRay(m, origin, dir, speed);
+                    ProjectileRay ray = BuildRay(m, origin, dir, speed, homingTarget);
                     ProjectileData data = BuildData(m, homingTarget);
 
                     // 0.19 added (BeamgunBeamCache beamCache, int beamIndex). Vanilla Weapon.Shoot passes
@@ -186,7 +186,7 @@ namespace SULFURTogether.Networking.Gameplay
                 }
 
                 if (Plugin.Cfg.LogPlayerWeaponSync.Value)
-                    NetLogger.Info($"[PlayerWeaponFire] replay peer={m.PeerId} spawned={spawned}/{m.Count} type={(ProjectileTypes)m.ProjectileType} raygun={m.IsRaygun} homing={(homingTarget != null)}");
+                    NetLogger.Info($"[PlayerWeaponFire] replay peer={m.PeerId} spawned={spawned}/{m.Count} type={(ProjectileTypes)m.ProjectileType} raygun={m.IsRaygun} homing={(ResolveHomingAnchor(homingTarget) != null)}");
             }
             catch (Exception ex)
             {
@@ -250,7 +250,7 @@ namespace SULFURTogether.Networking.Gameplay
             ray.coreColor = new float3(0.812f, 0.58f, 0.573f);
         }
 
-        private static ProjectileRay BuildRay(NetPlayerWeaponFire m, Vector3 origin, Vector3 dir, float speed)
+        private static ProjectileRay BuildRay(NetPlayerWeaponFire m, Vector3 origin, Vector3 dir, float speed, Npc? homingTarget)
         {
             float3 o = new float3(origin.x, origin.y, origin.z);
             ProjectileRay ray = new ProjectileRay(o, (ProjectileTypes)m.ProjectileType);
@@ -291,11 +291,25 @@ namespace SULFURTogether.Networking.Gameplay
             ray.barrelPosition       = o;
             ray.startTime  = Time.time;
             ray.ownerInstID = VisualOwnerInstId;
+
+            // 0.19.9 turned homing into a mode machine and, in the same move, stopped arming it for us. Up to 0.19.3
+            // ProjectileSystem's own pre-job pass wrote `value.homing = _homingTargets[i] != null` every FixedUpdate,
+            // so registering a homingTarget was enough and neither vanilla Weapon.Shoot nor this replay ever touched
+            // the flag. 0.19.9's pass only ever CLEARS (`if (_homingTargets[i] == null) trackingMode = None`), so the
+            // caller has to arm it — vanilla now does exactly that, inside its `if (target != null)` branch.
+            // The gate is the resolved anchor, not m.Homing: StartProjectile seeds homingPoisition only for a
+            // non-null ProjectileData.homingTarget, so arming an unanchored ray would leave homingPoisition at
+            // float3.zero and DoHoming would steer the ghost bullet at the world origin. (~24% of Homing shots find
+            // no target — 34440 captured vs 26206 replayed across the archived rounds.)
+            ray.trackingMode = ResolveHomingAnchor(homingTarget) != null
+                ? ProjectileTrackingModes.Homing
+                : ProjectileTrackingModes.None;
+
             // damageComps intentionally left EMPTY → ProcessUnitHit applies zero damage. VISUAL ONLY.
             return ray;
         }
 
-        private static ProjectileData BuildData(NetPlayerWeaponFire m, Npc homingTarget)
+        private static ProjectileData BuildData(NetPlayerWeaponFire m, Npc? homingTarget)
         {
             return new ProjectileData
             {
@@ -303,8 +317,20 @@ namespace SULFURTogether.Networking.Gameplay
                 caliber        = (CaliberTypes)m.Caliber,
                 isPlayer       = false,
                 explicitDamage = 0f,
-                homingTarget   = homingTarget,
+                homingTarget   = ResolveHomingAnchor(homingTarget),
             };
+        }
+
+        /// <summary>The anchor ProjectileSystem tracks. 0.19.9 changed <c>ProjectileData.homingTarget</c> from
+        /// <c>Npc</c> to <c>Transform</c> and moved the <c>.center</c> dereference out of <c>StartProjectile</c> into
+        /// the caller (vanilla <c>Weapon.Shoot</c> assigns <c>closestUnitInViewport.center</c>). <c>Npc.center</c> is
+        /// a serialized field, so a prefab that leaves it unassigned yields no anchor and therefore no homing —
+        /// which is also why this is the single gate for both the anchor and <see cref="ProjectileRay.trackingMode"/>.</summary>
+        private static Transform? ResolveHomingAnchor(Npc? homingTarget)
+        {
+            if (homingTarget == null) return null;
+            Transform? center = homingTarget.center;
+            return center != null ? center : null;
         }
 
         /// <summary>Receiver-local homing: pick the nearest alive hostile Npc roughly in front of the shot ray.</summary>
