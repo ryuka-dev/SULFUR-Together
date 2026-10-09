@@ -4,7 +4,7 @@ A **co-op multiplayer mod** for [SULFUR](https://store.steampowered.com/app/2124
 
 **Language:** **English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-> **Version 1.0.1 — Public Beta bugfix release.** The full co-op loop works, but many systems are still being polished and there is a lot left to optimize. Expect bugs, back up your saves, and make sure every player runs the **same version**.
+> **Public Beta.** The full co-op loop works, but many systems are still being polished and there is a lot left to optimize. Each release is built for a specific SULFUR game version — check the [changelog](Thunderstore/CHANGELOG.md) for the mod version that matches your game before updating either one. Expect bugs, back up your saves, and make sure every player runs the **same version** of both the game and the mod.
 
 ---
 
