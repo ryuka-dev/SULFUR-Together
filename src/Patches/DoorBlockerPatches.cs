@@ -14,6 +14,8 @@ namespace SULFURTogether.Patches
     /// <para><c>OnFinishedHolding</c> postfix: the door just finished opening locally. For a registered (starts-closed)
     /// door this can only be a player completing a hold, so broadcast it; other peers mirror the real open. A mirrored
     /// open sets <see cref="DoorBlockerSyncManager.IsApplyingMirror"/> so it never re-broadcasts.</para>
+    /// <para><c>OnFinishedHolding</c> prefix (GU102-4): runs before the game reads <c>shouldCloseItself</c> to start a
+    /// door's self-close timer, so a synced door stays open for the whole co-op session.</para>
     /// </summary>
     internal static class DoorBlockerPatches
     {
@@ -32,12 +34,15 @@ namespace SULFURTogether.Patches
 
                 var finished = AccessTools.DeclaredMethod(typeof(DoorBlocker), "OnFinishedHolding");
                 if (finished != null)
-                    harmony.Patch(finished, postfix: new HarmonyMethod(
-                        typeof(DoorBlockerPatches).GetMethod(nameof(OnFinishedHolding_Post), BindingFlags.Static | BindingFlags.NonPublic)));
+                    harmony.Patch(finished,
+                        prefix: new HarmonyMethod(
+                            typeof(DoorBlockerPatches).GetMethod(nameof(OnFinishedHolding_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
+                        postfix: new HarmonyMethod(
+                            typeof(DoorBlockerPatches).GetMethod(nameof(OnFinishedHolding_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 else
                     Plugin.Log.Warn("[ChunkDoor] DoorBlocker.OnFinishedHolding not found — door sync disabled.");
 
-                Plugin.Log.Info($"[ChunkDoor] Patched DoorBlocker.ActivateDoorBlocker({activate != null})/OnFinishedHolding({finished != null}) (inter-chunk door sync).");
+                Plugin.Log.Info($"[ChunkDoor] Patched DoorBlocker.ActivateDoorBlocker({activate != null})/OnFinishedHolding({finished != null}) selfCloseHold={DoorBlockerSyncManager.CanHoldSelfClose} (inter-chunk door sync).");
             }
             catch (Exception ex)
             {
@@ -49,6 +54,11 @@ namespace SULFURTogether.Patches
         {
             if (!Plugin.Cfg.EnableDoorBlockerSync.Value) return;
             DoorBlockerSyncManager.Register(__instance, isAnClosingDoor);
+        }
+
+        private static void OnFinishedHolding_Pre(DoorBlocker __instance)
+        {
+            DoorBlockerSyncManager.ApplyCoopCloseRule(__instance);
         }
 
         private static void OnFinishedHolding_Post(DoorBlocker __instance)

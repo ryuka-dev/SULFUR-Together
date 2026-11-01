@@ -16,6 +16,12 @@ namespace SULFURTogether.Networking.Gameplay
     /// plain openable door and the trap pair's far door). Those wire no <c>DoorBlockerTrigger</c>, so they never
     /// <c>CloseDoor</c> and never run <c>EnemyOpeningDoor</c>: their <c>OnFinishedHolding</c> can only ever come from
     /// a player finishing a hold. The trap doors' slam-shut is deliberately out of scope.</para>
+    /// <para>GU102-4: game 1.0.2 made an opened door close itself (<c>shouldCloseItself</c>, default on) a few seconds
+    /// after the LOCAL player and nearby enemies leave it — each end on its own timer, with nearby enemies able to open
+    /// it again from <c>CloseDoorRoutine</c>. That breaks the one-way model above, so while a co-op session is active a
+    /// registered door does not close itself: <see cref="ApplyCoopCloseRule"/> runs just before
+    /// <c>OnFinishedHolding</c> reads the flag (local and mirrored opens alike) and restores the door's own value when no
+    /// session is active. Deliberate difference from single player: in co-op these doors stay open once opened.</para>
     /// <para>The mirror invokes the door's real <c>OnFinishedHolding</c>, so it reproduces whatever the game does
     /// (lock sound, <c>OpenDoor</c> animation that swings the physical door, LOS collider + navmesh cut removal).
     /// Camera shake and rumble self-gate on the local player's distance to the door, so a far-away peer gets none.</para>
@@ -24,6 +30,10 @@ namespace SULFURTogether.Networking.Gameplay
     {
         // Registered live openable doors → their world position (level-gen placed; the root never moves).
         private static readonly Dictionary<DoorBlocker, Vector3> _registry = new Dictionary<DoorBlocker, Vector3>();
+
+        // GU102-4: each registered door's own shouldCloseItself, so solo play keeps the game's behaviour.
+        private static readonly Dictionary<DoorBlocker, bool> _closeItselfOriginal = new Dictionary<DoorBlocker, bool>();
+        private static readonly AccessTools.FieldRef<DoorBlocker, bool>? _shouldCloseItself = ResolveCloseItselfField();
 
         // True while applying a mirrored open locally — the OnFinishedHolding postfix must NOT re-broadcast it.
         private static bool _applyingMirror;
@@ -41,6 +51,9 @@ namespace SULFURTogether.Networking.Gameplay
 
         public static bool IsApplyingMirror => _applyingMirror;
 
+        /// <summary>Whether this game build has a door self-close flag to hold off (1.0.2+); reported at startup.</summary>
+        public static bool CanHoldSelfClose => _shouldCloseItself != null;
+
         private static bool Enabled
         {
             get { try { return Plugin.Cfg.EnableDoorBlockerSync.Value; } catch { return false; } }
@@ -57,8 +70,39 @@ namespace SULFURTogether.Networking.Gameplay
         public static void Register(DoorBlocker door, bool isAnClosingDoor)
         {
             if (door == null || isAnClosingDoor) return;
-            try { _registry[door] = door.transform.position; }
+            try
+            {
+                _registry[door] = door.transform.position;
+                if (_shouldCloseItself != null) _closeItselfOriginal[door] = _shouldCloseItself(door);
+            }
             catch { }
+        }
+
+        /// <summary>GU102-4, OnFinishedHolding PREFIX: a registered door must not close itself while a co-op session is
+        /// active (see the class summary); otherwise it keeps its own setting.</summary>
+        public static void ApplyCoopCloseRule(DoorBlocker door)
+        {
+            try
+            {
+                if (door == null || _shouldCloseItself == null) return;
+                if (!_closeItselfOriginal.TryGetValue(door, out bool original)) return; // not a door we sync
+                bool closeItself = original && !(Enabled && NetGameplaySyncBridge.IsSessionActive);
+                if (_shouldCloseItself(door) == closeItself) return;
+                _shouldCloseItself(door) = closeItself;
+                if (LogOn) NetLogger.Info($"[ChunkDoor] self-close {(closeItself ? "restored" : "held off for the co-op session")} name={door.name}");
+            }
+            catch (Exception ex) { NetLogger.Warn($"[ChunkDoor] self-close rule failed: {ex.Message}"); }
+        }
+
+        private static AccessTools.FieldRef<DoorBlocker, bool>? ResolveCloseItselfField()
+        {
+            try
+            {
+                if (AccessTools.DeclaredField(typeof(DoorBlocker), "shouldCloseItself") != null)
+                    return AccessTools.FieldRefAccess<DoorBlocker, bool>("shouldCloseItself");
+            }
+            catch { }
+            return null; // pre-1.0.2 doors never close, so nothing to hold off
         }
 
         // ----------------------------------------------------------------- capture (OnFinishedHolding postfix)
@@ -163,6 +207,7 @@ namespace SULFURTogether.Networking.Gameplay
         public static void Clear()
         {
             _registry.Clear();
+            _closeItselfOriginal.Clear();
         }
     }
 }
