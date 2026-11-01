@@ -2463,7 +2463,7 @@ namespace SULFURTogether.Patches
             TryPatch(harmony, t, "RegisterLootDropped", Pre(nameof(LM_RegisterLootDropped_Pre)), null);
             TryPatch(harmony, t, "OnNewLevel",          Pre(nameof(LM_OnNewLevel_Pre)),           null);
             TryPatch(harmony, t, "ClearOnNewLevel",     Pre(nameof(LM_ClearOnNewLevel_Pre)),      null);
-            PatchAllOverloads(harmony, t, "SpawnGlobalLoot", Pre(nameof(LM_SpawnGlobalLoot_Pre)));
+            PatchAllOverloads(harmony, t, "SpawnLootFromKillOrDestroy", Pre(nameof(LM_SpawnLootFromKillOrDestroy_Pre)));
             PatchAllOverloads(harmony, t, "SpawnLootFrom",   Pre(nameof(LM_SpawnLootFrom_Pre)));
         }
 
@@ -2495,7 +2495,7 @@ namespace SULFURTogether.Patches
             }
             catch (Exception ex) { Log.Error($"[LootManager.ClearOnNewLevel] {ex.Message}"); }
         }
-        private static void LM_SpawnGlobalLoot_Pre(object __instance)
+        private static void LM_SpawnLootFromKillOrDestroy_Pre(object __instance)
         {
             try
             {
@@ -2504,9 +2504,9 @@ namespace SULFURTogether.Patches
                 if (Cfg.CompactLootLogs.Value)
                     ReverseProbeSummary.AddLootSpawnedBurst();
                 if (!Cfg.CompactLootLogs.Value || Cfg.EnableVerboseLootProbe.Value)
-                    Log.Info("[LootManager] SpawnGlobalLoot << (overload triggered)");
+                    Log.Info("[LootManager] SpawnLootFromKillOrDestroy << (overload triggered)");
             }
-            catch (Exception ex) { Log.Error($"[LootManager.SpawnGlobalLoot] {ex.Message}"); }
+            catch (Exception ex) { Log.Error($"[LootManager.SpawnLootFromKillOrDestroy] {ex.Message}"); }
         }
         private static void LM_SpawnLootFrom_Pre(object __instance)
         {

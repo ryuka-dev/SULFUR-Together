@@ -47,7 +47,7 @@
 | Item/Loot | PerfectRandom.Sulfur.Core.dll | PerfectRandom.Sulfur.Core.Items | LootManager | RegisterLootDropped | (ItemDefinition item) | Prefix | Log loot registration | Yes | High | Confirmed via probe log |
 | Item/Loot | PerfectRandom.Sulfur.Core.dll | PerfectRandom.Sulfur.Core.Items | LootManager | OnNewLevel | () | Prefix | Log loot reset on level | No | High | |
 | Item/Loot | PerfectRandom.Sulfur.Core.dll | PerfectRandom.Sulfur.Core.Items | LootManager | ClearOnNewLevel | () | Prefix | Log loot clear | No | High | |
-| Item/Loot | PerfectRandom.Sulfur.Core.dll | PerfectRandom.Sulfur.Core.Items | LootManager | SpawnGlobalLoot | (multiple overloads) | Prefix | Log global loot spawn | No | High | Enumerate overloads at runtime |
+| Item/Loot | PerfectRandom.Sulfur.Core.dll | PerfectRandom.Sulfur.Core.Items | LootManager | SpawnLootFromKillOrDestroy (`SpawnGlobalLoot` before 1.0.2) | (multiple overloads) | Prefix | Log global loot spawn | No | High | Enumerate overloads at runtime |
 | Item/Loot | PerfectRandom.Sulfur.Core.dll | PerfectRandom.Sulfur.Core.Items | LootManager | SpawnLootFrom | (multiple overloads) | Prefix | Log loot spawn from source | Yes | High | Confirmed via probe log; enumerate overloads at runtime |
 | Item/Loot | PerfectRandom.Sulfur.Core.dll | PerfectRandom.Sulfur.Core | InteractionManager | ExecutePickup | (Pickup pickup) | Prefix+Postfix | Log pickup execution | Yes | High | Confirmed via probe log |
 | Item/Loot | PerfectRandom.Sulfur.Core.dll | PerfectRandom.Sulfur.Core | InteractionManager | RemovePickup | (Pickup pickup) | Prefix | Log pickup removal | No | Medium | |

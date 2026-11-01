@@ -625,7 +625,7 @@ namespace SULFURTogether.Config
             EnableLootRegisterProbe  = cfg.Bind("Probe", "EnableLootRegisterProbe", true,
                 "Count and burst-summarize LootManager.RegisterLootDropped events.");
             EnableLootSpawnProbe     = cfg.Bind("Probe", "EnableLootSpawnProbe", true,
-                "Count and burst-summarize LootManager.SpawnGlobalLoot / SpawnLootFrom events.");
+                "Count and burst-summarize LootManager.SpawnLootFromKillOrDestroy / SpawnLootFrom events.");
 
             // verbose per-item flags (false = burst summary only; true = log every item)
             EnableVerbosePickupProbe = cfg.Bind("ProbeNoise", "EnableVerbosePickupProbe", false,
