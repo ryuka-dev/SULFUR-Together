@@ -34,7 +34,14 @@ namespace SULFURTogether.Networking
         // 35: ST-3c added a Flags byte to the enemy death event — carries whether the unit died frozen-solid; wire shape must match.
         // 36: CG-1a added HostCorpseGib (103) — corpse gib mirror; wire set must match.
         // 37: CG-1b added ClientCorpseHit (104) — client→host corpse hit forwarding; wire set must match.
-        public const int    ProtocolVersion  = 37;
+        // 38: GU102-3 appended the game version to the handshake request — game builds reuse enum values (e.g. item
+        //     attribute 118), so peers on different game builds must not join each other.
+        public const int    ProtocolVersion  = 38;
+
+        /// <summary>The game build this process runs (Unity's Application.version, e.g. "1.0.2"). Read once on the main
+        /// thread at first use; the handshake is written and read from the main-thread network poll.</summary>
+        public static string LocalGameVersion => _localGameVersion ??= UnityEngine.Application.version ?? "";
+        private static string? _localGameVersion;
 
         // Client writes after connection is established.
         public static void WriteRequest(NetDataWriter w, string playerName)
@@ -45,6 +52,7 @@ namespace SULFURTogether.Networking
             w.Put(playerName);
             w.Put(Plugin.Cfg.ConnectionKey.Value);
             w.Put(CoopDevEntitlement.Local); // DEV-1: does this client have developer access (-dev true / DevToolsEnabled)?
+            w.Put(LocalGameVersion);         // GU102-3: last, so an older client still fails on the protocol check first
         }
 
         // Host reads from incoming HandshakeRequest payload.
@@ -59,6 +67,7 @@ namespace SULFURTogether.Networking
                 data.PlayerName      = r.GetString();
                 data.ConnectionKey   = r.GetString();
                 data.DevEntitlement  = r.GetBool();
+                data.GameVersion     = r.AvailableBytes > 0 ? r.GetString() : "";
                 return true;
             }
             catch { return false; }
@@ -104,6 +113,7 @@ namespace SULFURTogether.Networking
         public string PlayerName      = "";
         public string ConnectionKey   = "";
         public bool   DevEntitlement;   // DEV-1: client launched with developer access
+        public string GameVersion     = ""; // GU102-3: client's game build (Application.version)
     }
 
     internal class HandshakeAcceptedData

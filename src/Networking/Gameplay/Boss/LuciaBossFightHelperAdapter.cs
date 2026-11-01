@@ -204,14 +204,15 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             bool started = IsStarted(component);
             bool hasPhase = BossReflect.TryGetInt(component, "currentPhase", out int phase);
-            BossReflect.TryGetBool(component, "fightComplete", out bool complete);
-            BossReflect.TryGetInt(component, "candlesLeft", out int candles);
+            // fightComplete / candlesLeft exist up to game 0.19.9 only; print "?" when absent rather than a default.
+            bool hasComplete = BossReflect.TryGetBool(component, "fightComplete", out bool complete);
+            bool hasCandles = BossReflect.TryGetInt(component, "candlesLeft", out int candles);
             int eyes = -1;
             var spawnedEyes = BossReflect.GetMember(component, "spawnedEyes");
             if (spawnedEyes is ICollection col) eyes = col.Count;
             var bossUnit = BossReflect.GetMember(component, "bossUnit");
             // BlackGuildLuciaEye are Lucia special/adds — flagged here, left for the BossSpecialEvent phase.
-            return $"adapter={AdapterName} type={component.GetType().Name} root={BossReflect.RootName(component)} fightStarted={started} currentPhase={(hasPhase ? phase.ToString() : "?")} fightComplete={complete} candlesLeft={candles} luciaEyes[special/add]={(eyes >= 0 ? eyes.ToString() : "?")} bossUnit={(bossUnit != null ? "yes" : "no")}";
+            return $"adapter={AdapterName} type={component.GetType().Name} root={BossReflect.RootName(component)} fightStarted={started} currentPhase={(hasPhase ? phase.ToString() : "?")} fightComplete={(hasComplete ? complete.ToString() : "?")} candlesLeft={(hasCandles ? candles.ToString() : "?")} luciaEyes[special/add]={(eyes >= 0 ? eyes.ToString() : "?")} bossUnit={(bossUnit != null ? "yes" : "no")}";
         }
     }
 }

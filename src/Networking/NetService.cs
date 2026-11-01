@@ -4659,6 +4659,12 @@ namespace SULFURTogether.Networking
                 RejectPeer(peer, $"Mod version mismatch: client={data.ModVersion} host={ModInfo.Version}");
                 return;
             }
+            // GU102-3: the same switch also requires the same game build — builds reuse enum values on the wire.
+            if (Plugin.Cfg.RequireSameModVersion.Value && data.GameVersion != NetHandshake.LocalGameVersion)
+            {
+                RejectPeer(peer, $"Game version mismatch: client={data.GameVersion} host={NetHandshake.LocalGameVersion}");
+                return;
+            }
 
             float now = Now();
             var session = _sessions.RegisterRemoteClient(
@@ -4672,7 +4678,7 @@ namespace SULFURTogether.Networking
             CoopDevAuthority.HostPeerJoined(session.PeerId, data.DevEntitlement);
             Vote.CoopVoteManager.HostOnMembershipChanged(Now()); // VOTE-1: a live vote's consensus is now void
 
-            NetLogger.Info($"[Net] Handshake OK — player='{session.PlayerName}' v={data.ModVersion} devAccess={data.DevEntitlement}");
+            NetLogger.Info($"[Net] Handshake OK — player='{session.PlayerName}' v={data.ModVersion} game={data.GameVersion} devAccess={data.DevEntitlement}");
             NetLogger.Info($"[Session] Peer joined: id={session.PeerId} slot={session.Slot} name='{session.PlayerName}' endpoint={session.EndPoint}");
             UI.CoopToasts.Notify(UI.CoopLoc.Format("toast.playerJoined", "{name} joined", ("name", session.PlayerName)));
 

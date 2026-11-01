@@ -78,7 +78,7 @@ namespace SULFURTogether.Config
         public Setting<int>    HostPort               { get; }
         public Setting<string> PlayerName             { get; }
         public Setting<string> ConnectionKey          { get; }
-        public Setting<bool>   RequireSameModVersion  { get; }
+        public Setting<bool>   RequireSameModVersion  { get; } // host rejects a different mod version AND a different game build
         public Setting<string> LastSteamIdToJoin      { get; } // STEAM-2: last SteamID64 pasted into "Steam ID to join"
         public ConfigEntry<float>  SendPingIntervalSeconds { get; }
 
