@@ -282,7 +282,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
     /// <summary>Phase 5.4-G5: Host→Client authoritative Witch Phase 2 dome layout, captured at the Host's ShowWitches
     /// Postfix (after the second shuffle). Witch Phase 2 has TWO host-local randoms (SpawnWitches real index + ShowWitches
     /// shuffle), so the real witch ends up at a different dome on each end. The only stable identity is (PhaseRevision +
-    /// final dome index). The Client mirrors this: it puts ITS realWitchUnit at <see cref="RealDomeIndex"/> and its
+    /// final dome index). The Client mirrors this: it puts ITS real witch at <see cref="RealDomeIndex"/> and its
     /// illusions at the other domes, so dome N is real on both ends. No per-entity network id needed.</summary>
     internal sealed class NetWitchP2Manifest
     {

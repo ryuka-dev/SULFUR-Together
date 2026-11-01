@@ -59,12 +59,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             return $"witchesCreated={created} spawnedWitches={sw} spawnedIllusions={si} domePositions={dome} hasInitPhase={hasInit} phaseActive={active} delayTimer={delay} time={now:0.00} (delayElapsed={(delay != "?" ? (now >= dt).ToString() : "?")})";
         }
 
-        /// <summary>Final real-witch dome (after the ShowWitches shuffle): spawnedWitches.IndexOf(realWitchUnit).</summary>
+        /// <summary>Final real-witch dome (after the ShowWitches shuffle): spawnedWitches.IndexOf(real witch).</summary>
         private static int ResolveRealDomeIndex(object p2)
         {
             try
             {
-                var real = BossReflect.GetMember(p2, "realWitchUnit");
+                var real = WitchBossControllerAdapter.GetPhase2RealWitch(p2);
                 if (real == null) return -1;
                 if (BossReflect.GetMember(p2, "spawnedWitches") is System.Collections.IList list)
                     for (int i = 0; i < list.Count; i++)

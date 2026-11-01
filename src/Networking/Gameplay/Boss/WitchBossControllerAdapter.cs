@@ -210,12 +210,22 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         // ================================================================== Phase 5.4-G5: Witch Phase 2 dome manifest
         // Audit-confirmed: ShowWitches does `spawnedWitches[i].position = domePositions[i]` after a second shuffle, so the
-        // HOST's dome N == spawnedWitches[N] and the final real dome = spawnedWitches.IndexOf(realWitchUnit). The two
+        // HOST's dome N == spawnedWitches[N] and the final real dome = spawnedWitches.IndexOf(real witch). The two
         // host-local randoms (SpawnWitches realIndex + ShowWitches shuffle) make the real witch land on a DIFFERENT dome
-        // per end, so the Client must mirror the Host layout: put ITS realWitchUnit at the host real dome, illusions on
+        // per end, so the Client must mirror the Host layout: put ITS real witch at the host real dome, illusions on
         // the rest. Client Phase 2 witches are then isolated from the ordinary puppet transform (see manager) so the
         // manifest placement holds. State is static (one Witch encounter at a time).
         private const string P2DomeRole = "p2dome:";
+
+        // The real Phase 2 witch (the one SpawnWitches spawns from the real-witch UnitId). Game 1.0.2 removed
+        // WitchPhase2.realWitchUnit and stores it in the base WitchPhaseController.witchUnit instead (the subclass's own
+        // UnitId field that used to be called witchUnit is now witchUnitID, so the name resolves to the Npc).
+        private const string Phase2RealWitchMember = "witchUnit";
+
+        /// <summary>The local real Phase 2 witch of a WitchPhase2 instance, or null before SpawnWitches assigned it.</summary>
+        internal static object? GetPhase2RealWitch(object? witchPhase2) =>
+            witchPhase2 == null ? null : BossReflect.GetMember(witchPhase2, Phase2RealWitchMember);
+
         private static readonly System.Collections.Generic.Dictionary<int, object> _p2DomeUnit = new System.Collections.Generic.Dictionary<int, object>(); // domeIndex -> local Npc
         private static readonly System.Collections.Generic.Dictionary<int, int> _p2DomeByInstance = new System.Collections.Generic.Dictionary<int, int>(); // local Npc instanceId -> domeIndex
         private static readonly HashSet<int> _p2Suppressed = new HashSet<int>(); // local Phase 2 witch instanceIds to skip in the ordinary puppet transform
@@ -239,7 +249,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public int GetHostRealDomeIndex(object component)
         {
             var p2 = BossReflect.GetMember(component, "phase2");
-            var real = BossReflect.GetMember(p2, "realWitchUnit");
+            var real = GetPhase2RealWitch(p2);
             if (real != null && BossReflect.GetMember(p2, "spawnedWitches") is IList list)
                 for (int i = 0; i < list.Count; i++)
                     if (ReferenceEquals(list[i], real)) return i;
@@ -267,17 +277,17 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (!(BossReflect.TryGetBool(p2, "witchesCreated", out bool wc) && wc)) return false;
             int sw = BossReflect.GetMember(p2, "spawnedWitches") is ICollection c ? c.Count : -1;
             int dome = BossReflect.GetMember(p2, "domePositions") is ICollection d ? d.Count : -1;
-            return sw == domeCount && dome == domeCount && BossReflect.GetMember(p2, "realWitchUnit") != null;
+            return sw == domeCount && dome == domeCount && GetPhase2RealWitch(p2) != null;
         }
 
-        /// <summary>CLIENT: mirror the Host dome layout — put the local realWitchUnit at <paramref name="realDomeIndex"/>,
+        /// <summary>CLIENT: mirror the Host dome layout — put the local real witch at <paramref name="realDomeIndex"/>,
         /// illusions on the other domes, show them, and record the dome↔unit mapping + suppression set. Idempotent.</summary>
         public bool ApplyP2Manifest(object component, int realDomeIndex, int domeCount, out int placed, out string detail)
         {
             placed = 0; detail = "";
             var p2 = BossReflect.GetMember(component, "phase2");
             if (p2 == null) { detail = "no phase2 controller"; return false; }
-            var real = BossReflect.GetMember(p2, "realWitchUnit");
+            var real = GetPhase2RealWitch(p2);
             if (!(BossReflect.GetMember(p2, "spawnedIllusions") is IList illusions)
                 || !(BossReflect.GetMember(p2, "domePositions") is IList domes) || real == null)
             { detail = "local witches not ready"; return false; }
