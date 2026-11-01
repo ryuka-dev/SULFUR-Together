@@ -1807,7 +1807,11 @@ namespace SULFURTogether.Patches
                 // If TrySendClientHitRequest returns true, the host will apply authoritative damage;
                 // suppress local application to avoid divergence.
                 if (NetGameplayProbeManager.TrySendClientHitRequest(__instance, damage, ReadDamageType(source)))
+                {
+                    // GU102-5: the suppressed ReceiveDamage would have recorded the hitting weapon for XP attribution.
+                    WeaponXpCreditManager.RegisterLocalHitAttribution(__instance, source);
                     return false;
+                }
 
                 ReverseProbeSummary.IncrementDamage("Npc");
                 ReverseProbeKnownObjects.RegisterDamage(ID(__instance));
