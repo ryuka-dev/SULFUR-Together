@@ -438,7 +438,15 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // TB-D — host-authoritative mirror). A Desert pre-fight INTRO is NOT broadcast (each end runs its own intro).
                 bool started = SafeStarted(adapter, component);
                 bool ownDialog = false; try { ownDialog = adapter.BroadcastsBossOwnDialog(component); } catch { }
-                if (!started && !ownDialog) return;
+                if (!started && !ownDialog)
+                {
+                    // DLG-1: the pre-fight intro is not broadcast, but its CLOSE still has to reach the client. Each end
+                    // runs its own intro chain, and the client's copy never ends by itself (the boss actions it waits on are
+                    // suppressed there), so OnHostBossDialogClosed must find this key and broadcast DialogClose when the host
+                    // dismisses the intro. Track only; no open broadcast and no own-dialog bookkeeping.
+                    lock (_lock) { _desertDialogOpenKey = key; }
+                    return;
+                }
                 // TB-DLG: an own-dialog boss's opening dialogue is PRE-fight only. Once the fight started, a re-interact
                 // (the boss NPC stays physically interactable — vanilla never guards it because in single-player the tree
                 // has moved off into combat) must not re-broadcast the opening dialog mid-fight (Log358: the host walked
