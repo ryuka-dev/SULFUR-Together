@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.4.1 — Public Beta.[/b] Built for [b]SULFUR 0.19.9[/b]; it does not run on 0.19.3 or older game builds — stay on 1.4.0 for the earlier 0.19 builds, or 1.3.1 if you are still on 0.18.x. It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+> [b]Version 1.5.0.[/b] Built for [b]SULFUR 1.0.2[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 [line]
 
@@ -14,17 +14,15 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 You connect [b]inside the game[/b] now — there is a built-in menu for hosting and joining over [b]Direct IP[/b] or [b]Steam[/b]. No config-file editing.
 
-[color=DodgerBlue][b]⚠️ Public Beta notice[/b][/color]
+[color=DodgerBlue][b]⚠️ Before you play[/b][/color]
 
-This is a [b]public test build[/b]. The main loop works from start to finish, but many systems are still being optimized and there is a lot left to refine.
+SULFUR Together is out of Public Beta: the whole co-op run plays from start to finish. It is still multiplayer built on top of a single-player game, so some rough edges remain — see [i]Known issues[/i] below.
 
 [list]
-[*]Bugs, visual desyncs, and the occasional broken boss or level transition can happen.[/*]
 [*][b]Back up your save files[/b] before playing.[/*]
 [*]Every player must use the [b]same version of SULFUR[/b] and the [b]same version of SULFUR Together[/b].[/*]
+[*]If something breaks, please report it (see [i]Feedback & bug reports[/i]).[/*]
 [/list]
-This release is for players who are happy to test unfinished multiplayer and report problems.
-
 [color=DodgerBlue][b]Requirements[/b][/color]
 
 [list]
@@ -125,6 +123,7 @@ Everyone in a session should run the [b]same set of mods[/b], not just the same 
 [*]Blood, particles, sounds, and some animations are not always synchronized.[/*]
 [*]Player collision is experimental; remote sprites/weapons are still being refined.[/*]
 [*]Sessions with 4+ players are untested — 2 players is the most predictable.[/*]
+[*]Trap doors that slam shut behind you close only for the player who triggered them.[/*]
 [/list]
 This list is not exhaustive.
 
@@ -152,17 +151,15 @@ This is an unofficial, fan-made mod. It is [b]not[/b] affiliated with or endorse
 
 现在[b]在游戏内即可联机[/b]——内置菜单支持通过 [b]直连 IP[/b] 或 [b]Steam[/b] 创建/加入房间，[b]无需手动改配置文件[/b]。
 
-[color=DodgerBlue][b]⚠️ 公开测试版说明[/b][/color]
+[color=DodgerBlue][b]⚠️ 游玩前须知[/b][/color]
 
-这是一个 [b]公开测试版（Public Beta）[/b]。主体流程已能从头玩到尾，但许多系统仍在优化中，[b]还有大量待打磨的部分[/b]。
+SULFUR Together 已结束公开测试，转为正式版：整套合作流程可以从头玩到尾。不过联机毕竟是在单人游戏之上搭建的，仍有一些粗糙之处，详见下方「已知问题」。
 
 [list]
-[*]可能出现 Bug、画面不同步，偶尔会有 Boss 或关卡切换异常。[/*]
 [*]游玩前请[b]备份你的存档[/b]。[/*]
 [*]所有玩家必须使用[b]相同版本的 SULFUR[/b] 和[b]相同版本的 SULFUR Together[/b]。[/*]
+[*]遇到问题欢迎反馈（见「反馈与错误报告」）。[/*]
 [/list]
-本版本面向愿意测试未完成的联机功能并反馈问题的玩家。
-
 [color=DodgerBlue][b]环境要求[/b][/color]
 
 [list]
@@ -263,6 +260,7 @@ SULFUR Together 不会同步其他模组。别的模组添加的内容——它�
 [*]血液、粒子、音效与部分动画不一定同步。[/*]
 [*]玩家碰撞仍是实验性的；远程贴图/武器仍在打磨中。[/*]
 [*]4 人及以上的会话未经测试——2 人最为稳定。[/*]
+[*]在身后砸下的陷阱门只会对触发它的玩家关闭。[/*]
 [/list]
 以上并非完整清单。
 
@@ -290,17 +288,15 @@ SULFUR Together 不会同步其他模组。别的模组添加的内容——它�
 
 接続は[b]ゲーム内で完結[/b]します——[b]ダイレクトIP[/b]または[b]Steam[/b]でホスト／参加できる専用メニューを内蔵。[b]設定ファイルを編集する必要はもうありません。[/b]
 
-[color=DodgerBlue][b]⚠️ パブリックベータについて[/b][/color]
+[color=DodgerBlue][b]⚠️ プレイする前に[/b][/color]
 
-これは[b]公開テスト版（Public Beta）[/b]です。メインの流れは最初から最後まで動作しますが、多くのシステムはまだ調整中で、[b]改善すべき点が数多く残っています[/b]。
+SULFUR Together はパブリックベータを終え、正式版になりました。協力プレイの流れは最初から最後まで遊べます。ただし一人用のゲームの上に作ったマルチプレイなので、粗い部分はまだ残っています——下の「既知の問題」をご覧ください。
 
 [list]
-[*]バグ、表示のずれ、ボスやステージ遷移の不具合が起きることがあります。[/*]
 [*]プレイ前に[b]セーブデータをバックアップ[/b]してください。[/*]
 [*]全プレイヤーが[b]同じバージョンの SULFUR[/b] と[b]同じバージョンの SULFUR Together[/b] を使用する必要があります。[/*]
+[*]不具合を見つけたら報告をお願いします（「フィードバックと不具合報告」を参照）。[/*]
 [/list]
-本リリースは、未完成のマルチプレイをテストし、問題を報告してくださる方向けです。
-
 [color=DodgerBlue][b]動作環境[/b][/color]
 
 [list]
@@ -401,6 +397,7 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 [*]血・パーティクル・効果音・一部アニメーションは必ずしも同期しません。[/*]
 [*]プレイヤー同士の当たり判定は実験的で、リモートのスプライト／武器は調整中です。[/*]
 [*]4人以上のセッションは未検証です——2人が最も安定します。[/*]
+[*]背後で閉まる罠の扉は、作動させたプレイヤーの画面でだけ閉まります。[/*]
 [/list]
 これは完全な一覧ではありません。
 
@@ -421,6 +418,58 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.5.0 — SULFUR 1.0.2, out of beta[/b][/color]
+
+SULFUR has reached 1.0, and so has this mod: [b]SULFUR Together leaves Public Beta with 1.5.0.[/b] The
+full co-op run plays from start to finish; the known rough edges are listed on the mod page.
+
+**1.5.0 is built for SULFUR 1.0.2 and does not run on 0.19.x — stay on 1.4.1 if you are still on
+SULFUR 0.19.9.** The network protocol changed, so everyone must update to 1.5.0 together. The mod
+now also compares the game version when a player joins and refuses the session if the two sides run
+different builds of SULFUR ("Game version mismatch"): game updates renumber item data that travels
+over the network, so a mixed session would quietly read one item's stats as another's.
+
+[b]Fixed:[/b]
+[list]
+[*][b]A client no longer rolls its own loot.[/b] With shared loot, the host decides what every kill and[/*]
+[/list]
+  every broken crate drops, and the client is kept from rolling its own. SULFUR 1.0.2 renamed the
+  method that does that roll, the guard stopped matching it without a single error, and a client's
+  kills started dropping a second, private set of loot of its own. The guard follows the new name,
+  and it now reports by name any roll it fails to cover, so a future rename cannot go unnoticed.
+[list]
+[*][b]The Witch's second phase is visible on the client again.[/b] 1.0.2 moved the real witch to a[/*]
+[/list]
+  different place inside the game, the client could no longer find which dome holds her, and none
+  of the witches showed up on its screen. The client reads her from her new place.
+[list]
+[*][b]You can see the Desert boss's missiles land on your teammate again.[/b] 1.0.2 rebuilt how those[/*]
+[/list]
+  missiles are made, which removed what the mod used to draw them on everyone else's screen. They
+  are redrawn the new way: the red marker sliding toward your teammate, the missile falling, the
+  explosion — for show only, they cannot hurt you.
+[list]
+[*][b]The Desert boss's intro closes for everyone.[/b] When the host finished the opening dialogue, the[/*]
+[/list]
+  dialogue box stayed open on the client's screen and had to be closed by hand. It now closes on both
+  screens at the same time.
+[list]
+[*][b]Weapon XP for clients works exactly like single-player.[/b] A client's kill used to put its whole[/*]
+[/list]
+  XP into the last weapon it had equipped, without Bonus XP and even into weapons already at max
+  rank. The client now runs the game's own sharing: XP is split between the weapons that hit the
+  enemy, Bonus XP applies, and max-rank weapons are skipped.
+
+[b]Changed:[/b]
+[list]
+[*][b]In co-op, a door between rooms stays open once someone opens it.[/b] SULFUR 1.0.2 made these doors[/*]
+[/list]
+  swing shut by themselves a few seconds later, but each game decides that only from its own player
+  and the enemies around it, so one player could find a door closed that the other saw open. While a
+  co-op session is running, opened doors now stay open for everyone; playing alone, they close as
+  in the base game. Trap doors that slam shut behind you still close only for the player who
+  triggered them.
 
 [color=RoyalBlue][b]1.4.1 — SULFUR 0.19.9[/b][/color]
 

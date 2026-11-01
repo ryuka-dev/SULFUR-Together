@@ -4,7 +4,7 @@ Co-op multiplayer for **SULFUR**.
 
 **Language:** **English** · [简体中文](#简体中文) · [日本語](#日本語)
 
-> **Version 1.4.1 — Public Beta.** Built for **SULFUR 0.19.9**; it does not run on 0.19.3 or older game builds — stay on 1.4.0 for the earlier 0.19 builds, or 1.3.1 if you are still on 0.18.x. It works, but it is still being polished. Expect bugs, back up your saves, and make sure everyone runs the same version.
+> **Version 1.5.0.** Built for **SULFUR 1.0.2**; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 ---
 
@@ -14,15 +14,13 @@ Co-op multiplayer for **SULFUR**.
 
 You connect **inside the game** now — there is a built-in menu for hosting and joining over **Direct IP** or **Steam**. No config-file editing.
 
-### ⚠️ Public Beta notice
+### ⚠️ Before you play
 
-This is a **public test build**. The main loop works from start to finish, but many systems are still being optimized and there is a lot left to refine.
+SULFUR Together is out of Public Beta: the whole co-op run plays from start to finish. It is still multiplayer built on top of a single-player game, so some rough edges remain — see *Known issues* below.
 
-- Bugs, visual desyncs, and the occasional broken boss or level transition can happen.
 - **Back up your save files** before playing.
 - Every player must use the **same version of SULFUR** and the **same version of SULFUR Together**.
-
-This release is for players who are happy to test unfinished multiplayer and report problems.
+- If something breaks, please report it (see *Feedback & bug reports*).
 
 ### Requirements
 
@@ -113,6 +111,7 @@ Everyone in a session should run the **same set of mods**, not just the same ver
 - Blood, particles, sounds, and some animations are not always synchronized.
 - Player collision is experimental; remote sprites/weapons are still being refined.
 - Sessions with 4+ players are untested — 2 players is the most predictable.
+- Trap doors that slam shut behind you close only for the player who triggered them.
 
 This list is not exhaustive.
 
@@ -139,15 +138,13 @@ This is an unofficial, fan-made mod. It is **not** affiliated with or endorsed b
 
 现在**在游戏内即可联机**——内置菜单支持通过 **直连 IP** 或 **Steam** 创建/加入房间，**无需手动改配置文件**。
 
-### ⚠️ 公开测试版说明
+### ⚠️ 游玩前须知
 
-这是一个 **公开测试版（Public Beta）**。主体流程已能从头玩到尾，但许多系统仍在优化中，**还有大量待打磨的部分**。
+SULFUR Together 已结束公开测试，转为正式版：整套合作流程可以从头玩到尾。不过联机毕竟是在单人游戏之上搭建的，仍有一些粗糙之处，详见下方「已知问题」。
 
-- 可能出现 Bug、画面不同步，偶尔会有 Boss 或关卡切换异常。
 - 游玩前请**备份你的存档**。
 - 所有玩家必须使用**相同版本的 SULFUR** 和**相同版本的 SULFUR Together**。
-
-本版本面向愿意测试未完成的联机功能并反馈问题的玩家。
+- 遇到问题欢迎反馈（见「反馈与错误报告」）。
 
 ### 环境要求
 
@@ -238,6 +235,7 @@ SULFUR Together 不会同步其他模组。别的模组添加的内容——它�
 - 血液、粒子、音效与部分动画不一定同步。
 - 玩家碰撞仍是实验性的；远程贴图/武器仍在打磨中。
 - 4 人及以上的会话未经测试——2 人最为稳定。
+- 在身后砸下的陷阱门只会对触发它的玩家关闭。
 
 以上并非完整清单。
 
@@ -264,15 +262,13 @@ SULFUR Together 不会同步其他模组。别的模组添加的内容——它�
 
 接続は**ゲーム内で完結**します——**ダイレクトIP**または**Steam**でホスト／参加できる専用メニューを内蔵。**設定ファイルを編集する必要はもうありません。**
 
-### ⚠️ パブリックベータについて
+### ⚠️ プレイする前に
 
-これは**公開テスト版（Public Beta）**です。メインの流れは最初から最後まで動作しますが、多くのシステムはまだ調整中で、**改善すべき点が数多く残っています**。
+SULFUR Together はパブリックベータを終え、正式版になりました。協力プレイの流れは最初から最後まで遊べます。ただし一人用のゲームの上に作ったマルチプレイなので、粗い部分はまだ残っています——下の「既知の問題」をご覧ください。
 
-- バグ、表示のずれ、ボスやステージ遷移の不具合が起きることがあります。
 - プレイ前に**セーブデータをバックアップ**してください。
 - 全プレイヤーが**同じバージョンの SULFUR** と**同じバージョンの SULFUR Together** を使用する必要があります。
-
-本リリースは、未完成のマルチプレイをテストし、問題を報告してくださる方向けです。
+- 不具合を見つけたら報告をお願いします（「フィードバックと不具合報告」を参照）。
 
 ### 動作環境
 
@@ -363,6 +359,7 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 - 血・パーティクル・効果音・一部アニメーションは必ずしも同期しません。
 - プレイヤー同士の当たり判定は実験的で、リモートのスプライト／武器は調整中です。
 - 4人以上のセッションは未検証です——2人が最も安定します。
+- 背後で閉まる罠の扉は、作動させたプレイヤーの画面でだけ閉まります。
 
 これは完全な一覧ではありません。
 

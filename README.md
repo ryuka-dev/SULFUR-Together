@@ -4,7 +4,7 @@ A **co-op multiplayer mod** for [SULFUR](https://store.steampowered.com/app/2124
 
 **Language:** **English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-> **Public Beta.** The full co-op loop works, but many systems are still being polished and there is a lot left to optimize. Each release is built for a specific SULFUR game version — check the [changelog](Thunderstore/CHANGELOG.md) for the mod version that matches your game before updating either one. Expect bugs, back up your saves, and make sure every player runs the **same version** of both the game and the mod.
+> The full co-op loop works from start to finish. Each release is built for a specific SULFUR game version — check the [changelog](Thunderstore/CHANGELOG.md) for the mod version that matches your game before updating either one. Back up your saves, and make sure every player runs the **same version** of both the game and the mod.
 
 ---
 
@@ -12,9 +12,9 @@ SULFUR Together adds host-authoritative networked play on top of the base game: 
 
 > This is an unofficial fan-made mod. It is **not** affiliated with or endorsed by Perfect Random or the SULFUR developers. SULFUR and its assets are property of their respective owners.
 
-## Public Beta status
+## Status
 
-This is a **public test build**. The main loop plays from start to finish, but expect rough edges, visual desyncs, heavy debug logging in some paths, and the occasional broken boss or transition. **Back up your saves.** Host and all clients must run the **same mod version** to connect.
+SULFUR Together left Public Beta with **1.5.0**. The main loop plays from start to finish; the known rough edges are listed on the [mod page](Thunderstore/README.md). **Back up your saves.** Host and all clients must run the **same mod version** and the **same game version** to connect.
 
 ## Requirements
 

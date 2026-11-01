@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.5.0 — SULFUR 1.0.2, out of beta
+
+SULFUR has reached 1.0, and so has this mod: **SULFUR Together leaves Public Beta with 1.5.0.** The
+full co-op run plays from start to finish; the known rough edges are listed on the mod page.
+
+**1.5.0 is built for SULFUR 1.0.2 and does not run on 0.19.x — stay on 1.4.1 if you are still on
+SULFUR 0.19.9.** The network protocol changed, so everyone must update to 1.5.0 together. The mod
+now also compares the game version when a player joins and refuses the session if the two sides run
+different builds of SULFUR ("Game version mismatch"): game updates renumber item data that travels
+over the network, so a mixed session would quietly read one item's stats as another's.
+
+**Fixed:**
+- **A client no longer rolls its own loot.** With shared loot, the host decides what every kill and
+  every broken crate drops, and the client is kept from rolling its own. SULFUR 1.0.2 renamed the
+  method that does that roll, the guard stopped matching it without a single error, and a client's
+  kills started dropping a second, private set of loot of its own. The guard follows the new name,
+  and it now reports by name any roll it fails to cover, so a future rename cannot go unnoticed.
+- **The Witch's second phase is visible on the client again.** 1.0.2 moved the real witch to a
+  different place inside the game, the client could no longer find which dome holds her, and none
+  of the witches showed up on its screen. The client reads her from her new place.
+- **You can see the Desert boss's missiles land on your teammate again.** 1.0.2 rebuilt how those
+  missiles are made, which removed what the mod used to draw them on everyone else's screen. They
+  are redrawn the new way: the red marker sliding toward your teammate, the missile falling, the
+  explosion — for show only, they cannot hurt you.
+- **The Desert boss's intro closes for everyone.** When the host finished the opening dialogue, the
+  dialogue box stayed open on the client's screen and had to be closed by hand. It now closes on both
+  screens at the same time.
+- **Weapon XP for clients works exactly like single-player.** A client's kill used to put its whole
+  XP into the last weapon it had equipped, without Bonus XP and even into weapons already at max
+  rank. The client now runs the game's own sharing: XP is split between the weapons that hit the
+  enemy, Bonus XP applies, and max-rank weapons are skipped.
+
+**Changed:**
+- **In co-op, a door between rooms stays open once someone opens it.** SULFUR 1.0.2 made these doors
+  swing shut by themselves a few seconds later, but each game decides that only from its own player
+  and the enemies around it, so one player could find a door closed that the other saw open. While a
+  co-op session is running, opened doors now stay open for everyone; playing alone, they close as
+  in the base game. Trap doors that slam shut behind you still close only for the player who
+  triggered them.
+
 ## 1.4.1 — SULFUR 0.19.9
 
 SULFUR 0.19.9 rebuilt the way tracking projectiles work, and the change lands squarely on the code
