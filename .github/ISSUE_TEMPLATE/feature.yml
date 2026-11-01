@@ -1,0 +1,27 @@
+name: Feature request
+description: An idea for something co-op should do, or do differently.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: English or 中文 are both fine (中文也可以).
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What you'd like to happen, and when in a session it matters.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What happens now that you'd like to change. A concrete moment from a session helps.
+
+  - type: textarea
+    id: host-client
+    attributes:
+      label: Host and client
+      description: Should this behave the same for every player, or be something the host decides for the session?

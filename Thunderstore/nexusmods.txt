@@ -134,10 +134,16 @@ This list is not exhaustive.
 [b]Thunderstore does not support bug reports or comments[/b], so please report elsewhere:
 
 [list]
-[*][b]GitHub Issues (recommended):[/b] https://github.com/ryuka-dev/SULFUR-Together/issues[/*]
+[*][b]GitHub Issues (recommended):[/b] https://github.com/ryuka-dev/SULFUR-Together/issues/new/choose (the report form asks for everything needed to track a problem down)[/*]
 [*][b]Nexus Mods:[/b] the mod's [b]Bug Reports[/b] section[/*]
 [/list]
-A good report includes: both host [b]and[/b] client [color=#ffff00]LogOutput.log[/color] files, who hosted, where it happened (level/boss), who triggered the event, what each player saw, whether it reproduces, and your other installed mods. Reports with [b]both[/b] logs are far more useful than one side alone.
+The logs are the most useful part of a report. Please attach both of these, from the host [b]and[/b] the client:
+
+[list]
+[*][color=#ffff00]LogOutput.log[/color], in your mod manager profile's folder under [color=#ffff00]BepInEx\[/color][/*]
+[*][color=#ffff00]Player.log[/color], in [color=#ffff00]%USERPROFILE%\AppData\LocalLow\Perfect Random\SULFUR\[/color][/*]
+[/list]
+Both files are overwritten the next time the game starts, so copy them right after the problem happens (the previous session's game log is [color=#ffff00]Player-prev.log[/color]). Also say who hosted, where it happened (level/boss), who triggered it, what each player saw, whether it reproduces, and which other mods you have installed.
 
 [color=DodgerBlue][b]Disclaimer[/b][/color]
 
@@ -271,10 +277,16 @@ SULFUR Together 不会同步其他模组。别的模组添加的内容——它�
 [b]Thunderstore 不支持提交反馈或评论[/b]，因此请通过以下渠道反馈：
 
 [list]
-[*][b]GitHub Issues（推荐）：[/b] https://github.com/ryuka-dev/SULFUR-Together/issues[/*]
+[*][b]GitHub Issues（推荐）：[/b] https://github.com/ryuka-dev/SULFUR-Together/issues/new/choose （报告表单会列出排查所需的全部信息，用中文填写也可以）[/*]
 [*][b]Nexus Mods：[/b] 模组页面的 [b]Bug Reports[/b] 栏目[/*]
 [/list]
-一份好的报告应包含：房主与客机[b]双方[/b]的 [color=#ffff00]LogOutput.log[/color] 日志、谁是房主、问题发生在哪里（关卡/Boss）、由谁触发、每位玩家各自看到了什么、能否复现，以及你安装的其他模组。[b]同时[/b]提供双方日志的报告远比只有一方的有用。
+报告里最有用的是日志。请附上房主与客机[b]双方[/b]的这两个文件：
+
+[list]
+[*][color=#ffff00]LogOutput.log[/color]：在模组管理器配置档（profile）文件夹的 [color=#ffff00]BepInEx\[/color] 下[/*]
+[*][color=#ffff00]Player.log[/color]：在 [color=#ffff00]%USERPROFILE%\AppData\LocalLow\Perfect Random\SULFUR\[/color] 下[/*]
+[/list]
+这两个文件在下次启动游戏时会被覆盖，请在出问题后立刻复制出来（上一次的游戏日志是同目录下的 [color=#ffff00]Player-prev.log[/color]）。另外请说明谁是房主、问题发生在哪里（关卡/Boss）、由谁触发、每位玩家各自看到了什么、能否复现，以及你安装的其他模组。
 
 [color=DodgerBlue][b]免责声明[/b][/color]
 
@@ -408,10 +420,16 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 [b]Thunderstore は不具合報告やコメントに対応していません[/b]。以下からご報告ください：
 
 [list]
-[*][b]GitHub Issues（推奨）：[/b] https://github.com/ryuka-dev/SULFUR-Together/issues[/*]
+[*][b]GitHub Issues（推奨）：[/b] https://github.com/ryuka-dev/SULFUR-Together/issues/new/choose （報告フォームに、原因の調査に必要な項目がまとまっています）[/*]
 [*][b]Nexus Mods：[/b] MODページの [b]Bug Reports[/b] セクション[/*]
 [/list]
-良い報告には、ホストとクライアント[b]両方[/b]の [color=#ffff00]LogOutput.log[/color]、誰がホストか、どこで起きたか（ステージ／ボス）、誰が何を起こしたか、各プレイヤーに何が見えたか、再現するか、導入している他のMODが含まれます。[b]両方[/b]のログがある報告は、片方だけよりはるかに有用です。
+報告でいちばん役に立つのはログです。ホストとクライアント[b]両方[/b]の次のファイルを添えてください：
+
+[list]
+[*][color=#ffff00]LogOutput.log[/color]：MODマネージャーのプロファイルフォルダ内の [color=#ffff00]BepInEx\[/color][/*]
+[*][color=#ffff00]Player.log[/color]：[color=#ffff00]%USERPROFILE%\AppData\LocalLow\Perfect Random\SULFUR\[/color][/*]
+[/list]
+どちらも次にゲームを起動すると上書きされるので、問題が起きた直後にコピーしてください（前回のセッションのゲームログは同じフォルダの [color=#ffff00]Player-prev.log[/color] です）。あわせて、誰がホストか、どこで起きたか（ステージ／ボス）、誰が何を起こしたか、各プレイヤーに何が見えたか、再現するか、導入している他のMODも書いてください。
 
 [color=DodgerBlue][b]免責事項[/b][/color]
 

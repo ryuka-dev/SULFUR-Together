@@ -53,10 +53,15 @@ SULFUR Together 已在 **1.5.0** 结束公开测试。主体流程可以从头�
 
 ## 反馈与错误报告
 
-- **[GitHub Issues](https://github.com/ryuka-dev/SULFUR-Together/issues)（推荐）。**
+- **[GitHub Issues](https://github.com/ryuka-dev/SULFUR-Together/issues/new/choose)（推荐）。** 报告表单会列出排查所需的全部信息，用中文填写也可以。
 - **Nexus Mods**——模组的 Bug Reports 栏目。
 
-Thunderstore 没有反馈渠道，请使用上述之一。请附上房主与客机**双方**的 `LogOutput.log`、谁是房主、发生位置、由谁触发，以及你安装的其他模组。
+Thunderstore 没有反馈渠道，请使用上述之一。报告里最有用的是日志，请附上房主与客机**双方**的：
+
+- `LogOutput.log`：在模组管理器配置档（profile）文件夹的 `BepInEx\` 下
+- `Player.log`：在 `%USERPROFILE%\AppData\LocalLow\Perfect Random\SULFUR\` 下
+
+这两个文件在下次启动游戏时会被覆盖，请在出问题后立刻复制出来（上一次的游戏日志是同目录下的 `Player-prev.log`）。另外请说明谁是房主、发生位置、由谁触发、每位玩家各自看到了什么，以及你安装的其他模组。
 
 ## 许可证
 

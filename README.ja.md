@@ -53,10 +53,15 @@ Co-op は**セーブをロードした状態**でホスト／参加します（�
 
 ## フィードバックと不具合報告
 
-- **[GitHub Issues](https://github.com/ryuka-dev/SULFUR-Together/issues)（推奨）。**
+- **[GitHub Issues](https://github.com/ryuka-dev/SULFUR-Together/issues/new/choose)（推奨）。** 報告フォームに、原因の調査に必要な項目がまとまっています。
 - **Nexus Mods**——MODの Bug Reports セクション。
 
-Thunderstore に報告先はないので、上記のいずれかをご利用ください。ホストとクライアント**両方**の `LogOutput.log`、誰がホストか、発生場所、誰が起こしたか、導入している他のMODを添えてください。
+Thunderstore に報告先はないので、上記のいずれかをご利用ください。報告でいちばん役に立つのはログです。ホストとクライアント**両方**の次のファイルを添えてください：
+
+- `LogOutput.log`：MODマネージャーのプロファイルフォルダ内の `BepInEx\`
+- `Player.log`：`%USERPROFILE%\AppData\LocalLow\Perfect Random\SULFUR\`
+
+どちらも次にゲームを起動すると上書きされるので、問題が起きた直後にコピーしてください（前回のセッションのゲームログは同じフォルダの `Player-prev.log` です）。あわせて、誰がホストか、発生場所、誰が起こしたか、各プレイヤーに何が見えたか、導入している他のMODも書いてください。
 
 ## ライセンス
 

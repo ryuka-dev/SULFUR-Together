@@ -105,10 +105,15 @@ The [`Docs/`](Docs/) folder holds the architecture and reverse-engineering notes
 
 ## Feedback & bug reports
 
-- **[GitHub Issues](https://github.com/ryuka-dev/SULFUR-Together/issues) (recommended).**
+- **[GitHub Issues](https://github.com/ryuka-dev/SULFUR-Together/issues/new/choose) (recommended).** The report form asks for everything needed to track a problem down.
 - **Nexus Mods** — the mod's Bug Reports section.
 
-Thunderstore has no bug tracker, so please use one of the above. Include both host **and** client `LogOutput.log` files, who hosted, where it happened, who triggered the event, what each player saw, and your other installed mods.
+Thunderstore has no bug tracker, so please use one of the above. The logs are the most useful part of a report, from the host **and** the client:
+
+- `LogOutput.log`, in your mod manager profile's folder under `BepInEx\`
+- `Player.log`, in `%USERPROFILE%\AppData\LocalLow\Perfect Random\SULFUR\`
+
+Both files are overwritten the next time the game starts, so copy them right after the problem happens (the previous session's game log is `Player-prev.log`). Also say who hosted, where it happened, who triggered it, what each player saw, and which other mods you have installed.
 
 ## License
 

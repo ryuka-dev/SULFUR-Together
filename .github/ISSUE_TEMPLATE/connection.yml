@@ -1,0 +1,88 @@
+name: Connection problem
+description: You can't join, the join hangs, or players keep getting disconnected.
+labels: ["bug", "connection"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. English or 中文 are both fine (中文也可以).
+
+        Before reporting, please check that everyone runs the **same version** of SULFUR Together and of SULFUR itself. A mismatch is refused on purpose.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Please send these two files, from the host **and** from the player who couldn't join, and drag them into this box:
+
+        - `LogOutput.log`, in your mod manager profile's folder under `BepInEx\`
+        - `Player.log`, in `%USERPROFILE%\AppData\LocalLow\Perfect Random\SULFUR\`
+
+        Both files are overwritten the next time the game starts, so copy them right after a failed attempt.
+      placeholder: Drag the files here. If you can't attach them, a short note on why is fine.
+
+  - type: dropdown
+    id: connection
+    attributes:
+      label: How did you try to connect?
+      options:
+        - Steam invite
+        - Steam ID (Join via Steam)
+        - Direct IP on the same network
+        - Direct IP over the internet (port forwarding or VPN)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: What happens when it fails?
+      options:
+        - Stuck on joining / connecting forever
+        - An error or message appears
+        - Nothing happens at all
+        - It connects, then disconnects
+        - It works after a few tries
+    validations:
+      required: true
+
+  - type: textarea
+    id: message
+    attributes:
+      label: Message on screen
+      description: The exact text of any error or notification, on either side. A screenshot works too.
+
+  - type: input
+    id: players
+    attributes:
+      label: Players
+      description: How many players were in the session, and which one (2nd, 3rd...) failed to join.
+      placeholder: e.g. 3 players, the 3rd one can't join
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you already tried
+      placeholder: Restarting, swapping who hosts, a different connection method...
+
+  - type: input
+    id: mod-version
+    attributes:
+      label: SULFUR Together version
+      description: As shown in your mod manager.
+      placeholder: e.g. 1.5.0
+    validations:
+      required: true
+
+  - type: input
+    id: game-version
+    attributes:
+      label: SULFUR version
+      placeholder: e.g. 1.0.2
+
+  - type: textarea
+    id: other-mods
+    attributes:
+      label: Other mods
+      description: Any other mods you had installed, or a screenshot of your mod list.

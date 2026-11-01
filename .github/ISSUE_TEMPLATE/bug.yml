@@ -1,0 +1,127 @@
+name: Bug report
+description: Something in a co-op session doesn't work, doesn't match between players, freezes, or crashes.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. English or 中文 are both fine (中文也可以).
+
+        Can't join or connect at all? Use the **Connection problem** form instead.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        The most useful thing you can attach. Please send these two files, from the host **and** from the client if you can, and drag them into this box:
+
+        - `LogOutput.log`, in your mod manager profile's folder under `BepInEx\`
+        - `Player.log`, in `%USERPROFILE%\AppData\LocalLow\Perfect Random\SULFUR\`
+
+        Both files are overwritten the next time the game starts, so copy them right after the problem happens. If you already restarted once, the previous session's game log is `Player-prev.log` in the same folder.
+      placeholder: Drag the files here. If you can't attach them, a short note on why is fine.
+
+  - type: dropdown
+    id: who
+    attributes:
+      label: Who saw the problem?
+      options:
+        - Host only
+        - Client only
+        - Both host and client
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: solo
+    attributes:
+      label: Does it also happen in single-player?
+      options:
+        - Only in co-op
+        - Also in single-player with the mod installed
+        - Also without the mod
+        - Haven't tried
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Sometimes
+        - Only seen it once
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead. Say which player did what (host or client).
+      placeholder: |
+        1. Host started a new save and invited a friend through Steam
+        2. ...
+        Expected: ...
+        Instead: ...
+    validations:
+      required: true
+
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: Level, boss, the church, Endless mode...
+      placeholder: e.g. Caves, the Cousin fight
+
+  - type: textarea
+    id: performance
+    attributes:
+      label: Freezes or low FPS (if that's the problem)
+      description: How long each freeze lasts, how often, and whether it lines up with something on screen (an enemy spawning, a boss attack, opening a door).
+
+  - type: input
+    id: mod-version
+    attributes:
+      label: SULFUR Together version
+      description: As shown in your mod manager.
+      placeholder: e.g. 1.5.0
+    validations:
+      required: true
+
+  - type: input
+    id: game-version
+    attributes:
+      label: SULFUR version
+      placeholder: e.g. 1.0.2
+
+  - type: dropdown
+    id: connection
+    attributes:
+      label: How did you connect?
+      options:
+        - Steam invite
+        - Steam ID (Join via Steam)
+        - Direct IP
+        - Not sure
+
+  - type: input
+    id: players
+    attributes:
+      label: Number of players
+      placeholder: e.g. 2
+
+  - type: textarea
+    id: other-mods
+    attributes:
+      label: Other mods
+      description: Any other mods you had installed, or a screenshot of your mod list.
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: Screenshots from both players' screens help a lot when the two sides see different things.
