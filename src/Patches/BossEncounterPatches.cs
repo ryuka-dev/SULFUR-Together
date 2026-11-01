@@ -66,12 +66,6 @@ namespace SULFURTogether.Patches
             PatchDesertMissile(harmony, FindType("DesertMissileBase",
                 "PerfectRandom.Sulfur.Gameplay.DesertMissileBase", "PerfectRandom.Sulfur.Core.DesertMissileBase"));
 
-            // F4-MISSILE D2: ghost VISUAL rockets (homing multiplayer). Each real rocket fired at the local player gets
-            // damage-suppressed twins homing on the other players' visual proxies; the suppression gate lives on the
-            // rocket's own damage pass (a ghost must not double-damage the player already hit by their own real rocket).
-            PatchDesertMissileRocket(harmony, FindType("DesertMissileRocket",
-                "PerfectRandom.Sulfur.Gameplay.DesertMissileRocket", "PerfectRandom.Sulfur.Core.DesertMissileRocket"));
-
             // F4-ADDS: the client's own perimeter jump machinery TELEPORTS its pikes to locally-rolled jump points every
             // eligible frame (UpdateJumping moves the pike THEN calls JumpTowards — only the latter was blocked, F4-P1JMP),
             // dragging the client boss pike (+ mounted boss) to points where the HOST has minion pikes. On the client every
@@ -478,7 +472,7 @@ namespace SULFURTogether.Patches
                     postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_MissileStart_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 var stop = AccessTools.Method(missileBase, "StopRockets");
                 if (stop != null) harmony.Patch(stop, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_MissileStop_Post), BindingFlags.Static | BindingFlags.NonPublic)));
-                // D2: each real rocket fired at the local player → also spawn ghost visual rockets on the other players.
+                // D2: each real missile fired at the local player → also spawn visual twins chasing the other players.
                 var spawn = AccessTools.Method(missileBase, "SpawnRealRocket");
                 if (spawn != null) harmony.Patch(spawn, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_MissileRocket_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 // D3: the host's full-screen barrage start → broadcast so the client replays the identical native pattern.
@@ -513,21 +507,6 @@ namespace SULFURTogether.Patches
         private static bool Desert_PerimeterJumping_Pre()
             => !NetBossEncounterManager.ShouldBlockClientPerimeterJumping();
 
-        // F4-MISSILE D2: the ghost-rocket damage gate on DesertMissileRocket itself.
-        private static void PatchDesertMissileRocket(Harmony harmony, Type rocket)
-        {
-            if (rocket == null) { Log.Info("[DesertMissile] DesertMissileRocket type not found (ghost rockets skipped)"); return; }
-            try
-            {
-                var dmg = AccessTools.Method(rocket, "CheckAndDamageUnit");
-                if (dmg != null) harmony.Patch(dmg, prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_RocketDamage_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
-                var boom = AccessTools.Method(rocket, "DestroyMissile");
-                if (boom != null) harmony.Patch(boom, postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Desert_RocketDestroy_Post), BindingFlags.Static | BindingFlags.NonPublic)));
-                Log.Info($"[DesertMissile] patched DesertMissileRocket.CheckAndDamageUnit({dmg != null}) DestroyMissile({boom != null})");
-            }
-            catch (Exception ex) { Log.Error($"[DesertMissile] rocket patch failed: {ex.Message}"); }
-        }
-
         // CLIENT: block the base's own StartMissiles (host-authoritative windows; host-replayed starts pass via reentry).
         private static bool Desert_MissileStart_Pre(object __instance)
             => !NetBossEncounterManager.ShouldBlockClientMissileStart(__instance);
@@ -544,7 +523,7 @@ namespace SULFURTogether.Patches
             if (__runOriginal) NetBossEncounterManager.OnHostMissileStop(__instance);
         }
 
-        // BOTH ends: a real rocket fired at the local player → add ghost visual rockets on the other players (D2).
+        // BOTH ends: a real missile fired at the local player → add visual twins chasing the other players (D2).
         private static void Desert_MissileRocket_Post(object __instance)
             => NetBossEncounterManager.OnMissileRealRocketFired(__instance);
 
@@ -561,14 +540,6 @@ namespace SULFURTogether.Patches
 
         private static void Desert_FireLine_Post(object __instance)
             => NetBossEncounterManager.OnMissileLinePatternPost();
-
-        // D2: skip the damage pass for a ghost VISUAL rocket (explosion VFX still plays; the id gate is per-instance).
-        private static bool Desert_RocketDamage_Pre(object __instance)
-            => !NetBossEncounterManager.IsGhostRocket(__instance);
-
-        // D2: the rocket exploded — drop its ghost id so the pooled instance can be reused as a real rocket.
-        private static void Desert_RocketDestroy_Post(object __instance)
-            => NetBossEncounterManager.OnRocketDestroyed(__instance);
 
         private static void WitchP2_InitPhase_Pre(object __instance)
             => SULFURTogether.Networking.Gameplay.Boss.WitchPhase2Probe.OnInitPhase(__instance);

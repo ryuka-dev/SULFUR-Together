@@ -197,8 +197,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _desertAimRotation = -1;
                 _desertArenaTarget = new Vector3(float.PositiveInfinity, 0, 0);
                 _desertArenaLastSent = new Vector3(float.PositiveInfinity, 0, 0);
-                _ghostRocketIds.Clear();
-                _ghostRocketMarkers.Clear();
+                DesertGhostMissiles.Clear();
                 // PK-4/PK-2: carriers and their colliders go with the level (Unity forgets the ignore pairs with them),
                 // and the per-pike ambush cooldowns are level-scoped.
                 _pikeCollisionIgnores.Clear();
@@ -277,8 +276,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _desertAimRotation = -1;
                 _desertArenaTarget = new Vector3(float.PositiveInfinity, 0, 0);
                 _desertArenaLastSent = new Vector3(float.PositiveInfinity, 0, 0);
-                _ghostRocketIds.Clear();
-                _ghostRocketMarkers.Clear();
+                DesertGhostMissiles.Clear();
                 _clientRequested.Clear();
                 _localIntroDialogKey = null;
                 _localMidFightDialogKey = null;
@@ -830,7 +828,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         /// <summary>Phase D probe (F4-MISSILE, read-only): every ~0.5 s log both DesertMissileBase (sniper + terminator)
         /// states on BOTH ends — enabled / isFiringMissiles (the high-freq homing stream) / incomingPatternMissiles (the
-        /// full-screen barrage) / AliveMissile / followUnit + the boss phase. Confirms the client fires divergently
+        /// full-screen barrage) / missiles in flight (activeMissiles) / followUnit + the boss phase. Confirms the client fires divergently
         /// (isFiringMissiles at the local player, still going in phase 4 where the host stopped) and shows which phases the
         /// host fires homing vs pattern, to size D1 (barrage visual sync) + D2 (homing multiplayer). Gated.</summary>
         private static void ProbeDesertMissile(object comp)
@@ -854,7 +852,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             if (!(mb is UnityEngine.Object uo) || uo == null) { Plugin.Log.Info($"[DesertMissile] mode={mode} phase={phase} base={label} = null"); return; }
             bool firing = BossReflect.GetMember(mb, "isFiringMissiles") is bool f && f;
             bool pattern = BossReflect.GetMember(mb, "incomingPatternMissiles") is bool p && p;
-            int alive = BossReflect.GetMember(mb, "AliveMissile") is int a ? a : -1;
+            int alive = BossReflect.GetMember(mb, "activeMissiles") is System.Collections.ICollection am ? am.Count : -1; // 1.0.2: missiles in flight
             var follow = BossReflect.GetMember(mb, "followUnit");
             string followName = follow is UnityEngine.Object fo && fo != null ? fo.name : "null";
             bool enabled = mb is UnityEngine.MonoBehaviour m && m.enabled;
@@ -1581,68 +1579,17 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] ApplyClientMissileWindow failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        // -------------------------------------------------- F4-MISSILE D2: ghost visual rockets (homing multiplayer)
+        // -------------------------------------------------- F4-MISSILE D2: ghost visual missiles (homing multiplayer)
 
-        // Instance IDs of ghost VISUAL rockets (spawned by SpawnGhostVisualRockets at other players' proxies) + each
-        // ghost's pooled ground marker. The ghost's damage pass (DesertMissileRocket.CheckAndDamageUnit) is skipped — a
-        // ghost explosion must not double-damage the player who is already hit by their OWN local real rocket — and the
-        // id is dropped when the rocket explodes (DestroyMissile), releasing the marker back to the pool, so a pooled
-        // instance later reused as a REAL rocket damages normally (no pool pollution).
-        private static readonly HashSet<int> _ghostRocketIds = new HashSet<int>();
-        private static readonly Dictionary<int, UnityEngine.GameObject> _ghostRocketMarkers = new Dictionary<int, UnityEngine.GameObject>();
-
-        /// <summary>F4-MISSILE D2: mark a just-spawned rocket instance as a ghost VISUAL (no damage pass), remembering its
-        /// pooled ground marker (if any) for release when it explodes.</summary>
-        public static void RegisterGhostRocket(UnityEngine.Object rocket, UnityEngine.GameObject? marker)
-        {
-            if (rocket == null) return;
-            lock (_lock)
-            {
-                int id = rocket.GetInstanceID();
-                _ghostRocketIds.Add(id);
-                if (marker != null) _ghostRocketMarkers[id] = marker;
-            }
-        }
-
-        /// <summary>Prefix gate for DesertMissileRocket.CheckAndDamageUnit: true = skip the damage pass (ghost visual).</summary>
-        public static bool IsGhostRocket(object rocket)
-        {
-            try
-            {
-                if (!(rocket is UnityEngine.Object uo) || uo == null) return false;
-                lock (_lock) { return _ghostRocketIds.Contains(uo.GetInstanceID()); }
-            }
-            catch { return false; }
-        }
-
-        /// <summary>Postfix for DesertMissileRocket.DestroyMissile: the rocket exploded — a ghost id is dropped here (so
-        /// the pooled instance can be reused as a real rocket) and its ground marker is returned to the pool.</summary>
-        public static void OnRocketDestroyed(object rocket)
-        {
-            try
-            {
-                if (!(rocket is UnityEngine.Object uo) || uo == null) return;
-                UnityEngine.GameObject? marker = null;
-                lock (_lock)
-                {
-                    int id = uo.GetInstanceID();
-                    _ghostRocketIds.Remove(id);
-                    if (_ghostRocketMarkers.TryGetValue(id, out var m)) { marker = m; _ghostRocketMarkers.Remove(id); }
-                }
-                if (marker != null) BossFightHelperAdapter.ReleaseGhostMarker(marker);
-            }
-            catch { }
-        }
-
-        /// <summary>BOTH ends (F4-MISSILE D2): a boss missile base fired a real homing rocket at the local player → route
-        /// to the owning Desert adapter to add ghost VISUAL rockets homing on the other players' proxies, so every end sees
-        /// every player hunted. Resolves the adapter under the lock, spawns outside it (Unity work).</summary>
+        /// <summary>BOTH ends (F4-MISSILE D2): a boss missile base fired a real homing missile at the local player. If it
+        /// belongs to a registered, started Desert boss, add a visual-only twin chasing each remote player's proxy so every
+        /// end sees every player hunted (<see cref="DesertGhostMissiles"/>). Resolves under the lock, spawns outside it.</summary>
         public static void OnMissileRealRocketFired(object missileBase)
         {
             try
             {
                 if (!Enabled || missileBase == null) return;
-                BossFightHelperAdapter? target = null;
+                bool owned = false;
                 lock (_lock)
                 {
                     foreach (var kv in _registry)
@@ -1652,12 +1599,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         try
                         {
                             if (!SafeStarted(a, e.Component)) continue;
-                            if (ReferenceEquals(BossReflect.GetMember(e.Component, "sniperBase"), missileBase) || ReferenceEquals(BossReflect.GetMember(e.Component, "terminatorBase"), missileBase)) { target = a; break; }
+                            if (ReferenceEquals(BossReflect.GetMember(e.Component, "sniperBase"), missileBase) || ReferenceEquals(BossReflect.GetMember(e.Component, "terminatorBase"), missileBase)) { owned = true; break; }
                         }
                         catch { }
                     }
                 }
-                target?.SpawnGhostVisualRockets(missileBase);
+                if (owned && missileBase is Component mb) DesertGhostMissiles.SpawnForRemotePlayers(mb);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[DesertMissile] OnMissileRealRocketFired failed: {ex.GetType().Name}: {ex.Message}"); }
         }
@@ -5195,6 +5142,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (!Enabled) return;
 
                 TickHostBossStateBroadcast(); // Phase 5.4-E4.2: periodic boss health/state push (host)
+                DesertGhostMissiles.Tick();   // F4-MISSILE D2: advance the visual twins of the homing missiles
 
                 // TB: a pure-puppet boss (Terrorbaum) must NEVER run its own fight mechanics on the client — it is a puppet
                 // driven entirely by the host (position/animation mirror + host-authoritative health/death). TriggerFight

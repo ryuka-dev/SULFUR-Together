@@ -351,7 +351,7 @@ namespace SULFURTogether.Networking.Gameplay
         public static void ForEachRemotePlayerPositionWithPeer(System.Action<string, UnityEngine.Vector3> action)
             => _service?.ForEachRemotePlayerPositionWithPeer(action);
 
-        // F4-MISSILE D2: remote player visual TRANSFORMS (live homing targets for ghost visual rockets, both ends).
+        // F4-MISSILE D2: remote player visual TRANSFORMS (live targets for the ghost visual missiles, both ends).
         public static void ForEachRemotePlayerTransform(System.Action<string, UnityEngine.Transform> action)
             => _service?.ForEachRemotePlayerTransform(action);
 

@@ -165,7 +165,7 @@ namespace SULFURTogether.Networking
         }
 
         /// <summary>F4-MISSILE D2: invoke <paramref name="action"/> with (peerId, visualTransform) for each VISIBLE,
-        /// fresh in-scene remote player — the transforms the boss's ghost visual rockets home on (what this end SEES of
+        /// fresh in-scene remote player — the transforms the boss's ghost visual missiles chase (what this end SEES of
         /// the other players). Same freshness/visibility rules as ForEachInScenePlayer.</summary>
         public void ForEachInScenePlayerTransform(System.Action<string, Transform> action, float now, float maxAgeSeconds)
         {
