@@ -1,6 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
+using System.Reflection.Emit;
 using HarmonyLib;
+using PerfectRandom.Sulfur.Core;
+using PerfectRandom.Sulfur.Core.Units;
 using SULFURTogether.Networking.Gameplay;
 
 namespace SULFURTogether.Patches
@@ -30,11 +34,22 @@ namespace SULFURTogether.Patches
     /// <para>So the skip is now explicit rather than a side effect of <c>enabled</c>. Suppressing the ghost while
     /// the host loads (RemotePlayerRegistryManager.IsHostLoading, the ShowLevelNode camera NRE) does not help here:
     /// this fires during ordinary gameplay, which is exactly when the ghost has to exist.</para>
+    /// <para><b>DonutCollision (game 1.0.2):</b> the ring damage of Terrorbaum's root phase and the Witch's rings
+    /// collects <c>aliveNpcs</c> plus every <c>Players[i].playerUnit</c> each frame and reads
+    /// <c>unit.capsuleCollider.radius</c>. A ghost's Unit has no <c>mainCollider</c>, so <c>Unit.Awake</c> never
+    /// set <c>capsuleCollider</c>, and the loop threw on the ghost every frame the ring was enabled (6260 and 25873
+    /// times in two Terrorbaum rounds). Ghosts are appended after the host's own player, so everything before them
+    /// had already been checked: the ring has never damaged a ghost. The read of <c>Players</c> inside that method
+    /// now returns the list without ghosts, which keeps exactly that outcome without the exception. Whether a remote
+    /// player should take ring damage through its ghost depends on whether its own end runs the ring (Terrorbaum's
+    /// root phase is mirrored to the client, whose ring then checks the client's local player) and is not decided
+    /// here.</para>
     /// </summary>
     internal static class GhostPlayerPatches
     {
         public static void Apply(Harmony harmony)
         {
+            ApplyDonutCollision(harmony);
             try
             {
                 var playerType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.Player");
@@ -71,6 +86,65 @@ namespace SULFURTogether.Patches
                 return false;
             }
             catch { return true; } // never block a real player's update because our own check threw
+        }
+
+        // ---------------------------------------------------------------- DonutCollision.Update (game 1.0.2+)
+
+        private static int _donutPlayerReads;
+
+        private static void ApplyDonutCollision(Harmony harmony)
+        {
+            try
+            {
+                var donutType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.DonutCollision");
+                var update = donutType != null ? AccessTools.Method(donutType, "Update") : null;
+                if (update == null)
+                {
+                    Plugin.Log.Info("[GhostPlayer] DonutCollision.Update not found on this game build — no ring ghost skip needed");
+                    return;
+                }
+                _donutPlayerReads = 0;
+                harmony.Patch(update, transpiler: new HarmonyMethod(
+                    typeof(GhostPlayerPatches).GetMethod(nameof(DonutCollision_Update_Transpiler), BindingFlags.Static | BindingFlags.NonPublic)));
+                if (_donutPlayerReads > 0)
+                    Plugin.Log.Info($"[GhostPlayer] patched DonutCollision.Update (ghost skip, {_donutPlayerReads} Players read(s))");
+                else
+                    Plugin.Log.Error("[GhostPlayer] DonutCollision.Update no longer reads GameManager.Players — ghost skip not supported on this game build; ring damage may throw on ghosts every frame");
+            }
+            catch (Exception ex) { Plugin.Log.Error($"[GhostPlayer] DonutCollision patch failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Replaces each <c>GameManager.Players</c> read in <c>DonutCollision.Update</c> with
+        /// <see cref="PlayersWithoutGhosts"/>, which takes the same instance off the stack.</summary>
+        private static IEnumerable<CodeInstruction> DonutCollision_Update_Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var getter = AccessTools.PropertyGetter(typeof(GameManager), nameof(GameManager.Players));
+            var hook = typeof(GhostPlayerPatches).GetMethod(nameof(PlayersWithoutGhosts), BindingFlags.Static | BindingFlags.NonPublic);
+            foreach (var ins in instructions)
+            {
+                if (getter != null && hook != null && (ins.opcode == OpCodes.Call || ins.opcode == OpCodes.Callvirt)
+                    && ins.operand is MethodInfo m && m == getter)
+                {
+                    _donutPlayerReads++;
+                    yield return new CodeInstruction(OpCodes.Call, hook).WithLabels(ins.labels).WithBlocks(ins.blocks);
+                    continue;
+                }
+                yield return ins;
+            }
+        }
+
+        private static readonly List<Player> _playersWithoutGhosts = new List<Player>();
+
+        /// <summary><c>gm.Players</c>, minus our ghosts. Returns the game's own list when there are none (always on a
+        /// client, and on a host without remote players), so single-player behaviour is untouched.</summary>
+        private static List<Player> PlayersWithoutGhosts(GameManager gm)
+        {
+            List<Player> players = gm.Players;
+            if (!RemotePlayerRegistryManager.HasGhosts || players == null) return players!;
+            _playersWithoutGhosts.Clear();
+            for (int i = 0; i < players.Count; i++)
+                if (!RemotePlayerRegistryManager.IsGhostPlayer(players[i])) _playersWithoutGhosts.Add(players[i]);
+            return _playersWithoutGhosts;
         }
     }
 }

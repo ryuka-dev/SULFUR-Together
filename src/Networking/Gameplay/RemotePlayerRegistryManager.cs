@@ -60,6 +60,9 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return false; }
         }
 
+        /// <summary>True while at least one ghost exists (host, in a session with a remote player).</summary>
+        public static bool HasGhosts => _ghostGoIds.Count > 0;
+
         /// <summary>True when this Player component belongs to one of our ghosts. Used by callers that must not run
         /// real per-player logic on a headless stand-in; see <see cref="Patches.GhostPlayerPatches"/>.</summary>
         public static bool IsGhostPlayer(object? player)
