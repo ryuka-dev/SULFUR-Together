@@ -35,7 +35,9 @@ namespace SULFURTogether.Networking.Gameplay
 
         // ----------------------------------------------------------------- capture (firing peer)
 
-        public static void CaptureLocalFire(Weapon weapon)
+        /// <summary>Weapon.Shoot postfix. <paramref name="shotSounds"/> are the sounds vanilla played during that Shoot
+        /// (WS-SND-1). One message per trigger pull, sent when it carries bullets, sounds, or both.</summary>
+        public static void CaptureLocalFire(Weapon weapon, NetShotSound[] shotSounds)
         {
             try
             {
@@ -53,89 +55,104 @@ namespace SULFURTogether.Networking.Gameplay
                 ItemStats stats = weapon.ItemStats;
                 if (stats == null) return;
 
-                int projAmount = (int)stats.GetAttribute(ItemAttributes.ProjectileAmount);
-                if (projAmount <= 0) return;
-
-                // Bullets fired this shot. Normal play: lastConsumptionAmount (= ammo consumed = num3). God mode /
-                // ConsumeAmmoChance-miss: ammo isn't decremented so lastConsumptionAmount stays 0 — fall back to
-                // min(iAmmoCurrent, iMaxAmmoPerShot), which (ammo unchanged) still equals the real num3.
-                int shots = weapon.lastConsumptionAmount;
-                if (shots <= 0) shots = ResolveShotsFromAmmo(weapon);
-                if (shots <= 0) return; // nothing actually fired
-
-                if (stats.GetAttribute(ItemAttributes.EnchantmentRemoveBullets) > 0f) return; // barrage produces no bullets
-
-                bool isSpray = stats.GetAttribute(ItemAttributes.ProjectileMoveAsSpray) > 0f;
-                int count = projAmount * shots;
-                if (isSpray) count *= 7; // mirrors Weapon.Shoot's SprayProjectiles(num9 * 7)
-                if (count <= 0) return;
-
-                EquipmentManager em = weapon.equipmentManager;
-                if (em == null) return;
-
-                FullProjectileDescription last = em.lastFiredProjectile;
-                ProjectileRay ray = last.ray;
-                if (!ray.IsValid()) return; // last shot didn't actually dispatch a projectile
-
-                Vector3 origin = ToVector3(ray.barrelPosition); // == BarrelTransform.position at dispatch time
-                Vector3 aim = weapon.AimAtPosition;
-
-                float speed = math.length(ray.velocity);
-                if (speed < 0.01f) speed = weapon.bulletSpeed;
-
-                var msg = new NetPlayerWeaponFire
+                NetPlayerWeaponFire? msg = TryBuildBarrage(weapon, stats);
+                bool hasSounds = shotSounds != null && shotSounds.Length > 0;
+                if (msg == null)
                 {
-                    Sequence = ++_captureSeq,
-                    Origin   = origin,
-                    AimPoint = aim,
-                    Count    = count,
-                    Speed    = speed,
-                    Spread   = weapon.computedSpread,
-                    IsSpray  = isSpray,
-                    Homing   = stats.GetAttribute(ItemAttributes.Homing) > 0f,
-                    IsRaygun = last.isRaygun,
-
-                    ProjectileType = (int)ray.type,
-                    Caliber        = (int)last.data.caliber,
-                    Effect         = (int)ray.effect,
-                    VfxAsset       = (int)ray.vfxAsset,
-                    DamageType     = (int)last.data.damageType,
-
-                    ColorR = ray.color.x, ColorG = ray.color.y, ColorB = ray.color.z,
-                    CoreColorR = ray.coreColor.x, CoreColorG = ray.coreColor.y, CoreColorB = ray.coreColor.z,
-
-                    InnerWidth = ray.innerWidth, OuterWidth = ray.outerWidth, Radius = ray.radius,
-
-                    Mass = ray.mass, Drag = ray.drag,
-                    GravityX = ray.gravity.x, GravityY = ray.gravity.y, GravityZ = ray.gravity.z,
-
-                    TimeScale = ray.timeScale, LifeTime = ray.lifeTime,
-                    BehaviourTimeout = ray.behaviourTimeout, BarrelLengthOffset = ray.barrelLengthOffset,
-
-                    BounceHits = ray.bounceHits, Bounciness = ray.bounciness,
-                    PenetrationBehavior = (int)ray.penetrationBehavior,
-                    PenetrationsLeft = ray.penetrationsLeft,
-                    PenetrationDamageMultiplier = ray.penetrationDamageMultiplier,
-
-                    DrawDefaultBullet = ray.drawDefaultBullet,
-                    DrawLaserBeam     = ray.drawLaserBeam,
-                    IsRocket          = ray.isRocket,
-                    HasCustomColors   = ray.hasCustomColors,
-                    HasCustomTrail    = ray.hasCustomTrail,
-                    CreateBulletHoles = ray.createBulletHoles,
-                    StickToGeometry   = ray.stickToGeometry,
-                    PlayImpactSounds  = ray.playImpactSounds,
-                };
+                    if (!hasSounds) return;
+                    msg = new NetPlayerWeaponFire { Sequence = ++_captureSeq }; // sound only: Count stays 0
+                }
+                if (hasSounds) msg.ShotSounds = shotSounds!;
 
                 NetGameplaySyncBridge.ReportLocalPlayerWeaponFire(msg);
 
                 if (Plugin.Cfg.LogPlayerWeaponSync.Value)
-                    NetLogger.Info($"[PlayerWeaponFire] capture weapon={def.name} count={count} spray={isSpray} homing={msg.Homing} raygun={msg.IsRaygun} type={(ProjectileTypes)msg.ProjectileType} cal={(CaliberTypes)msg.Caliber} speed={speed:F1} spread={msg.Spread:F3}");
+                    NetLogger.Info($"[PlayerWeaponFire] capture weapon={def.name} count={msg.Count} spray={msg.IsSpray} homing={msg.Homing} raygun={msg.IsRaygun} type={(ProjectileTypes)msg.ProjectileType} cal={(CaliberTypes)msg.Caliber} speed={msg.Speed:F1} spread={msg.Spread:F3} sounds={msg.ShotSounds.Length}");
             }
             catch (Exception ex)
             {
                 NetLogger.Warn($"[PlayerWeaponFire] capture failed: {ex.Message}");
             }
+        }
+
+        /// <summary>The barrage of this trigger pull, or null when it dispatched no bullets.</summary>
+        private static NetPlayerWeaponFire? TryBuildBarrage(Weapon weapon, ItemStats stats)
+        {
+            int projAmount = (int)stats.GetAttribute(ItemAttributes.ProjectileAmount);
+            if (projAmount <= 0) return null;
+
+            // Bullets fired this shot. Normal play: lastConsumptionAmount (= ammo consumed = num3). God mode /
+            // ConsumeAmmoChance-miss: ammo isn't decremented so lastConsumptionAmount stays 0 — fall back to
+            // min(iAmmoCurrent, iMaxAmmoPerShot), which (ammo unchanged) still equals the real num3.
+            int shots = weapon.lastConsumptionAmount;
+            if (shots <= 0) shots = ResolveShotsFromAmmo(weapon);
+            if (shots <= 0) return null; // nothing actually fired
+
+            if (stats.GetAttribute(ItemAttributes.EnchantmentRemoveBullets) > 0f) return null; // barrage produces no bullets
+
+            bool isSpray = stats.GetAttribute(ItemAttributes.ProjectileMoveAsSpray) > 0f;
+            int count = projAmount * shots;
+            if (isSpray) count *= 7; // mirrors Weapon.Shoot's SprayProjectiles(num9 * 7)
+            if (count <= 0) return null;
+
+            EquipmentManager em = weapon.equipmentManager;
+            if (em == null) return null;
+
+            FullProjectileDescription last = em.lastFiredProjectile;
+            ProjectileRay ray = last.ray;
+            if (!ray.IsValid()) return null; // last shot didn't actually dispatch a projectile
+
+            Vector3 origin = ToVector3(ray.barrelPosition); // == BarrelTransform.position at dispatch time
+            Vector3 aim = weapon.AimAtPosition;
+
+            float speed = math.length(ray.velocity);
+            if (speed < 0.01f) speed = weapon.bulletSpeed;
+
+            var msg = new NetPlayerWeaponFire
+            {
+                Sequence = ++_captureSeq,
+                Origin   = origin,
+                AimPoint = aim,
+                Count    = count,
+                Speed    = speed,
+                Spread   = weapon.computedSpread,
+                IsSpray  = isSpray,
+                Homing   = stats.GetAttribute(ItemAttributes.Homing) > 0f,
+                IsRaygun = last.isRaygun,
+
+                ProjectileType = (int)ray.type,
+                Caliber        = (int)last.data.caliber,
+                Effect         = (int)ray.effect,
+                VfxAsset       = (int)ray.vfxAsset,
+                DamageType     = (int)last.data.damageType,
+
+                ColorR = ray.color.x, ColorG = ray.color.y, ColorB = ray.color.z,
+                CoreColorR = ray.coreColor.x, CoreColorG = ray.coreColor.y, CoreColorB = ray.coreColor.z,
+
+                InnerWidth = ray.innerWidth, OuterWidth = ray.outerWidth, Radius = ray.radius,
+
+                Mass = ray.mass, Drag = ray.drag,
+                GravityX = ray.gravity.x, GravityY = ray.gravity.y, GravityZ = ray.gravity.z,
+
+                TimeScale = ray.timeScale, LifeTime = ray.lifeTime,
+                BehaviourTimeout = ray.behaviourTimeout, BarrelLengthOffset = ray.barrelLengthOffset,
+
+                BounceHits = ray.bounceHits, Bounciness = ray.bounciness,
+                PenetrationBehavior = (int)ray.penetrationBehavior,
+                PenetrationsLeft = ray.penetrationsLeft,
+                PenetrationDamageMultiplier = ray.penetrationDamageMultiplier,
+
+                DrawDefaultBullet = ray.drawDefaultBullet,
+                DrawLaserBeam     = ray.drawLaserBeam,
+                IsRocket          = ray.isRocket,
+                HasCustomColors   = ray.hasCustomColors,
+                HasCustomTrail    = ray.hasCustomTrail,
+                CreateBulletHoles = ray.createBulletHoles,
+                StickToGeometry   = ray.stickToGeometry,
+                PlayImpactSounds  = ray.playImpactSounds,
+            };
+
+            return msg;
         }
 
         // ----------------------------------------------------------------- replay (receiving peer)
@@ -145,7 +162,10 @@ namespace SULFURTogether.Networking.Gameplay
             try
             {
                 if (!Plugin.Cfg.EnablePlayerWeaponSync.Value) return;
-                if (m == null || m.Count <= 0) return;
+                if (m == null) return;
+
+                PlayShotSounds(m);
+                if (m.Count <= 0) return; // sound-only trigger pull
 
                 ProjectileSystem projSys = ProjectileSystem.Instance;
                 if (projSys == null) return;
@@ -192,6 +212,20 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 NetLogger.Warn($"[PlayerWeaponFire] replay failed: {ex.Message}");
             }
+        }
+
+        /// <summary>WS-SND-1: play the shooter's shot sounds at their visual proxy. A shooter this end does not show
+        /// (other level, stale, hidden) is not heard either.</summary>
+        private static void PlayShotSounds(NetPlayerWeaponFire m)
+        {
+            if (m.ShotSounds == null || m.ShotSounds.Length == 0 || string.IsNullOrEmpty(m.PeerId)) return;
+            Transform? at = null;
+            NetGameplaySyncBridge.ForEachRemotePlayerTransform((peerId, t) =>
+            {
+                if (at == null && string.Equals(peerId, m.PeerId, StringComparison.Ordinal)) at = t;
+            });
+            if (at == null) return;
+            RemoteShotSound.Play(m.ShotSounds, at);
         }
 
         /// <summary>TB-AOE (Terrorbaum sky spikes): fire ONE zero-damage visual projectile on this end through the real

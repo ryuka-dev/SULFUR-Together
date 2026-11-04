@@ -4,7 +4,8 @@ namespace SULFURTogether.Networking.Gameplay
 {
     internal static class NetPlayerWeaponFireCodec
     {
-        private const byte Version = 1;
+        // 2: WS-SND-1 appended the shot sounds.
+        private const byte Version = 2;
 
         public static void Write(NetDataWriter w, NetPlayerWeaponFire m)
         {
@@ -53,6 +54,17 @@ namespace SULFURTogether.Networking.Gameplay
             w.Put(m.CreateBulletHoles);
             w.Put(m.StickToGeometry);
             w.Put(m.PlayImpactSounds);
+
+            var sounds = m.ShotSounds ?? System.Array.Empty<NetShotSound>();
+            int n = System.Math.Min(sounds.Length, RemoteShotSound.MaxSoundsPerShot);
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++)
+            {
+                w.Put((byte)sounds[i].Slot);
+                w.Put(sounds[i].SourceId);
+                w.Put((byte)sounds[i].ParamKind);
+                w.Put(sounds[i].Param);
+            }
         }
 
         public static bool TryRead(NetDataReader r, out NetPlayerWeaponFire m)
@@ -109,6 +121,21 @@ namespace SULFURTogether.Networking.Gameplay
                 m.CreateBulletHoles = r.GetBool();
                 m.StickToGeometry   = r.GetBool();
                 m.PlayImpactSounds  = r.GetBool();
+
+                int n = r.GetByte();
+                if (n > RemoteShotSound.MaxSoundsPerShot) return false;
+                var sounds = n == 0 ? System.Array.Empty<NetShotSound>() : new NetShotSound[n];
+                for (int i = 0; i < n; i++)
+                {
+                    sounds[i] = new NetShotSound
+                    {
+                        Slot      = (ShotSoundSlot)r.GetByte(),
+                        SourceId  = r.GetInt(),
+                        ParamKind = (ShotSoundParam)r.GetByte(),
+                        Param     = r.GetFloat(),
+                    };
+                }
+                m.ShotSounds = sounds;
                 return true;
             }
             catch

@@ -80,6 +80,11 @@ namespace SULFURTogether.Networking.Gameplay
         public bool StickToGeometry   { get; set; }
         public bool PlayImpactSounds  { get; set; }
 
+        // WS-SND-1: the shot sounds vanilla played for this trigger pull on the firing end (at most
+        // RemoteShotSound.MaxSoundsPerShot). Count may be 0 with sounds present — a pull that fires no bullets
+        // (EnchantmentRemoveBullets) still makes a sound.
+        public NetShotSound[] ShotSounds { get; set; } = System.Array.Empty<NetShotSound>();
+
         public bool MatchesScene(NetRunState localState)
         {
             if (!localState.HasLevel) return false;

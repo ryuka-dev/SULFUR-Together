@@ -69,6 +69,16 @@
       <HintPath>$(SulfurManagedDir)\com.rlabrecque.steamworks.net.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- WS-SND-1: the game's audio middleware (Sonity) — SoundEvent and its play parameters, used only to replay a
+         remote player's shot sound (RemoteShotSound / WeaponFirePatches). Private=false like every game assembly. -->
+    <Reference Include="Sonity.Public.Runtime">
+      <HintPath>$(SulfurManagedDir)\Sonity.Public.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Sonity.Internal.Runtime">
+      <HintPath>$(SulfurManagedDir)\Sonity.Internal.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(SulfurManagedDir)\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>

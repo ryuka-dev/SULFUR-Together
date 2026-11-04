@@ -1805,7 +1805,8 @@ namespace SULFURTogether.Networking
             msg.SentAt = Now();
 
             // RS-1: this fires on the FIRING peer — when that peer is the Host itself, this is the Host's own shot.
-            Gameplay.NetRunStatsManager.RecordShotFired(msg.PeerId);
+            // A sound-only trigger pull (WS-SND-1, Count 0) fired no bullets and was never counted as a shot.
+            if (msg.Count > 0) Gameplay.NetRunStatsManager.RecordShotFired(msg.PeerId);
 
             if (_mode == NetMode.Host)
             {
@@ -1851,7 +1852,7 @@ namespace SULFURTogether.Networking
                     return;
                 }
                 msg.PeerId = peerId;
-                Gameplay.NetRunStatsManager.RecordShotFired(peerId);
+                if (msg.Count > 0) Gameplay.NetRunStatsManager.RecordShotFired(peerId);
 
                 if (msg.MatchesScene(_runStates.LocalState))
                     Gameplay.PlayerWeaponFireManager.Replay(msg);

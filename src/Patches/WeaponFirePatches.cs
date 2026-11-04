@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using HarmonyLib;
 using PerfectRandom.Sulfur.Core.Weapons;
+using Sonity;
 using SULFURTogether.Networking.Gameplay;
 
 namespace SULFURTogether.Patches
@@ -13,6 +14,9 @@ namespace SULFURTogether.Patches
     /// postfix snapshots that template + barrage geometry and broadcasts it so other peers replay the barrage visually.
     /// Almost all guns (machine gun / rifle / shotgun + DIY variants) inherit the base <c>Weapon.Shoot</c>; only special
     /// weapons (e.g. Termite) override it — handled in a later stage.
+    /// <para>WS-SND-1: <c>Shoot</c> also plays the shot sound (<c>SoundShot</c> → <c>PlayShootSoundEvent</c> /
+    /// <c>PlayShootSoundEventIntensity</c>). A prefix on <c>Shoot</c> opens a recording window for the local player's
+    /// gun, prefixes on the two play methods record what vanilla chose, and the postfix sends it with the barrage.</para>
     /// </summary>
     internal static class WeaponFirePatches
     {
@@ -34,10 +38,14 @@ namespace SULFURTogether.Patches
                     return;
                 }
 
+                var pre = new HarmonyMethod(typeof(WeaponFirePatches)
+                    .GetMethod(nameof(Weapon_Shoot_Pre), BindingFlags.Static | BindingFlags.NonPublic));
                 var post = new HarmonyMethod(typeof(WeaponFirePatches)
                     .GetMethod(nameof(Weapon_Shoot_Post), BindingFlags.Static | BindingFlags.NonPublic));
-                harmony.Patch(shoot, postfix: post);
+                harmony.Patch(shoot, prefix: pre, postfix: post);
                 Plugin.Log.Info("[WeaponFire] Patched Weapon.Shoot (player weapon bullet sync).");
+
+                ApplyShotSound(harmony, weaponType);
             }
             catch (Exception ex)
             {
@@ -45,9 +53,58 @@ namespace SULFURTogether.Patches
             }
         }
 
+        private static void ApplyShotSound(Harmony harmony, Type weaponType)
+        {
+            try
+            {
+                if (!RemoteShotSound.Resolve()) return;
+
+                var play = AccessTools.Method(weaponType, "PlayShootSoundEvent",
+                    new[] { typeof(SoundEvent), typeof(bool), typeof(SoundParameterVolumeDecibel) });
+                var playIntensity = AccessTools.Method(weaponType, "PlayShootSoundEventIntensity",
+                    new[] { typeof(SoundEvent), typeof(bool), typeof(float) });
+                if (play == null || playIntensity == null)
+                {
+                    Plugin.Log.Warn("[WeaponFire] Weapon.PlayShootSoundEvent/PlayShootSoundEventIntensity not found — "
+                                    + "remote shot sound not supported on this game build; teammates' gunfire stays silent");
+                    return;
+                }
+
+                harmony.Patch(play, prefix: new HarmonyMethod(typeof(WeaponFirePatches)
+                    .GetMethod(nameof(Weapon_PlayShootSoundEvent_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                harmony.Patch(playIntensity, prefix: new HarmonyMethod(typeof(WeaponFirePatches)
+                    .GetMethod(nameof(Weapon_PlayShootSoundEventIntensity_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                Plugin.Log.Info("[WeaponFire] Patched Weapon.PlayShootSoundEvent/PlayShootSoundEventIntensity (remote shot sound).");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"[WeaponFire] shot sound patch failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static void Weapon_Shoot_Pre(Weapon __instance)
+        {
+            try { RemoteShotSound.BeginShot(__instance); } catch { }
+        }
+
         private static void Weapon_Shoot_Post(Weapon __instance)
         {
-            PlayerWeaponFireManager.CaptureLocalFire(__instance);
+            NetShotSound[] sounds;
+            try { sounds = RemoteShotSound.EndShot(__instance); }
+            catch { sounds = Array.Empty<NetShotSound>(); }
+            PlayerWeaponFireManager.CaptureLocalFire(__instance, sounds);
+        }
+
+        private static void Weapon_PlayShootSoundEvent_Pre(Weapon __instance, SoundEvent soundEvent, bool isEffectShootSound,
+            SoundParameterVolumeDecibel parameterVolumeDb)
+        {
+            try { RemoteShotSound.OnPlay(__instance, soundEvent, isEffectShootSound, parameterVolumeDb); } catch { }
+        }
+
+        private static void Weapon_PlayShootSoundEventIntensity_Pre(Weapon __instance, SoundEvent soundEvent, bool isEffectShootSound,
+            float intensityValue)
+        {
+            try { RemoteShotSound.OnPlayIntensity(__instance, soundEvent, isEffectShootSound, intensityValue); } catch { }
         }
     }
 }
