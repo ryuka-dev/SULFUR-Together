@@ -6,6 +6,7 @@ using HarmonyLib;
 using PerfectRandom.Sulfur.Core;
 using PerfectRandom.Sulfur.Core.Units;
 using SULFURTogether.Networking.Gameplay;
+using UnityEngine;
 
 namespace SULFURTogether.Patches
 {
@@ -50,6 +51,7 @@ namespace SULFURTogether.Patches
         public static void Apply(Harmony harmony)
         {
             ApplyDonutCollision(harmony);
+            ApplyWaterTriggers(harmony);
             try
             {
                 var playerType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.Player");
@@ -131,6 +133,56 @@ namespace SULFURTogether.Patches
                 }
                 yield return ins;
             }
+        }
+
+        // ---------------------------------------------------------------- Water trigger enter/exit
+
+        /// <summary>
+        /// <c>Water.OnTriggerEnter</c> / <c>OnTriggerExit</c> look for a <c>Player</c> on the entering collider and call
+        /// <c>swimScript.BodyAddWater</c> / <c>BodyRemoveWater</c>. A ghost carries a (disabled) <c>Player</c> with no
+        /// swim script, so every time a remote player walked into water the host threw (Player.log, rounds 587/588);
+        /// <c>TitanicWater</c>'s overrides would also add that null swim script to its own swimmer list. Whether a
+        /// remote player is in water is decided on their own end, so the ghost is kept out of water volumes entirely —
+        /// the same rule the NextLevelTrigger guard applies. Every <c>Water</c> type that declares the two methods is
+        /// patched, so an override that does not call the base is covered too.
+        /// </summary>
+        private static void ApplyWaterTriggers(Harmony harmony)
+        {
+            try
+            {
+                var waterType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.World.Water");
+                if (waterType == null)
+                {
+                    Plugin.Log.Info("[GhostPlayer] Water type not found on this game build — no water ghost skip needed");
+                    return;
+                }
+                var prefix = new HarmonyMethod(typeof(GhostPlayerPatches).GetMethod(nameof(Water_Trigger_Pre), BindingFlags.Static | BindingFlags.NonPublic));
+                int patched = 0;
+                foreach (var t in AccessTools.GetTypesFromAssembly(waterType.Assembly))
+                {
+                    if (t == null || !waterType.IsAssignableFrom(t)) continue;
+                    foreach (var name in new[] { "OnTriggerEnter", "OnTriggerExit" })
+                    {
+                        var m = t.GetMethod(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                            null, new[] { typeof(Collider) }, null);
+                        if (m == null || m.IsAbstract) continue;
+                        harmony.Patch(m, prefix: prefix);
+                        patched++;
+                    }
+                }
+                if (patched > 0)
+                    Plugin.Log.Info($"[GhostPlayer] patched {patched} Water trigger method(s) (ghost skip)");
+                else
+                    Plugin.Log.Error("[GhostPlayer] Water declares no OnTriggerEnter/OnTriggerExit(Collider) — ghost skip not supported on this game build; water may throw on ghosts");
+            }
+            catch (Exception ex) { Plugin.Log.Error($"[GhostPlayer] Water patch failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>Skips the water volume's handling of a ghost's collider; everything else runs as vanilla.</summary>
+        private static bool Water_Trigger_Pre(Collider __0)
+        {
+            try { return !RemotePlayerRegistryManager.HasGhosts || !RemotePlayerRegistryManager.IsGhostCollider(__0); }
+            catch { return true; }
         }
 
         private static readonly List<Player> _playersWithoutGhosts = new List<Player>();
