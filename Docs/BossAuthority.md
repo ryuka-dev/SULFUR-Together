@@ -218,3 +218,54 @@ Fix — mirror the room-event trigger, Cousin-style ("whoever enters, the boss a
 - **TB-DLG2 (Log362) — the opening dialogue is AUTO-OPENED by the entrance animation.** The dialog is not a manual player interact: an animation event at the end of the soil-burst entrance calls `Npc.Interact` on whichever end plays it — so mirroring the entrance (TB-INTRO) also auto-opened the dialog on ends whose player is across the map (Log362: both the out-of-room client in run 1 and the out-of-room host in run 2 got it from their own local anim event). Room-scoped at the source: `ShouldBlockOutOfRoomBossOwnDialog` (Npc.Interact prefix) blocks a PRE-fight own-dialog interact while the local player is out of the active arena (fail-open when no arena known; never blocks the mirror/catch-up apply — `_applyingHostDialogOpen`). Catch-up on pull-in stays intact: the client path already stashes the host OPEN broadcast in the pending mirror; the host's broadcast-only branch now stashes it too (the discrete broadcast doesn't loop back to the host), so an out-of-room player pulled in pre-fight gets entrance + dialog (中途进房可补), and an AFK player who declines never does — Cousin-style.
 - **TB-DLG2b (Log363) — walk-in catch-up: the consumed seal trigger starved the membership.** The TB-INTRO mirror consumes every end's seal `PlayerTrigger` (by design, so the entrance never replays) — but the arena membership feed hangs off that same trigger's `Trigger()`, so a player later WALKING in never re-fires it: they never enter the in-room set and the pre-fight dialog catch-up (which waits on membership) never runs (pull-in via the popup worked, because the teleport path reports membership directly). Fix: the LD-2e `ArenaDoorwaySensor` (a pure traversal event on the doorway, independent of `hasBeenTriggered`) now reports in-room on every flip to INSIDE (`OnLocalDoorwayTraversed` → `ReportLocalInRoom`, idempotent — the same call the teleport path uses). Plus a receive-side robustness fix: a pre-fight `Dialog:boss-open` arriving before this end registered the encounter is no longer dropped (`HandleHostBossDiscreteEvent` resolves + registers the own-dialog boss from the scene), so the deferred catch-up is always stashed.
 - **Log361 regression fix — the mirror must not feed the membership.** The mirrored `Trigger()` invoke runs our own `PlayerTrigger` postfix, which fed `ArenaLockdownManager.OnLocalTriggerFired` — the far-away host got marked **in-room** by the mirror (Log361: `in-room += host … t0 by host` as a side effect of `[BossIntroSync] mirror`), so the lockdown never offered it the pull-in popup and the opening dialogue was wrongly mirrored to it (the TB-D room-scope gate read the corrupted set). Fixed in `MetalGatePatches.PlayerTrigger_Trigger_Post`: skip the membership/door-capture feed while `GateSyncManager.IsApplyingTriggerMirror` — a mirror is not a local crossing. Verified working same run: eye damage (`role=eye` applies), entrance mirror, no repeat dialog.
+
+---
+
+## 11. Boss music and room isolation (BM-1, BM-2, ISO-1)
+
+Both come from the same shape of problem: vanilla assumes the one player is the one who walked into the boss room, so it ties presentation to that walk-in or to "the player is in this room". Under a host-authoritative start, the fight begins on every end while some players are elsewhere.
+
+### Where each boss's music starts
+
+| Boss | Vanilla source of `MusicTrigger.StartMusic` | Trigger sits on | Does a client reach it by itself? |
+|------|---------------------------------------------|-----------------|-----------------------------------|
+| Lucia (`Act_01_Castle:3` since 1.0.x) | persistent listener of the arena's `PlayerTrigger_StartEvent`, alongside `Npc.Interact`, `GameObject.SetActive`, `EnableLoopSingleTrack` | scene object | only if it physically crosses the trigger |
+| Cousin | `CousinHelper.PlayBossMusic`, an animation event of the entrance | the boss itself (`GetComponent<MusicTrigger>`) | only if its boss plays the entrance |
+| Witch | `WitchBossController.FightStartRoutine` | scene controller | yes |
+| Desert | `DesertClauseBossFightHelper.StartSandstorm` | helper | yes |
+| Emperor | `EmperorBossWorm.StartMovement`; its entry trigger also calls `PlayNextSong` + `EnableLoopSingleTrack` | worm / scene | yes |
+| Black Guild Cardinal | `CardinalFightHelper.StartFight` | helper | not exercised in co-op |
+
+Terrorbaum never appears with the `Boss` mixer snapshot in the logs (rounds 584-586, both ends); how its music is handled has not been looked at.
+
+### BM-1 / BM-2: music cues reach every end
+
+`BossMusicSync` broadcasts the host's `MusicTrigger.StartMusic` / `StopMusic` / `EnableLoopSingleTrack` / `PlayNextSong` calls as a boss discrete event, `Music:<op>:<ordinal>:<arg>[:<hostIdx>:<childIdx>:<unitId>]`.
+
+- **Scope:** a trigger within 60 m of a live `UnitType.Boss` unit. This is a distance, so it is not exact: Lucia's entrance `StopMusic` is 104 m away and stays local, but the Cousin's doorway `StopMusic` is 22 m away and is mirrored, so a client's level music stops when the host walks in and the boss track follows. That is the single-player order.
+- **Addressing:** a trigger on a unit by the unit's cross-end identity (host SpawnIndex + unit identifier + index among its triggers); a trigger fixed in the scene by position, 0.5 m.
+- **Once per end:** `StartMusic` is not idempotent (it resets the playlist and restarts the first song), so each cue is numbered per (trigger, op) and every occurrence runs once per end, whichever arrives first.
+
+The client hears the boss track as soon as the host starts it, even from elsewhere in the level. For bosses whose client already reaches the cue itself (Witch, Desert, Emperor) the mirror and the local call race and one is skipped.
+
+### BM-1b: an opening dialogue does not reopen
+
+`OpeningDialogEndsAtFightStart` (Lucia only) joins TB-DLG's started-fight block. Do not extend it to a boss with mid-fight dialogues: Desert's are `Npc.Interact` too.
+
+### ISO-1: room isolation
+
+`DistanceLODManager.isolatedLOD` is set by Cousin, Lucia, Terrorbaum, Cardinal and `CryptChallengeManager`. `LateUpdate`, its only reader, then switches every other room's LOD off, renderers and colliders. `RoomIsolationPatches` withholds it for that call on an end whose local player is outside the room, and restores the field afterwards.
+
+`PlayerUnit.currentRoom` follows the floor last stood on (`lastStandingOnCollider`), so right after a teleport it still names the old room until the player moves; recalculating does not help, since that collider is read first. In-room therefore falls back to `Room.FindClosestRoom`. The ordinary LOD is built from `currentRoom` as well, so a teleport into a room that is *not* isolated can look empty until the player moves.
+
+Fog is unrelated: it follows `currentEnvironment`, not the room.
+
+### Testing notes
+
+- `ArenaLockdown` starts from the doorway trigger. Teleporting past the doorway leaves the gate open and no lockdown runs, so the client gets no entry prompt; to exercise the prompt, a player has to walk through the doorway.
+- `BossMusicSync` logs every cue on both ends under `[BossMusic]`, `RoomIsolationPatches` each change of state under `[RoomIsolation]`.
+
+### Not exercised in game
+
+Music: Witch, Desert, Emperor, Cardinal. Isolation: Lucia, Terrorbaum, Cardinal, crypt challenges.
+

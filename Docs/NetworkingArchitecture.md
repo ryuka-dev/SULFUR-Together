@@ -122,7 +122,7 @@ All messages are prefixed with a `byte` message type header. **Source of truth: 
 | 41 | `HostWitchP2Manifest` | Host→Client | 5.4-G5 | Witch Phase-2 dome layout (real dome index) per cycle |
 | 42 | `HostWitchP2Result` | Host→Client | 5.4-G5 | Phase-2 dome illusion defeated / real witch hit → client hides |
 | 43 | `HostRuntimeSpawn` | Host→Client | 5.5-RT1 | Runtime (post-stabilization) unit spawn mirror (UnitId→UnitSO + SpawnIndex) |
-| 44 | `PlayerWeaponFire` | Any→All | 5.6-WS, WS-SND-1 | Player weapon barrage replay plus the shot sounds vanilla played (visual/audio only; damage host-authoritative) |
+| 44 | `PlayerWeaponFire` | Any→All | 5.6-WS, WS-SND-1/2/3 | Player weapon barrage replay, the weapon sounds vanilla played (shots, melee swing, throw and handling steps) and beam loop start/stop; a message may carry sounds or a loop change with no bullets (visual/audio only; damage host-authoritative) |
 | 45 | `PlayerHeldWeapon` | Any→All | 5.6-WS2 | Remote held-weapon model (WeaponSO + attachments) on proxy hands |
 | 46 | `ClientTransitionRequest` | Client→Host | 5.6-DL-Q2 | Client-led level transition relay (host leads + generates; gated client follows) |
 | 47 | `BreakableBreak` | Any→All | 5.7-BR | In-scene destructible (`Breakable`) destruction mirror, keyed by deterministic spawn position |
@@ -240,7 +240,7 @@ This ensures puppet enemy melee animations play on client (for visual fidelity) 
 | Subsystem | Messages | Direction | Notes / doc |
 |-----------|----------|-----------|-------------|
 | Player visual proxy | `PlayerTransformVisual=14` | Any→All | Transform applied to local proxy GameObjects only, never the real Player/Unit. Host relays client→client. |
-| Player weapon (visual) | `PlayerWeaponFire=44`, `PlayerHeldWeapon=45` | Any→All | Barrage replayed through the real `ProjectileSystem` with damage stripped; the shot sounds vanilla chose on the firing end are named by where the game stores them (weapon / caliber / projectile effect) and played at the shooter's proxy (WS-SND-1); held-weapon model rebuilt on proxy hands (attachments change the model). Damage stays host-authoritative. |
+| Player weapon (visual) | `PlayerWeaponFire=44`, `PlayerHeldWeapon=45` | Any→All | Barrage replayed through the real `ProjectileSystem` with damage stripped; the weapon sounds vanilla chose on the firing end are named by where the game stores them (weapon / caliber / projectile effect / handling fields) and played at the shooter's proxy (WS-SND-1, WS-SND-3), and a beam's loop runs there between its start and stop events (WS-SND-2); held-weapon model rebuilt on proxy hands (attachments change the model). Damage stays host-authoritative. |
 | Player life / downed-revive | `PlayerLifeState=18` | Any→Host / Host→All | Each peer's own death is delayed/committed; co-op downed + revive-hold + downed-input blacklist. See **[PlayerLifeAndDownedInput.md](PlayerLifeAndDownedInput.md)**. |
 | Boss authority | `28–42` | both | See **[BossAuthority.md](BossAuthority.md)**. |
 | Runtime spawn | `HostRuntimeSpawn=43` | Host→Client | Post-stabilization spawns (boss adds + F3) mirrored via `UnitId→UnitSO` + HostSpawnIndex. |
