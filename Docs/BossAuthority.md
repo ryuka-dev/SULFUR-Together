@@ -231,10 +231,10 @@ Both come from the same shape of problem: vanilla assumes the one player is the 
 |------|---------------------------------------------|-----------------|-----------------------------------|
 | Lucia (`Act_01_Castle:3` since 1.0.x) | persistent listener of the arena's `PlayerTrigger_StartEvent`, alongside `Npc.Interact`, `GameObject.SetActive`, `EnableLoopSingleTrack` | scene object | only if it physically crosses the trigger |
 | Cousin | `CousinHelper.PlayBossMusic`, an animation event of the entrance | the boss itself (`GetComponent<MusicTrigger>`) | only if its boss plays the entrance |
-| Witch | `WitchBossController.FightStartRoutine` | scene controller | yes |
-| Desert | `DesertClauseBossFightHelper.StartSandstorm` | helper | yes |
-| Emperor | `EmperorBossWorm.StartMovement`; its entry trigger also calls `PlayNextSong` + `EnableLoopSingleTrack` | worm / scene | yes |
-| Black Guild Cardinal | `CardinalFightHelper.StartFight` | helper | not exercised in co-op |
+| Witch | `WitchBossController.FightStartRoutine` | serialized reference, not inspected | yes |
+| Desert | `DesertClauseBossFightHelper.StartSandstorm` | serialized reference, not inspected | yes |
+| Emperor | `EmperorBossWorm.StartMovement`; its entry trigger also calls `PlayNextSong` + `EnableLoopSingleTrack` | serialized reference, not inspected | yes |
+| Black Guild Cardinal | `CardinalFightHelper.StartFight` | serialized reference, not inspected | not exercised in co-op |
 
 Terrorbaum never appears with the `Boss` mixer snapshot in the logs (rounds 584-586, both ends); how its music is handled has not been looked at.
 
