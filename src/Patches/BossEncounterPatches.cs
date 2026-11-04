@@ -329,6 +329,7 @@ namespace SULFURTogether.Patches
                     prefix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Terror_SkyShot_Pre), BindingFlags.Static | BindingFlags.NonPublic)),
                     postfix: new HarmonyMethod(typeof(BossEncounterPatches).GetMethod(nameof(Terror_SkyShot_Post), BindingFlags.Static | BindingFlags.NonPublic)));
                 Log.Info($"[BossMech] patched Terrorbaum.OnShootBulletFromSky({sky != null}) — sky-spike mirror");
+                SULFURTogether.Networking.Gameplay.Boss.TerrorbaumMechanicSync.Resolve(terrorbaum);
                 // Client-side: the replayed dig/erupt/attack animations fire the native anim-damage events locally —
                 // block them on the pure-puppet client (the host's hit on the ghost proxy is forwarded to the owning
                 // client already; running the local one too would double-hit).

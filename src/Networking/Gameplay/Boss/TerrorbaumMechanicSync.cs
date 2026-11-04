@@ -21,10 +21,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
     /// double-hit. The random small-root lashes (`UpdateAttackRoot`) are host-rolled and mirrored by index so the
     /// dodge cue matches. `StopRoot` is mirrored so the client's vines retract with the host's.</para>
     /// <para><b>Sky spikes (TB-AOE):</b> `OnShootBulletFromSky` re-fires an absorbed player bullet DOWN from cloud
-    /// height and drops a pooled `bulletDetectMarker` at the raycast ground point (the landing preview). None of that
+    /// height and shows a `bulletDetectMarker` at the raycast ground point (the landing preview). None of that
     /// runs on the client (empty absorb queue + suppressed drivers). The host broadcasts each shot (ground point +
-    /// speed + projectile visual identity); the client spawns the marker from the same pool + a ZERO-damage visual
-    /// projectile falling onto it. Damage stays host-authoritative: the host's real spikes hit the remote players'
+    /// speed + projectile visual identity); the client shows a marker from its own cache (built the way the native
+    /// helper builds its own, see <see cref="TakeMarker"/>) + a ZERO-damage visual projectile falling onto it. Damage stays host-authoritative: the host's real spikes hit the remote players'
     /// ghost proxies (Hitmesh-carrying) and forward — a damaging client replica would double-hit.</para>
     /// </summary>
     internal static class TerrorbaumMechanicSync
@@ -37,15 +37,19 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _fRootAtkMin, _fRootAtkMax, _fSmallRoots, _fSkyQueue, _fMarkerRefs, _fMarkerPrefab, _fStartHeight,
             _fAbsorbQueue, _fTreeShake, _fCasing, _fCasingRate, _fAoeLoopSound, _fBulletSpawn, _fSpawnDelay,
             _fMaxCollect;
+        private static FieldInfo? _fMarkerMaterial;
         private static MethodInfo _mAbsorbBullet;
 
-        private static bool EnsureResolved(object helper)
+        private static bool EnsureResolved(object helper) => Resolve(helper.GetType());
+
+        /// <summary>Resolve the helper's members once (startup, from the Terrorbaum patch pass; later calls are free) and
+        /// say whether the sky-spike landing marker is supported on this game build.</summary>
+        internal static bool Resolve(Type t) // TerrorbaumBossFightHelper
         {
             if (_resolved) return _fRootPoints != null;
             _resolved = true;
             try
             {
-                var t = helper.GetType(); // TerrorbaumBossFightHelper
                 _fIsDoingRoot        = t.GetField("isDoingRoot", BF);
                 _fRootPoints         = t.GetField("rootPoints", BF);
                 _fAttackRootTimer    = t.GetField("attackRootTimer", BF);
@@ -56,6 +60,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _fSkyQueue           = t.GetField("skyProjectiles", BF);
                 _fMarkerRefs         = t.GetField("projectileMarkerRefs", BF);
                 _fMarkerPrefab       = t.GetField("bulletDetectMarker", BF);
+                _fMarkerMaterial     = t.GetField("bulletDetectMarkerMaterial", BF);
                 _fStartHeight        = t.GetField("randomBulletStartHeight", BF);
                 _fAbsorbQueue        = t.GetField("absorbedProjectiles", BF);
                 _fTreeShake          = t.GetField("treeShakeObject", BF);
@@ -68,6 +73,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _mAbsorbBullet       = t.GetMethod("AbsorbPlayerBullet", BF);
             }
             catch { }
+            if (_fMarkerPrefab == null || _fMarkerMaterial == null)
+                Plugin.Log.Warn($"[BossMech] Terrorbaum sky-spike landing marker not supported on this game build " +
+                    $"(bulletDetectMarker={_fMarkerPrefab != null} bulletDetectMarkerMaterial={_fMarkerMaterial != null}); the falling spike still shows");
+            else
+                Plugin.Log.Info("[BossMech] Terrorbaum sky-spike landing marker resolved (bulletDetectMarker + bulletDetectMarkerMaterial)");
             return _fRootPoints != null;
         }
 
@@ -479,12 +489,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch { }
         }
 
-        // Pooled preview markers awaiting release (flight time elapsed).
-        private static readonly List<(Component marker, float releaseAt)> _markers = new List<(Component, float)>();
+        // Shown preview markers awaiting release (flight time elapsed).
+        private static readonly List<(Transform marker, float releaseAt)> _markers = new List<(Transform, float)>();
 
-        /// <summary>CLIENT: one host sky shot → the landing preview marker (same pool prefab) + a zero-damage visual
-        /// spike falling from cloud height onto it. Marker auto-released after the flight time (the native release is
-        /// projectile-destroy-driven; a timer replica is visually equivalent).</summary>
+        /// <summary>CLIENT: one host sky shot → the landing preview marker + a zero-damage visual spike falling from
+        /// cloud height onto it. Marker released after the flight time (the native release is projectile-destroy-driven;
+        /// a timer replica is visually equivalent).</summary>
         public static void ApplySkySpike(object component, Vector3 ground, float speed, int type, int caliber, int effect, int vfx, int damageType)
         {
             try
@@ -496,13 +506,15 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
                 PlayerWeaponFireManager.FireVisualStraight(origin, Vector3.down * speed, type, caliber, effect, vfx, damageType);
 
-                if (_fMarkerPrefab?.GetValue(component) is GameObject prefab && prefab != null)
+                if (_fMarkerPrefab?.GetValue(component) is GameObject prefab && prefab != null
+                    && _fMarkerMaterial?.GetValue(component) is Material material && material != null)
                 {
-                    var pooled = AutoPoolGetInstance(prefab);
-                    if (pooled != null)
+                    Transform? marker = TakeMarker(prefab, material);
+                    if (marker != null)
                     {
-                        pooled.transform.position = ground;
-                        _markers.Add((pooled, Time.realtimeSinceStartup + fall + 0.75f));
+                        marker.position = ground;
+                        marker.gameObject.SetActive(true);
+                        _markers.Add((marker, Time.realtimeSinceStartup + fall + 0.75f));
                     }
                 }
             }
@@ -529,8 +541,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 {
                     if (Time.realtimeSinceStartup < _markers[i].releaseAt) continue;
                     var m = _markers[i].marker; _markers.RemoveAt(i);
-                    if (m != null && m) AutoPoolRelease(m);
+                    ReturnMarker(m);
                 }
+                TickMarkerBlink();
 
                 // Upward-volley replay: fire the scheduled visual shots, then drop the presentation.
                 var v = _volley;
@@ -563,51 +576,89 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public static void OnLevelChanged()
         {
             _rootHelper = null; _lastSentAngle = float.MinValue; _wasDoingRoot = false;
-            _markers.Clear(); // pooled objects die with the scene; no release needed
+            ClearMarkers();
             _volley = null; _lastAbsorbSentAt = 0f;
             lock (_absorbLock) { _abCount = 0; _abKey = null; _abComponent = null; }
         }
 
-        // ---------------------------------------------------------------- AutoPool (reflection, same pattern as D2)
-        private static bool _poolResolved;
-        private static Type _autoPoolType;
-        private static MethodInfo _poolGet, _poolRelease;
-        private static UnityEngine.Object _autoPool;
+        // ---------------------------------------------------------------- landing-marker cache (client-owned)
+        // The native helper stopped taking bulletDetectMarker from AutoPool in game 1.0.2: Start() instantiates its own
+        // markers under GameManager.effectRoot (inactive, scale 0.27, all sharing one instance of
+        // bulletDetectMarkerMaterial) and UpdateAoe blinks that material's _Tint every 0.2 s. On the pure-puppet client
+        // the helper is disabled, so its blink never runs, and its private cache is sized and popped for its own shots —
+        // so the client builds markers the same way into a cache of its own, with its own material instance, and
+        // blinks it here. Markers are created on demand and reused; they and the material die on a level change.
+        private const float MarkerScale = 0.27f;
+        private const float MarkerBlinkInterval = 0.2f;
+        private static readonly Color MarkerTintA = Color.white;
+        private static readonly Color MarkerTintB = new Color(35f / 51f, 0.2980392f, 0.2901961f);
 
-        private static Component AutoPoolGetInstance(GameObject prefab)
+        private static readonly Stack<Transform> _markerCache = new Stack<Transform>();
+        private static Material? _markerMaterialSource; // the helper's serialized material the instance was made from
+        private static Material? _markerMaterial;       // this end's instance, shared by every marker
+        private static float _markerBlinkAt;
+        private static bool _markerBlink;
+
+        /// <summary>A marker ready to place (inactive), from the cache or freshly built like the native ones. Null when
+        /// there is no effect root (no live level).</summary>
+        private static Transform? TakeMarker(GameObject prefab, Material source)
         {
-            try
+            if (_markerMaterial == null || _markerMaterialSource != source)
             {
-                if (!_poolResolved)
-                {
-                    _poolResolved = true;
-                    _autoPoolType = HarmonyLib.AccessTools.TypeByName("PerfectRandom.Sulfur.Core.AutoPool");
-                    if (_autoPoolType != null)
-                    {
-                        foreach (var m in _autoPoolType.GetMethods(BF))
-                        {
-                            var ps = m.GetParameters();
-                            if (m.Name == "GetInstance" && !m.IsGenericMethodDefinition && ps.Length == 1 && ps[0].ParameterType == typeof(GameObject)) _poolGet = m;
-                            if (m.Name == "ReleaseInstance" && ps.Length == 1 && typeof(Component).IsAssignableFrom(ps[0].ParameterType)) _poolRelease = m;
-                        }
-                    }
-                }
-                if (_autoPoolType == null || _poolGet == null) return null;
-                if (_autoPool == null || !_autoPool) _autoPool = UnityEngine.Object.FindAnyObjectByType(_autoPoolType);
-                if (_autoPool == null) return null;
-                return _poolGet.Invoke(_autoPool, new object[] { prefab }) as Component;
+                DestroyMaterial();
+                _markerMaterialSource = source;
+                _markerMaterial = UnityEngine.Object.Instantiate(source);
             }
-            catch { return null; }
+            while (_markerCache.Count > 0)
+            {
+                var cached = _markerCache.Pop();
+                if (cached == null) continue; // destroyed with its effect root
+                if (cached.GetComponent<MeshRenderer>() is MeshRenderer cr) cr.sharedMaterial = _markerMaterial;
+                return cached;
+            }
+            var root = GameManager.Instance != null ? GameManager.Instance.effectRoot : null;
+            if (root == null) return null;
+            GameObject go = UnityEngine.Object.Instantiate(prefab, root);
+            go.name = "CoopTerrorSkyMarker";
+            go.SetActive(false);
+            go.transform.localScale = Vector3.one * MarkerScale;
+            if (go.GetComponent<MeshRenderer>() is MeshRenderer mr) mr.sharedMaterial = _markerMaterial;
+            return go.transform;
         }
 
-        private static void AutoPoolRelease(Component pooled)
+        private static void ReturnMarker(Transform marker)
         {
-            try
-            {
-                if (_poolRelease == null || _autoPool == null || !_autoPool) { if (pooled != null) pooled.gameObject.SetActive(false); return; }
-                _poolRelease.Invoke(_autoPool, new object[] { pooled });
-            }
-            catch { try { if (pooled != null) pooled.gameObject.SetActive(false); } catch { } }
+            if (marker == null) return;
+            marker.gameObject.SetActive(false);
+            _markerCache.Push(marker);
+        }
+
+        /// <summary>The native blink: alternate the shared material's tint every 0.2 s (only while a marker shows).</summary>
+        private static void TickMarkerBlink()
+        {
+            if (_markers.Count == 0 || _markerMaterial == null || Time.time <= _markerBlinkAt) return;
+            _markerMaterial.SetColor("_Tint", _markerBlink ? MarkerTintA : MarkerTintB);
+            _markerBlink = !_markerBlink;
+            _markerBlinkAt = Time.time + MarkerBlinkInterval;
+        }
+
+        private static void ClearMarkers()
+        {
+            foreach (var (marker, _) in _markers) DestroyMarker(marker);
+            _markers.Clear();
+            while (_markerCache.Count > 0) DestroyMarker(_markerCache.Pop());
+            DestroyMaterial();
+        }
+
+        private static void DestroyMarker(Transform marker)
+        {
+            try { if (marker != null) UnityEngine.Object.Destroy(marker.gameObject); } catch { }
+        }
+
+        private static void DestroyMaterial()
+        {
+            try { if (_markerMaterial != null) UnityEngine.Object.Destroy(_markerMaterial); } catch { }
+            _markerMaterial = null; _markerMaterialSource = null;
         }
     }
 }
