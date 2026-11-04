@@ -62,7 +62,7 @@
     { "key": "connect.error.steamUnavailable", "value": "Steam ist nicht verfügbar." },
     { "key": "connect.error.invalidSteamId", "value": "Gib eine gültige Steam-ID ein (nur Zahlen) — oder nutze Freunde einladen / nimm eine Steam-Einladung an." },
 
-    { "key": "connect.desc.intro", "value": "Koop in der Early-Preview. Richte deine Verbindung unten ein." },
+    { "key": "connect.desc.intro", "value": "Richte deine Verbindung unten ein." },
     { "key": "connect.section.player", "value": "Spieler" },
     { "key": "connect.label.playerName", "value": "Spielername" },
     { "key": "connect.section.connection", "value": "Verbindung" },

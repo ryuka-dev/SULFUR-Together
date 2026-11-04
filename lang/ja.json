@@ -75,7 +75,7 @@
     { "key": "connect.error.steamUnavailable", "value": "Steam を利用できません。" },
     { "key": "connect.error.invalidSteamId", "value": "有効な Steam ID（数字のみ）を入力してください——または「フレンドを招待」/ Steam 招待の承諾を使用してください。" },
 
-    { "key": "connect.desc.intro", "value": "協力プレイ機能は早期プレビュー版です。以下で接続を設定してください。" },
+    { "key": "connect.desc.intro", "value": "以下で接続を設定してください。" },
     { "key": "connect.section.player", "value": "プレイヤー" },
     { "key": "connect.label.playerName", "value": "プレイヤー名" },
     { "key": "connect.section.connection", "value": "接続" },

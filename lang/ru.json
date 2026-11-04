@@ -62,7 +62,7 @@
     { "key": "connect.error.steamUnavailable", "value": "Steam недоступен." },
     { "key": "connect.error.invalidSteamId", "value": "Введите корректный Steam ID (только цифры) — или используйте «Пригласить друзей» / примите приглашение Steam." },
 
-    { "key": "connect.desc.intro", "value": "Ранний доступ к кооперативу. Настройте подключение ниже." },
+    { "key": "connect.desc.intro", "value": "Настройте подключение ниже." },
     { "key": "connect.section.player", "value": "Игрок" },
     { "key": "connect.label.playerName", "value": "Имя игрока" },
     { "key": "connect.section.connection", "value": "Подключение" },

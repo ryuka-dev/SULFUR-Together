@@ -62,7 +62,7 @@
     { "key": "connect.error.steamUnavailable", "value": "Steam non è disponibile." },
     { "key": "connect.error.invalidSteamId", "value": "Inserisci uno Steam ID valido (solo numeri) — oppure usa Invita amici / accetta un invito Steam." },
 
-    { "key": "connect.desc.intro", "value": "Cooperativa in anteprima. Configura la connessione qui sotto." },
+    { "key": "connect.desc.intro", "value": "Configura la connessione qui sotto." },
     { "key": "connect.section.player", "value": "Giocatore" },
     { "key": "connect.label.playerName", "value": "Nome giocatore" },
     { "key": "connect.section.connection", "value": "Connessione" },

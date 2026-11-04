@@ -75,7 +75,7 @@
     { "key": "connect.error.steamUnavailable", "value": "Steam 不可用。" },
     { "key": "connect.error.invalidSteamId", "value": "请输入有效的 Steam ID（仅数字）——或使用「邀请好友」/ 接受 Steam 邀请。" },
 
-    { "key": "connect.desc.intro", "value": "联机功能处于抢先预览阶段。在下方设置你的连接。" },
+    { "key": "connect.desc.intro", "value": "在下方设置你的连接。" },
     { "key": "connect.section.player", "value": "玩家" },
     { "key": "connect.label.playerName", "value": "玩家名称" },
     { "key": "connect.section.connection", "value": "连接" },

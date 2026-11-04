@@ -62,7 +62,7 @@
     { "key": "connect.error.steamUnavailable", "value": "Steam غير متوفر." },
     { "key": "connect.error.invalidSteamId", "value": "أدخل معرّف Steam صالحاً (أرقام فقط) — أو استخدم دعوة الأصدقاء / اقبل دعوة Steam." },
 
-    { "key": "connect.desc.intro", "value": "تعاوني في المعاينة المبكرة. اضبط اتصالك أدناه." },
+    { "key": "connect.desc.intro", "value": "اضبط اتصالك أدناه." },
     { "key": "connect.section.player", "value": "اللاعب" },
     { "key": "connect.label.playerName", "value": "اسم اللاعب" },
     { "key": "connect.section.connection", "value": "الاتصال" },

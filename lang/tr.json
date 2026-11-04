@@ -62,7 +62,7 @@
     { "key": "connect.error.steamUnavailable", "value": "Steam kullanılamıyor." },
     { "key": "connect.error.invalidSteamId", "value": "Geçerli bir Steam ID (yalnızca rakam) gir — ya da Arkadaş Davet Et / Steam davetini kabul et seçeneğini kullan." },
 
-    { "key": "connect.desc.intro", "value": "Erken önizleme kooperatif. Bağlantını aşağıda ayarla." },
+    { "key": "connect.desc.intro", "value": "Bağlantını aşağıda ayarla." },
     { "key": "connect.section.player", "value": "Oyuncu" },
     { "key": "connect.label.playerName", "value": "Oyuncu adı" },
     { "key": "connect.section.connection", "value": "Bağlantı" },

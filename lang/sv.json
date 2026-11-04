@@ -62,7 +62,7 @@
     { "key": "connect.error.steamUnavailable", "value": "Steam är inte tillgängligt." },
     { "key": "connect.error.invalidSteamId", "value": "Ange ett giltigt Steam ID (endast siffror) — eller använd Bjud in vänner / acceptera en Steam-inbjudan." },
 
-    { "key": "connect.desc.intro", "value": "Samarbete i tidig förhandsvisning. Ställ in din anslutning nedan." },
+    { "key": "connect.desc.intro", "value": "Ställ in din anslutning nedan." },
     { "key": "connect.section.player", "value": "Spelare" },
     { "key": "connect.label.playerName", "value": "Spelarnamn" },
     { "key": "connect.section.connection", "value": "Anslutning" },

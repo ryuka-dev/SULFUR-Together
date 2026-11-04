@@ -62,7 +62,7 @@
     { "key": "connect.error.steamUnavailable", "value": "Steam을 사용할 수 없습니다." },
     { "key": "connect.error.invalidSteamId", "value": "유효한 Steam ID(숫자만)를 입력하세요——또는 친구 초대 / Steam 초대 수락을 사용하세요." },
 
-    { "key": "connect.desc.intro", "value": "얼리 프리뷰 협동. 아래에서 연결을 설정하세요." },
+    { "key": "connect.desc.intro", "value": "아래에서 연결을 설정하세요." },
     { "key": "connect.section.player", "value": "플레이어" },
     { "key": "connect.label.playerName", "value": "플레이어 이름" },
     { "key": "connect.section.connection", "value": "연결" },

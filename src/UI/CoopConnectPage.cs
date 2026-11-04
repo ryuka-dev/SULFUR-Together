@@ -170,7 +170,7 @@ namespace SULFURTogether.UI
 
             // --- Current status -------------------------------------------------------------------------
             ctx.AddSection("SULFUR Together");
-            ctx.AddDescription(CoopLoc.Get("connect.desc.intro", "Early-preview co-op. Set up your connection below."));
+            ctx.AddDescription(CoopLoc.Get("connect.desc.intro", "Set up your connection below."));
             _statusHandle = ctx.AddTextRow(StatusLine());
             _statusHandle.SetColor(StatusColor());
 
