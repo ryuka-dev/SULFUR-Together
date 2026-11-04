@@ -246,7 +246,7 @@ Terrorbaum never appears with the `Boss` mixer snapshot in the logs (rounds 584-
 - **Addressing:** a trigger on a unit by the unit's cross-end identity (host SpawnIndex + unit identifier + index among its triggers); a trigger fixed in the scene by position, 0.5 m.
 - **Once per end:** `StartMusic` is not idempotent (it resets the playlist and restarts the first song), so each cue is numbered per (trigger, op) and every occurrence runs once per end, whichever arrives first.
 
-The client hears the boss track as soon as the host starts it, even from elsewhere in the level. For bosses whose client already reaches the cue itself (Witch, Desert, Emperor) the mirror and the local call race and one is skipped.
+The client hears the boss track as soon as the host starts it, even from elsewhere in the level. A client that also reaches a mirrored cue by itself runs it once: on Lucia the local call is skipped as already played (round 601). The Witch's trigger sits on her scene controller, outside the 60 m scope, so nothing is mirrored and each end starts the track from its own `FightStartRoutine` (round 601: both ends on `Music_Playlist_Boss_Witch`, song 0). Desert and Emperor fall on one side or the other by the same distance.
 
 ### BM-1b: an opening dialogue does not reopen
 
@@ -254,7 +254,7 @@ The client hears the boss track as soon as the host starts it, even from elsewhe
 
 ### ISO-1: room isolation
 
-`DistanceLODManager.isolatedLOD` is set by Cousin, Lucia, Terrorbaum, Cardinal and `CryptChallengeManager`. `LateUpdate`, its only reader, then switches every other room's LOD off, renderers and colliders. `RoomIsolationPatches` withholds it for that call on an end whose local player is outside the room, and restores the field afterwards.
+`DistanceLODManager.isolatedLOD` is set by Cousin, Lucia, Terrorbaum, Cardinal and `CryptChallengeManager`. `LateUpdate`, its only reader, then switches every other room's LOD off, renderers and colliders. `RoomIsolationPatches` withholds it for that call on an end whose local player is outside the room, and restores the field afterwards. Lucia isolates on the host only: the client's field stayed null while it waited outside (round 601).
 
 `PlayerUnit.currentRoom` follows the floor last stood on (`lastStandingOnCollider`), so right after a teleport it still names the old room until the player moves; recalculating does not help, since that collider is read first. In-room therefore falls back to `Room.FindClosestRoom`. The ordinary LOD is built from `currentRoom` as well, so a teleport into a room that is *not* isolated can look empty until the player moves.
 
@@ -267,5 +267,5 @@ Fog is unrelated: it follows `currentEnvironment`, not the room.
 
 ### Not exercised in game
 
-Music: Witch, Desert, Emperor, Cardinal. Isolation: Lucia, Terrorbaum, Cardinal, crypt challenges.
+Music: Desert, Emperor, Cardinal. Isolation: Terrorbaum, Cardinal, crypt challenges. Lucia's death with these changes: the eye phase was not played through.
 
