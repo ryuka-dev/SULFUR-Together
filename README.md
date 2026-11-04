@@ -20,7 +20,7 @@ SULFUR Together left Public Beta with **1.5.0**. The main loop plays from start 
 
 - **SULFUR** (Steam)
 - **BepInEx 5** for SULFUR — installed automatically as a dependency
-- **SULFUR Native UI Lib 0.10.1** (Thunderstore: `ryuka_labs-SULFUR_Native_UI_Lib`) — installed automatically as a dependency. It powers the in-game connect menu, notifications, and 14-language localization. (The mod runs without it via a *soft* dependency, but then loses its in-game UI.)
+- **SULFUR Native UI Lib 0.11.0** (Thunderstore: `ryuka_labs-SULFUR_Native_UI_Lib`) — installed automatically as a dependency. It powers the in-game connect menu, notifications, and 14-language localization. (The mod runs without it via a *soft* dependency, but then loses its in-game UI.)
 
 ## Installing (players)
 

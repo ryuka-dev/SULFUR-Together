@@ -7,7 +7,7 @@ like "RM-2a" look opaque. This document is the single source of truth for both.
 
 ## 1. Plugin version (semver) — the release number
 
-- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.5.0`** (the first full release, out of Public Beta — released as "SULFUR 1.0.2"; built against game **1.0.2**, whose renamed and re-signed members mean 1.5.0 cannot run on 0.19.x, and 1.4.1 cannot run on 1.0.2). Protocol **38** since GU102-3, which also refuses a peer on a different game build; `RequireSameModVersion` defaults to on, so a release must still be taken by every peer together.
+- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.6.0`** (built against game **1.0.4**, depends on SULFUR Native UI Lib **0.11.0**; 1.5.0 on game 1.0.2 was the first full release, out of Public Beta). Protocol **39** since WS-SND-1; GU102-3 added the refusal of a peer on a different game build; `RequireSameModVersion` defaults to on, so a release must still be taken by every peer together.
 - This is the only number a *player* ever sees (Thunderstore, BepInEx load line).
 - Bumped **only at a Thunderstore release milestone**, MAJOR.MINOR.PATCH:
   - **PATCH** (0.2.0 → 0.2.1): bug-fix release. All players should still update to the same version when a fix touches network messages.

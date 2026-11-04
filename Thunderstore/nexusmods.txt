@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.5.0.[/b] Built for [b]SULFUR 1.0.2[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
+> [b]Version 1.6.0.[/b] Built for [b]SULFUR 1.0.4[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 [line]
 
@@ -28,7 +28,7 @@ SULFUR Together is out of Public Beta: the whole co-op run plays from start to f
 [list]
 [*][b]SULFUR[/b] (Steam)[/*]
 [*][b]BepInEx 5[/b] — installed automatically as a dependency[/*]
-[*][b]SULFUR Native UI Lib 0.10.1[/b] — installed automatically as a dependency. It powers the in-game connect menu, notifications, and translations.[/*]
+[*][b]SULFUR Native UI Lib 0.11.0[/b] — installed automatically as a dependency. It powers the in-game connect menu, notifications, and translations.[/*]
 [/list]
 You do [b]not[/b] have to install these by hand if you use a mod manager (below).
 
@@ -123,6 +123,7 @@ Everyone in a session should run the [b]same set of mods[/b], not just the same 
 [*]Blood, particles, sounds, and some animations are not always synchronized.[/*]
 [*]Player collision is experimental; remote sprites/weapons are still being refined.[/*]
 [*]Sessions with 4+ players are untested — 2 players is the most predictable.[/*]
+[*]A teammate's melee swing is heard but not animated.[/*]
 [*]Trap doors that slam shut behind you close only for the player who triggered them.[/*]
 [/list]
 This list is not exhaustive.
@@ -171,7 +172,7 @@ SULFUR Together 已结束公开测试，转为正式版：整套合作流程可�
 [list]
 [*][b]SULFUR[/b]（Steam 版）[/*]
 [*][b]BepInEx 5[/b]——作为依赖自动安装[/*]
-[*][b]SULFUR Native UI Lib 0.10.1[/b]——作为依赖自动安装。它提供游戏内联机菜单、通知与多语言翻译。[/*]
+[*][b]SULFUR Native UI Lib 0.11.0[/b]——作为依赖自动安装。它提供游戏内联机菜单、通知与多语言翻译。[/*]
 [/list]
 如果使用下面推荐的模组管理器，你[b]无需[/b]手动安装这些依赖。
 
@@ -266,6 +267,7 @@ SULFUR Together 不会同步其他模组。别的模组添加的内容——它�
 [*]血液、粒子、音效与部分动画不一定同步。[/*]
 [*]玩家碰撞仍是实验性的；远程贴图/武器仍在打磨中。[/*]
 [*]4 人及以上的会话未经测试——2 人最为稳定。[/*]
+[*]队友的近战挥砍只有声音，没有动作。[/*]
 [*]在身后砸下的陷阱门只会对触发它的玩家关闭。[/*]
 [/list]
 以上并非完整清单。
@@ -314,7 +316,7 @@ SULFUR Together はパブリックベータを終え、正式版になりまし�
 [list]
 [*][b]SULFUR[/b]（Steam版）[/*]
 [*][b]BepInEx 5[/b]——依存関係として自動でインストールされます[/*]
-[*][b]SULFUR Native UI Lib 0.10.1[/b]——依存関係として自動でインストールされます。ゲーム内の接続メニュー・通知・翻訳を担います。[/*]
+[*][b]SULFUR Native UI Lib 0.11.0[/b]——依存関係として自動でインストールされます。ゲーム内の接続メニュー・通知・翻訳を担います。[/*]
 [/list]
 下記のMODマネージャーを使えば、これらを手動でインストールする必要は[b]ありません[/b]。
 
@@ -409,6 +411,7 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 [*]血・パーティクル・効果音・一部アニメーションは必ずしも同期しません。[/*]
 [*]プレイヤー同士の当たり判定は実験的で、リモートのスプライト／武器は調整中です。[/*]
 [*]4人以上のセッションは未検証です——2人が最も安定します。[/*]
+[*]味方の近接攻撃は音だけで、モーションは表示されません。[/*]
 [*]背後で閉まる罠の扉は、作動させたプレイヤーの画面でだけ閉まります。[/*]
 [/list]
 これは完全な一覧ではありません。
@@ -436,6 +439,60 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.6.0 — SULFUR 1.0.4, and hearing each other[/b][/color]
+
+You can finally hear your teammates. Their gunfire, the hum of a beam weapon, melee swings and throws
+all reach the other players now, Lucia and the Cousin have their music back on a client's side, and
+a client waiting outside a boss room no longer sits in front of a black screen.
+
+**1.6.0 is built for SULFUR 1.0.4. The network protocol changed (38 to 39), so everyone must update
+to 1.6.0 together, and everyone must run the same build of SULFUR.** It now needs SULFUR Native UI
+Lib 0.11.0, which your mod manager installs for you.
+
+[b]Fixed:[/b]
+[list]
+[*][b]You can hear your teammates shoot.[/b] Another player's bullets have always been redrawn on your[/*]
+[/list]
+  screen, but in silence. Each shot now plays from where they are standing, with the sound the
+  shooter heard: the one their weapon, caliber or ammunition calls for.
+[list]
+[*][b]Beam weapons keep humming.[/b] A teammate's beam loops while they hold the trigger and stops when[/*]
+[/list]
+  they let go, run out, or leave the session.
+[list]
+[*][b]Melee swings and throws make a sound too,[/b] along with the smaller handling sounds of switching[/*]
+[/list]
+  weapons. The swing itself is still not animated on a teammate: you hear it, you do not see it.
+[list]
+[*][b]Lucia and the Cousin have boss music for a client.[/b] Their music started from something only the[/*]
+[/list]
+  host had set off, so a client often played the fight in silence. It now starts on both screens
+  when the host's does, even if the client is elsewhere in the level.
+[list]
+[*][b]Lucia's opening dialogue no longer comes back mid-fight.[/b] A client entering her arena after the[/*]
+[/list]
+  fight began could reopen it, and it locked that player's controls.
+[list]
+[*][b]No more black screen outside a boss room.[/b] Some boss fights switch off everything except their[/*]
+[/list]
+  own room. That is safe alone, where you are always inside, but a client still outside saw nothing
+  except the HUD until they entered. Outside the room you now see the level as usual, and the fight
+  behaves as in the base game once you are in.
+[list]
+[*][b]Chinese and other non-Latin text shows up in notifications again.[/b] Join messages and the arena's[/*]
+[/list]
+  "press to enter" prompt could come up blank. This was fixed in SULFUR Native UI Lib 0.11.0, which
+  also stops the font of those messages from changing between sessions.
+[list]
+[*][b]The client sees where Terrorbaum's falling spikes will land[/b] again.[/*]
+[*][b]Fewer errors in the host's log.[/b] Terrorbaum's vine rings and the Witch's rings no longer throw an[/*]
+[/list]
+  error every frame on the host, and neither does a teammate stepping into water.
+
+[b]Please report:[/b] the boss changes touch every fight. They were played on Lucia, the Cousin and the
+Witch; Terrorbaum, the Desert boss, the Emperor, the Black Guild Cardinal and the crypt challenges
+have not been played through with them yet.
 
 [color=RoyalBlue][b]1.5.0 — SULFUR 1.0.2, out of beta[/b][/color]
 

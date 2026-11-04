@@ -20,7 +20,7 @@ SULFUR Together は **1.5.0** でパブリックベータを終えました。�
 
 - **SULFUR**（Steam版）
 - SULFUR 用の **BepInEx 5**——依存として自動インストール
-- **SULFUR Native UI Lib 0.10.1**（Thunderstore：`ryuka_labs-SULFUR_Native_UI_Lib`）——依存として自動インストール。ゲーム内接続メニュー・通知・14言語のローカライズを担います。（*ソフト依存*のため無くても動作しますが、ゲーム内UIは失われます。）
+- **SULFUR Native UI Lib 0.11.0**（Thunderstore：`ryuka_labs-SULFUR_Native_UI_Lib`）——依存として自動インストール。ゲーム内接続メニュー・通知・14言語のローカライズを担います。（*ソフト依存*のため無くても動作しますが、ゲーム内UIは失われます。）
 
 ## インストール（プレイヤー向け）
 

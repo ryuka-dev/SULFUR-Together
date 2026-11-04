@@ -20,7 +20,7 @@ SULFUR Together 已在 **1.5.0** 结束公开测试。主体流程可以从头�
 
 - **SULFUR**（Steam 版）
 - 用于 SULFUR 的 **BepInEx 5**——作为依赖自动安装
-- **SULFUR Native UI Lib 0.10.1**（Thunderstore：`ryuka_labs-SULFUR_Native_UI_Lib`）——作为依赖自动安装。它提供游戏内联机菜单、通知与 14 种语言的本地化。（模组以*软依赖*方式在缺少它时仍可运行，但会失去游戏内 UI。）
+- **SULFUR Native UI Lib 0.11.0**（Thunderstore：`ryuka_labs-SULFUR_Native_UI_Lib`）——作为依赖自动安装。它提供游戏内联机菜单、通知与 14 种语言的本地化。（模组以*软依赖*方式在缺少它时仍可运行，但会失去游戏内 UI。）
 
 ## 安装（玩家）
 

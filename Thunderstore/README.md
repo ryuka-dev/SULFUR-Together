@@ -4,7 +4,7 @@ Co-op multiplayer for **SULFUR**.
 
 **Language:** **English** · [简体中文](#简体中文) · [日本語](#日本語)
 
-> **Version 1.5.0.** Built for **SULFUR 1.0.2**; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
+> **Version 1.6.0.** Built for **SULFUR 1.0.4**; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 ---
 
@@ -26,7 +26,7 @@ SULFUR Together is out of Public Beta: the whole co-op run plays from start to f
 
 - **SULFUR** (Steam)
 - **BepInEx 5** — installed automatically as a dependency
-- **SULFUR Native UI Lib 0.10.1** — installed automatically as a dependency. It powers the in-game connect menu, notifications, and translations.
+- **SULFUR Native UI Lib 0.11.0** — installed automatically as a dependency. It powers the in-game connect menu, notifications, and translations.
 
 You do **not** have to install these by hand if you use a mod manager (below).
 
@@ -111,6 +111,7 @@ Everyone in a session should run the **same set of mods**, not just the same ver
 - Blood, particles, sounds, and some animations are not always synchronized.
 - Player collision is experimental; remote sprites/weapons are still being refined.
 - Sessions with 4+ players are untested — 2 players is the most predictable.
+- A teammate's melee swing is heard but not animated.
 - Trap doors that slam shut behind you close only for the player who triggered them.
 
 This list is not exhaustive.
@@ -155,7 +156,7 @@ SULFUR Together 已结束公开测试，转为正式版：整套合作流程可�
 
 - **SULFUR**（Steam 版）
 - **BepInEx 5**——作为依赖自动安装
-- **SULFUR Native UI Lib 0.10.1**——作为依赖自动安装。它提供游戏内联机菜单、通知与多语言翻译。
+- **SULFUR Native UI Lib 0.11.0**——作为依赖自动安装。它提供游戏内联机菜单、通知与多语言翻译。
 
 如果使用下面推荐的模组管理器，你**无需**手动安装这些依赖。
 
@@ -240,6 +241,7 @@ SULFUR Together 不会同步其他模组。别的模组添加的内容——它�
 - 血液、粒子、音效与部分动画不一定同步。
 - 玩家碰撞仍是实验性的；远程贴图/武器仍在打磨中。
 - 4 人及以上的会话未经测试——2 人最为稳定。
+- 队友的近战挥砍只有声音，没有动作。
 - 在身后砸下的陷阱门只会对触发它的玩家关闭。
 
 以上并非完整清单。
@@ -284,7 +286,7 @@ SULFUR Together はパブリックベータを終え、正式版になりまし�
 
 - **SULFUR**（Steam版）
 - **BepInEx 5**——依存関係として自動でインストールされます
-- **SULFUR Native UI Lib 0.10.1**——依存関係として自動でインストールされます。ゲーム内の接続メニュー・通知・翻訳を担います。
+- **SULFUR Native UI Lib 0.11.0**——依存関係として自動でインストールされます。ゲーム内の接続メニュー・通知・翻訳を担います。
 
 下記のMODマネージャーを使えば、これらを手動でインストールする必要は**ありません**。
 
@@ -369,6 +371,7 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 - 血・パーティクル・効果音・一部アニメーションは必ずしも同期しません。
 - プレイヤー同士の当たり判定は実験的で、リモートのスプライト／武器は調整中です。
 - 4人以上のセッションは未検証です——2人が最も安定します。
+- 味方の近接攻撃は音だけで、モーションは表示されません。
 - 背後で閉まる罠の扉は、作動させたプレイヤーの画面でだけ閉まります。
 
 これは完全な一覧ではありません。

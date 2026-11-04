@@ -1,10 +1,10 @@
 {
   "name": "SULFUR_Together",
-  "version_number": "1.5.0",
+  "version_number": "1.6.0",
   "website_url": "https://github.com/ryuka-dev/SULFUR-Together",
   "description": "Co-op multiplayer for SULFUR: host-authoritative synced runs, enemies, bosses, downed/revive, in-game connect UI (Direct IP + Steam). All players must run the same version.",
   "dependencies": [
     "BepInEx-BepInExPack-5.4.2100",
-    "ryuka_labs-SULFUR_Native_UI_Lib-0.10.1"
+    "ryuka_labs-SULFUR_Native_UI_Lib-0.11.0"
   ]
 }

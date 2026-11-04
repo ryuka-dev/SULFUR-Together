@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.6.0 — SULFUR 1.0.4, and hearing each other
+
+You can finally hear your teammates. Their gunfire, the hum of a beam weapon, melee swings and throws
+all reach the other players now, Lucia and the Cousin have their music back on a client's side, and
+a client waiting outside a boss room no longer sits in front of a black screen.
+
+**1.6.0 is built for SULFUR 1.0.4. The network protocol changed (38 to 39), so everyone must update
+to 1.6.0 together, and everyone must run the same build of SULFUR.** It now needs SULFUR Native UI
+Lib 0.11.0, which your mod manager installs for you.
+
+**Fixed:**
+- **You can hear your teammates shoot.** Another player's bullets have always been redrawn on your
+  screen, but in silence. Each shot now plays from where they are standing, with the sound the
+  shooter heard: the one their weapon, caliber or ammunition calls for.
+- **Beam weapons keep humming.** A teammate's beam loops while they hold the trigger and stops when
+  they let go, run out, or leave the session.
+- **Melee swings and throws make a sound too,** along with the smaller handling sounds of switching
+  weapons. The swing itself is still not animated on a teammate: you hear it, you do not see it.
+- **Lucia and the Cousin have boss music for a client.** Their music started from something only the
+  host had set off, so a client often played the fight in silence. It now starts on both screens
+  when the host's does, even if the client is elsewhere in the level.
+- **Lucia's opening dialogue no longer comes back mid-fight.** A client entering her arena after the
+  fight began could reopen it, and it locked that player's controls.
+- **No more black screen outside a boss room.** Some boss fights switch off everything except their
+  own room. That is safe alone, where you are always inside, but a client still outside saw nothing
+  except the HUD until they entered. Outside the room you now see the level as usual, and the fight
+  behaves as in the base game once you are in.
+- **Chinese and other non-Latin text shows up in notifications again.** Join messages and the arena's
+  "press to enter" prompt could come up blank. This was fixed in SULFUR Native UI Lib 0.11.0, which
+  also stops the font of those messages from changing between sessions.
+- **The client sees where Terrorbaum's falling spikes will land** again.
+- **Fewer errors in the host's log.** Terrorbaum's vine rings and the Witch's rings no longer throw an
+  error every frame on the host, and neither does a teammate stepping into water.
+
+**Please report:** the boss changes touch every fight. They were played on Lucia, the Cousin and the
+Witch; Terrorbaum, the Desert boss, the Emperor, the Black Guild Cardinal and the crypt challenges
+have not been played through with them yet.
+
 ## 1.5.0 — SULFUR 1.0.2, out of beta
 
 SULFUR has reached 1.0, and so has this mod: **SULFUR Together leaves Public Beta with 1.5.0.** The
