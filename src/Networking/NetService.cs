@@ -3484,7 +3484,7 @@ namespace SULFURTogether.Networking
             if (change.SharedEndlessProgress)
                 UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.sharedEndless.label", "Shared endless progress"), state.SharedEndlessProgress);
             if (change.EndlessXpFirstDamage)
-                UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.xpFirstDamage.label", "Endless XP: first-damage"), state.EndlessXpFirstDamage);
+                UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.xpFirstDamage.label", "Endless XP: first-damage (Independent mode)"), state.EndlessXpFirstDamage);
             if (change.DeveloperMode)
                 UI.CoopToasts.NotifyDeveloperMode(state.DeveloperMode);
             // DEV-1: re-assert the local GameManager.DeveloperMode flag to the received session value. Runs even on

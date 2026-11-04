@@ -485,6 +485,12 @@ Lib 0.11.0, which your mod manager installs for you.
   "press to enter" prompt could come up blank. This was fixed in SULFUR Native UI Lib 0.11.0, which
   also stops the font of those messages from changing between sessions.
 [list]
+[*][b]Missing translations filled in.[/b] The shared loot, Endless and voting text showed in English in[/*]
+[/list]
+  every language except Chinese and Japanese. It is now translated into all 14; Arabic, French,
+  German, Italian, Korean, Polish, Portuguese, Russian, Spanish, Swedish and Turkish are machine
+  translations, and corrections are welcome.
+[list]
 [*][b]The client sees where Terrorbaum's falling spikes will land[/b] again.[/*]
 [*][b]Fewer errors in the host's log.[/b] Terrorbaum's vine rings and the Witch's rings no longer throw an[/*]
 [/list]

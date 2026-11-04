@@ -128,8 +128,9 @@ All strings below are looked up by the listed **key(s)** from `lang/*.json`; the
 | 32 | Unlinked-client join hint — `You're not in the host's world yet — press [{key}] to join` | `link.pressToJoin` | `CoopToasts.NotifyLinkHint` (LK-Hint) | Shown (throttled, 90s) when a connected but UNLINKED client's auto-follow skips a followable host target — the deliberate no-hijack skip used to be silent, leaving a first-time joiner invisible in their own hub instance with no clue the link key exists. `{key}` = configured `ManualClientSceneFollowKey`. |
 | 33 | Join-attempt toast — `Connecting to host…` | `toast.connectingToHost` | `NetConnectFeedback.BeginAttempt` (TOAST-JoinFlow) | Fired once per connect attempt (false→true transition; the Steam path calls BeginAttempt twice) on every join route — Direct IP, Steam-ID, and invite accept (which previously showed nothing until the handshake resolved). Success is announced by the existing `toast.connectedTo`; the `link.linkedToHost` toast no longer fires during an attempt (row 12 — it stays for the mid-session PageDown/PageUp toggles). |
 
-> Rows 26–31 added to `en.json` (canonical) + hand-translated `zh-CN.json` / `ja.json`; the other 11
-> language files fall back to English via the `current → base → en` chain until synced.
+> Rows 26–31 are in all 14 files. The 11 machine-translated files received the shared-loot, Endless,
+> developer-vote and card-vote strings in 1.6.0; until then those fell back to English through the
+> `current → base → en` chain.
 
 ### Planned, not yet written (register here when added)
 

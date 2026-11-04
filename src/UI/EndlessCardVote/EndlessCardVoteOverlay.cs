@@ -233,7 +233,7 @@ namespace SULFURTogether.UI.EndlessCardVote
             if (snap.Participants != null) foreach (var p in snap.Participants) if (p.VotedIndex >= 0 || p.BanishIndex >= 0) voted++;
 
             if (EndlessCardVoteManager.RaffleActive) // tie → don't reveal the winner until the sweep lands
-                return CoopLoc.Get("endless.cardvote.rolling", "Tie — drawing a card…");
+                return CoopLoc.Get("endless.cardvote.rolling", "Drawing…");
             if (snap.Phase == 1)
             {
                 switch (EndlessCardManager.DescribeResolvedCard(snap.ResolvedIndex)) // EM-6b-3b: name the Skip/Reroll outcome

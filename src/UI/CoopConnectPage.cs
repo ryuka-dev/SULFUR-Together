@@ -786,7 +786,7 @@ namespace SULFURTogether.UI
                 {
                     CoopConnection.Service?.BroadcastSessionSettings("ui-toggle");
                     if (changed)
-                        CoopToasts.NotifySessionSetting(CoopLoc.Get("session.xpFirstDamage.label", "Endless XP: first-damage"), value);
+                        CoopToasts.NotifySessionSetting(CoopLoc.Get("session.xpFirstDamage.label", "Endless XP: first-damage (Independent mode)"), value);
                 }
             }
             catch (Exception e) { Plugin.Log?.Warn($"[CoopUi] xp-first-damage broadcast failed: {e.Message}"); }

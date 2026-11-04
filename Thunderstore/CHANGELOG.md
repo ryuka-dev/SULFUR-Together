@@ -30,6 +30,10 @@ Lib 0.11.0, which your mod manager installs for you.
 - **Chinese and other non-Latin text shows up in notifications again.** Join messages and the arena's
   "press to enter" prompt could come up blank. This was fixed in SULFUR Native UI Lib 0.11.0, which
   also stops the font of those messages from changing between sessions.
+- **Missing translations filled in.** The shared loot, Endless and voting text showed in English in
+  every language except Chinese and Japanese. It is now translated into all 14; Arabic, French,
+  German, Italian, Korean, Polish, Portuguese, Russian, Spanish, Swedish and Turkish are machine
+  translations, and corrections are welcome.
 - **The client sees where Terrorbaum's falling spikes will land** again.
 - **Fewer errors in the host's log.** Terrorbaum's vine rings and the Witch's rings no longer throw an
   error every frame on the host, and neither does a teammate stepping into water.
