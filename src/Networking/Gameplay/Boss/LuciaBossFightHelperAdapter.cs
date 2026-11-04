@@ -34,6 +34,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         // Lucia is dialog-gated like Cousin: the fight begins from a dialog choice.
         public override bool IsDialogBoss(object component) => true;
+        public override bool OpeningDialogEndsAtFightStart(object component) => true;
         public override bool IsDialogCommitSource(string source) => ParseSourceMethod(source) == "TriggerFight";
 
         public override bool ShouldSuppressDuplicateDialogEntry(object component, string source)

@@ -202,6 +202,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         // ---- LD-Sandstorm / F4 Stage 2: default = no mid-fight dialog to sync (only DesertClause) ----
         public virtual bool TryGetActiveMidFightDialogId(object component, out string dialogId) { dialogId = ""; return false; }
         public virtual bool BroadcastsBossOwnDialog(object component) => false;
+        public virtual bool OpeningDialogEndsAtFightStart(object component) => false;
 
         public virtual bool TryOpenBossOwnDialog(object component, out string detail) { detail = "not-supported"; return false; }
 

@@ -159,6 +159,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// each-end-locally (<see cref="RunsLocalIntroPresentation"/>). Default false.</summary>
         bool BroadcastsBossOwnDialog(object component);
 
+        /// <summary>BM-1b: true if this boss's only dialogue is its opening one and that dialogue's end is what starts
+        /// the fight (Lucia: the dialogue's last node calls <c>LuciaBossFightTrigger.TriggerFight</c>; nothing opens
+        /// a dialogue mid-fight). Once the fight has started, that dialogue must not open again on any end. Default
+        /// false — a boss with mid-fight dialogues (Desert) must not be blocked.</summary>
+        bool OpeningDialogEndsAtFightStart(object component);
+
         /// <summary>TB: true if this boss must be a PURE PUPPET on the client — it never runs its own fight mechanics
         /// (attacks / phase transitions); the host is the sole authority and the client only mirrors position + animation +
         /// host-authoritative health/death. For such a boss the client keeps the local mechanic drivers disabled

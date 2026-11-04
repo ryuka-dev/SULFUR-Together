@@ -198,6 +198,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _desertArenaTarget = new Vector3(float.PositiveInfinity, 0, 0);
                 _desertArenaLastSent = new Vector3(float.PositiveInfinity, 0, 0);
                 DesertGhostMissiles.Clear();
+                BossMusicSync.Clear();
                 // PK-4/PK-2: carriers and their colliders go with the level (Unity forgets the ignore pairs with them),
                 // and the per-pike ambush cooldowns are level-scoped.
                 _pikeCollisionIgnores.Clear();
@@ -269,6 +270,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (_runScope == runScope) return;
                 _runScope = runScope;
                 _registry.Clear();
+                BossMusicSync.Clear();
                 _hostBroadcast.Clear();
                 _hostCombatEntryBroadcast.Clear();
                 _hostSandstormBroadcast.Clear();
@@ -2911,7 +2913,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// end. Vanilla leaves the boss NPC interactable after TriggerFight (in single-player the tree immediately moves
         /// off into combat so nobody can re-interact), but in co-op a late-arriving player walks up to the (underground /
         /// relocated) boss collider and gets the opening dialog again mid-fight (Log358). The fight-start chokepoints
-        /// already close a lingering copy; this stops a fresh one from opening at the source (Npc.Interact prefix).</summary>
+        /// already close a lingering copy; this stops a fresh one from opening at the source (Npc.Interact prefix).
+        /// BM-1b: the same holds for a boss whose only dialogue is the one that starts the fight
+        /// (<see cref="IBossEncounterAdapter.OpeningDialogEndsAtFightStart"/>, Lucia): a client brought in after the host
+        /// started the fight walks through the arena's start trigger, whose <c>Npc.Interact</c> re-opened the opening
+        /// dialogue and locked that player's controls mid-fight. The trigger's other listeners (doors, music) still run.</summary>
         public static bool ShouldBlockStartedBossOwnDialog(object npc)
         {
             try
@@ -2923,11 +2929,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     {
                         var e = kv.Value;
                         if (!(e.Component is UnityEngine.Object uo) || uo == null) continue;
-                        bool own = false; try { own = e.Adapter.BroadcastsBossOwnDialog(e.Component); } catch { }
+                        bool own = false; try { own = e.Adapter.BroadcastsBossOwnDialog(e.Component) || e.Adapter.OpeningDialogEndsAtFightStart(e.Component); } catch { }
                         if (!own) continue;
                         object? hu = null; try { hu = e.Adapter.GetHealthUnit(e.Component); } catch { }
                         if (hu == null || !ReferenceEquals(hu, npc)) continue;
-                        return SafeStarted(e.Adapter, e.Component);
+                        bool started = SafeStarted(e.Adapter, e.Component);
+                        if (started) Plugin.Log.Info($"[BossDialogSync] blocked opening dialog of a started fight key={kv.Key}");
+                        return started;
                     }
                 }
             }
@@ -3800,6 +3808,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             try
             {
                 if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
+                // BM-1: a boss music cue addresses a scene MusicTrigger by position and needs no encounter — Lucia's
+                // start trigger fires before her encounter is registered on either end.
+                if (BossMusicSync.IsMusicEvent(msg)) { BossMusicSync.ApplyHostCue(msg); return; }
                 // PK-1: an ADDRESSED pike jump ("PikeJump:<hostIdx>") resolves its target by host SpawnIndex and needs no
                 // encounter at all — the desert level's ambush pikes surface outside any boss arena, so the encounter
                 // lookup below would drop their jumps and leave the client's pikes running their own divergent arcs.

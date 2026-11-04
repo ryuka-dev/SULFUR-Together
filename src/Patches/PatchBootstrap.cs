@@ -16,6 +16,7 @@ namespace SULFURTogether.Patches
             CardinalPatches.Apply(harmony);             // BGC — Black Guild Cardinal alcove fight
             LevelGenTracePatches.Apply(harmony);
             BossEncounterPatches.Apply(harmony);
+            Networking.Gameplay.Boss.BossMusicSync.Apply(harmony); // BM-1 — boss music cues reach every end
             BossSpawnPatches.Apply(harmony);
             CousinArmPatches.Apply(harmony);
             DeathSpawnSyncPatches.Apply(harmony);
