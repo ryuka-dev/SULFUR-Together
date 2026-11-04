@@ -47,6 +47,7 @@ namespace SULFURTogether.Patches
 
                 ApplyShotSound(harmony, weaponType);
                 ApplyBeamLoop(harmony, weaponType);
+                ApplyAnimationSounds(harmony, weaponType);
             }
             catch (Exception ex)
             {
@@ -109,6 +110,54 @@ namespace SULFURTogether.Patches
             }
         }
 
+        /// <summary>WS-SND-3: a melee swing and a throw make their sound from the weapon's animation, not from Shoot —
+        /// the swing clip's event calls <c>Weapon.ShootSound(int)</c> (→ SoundShot → PlayShootSoundEvent), a throwable's
+        /// and a reload's clip events call <c>Weapon.PlayMiscClip(int)</c> (→ PlaySoundEvent2DIfPlayer). Neither has a
+        /// caller in code. Both become recording windows like Shoot, and PlaySoundEvent2DIfPlayer becomes an observation
+        /// point; what a window recorded is sent on its own, with no bullets.</summary>
+        private static void ApplyAnimationSounds(Harmony harmony, Type weaponType)
+        {
+            try
+            {
+                var shootSound = AccessTools.Method(weaponType, "ShootSound", new[] { typeof(int) });
+                var miscClip = AccessTools.Method(weaponType, "PlayMiscClip", new[] { typeof(int) });
+                var play2D = AccessTools.Method(weaponType, "PlaySoundEvent2DIfPlayer", new[] { typeof(SoundEvent) });
+                var pre = new HarmonyMethod(typeof(WeaponFirePatches).GetMethod(nameof(Weapon_SoundWindow_Pre), BindingFlags.Static | BindingFlags.NonPublic));
+                var post = new HarmonyMethod(typeof(WeaponFirePatches).GetMethod(nameof(Weapon_SoundWindow_Post), BindingFlags.Static | BindingFlags.NonPublic));
+                if (shootSound != null) harmony.Patch(shootSound, prefix: pre, postfix: post);
+                if (miscClip != null) harmony.Patch(miscClip, prefix: pre, postfix: post);
+                if (play2D != null) harmony.Patch(play2D, prefix: new HarmonyMethod(typeof(WeaponFirePatches)
+                    .GetMethod(nameof(Weapon_PlaySoundEvent2DIfPlayer_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                if (shootSound == null || miscClip == null || play2D == null)
+                    Plugin.Log.Warn($"[WeaponFire] remote swing/throw sound partly unsupported on this game build — ShootSound(int)={shootSound != null} "
+                                    + $"PlayMiscClip(int)={miscClip != null} PlaySoundEvent2DIfPlayer={play2D != null}");
+                else
+                    Plugin.Log.Info("[WeaponFire] Patched Weapon.ShootSound/PlayMiscClip/PlaySoundEvent2DIfPlayer (remote swing/throw sound).");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"[WeaponFire] swing/throw sound patch failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static void Weapon_SoundWindow_Pre(Weapon __instance)
+        {
+            try { RemoteShotSound.BeginWindow(__instance); } catch { }
+        }
+
+        private static void Weapon_SoundWindow_Post(Weapon __instance)
+        {
+            NetShotSound[] sounds;
+            try { sounds = RemoteShotSound.EndWindow(__instance); }
+            catch { return; }
+            PlayerWeaponFireManager.CaptureLocalSounds(__instance, sounds);
+        }
+
+        private static void Weapon_PlaySoundEvent2DIfPlayer_Pre(Weapon __instance, SoundEvent soundEvent)
+        {
+            try { RemoteShotSound.OnPlay2D(__instance, soundEvent); } catch { }
+        }
+
         private static void Weapon_BeamLoop_Pre(Weapon __instance, out bool __state)
         {
             __state = false;
@@ -122,13 +171,13 @@ namespace SULFURTogether.Patches
 
         private static void Weapon_Shoot_Pre(Weapon __instance)
         {
-            try { RemoteShotSound.BeginShot(__instance); } catch { }
+            try { RemoteShotSound.BeginWindow(__instance); } catch { }
         }
 
         private static void Weapon_Shoot_Post(Weapon __instance)
         {
             NetShotSound[] sounds;
-            try { sounds = RemoteShotSound.EndShot(__instance); }
+            try { sounds = RemoteShotSound.EndWindow(__instance); }
             catch { sounds = Array.Empty<NetShotSound>(); }
             PlayerWeaponFireManager.CaptureLocalFire(__instance, sounds);
         }

@@ -75,6 +75,23 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
+        /// <summary>WS-SND-3: the sounds a weapon animation played on the local player's weapon (a melee swing through
+        /// Weapon.ShootSound, a throw or reload step through Weapon.PlayMiscClip), sent on their own.</summary>
+        public static void CaptureLocalSounds(Weapon weapon, NetShotSound[] sounds)
+        {
+            try
+            {
+                if (sounds == null || sounds.Length == 0) return; // the window only records for the local player's weapon
+                if (!Plugin.Cfg.EnablePlayerWeaponSync.Value || !NetGameplaySyncBridge.IsSessionActive || weapon == null) return;
+
+                var msg = new NetPlayerWeaponFire { Sequence = ++_captureSeq, ShotSounds = sounds };
+                NetGameplaySyncBridge.ReportLocalPlayerWeaponFire(msg);
+                if (Plugin.Cfg.LogPlayerWeaponSync.Value)
+                    NetLogger.Info($"[PlayerWeaponFire] capture sounds weapon={weapon.weaponDefinition?.name} slots=[{string.Join(",", Array.ConvertAll(sounds, x => x.Slot + (x.Slot == ShotSoundSlot.WeaponHandlingReload ? "#" + x.Index : "")))}]");
+            }
+            catch (Exception ex) { NetLogger.Warn($"[PlayerWeaponFire] sound capture failed: {ex.Message}"); }
+        }
+
         /// <summary>WS-SND-2: the local player's beam loop started or stopped (Start/StopBeamLoopSound postfix).</summary>
         public static void CaptureLocalBeamLoop(Weapon weapon, bool wasPlaying)
         {
@@ -243,7 +260,9 @@ namespace SULFURTogether.Networking.Gameplay
             if (m.ShotSounds == null || m.ShotSounds.Length == 0) return;
             Transform? at = FindShooterTransform(m.PeerId);
             if (at == null) return;
-            RemoteShotSound.Play(m.ShotSounds, at);
+            int played = RemoteShotSound.Play(m.ShotSounds, at);
+            if (m.Count <= 0 && Plugin.Cfg.LogPlayerWeaponSync.Value)
+                NetLogger.Info($"[PlayerWeaponFire] replay sounds peer={m.PeerId} played={played}/{m.ShotSounds.Length} slots=[{string.Join(",", Array.ConvertAll(m.ShotSounds, x => x.Slot.ToString()))}]");
         }
 
         private static Transform? FindShooterTransform(string peerId)

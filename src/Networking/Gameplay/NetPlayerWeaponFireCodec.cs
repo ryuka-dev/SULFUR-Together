@@ -4,7 +4,8 @@ namespace SULFURTogether.Networking.Gameplay
 {
     internal static class NetPlayerWeaponFireCodec
     {
-        // 2: WS-SND-1 appended the shot sounds, WS-SND-2 the beam loop transition (both before any release of v2).
+        // 2: WS-SND-1 appended the shot sounds, WS-SND-2 the beam loop transition, WS-SND-3 a per-sound index (all
+        //    before any release of v2).
         private const byte Version = 2;
 
         public static void Write(NetDataWriter w, NetPlayerWeaponFire m)
@@ -64,6 +65,7 @@ namespace SULFURTogether.Networking.Gameplay
                 w.Put(sounds[i].SourceId);
                 w.Put((byte)sounds[i].ParamKind);
                 w.Put(sounds[i].Param);
+                w.Put(sounds[i].Index);
             }
             w.Put(m.BeamLoop);
             w.Put(m.BeamLoopEffect);
@@ -135,6 +137,7 @@ namespace SULFURTogether.Networking.Gameplay
                         SourceId  = r.GetInt(),
                         ParamKind = (ShotSoundParam)r.GetByte(),
                         Param     = r.GetFloat(),
+                        Index     = r.GetByte(),
                     };
                 }
                 m.ShotSounds = sounds;

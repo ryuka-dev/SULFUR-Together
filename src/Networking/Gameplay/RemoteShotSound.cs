@@ -22,6 +22,16 @@ namespace SULFURTogether.Networking.Gameplay
         CaliberShot = 4,         // CaliberType.soundShot         (SourceId = CaliberTypes)
         CaliberShotSilenced = 5, // CaliberType.soundShotSilenced (SourceId = CaliberTypes)
         EffectShot = 6,          // ProjectileEffectDefinition.soundEventShot (SourceId = ProjectileEffect)
+
+        // WS-SND-3: handling sounds a weapon's animation plays through PlayMiscClip (throw, reload steps), all
+        // weapon-prefab fields (SourceId = weapon ItemId).
+        WeaponHandlingMagIn = 7,         // Weapon.soundEventHandlingMagIn
+        WeaponHandlingMagOut = 8,        // Weapon.soundEventHandlingMagOut
+        WeaponHandlingSlideBack = 9,     // Weapon.soundEventHandlingSlideBack
+        WeaponHandlingSlideForward = 10, // Weapon.soundEventHandlingSlideForward
+        WeaponHandlingExtraA = 11,       // Weapon.soundEventHandlingExtraA
+        WeaponHandlingExtraB = 12,       // Weapon.soundEventHandlingExtraB
+        WeaponHandlingReload = 13,       // Weapon.soundHandlingReloads[Index]
     }
 
     /// <summary>The one Sonity parameter the game passes with a shot sound.</summary>
@@ -38,6 +48,7 @@ namespace SULFURTogether.Networking.Gameplay
         public int SourceId;
         public ShotSoundParam ParamKind;
         public float Param;
+        public byte Index;      // WeaponHandlingReload only: the element of soundHandlingReloads
     }
 
     /// <summary>
@@ -81,8 +92,30 @@ namespace SULFURTogether.Networking.Gameplay
             if (!_supported)
                 Plugin.Log.Warn("[WeaponFire] remote shot sound not supported on this game build — Weapon.soundShot/"
                                 + "soundShotSilenced/soundEventShotMutation/effectOnProjectile not found; teammates' gunfire stays silent");
+
+            // WS-SND-3: the handling fields PlayMiscClip picks from. Optional on their own: without them, throw and
+            // reload sounds stay local while shots still work.
+            for (int i = 0; i < HandlingFieldNames.Length; i++)
+                _fHandling[i] = AccessTools.Field(typeof(Weapon), HandlingFieldNames[i]);
+            _fHandlingReloads = AccessTools.Field(typeof(Weapon), "soundHandlingReloads");
+            _handlingSupported = _supported && _fHandlingReloads != null && _fHandlingReloads.FieldType == typeof(SoundEvent[]);
+            foreach (var f in _fHandling)
+                if (f == null || !typeof(SoundEvent).IsAssignableFrom(f.FieldType)) _handlingSupported = false;
+            if (_supported && !_handlingSupported)
+                Plugin.Log.Warn("[WeaponFire] remote handling sounds not supported on this game build — Weapon.soundEventHandling*/"
+                                + "soundHandlingReloads not found; teammates' throw and reload sounds stay silent");
             return _supported;
         }
+
+        // Same order as PlayMiscClip's switch (clip 0..5) and as ShotSoundSlot.WeaponHandlingMagIn..ExtraB.
+        private static readonly string[] HandlingFieldNames =
+        {
+            "soundEventHandlingMagIn", "soundEventHandlingMagOut", "soundEventHandlingSlideBack",
+            "soundEventHandlingSlideForward", "soundEventHandlingExtraA", "soundEventHandlingExtraB",
+        };
+        private static readonly FieldInfo?[] _fHandling = new FieldInfo?[6];
+        private static FieldInfo? _fHandlingReloads;
+        private static bool _handlingSupported;
 
         // ----------------------------------------------------------------- WS-SND-2: beam loop
 
@@ -212,8 +245,10 @@ namespace SULFURTogether.Networking.Gameplay
         private static readonly List<NetShotSound> _pending = new List<NetShotSound>(MaxSoundsPerShot);
         private static int _unmatchedLogs;
 
-        /// <summary>Weapon.Shoot prefix: start recording for the local player's own gun.</summary>
-        internal static void BeginShot(Weapon weapon)
+        /// <summary>Prefix of a recording window — Weapon.Shoot, and (WS-SND-3) the animation-event entries
+        /// Weapon.ShootSound (a melee swing) and Weapon.PlayMiscClip (throw and reload steps): start recording for the
+        /// local player's own weapon. None of these calls another, so windows never nest.</summary>
+        internal static void BeginWindow(Weapon weapon)
         {
             _pending.Clear();
             _capturing = null;
@@ -224,8 +259,8 @@ namespace SULFURTogether.Networking.Gameplay
             _capturing = weapon;
         }
 
-        /// <summary>Weapon.Shoot postfix: hand over what was played during this shot and stop recording.</summary>
-        internal static NetShotSound[] EndShot(Weapon weapon)
+        /// <summary>Postfix of a recording window: hand over what was played during it and stop recording.</summary>
+        internal static NetShotSound[] EndWindow(Weapon weapon)
         {
             NetShotSound[] result = (_capturing != null && ReferenceEquals(_capturing, weapon) && _pending.Count > 0)
                 ? _pending.ToArray()
@@ -252,6 +287,16 @@ namespace SULFURTogether.Networking.Gameplay
             Record(weapon, soundEvent, ShotSoundParam.Intensity, intensity);
         }
 
+        /// <summary>WS-SND-3: prefix of Weapon.PlaySoundEvent2DIfPlayer(SoundEvent) — what PlayMiscClip plays. Its
+        /// direct callers (aim, equip, click, reload start) run outside any window and stay local.</summary>
+        internal static void OnPlay2D(Weapon weapon, SoundEvent soundEvent)
+        {
+            if (!_handlingSupported || !IsCapturing(weapon) || soundEvent == null) return;
+            var gm = GameManager.Instance;
+            if (gm != null && gm.gameState == GameState.Cinematic) return; // vanilla returns before playing
+            Record(weapon, soundEvent, ShotSoundParam.None, 0f);
+        }
+
         private static bool IsCapturing(Weapon weapon)
             => _capturing != null && ReferenceEquals(_capturing, weapon) && _pending.Count < MaxSoundsPerShot;
 
@@ -268,21 +313,22 @@ namespace SULFURTogether.Networking.Gameplay
         {
             try
             {
-                if (!TryClassify(weapon, soundEvent, out var slot, out int sourceId))
+                if (!TryClassify(weapon, soundEvent, out var slot, out int sourceId, out byte index))
                 {
                     if (_unmatchedLogs++ < 3)
                         NetLogger.Warn($"[PlayerWeaponFire] shot sound '{soundEvent.name}' of {weapon.weaponDefinition?.name} comes from no known shot-sound slot — not sent");
                     return;
                 }
-                _pending.Add(new NetShotSound { Slot = slot, SourceId = sourceId, ParamKind = kind, Param = param });
+                _pending.Add(new NetShotSound { Slot = slot, SourceId = sourceId, ParamKind = kind, Param = param, Index = index });
             }
             catch { /* never disturb the local shot */ }
         }
 
-        private static bool TryClassify(Weapon weapon, SoundEvent ev, out ShotSoundSlot slot, out int sourceId)
+        private static bool TryClassify(Weapon weapon, SoundEvent ev, out ShotSoundSlot slot, out int sourceId, out byte index)
         {
             slot = ShotSoundSlot.None;
             sourceId = 0;
+            index = 0;
             var def = weapon.weaponDefinition;
             if (def != null)
             {
@@ -290,6 +336,14 @@ namespace SULFURTogether.Networking.Gameplay
                 if (ReferenceEquals(ev, _fSoundShot!.GetValue(weapon)))         { slot = ShotSoundSlot.WeaponShot; sourceId = id; return true; }
                 if (ReferenceEquals(ev, _fSoundShotSilenced!.GetValue(weapon))) { slot = ShotSoundSlot.WeaponShotSilenced; sourceId = id; return true; }
                 if (ReferenceEquals(ev, _fSoundShotMutation!.GetValue(weapon))) { slot = ShotSoundSlot.WeaponShotMutation; sourceId = id; return true; }
+                if (_handlingSupported)
+                {
+                    for (int i = 0; i < _fHandling.Length; i++)
+                        if (ReferenceEquals(ev, _fHandling[i]!.GetValue(weapon))) { slot = (ShotSoundSlot)((int)ShotSoundSlot.WeaponHandlingMagIn + i); sourceId = id; return true; }
+                    if (_fHandlingReloads!.GetValue(weapon) is SoundEvent[] reloads)
+                        for (int i = 0; i < reloads.Length && i <= byte.MaxValue; i++)
+                            if (ReferenceEquals(ev, reloads[i])) { slot = ShotSoundSlot.WeaponHandlingReload; sourceId = id; index = (byte)i; return true; }
+                }
             }
 
             CaliberType caliber = weapon.Caliber.GetAsset();
@@ -313,46 +367,60 @@ namespace SULFURTogether.Networking.Gameplay
         // Weapon-prefab sounds, resolved once per (slot, weapon ItemId). Caliber and effect sounds need no cache: the
         // game's own GetAsset is an array index. An id from the wire that is out of range throws there and is caught
         // per entry.
-        private static readonly Dictionary<int, SoundEvent> _weaponSoundCache = new Dictionary<int, SoundEvent>();
+        private static readonly Dictionary<long, SoundEvent> _weaponSoundCache = new Dictionary<long, SoundEvent>();
 
         /// <summary>Plays the shot sounds of one remote trigger pull at <paramref name="at"/>. Input comes off the wire:
-        /// unknown slots, ids this end cannot resolve and out-of-range parameters are skipped one by one.</summary>
-        internal static void Play(NetShotSound[] sounds, Transform at)
+        /// unknown slots, ids this end cannot resolve and out-of-range parameters are skipped one by one. Returns how
+        /// many were played.</summary>
+        internal static int Play(NetShotSound[] sounds, Transform at)
         {
-            if (!_supported || sounds == null || sounds.Length == 0 || at == null) return;
+            if (!_supported || sounds == null || sounds.Length == 0 || at == null) return 0;
             int n = Math.Min(sounds.Length, MaxSoundsPerShot);
+            int played = 0;
             for (int i = 0; i < n; i++)
             {
                 try
                 {
                     var s = sounds[i];
-                    SoundEvent? ev = ResolveSound(s.Slot, s.SourceId);
+                    SoundEvent? ev = ResolveSound(s.Slot, s.SourceId, s.Index);
                     if (ev == null) continue;
                     switch (s.ParamKind)
                     {
                         case ShotSoundParam.VolumeDecibel when !float.IsNaN(s.Param) && s.Param >= -80f && s.Param <= 24f:
                             ev.Play(at, new SoundParameterVolumeDecibel(s.Param));
+                            played++;
                             break;
                         case ShotSoundParam.Intensity when !float.IsNaN(s.Param):
                             ev.Play(at, new SoundParameterIntensity(Mathf.Clamp01(s.Param)));
+                            played++;
                             break;
                         case ShotSoundParam.None:
                             ev.Play(at);
+                            played++;
                             break;
                     }
                 }
                 catch { /* one bad entry must not cost the others */ }
             }
+            return played;
         }
 
-        private static SoundEvent? ResolveSound(ShotSoundSlot slot, int sourceId)
+        private static SoundEvent? ResolveSound(ShotSoundSlot slot, int sourceId, byte index)
         {
             switch (slot)
             {
                 case ShotSoundSlot.WeaponShot:
                 case ShotSoundSlot.WeaponShotSilenced:
                 case ShotSoundSlot.WeaponShotMutation:
-                    return ResolveWeaponSound(slot, sourceId);
+                    return ResolveWeaponSound(slot, sourceId, 0);
+                case ShotSoundSlot.WeaponHandlingMagIn:
+                case ShotSoundSlot.WeaponHandlingMagOut:
+                case ShotSoundSlot.WeaponHandlingSlideBack:
+                case ShotSoundSlot.WeaponHandlingSlideForward:
+                case ShotSoundSlot.WeaponHandlingExtraA:
+                case ShotSoundSlot.WeaponHandlingExtraB:
+                case ShotSoundSlot.WeaponHandlingReload:
+                    return _handlingSupported ? ResolveWeaponSound(slot, sourceId, index) : null;
                 case ShotSoundSlot.CaliberShot:
                 case ShotSoundSlot.CaliberShotSilenced:
                 {
@@ -372,10 +440,10 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
-        private static SoundEvent? ResolveWeaponSound(ShotSoundSlot slot, int itemId)
+        private static SoundEvent? ResolveWeaponSound(ShotSoundSlot slot, int itemId, byte index)
         {
             if (itemId <= 0 || itemId > ushort.MaxValue) return null;
-            int key = ((int)slot << 16) | itemId;
+            long key = ((long)slot << 24) | ((long)index << 16) | (long)itemId;
             if (_weaponSoundCache.TryGetValue(key, out var cached)) return cached;
 
             SoundEvent? ev = null;
@@ -387,10 +455,19 @@ namespace SULFURTogether.Networking.Gameplay
                 Weapon? weapon = prefab != null ? prefab.GetComponentInChildren<Weapon>(true) : null;
                 if (weapon != null)
                 {
-                    FieldInfo f = slot == ShotSoundSlot.WeaponShot ? _fSoundShot!
-                                : slot == ShotSoundSlot.WeaponShotSilenced ? _fSoundShotSilenced!
-                                : _fSoundShotMutation!;
-                    ev = f.GetValue(weapon) as SoundEvent;
+                    if (slot == ShotSoundSlot.WeaponHandlingReload)
+                    {
+                        if (_fHandlingReloads!.GetValue(weapon) is SoundEvent[] reloads && index < reloads.Length)
+                            ev = reloads[index];
+                    }
+                    else
+                    {
+                        FieldInfo f = slot == ShotSoundSlot.WeaponShot ? _fSoundShot!
+                                    : slot == ShotSoundSlot.WeaponShotSilenced ? _fSoundShotSilenced!
+                                    : slot == ShotSoundSlot.WeaponShotMutation ? _fSoundShotMutation!
+                                    : _fHandling[slot - ShotSoundSlot.WeaponHandlingMagIn]!;
+                        ev = f.GetValue(weapon) as SoundEvent;
+                    }
                 }
             }
             catch { ev = null; }
