@@ -63,6 +63,7 @@ namespace SULFURTogether.Networking
             _localPlayer.Clear();
             _visualProxies.Clear();
             Gameplay.PlayerHeldWeaponManager.Reset();
+            Gameplay.RemoteShotSound.ResetLoops();
             _targetProxies.Clear();
             PlayerRegistry.Clear();
             _receivedEnemyDeathEvents.Clear();
@@ -232,6 +233,7 @@ namespace SULFURTogether.Networking
             _localPlayer.Clear();
             _visualProxies.Clear();
             Gameplay.PlayerHeldWeaponManager.Reset();
+            Gameplay.RemoteShotSound.ResetLoops();
             _targetProxies.Clear();
             PlayerRegistry.Clear();
             _receivedEnemyDeathEvents.Clear();
@@ -288,6 +290,8 @@ namespace SULFURTogether.Networking
             // WS-2: broadcast local held weapon on change + rebuild/attach remote weapon models.
             if (_mode != NetMode.Off)
                 Gameplay.PlayerHeldWeaponManager.Tick(_visualProxies);
+            // WS-SND-2: stop a teammate's beam loop once their proxy is no longer shown here.
+            Gameplay.RemoteShotSound.TickLoops();
 
             // World item-drop sync: drain queued pickup removals (AddItem + remove-from-world) on the main thread.
             if (_mode != NetMode.Off)
@@ -457,6 +461,7 @@ namespace SULFURTogether.Networking
             _localPlayer.Clear();
             _visualProxies.Clear();
             Gameplay.PlayerHeldWeaponManager.Reset();
+            Gameplay.RemoteShotSound.ResetLoops();
             _targetProxies.Clear();
             PlayerRegistry.Clear();
             _receivedEnemyDeathEvents.Clear();
@@ -494,6 +499,7 @@ namespace SULFURTogether.Networking
             _localPlayer.Clear();
             _visualProxies.Clear();
             Gameplay.PlayerHeldWeaponManager.Reset();
+            Gameplay.RemoteShotSound.ResetLoops();
             _targetProxies.Clear();
             PlayerRegistry.Clear();
             _receivedEnemyDeathEvents.Clear();
@@ -6081,6 +6087,7 @@ namespace SULFURTogether.Networking
                 _sceneRequests.RemovePeer(peerId);
                 _visualProxies.Remove(peerId);
                 Gameplay.PlayerHeldWeaponManager.RemovePeer(peerId);
+                Gameplay.RemoteShotSound.RemovePeer(peerId);
                 NetLoadBarrier.RemovePeer(peerId);
                 _peerIds.Remove(peer);
             }
@@ -6106,6 +6113,7 @@ namespace SULFURTogether.Networking
                 _sceneRequests.RemovePeer(peerId);
                 _visualProxies.Remove(peerId);
                 Gameplay.PlayerHeldWeaponManager.RemovePeer(peerId);
+                Gameplay.RemoteShotSound.RemovePeer(peerId);
                 NetLoadBarrier.RemovePeer(peerId);
                 _peerIds.Remove(peer);
                 NetLogger.Info($"[Session] Peer left: id={peerId}");

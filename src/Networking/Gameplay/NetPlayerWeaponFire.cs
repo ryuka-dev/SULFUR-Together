@@ -85,6 +85,11 @@ namespace SULFURTogether.Networking.Gameplay
         // (EnchantmentRemoveBullets) still makes a sound.
         public NetShotSound[] ShotSounds { get; set; } = System.Array.Empty<NetShotSound>();
 
+        // WS-SND-2: a beam weapon's looping sound started (RemoteShotSound.BeamLoopStart, with the beam projectile
+        // effect it comes from) or stopped (BeamLoopStop). Sent on its own, with Count 0, when the loop changes.
+        public byte BeamLoop { get; set; }
+        public int  BeamLoopEffect { get; set; }
+
         public bool MatchesScene(NetRunState localState)
         {
             if (!localState.HasLevel) return false;

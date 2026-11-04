@@ -46,6 +46,7 @@ namespace SULFURTogether.Patches
                 Plugin.Log.Info("[WeaponFire] Patched Weapon.Shoot (player weapon bullet sync).");
 
                 ApplyShotSound(harmony, weaponType);
+                ApplyBeamLoop(harmony, weaponType);
             }
             catch (Exception ex)
             {
@@ -80,6 +81,43 @@ namespace SULFURTogether.Patches
             {
                 Plugin.Log.Error($"[WeaponFire] shot sound patch failed: {ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        /// <summary>WS-SND-2: the beam loop has no per-shot report, only these two transitions (both guard on
+        /// beamLoopPlaying, so the prefix keeps the state before the call and the postfix reports only a change).</summary>
+        private static void ApplyBeamLoop(Harmony harmony, Type weaponType)
+        {
+            try
+            {
+                if (!RemoteShotSound.ResolveBeamLoop()) return;
+                var start = AccessTools.Method(weaponType, "StartBeamLoopSound", Type.EmptyTypes);
+                var stop = AccessTools.Method(weaponType, "StopBeamLoopSound", Type.EmptyTypes);
+                if (start == null || stop == null)
+                {
+                    Plugin.Log.Warn("[WeaponFire] Weapon.StartBeamLoopSound/StopBeamLoopSound not found — remote beam loop sound not supported on this game build");
+                    return;
+                }
+                var pre = new HarmonyMethod(typeof(WeaponFirePatches).GetMethod(nameof(Weapon_BeamLoop_Pre), BindingFlags.Static | BindingFlags.NonPublic));
+                var post = new HarmonyMethod(typeof(WeaponFirePatches).GetMethod(nameof(Weapon_BeamLoop_Post), BindingFlags.Static | BindingFlags.NonPublic));
+                harmony.Patch(start, prefix: pre, postfix: post);
+                harmony.Patch(stop, prefix: pre, postfix: post);
+                Plugin.Log.Info("[WeaponFire] Patched Weapon.StartBeamLoopSound/StopBeamLoopSound (remote beam loop sound).");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"[WeaponFire] beam loop patch failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static void Weapon_BeamLoop_Pre(Weapon __instance, out bool __state)
+        {
+            __state = false;
+            try { __state = RemoteShotSound.ReadBeamLoopPlaying(__instance); } catch { }
+        }
+
+        private static void Weapon_BeamLoop_Post(Weapon __instance, bool __state)
+        {
+            PlayerWeaponFireManager.CaptureLocalBeamLoop(__instance, __state);
         }
 
         private static void Weapon_Shoot_Pre(Weapon __instance)

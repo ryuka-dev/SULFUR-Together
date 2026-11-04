@@ -75,6 +75,26 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
+        /// <summary>WS-SND-2: the local player's beam loop started or stopped (Start/StopBeamLoopSound postfix).</summary>
+        public static void CaptureLocalBeamLoop(Weapon weapon, bool wasPlaying)
+        {
+            try
+            {
+                if (!Plugin.Cfg.EnablePlayerWeaponSync.Value || !NetGameplaySyncBridge.IsSessionActive || weapon == null) return;
+                Unit owner = weapon.SourceUnit;
+                if (owner == null || !owner.isPlayer || !NetPlayerLifeManager.IsLocalPlayerUnit(owner)) return;
+                if (!RemoteShotSound.TryReadBeamLoopTransition(weapon, wasPlaying, out byte transition, out int effectId)) return;
+
+                var msg = new NetPlayerWeaponFire { Sequence = ++_captureSeq, BeamLoop = transition, BeamLoopEffect = effectId };
+                NetGameplaySyncBridge.ReportLocalPlayerWeaponFire(msg);
+                if (Plugin.Cfg.LogPlayerWeaponSync.Value)
+                    NetLogger.Info(transition == RemoteShotSound.BeamLoopStart
+                        ? $"[PlayerWeaponFire] capture beam loop start weapon={weapon.weaponDefinition?.name} effect={(ProjectileEffect)effectId}"
+                        : $"[PlayerWeaponFire] capture beam loop stop weapon={weapon.weaponDefinition?.name}");
+            }
+            catch (Exception ex) { NetLogger.Warn($"[PlayerWeaponFire] beam loop capture failed: {ex.Message}"); }
+        }
+
         /// <summary>The barrage of this trigger pull, or null when it dispatched no bullets.</summary>
         private static NetPlayerWeaponFire? TryBuildBarrage(Weapon weapon, ItemStats stats)
         {
@@ -165,7 +185,9 @@ namespace SULFURTogether.Networking.Gameplay
                 if (m == null) return;
 
                 PlayShotSounds(m);
-                if (m.Count <= 0) return; // sound-only trigger pull
+                if (m.BeamLoop != RemoteShotSound.BeamLoopNone)
+                    RemoteShotSound.ApplyBeamLoop(m.PeerId, m.BeamLoop, m.BeamLoopEffect, FindShooterTransform(m.PeerId));
+                if (m.Count <= 0) return; // sound-only message (shot sounds or a beam loop change)
 
                 ProjectileSystem projSys = ProjectileSystem.Instance;
                 if (projSys == null) return;
@@ -218,14 +240,21 @@ namespace SULFURTogether.Networking.Gameplay
         /// (other level, stale, hidden) is not heard either.</summary>
         private static void PlayShotSounds(NetPlayerWeaponFire m)
         {
-            if (m.ShotSounds == null || m.ShotSounds.Length == 0 || string.IsNullOrEmpty(m.PeerId)) return;
-            Transform? at = null;
-            NetGameplaySyncBridge.ForEachRemotePlayerTransform((peerId, t) =>
-            {
-                if (at == null && string.Equals(peerId, m.PeerId, StringComparison.Ordinal)) at = t;
-            });
+            if (m.ShotSounds == null || m.ShotSounds.Length == 0) return;
+            Transform? at = FindShooterTransform(m.PeerId);
             if (at == null) return;
             RemoteShotSound.Play(m.ShotSounds, at);
+        }
+
+        private static Transform? FindShooterTransform(string peerId)
+        {
+            if (string.IsNullOrEmpty(peerId)) return null;
+            Transform? at = null;
+            NetGameplaySyncBridge.ForEachRemotePlayerTransform((id, t) =>
+            {
+                if (at == null && string.Equals(id, peerId, StringComparison.Ordinal)) at = t;
+            });
+            return at;
         }
 
         /// <summary>TB-AOE (Terrorbaum sky spikes): fire ONE zero-damage visual projectile on this end through the real

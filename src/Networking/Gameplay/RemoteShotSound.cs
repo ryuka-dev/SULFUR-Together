@@ -84,6 +84,128 @@ namespace SULFURTogether.Networking.Gameplay
             return _supported;
         }
 
+        // ----------------------------------------------------------------- WS-SND-2: beam loop
+
+        // A beam weapon has no per-shot report; while it fires, vanilla keeps one looping sound
+        // (Weapon.StartBeamLoopSound / StopBeamLoopSound, chosen by GetBeamLoopSound from the SuperSoaker, IceBeam or
+        // Beam projectile effect's soundEventShootLoop). The firing end sends the two transitions, the receiver runs the
+        // same loop at the shooter's proxy and stops it on the stop event, when the proxy goes away, on the peer leaving
+        // or on a session reset.
+        private static FieldInfo? _fBeamLoopSound;
+        private static FieldInfo? _fBeamLoopPlaying;
+        private static readonly ProjectileEffect[] BeamLoopEffects =
+            { ProjectileEffect.SuperSoaker, ProjectileEffect.IceBeam, ProjectileEffect.Beam };
+
+        internal const byte BeamLoopNone = 0, BeamLoopStart = 1, BeamLoopStop = 2;
+
+        /// <summary>Resolves the beam loop fields once at patch time; false (logged) when this build lacks them.</summary>
+        internal static bool ResolveBeamLoop()
+        {
+            _fBeamLoopSound = AccessTools.Field(typeof(Weapon), "beamLoopSound");
+            _fBeamLoopPlaying = AccessTools.Field(typeof(Weapon), "beamLoopPlaying");
+            bool ok = _fBeamLoopSound != null && _fBeamLoopPlaying != null
+                      && typeof(SoundEvent).IsAssignableFrom(_fBeamLoopSound.FieldType) && _fBeamLoopPlaying.FieldType == typeof(bool);
+            if (!ok)
+                Plugin.Log.Warn("[WeaponFire] remote beam loop sound not supported on this game build — Weapon.beamLoopSound/beamLoopPlaying not found");
+            return ok;
+        }
+
+        /// <summary>Prefix of Start/StopBeamLoopSound: the loop state before the call (both methods guard on it).</summary>
+        internal static bool ReadBeamLoopPlaying(Weapon weapon)
+        {
+            try { return _fBeamLoopPlaying != null && _fBeamLoopPlaying.GetValue(weapon) is bool b && b; }
+            catch { return false; }
+        }
+
+        /// <summary>Postfix of Start/StopBeamLoopSound on the local player's gun: report an actual start or stop.
+        /// Returns the effect id of the loop for a start (0 when it comes from no known effect, which is not sent).</summary>
+        internal static bool TryReadBeamLoopTransition(Weapon weapon, bool wasPlaying, out byte transition, out int effectId)
+        {
+            transition = BeamLoopNone;
+            effectId = 0;
+            if (_fBeamLoopPlaying == null || weapon == null) return false;
+            bool playing = ReadBeamLoopPlaying(weapon);
+            if (playing == wasPlaying) return false;
+            if (!playing) { transition = BeamLoopStop; return true; }
+
+            var ev = _fBeamLoopSound?.GetValue(weapon) as SoundEvent;
+            if (ev == null) return false;
+            foreach (var fx in BeamLoopEffects)
+            {
+                ProjectileEffectDefinition def = fx.GetAsset();
+                if (def != null && ReferenceEquals(def.soundEventShootLoop, ev))
+                {
+                    transition = BeamLoopStart;
+                    effectId = (int)fx;
+                    return true;
+                }
+            }
+            if (_unmatchedLogs++ < 3)
+                NetLogger.Warn($"[PlayerWeaponFire] beam loop sound '{ev.name}' of {weapon.weaponDefinition?.name} comes from no known beam effect — not sent");
+            return false;
+        }
+
+        private struct ActiveLoop
+        {
+            public SoundEvent Event;
+            public Transform At;
+        }
+
+        private static readonly Dictionary<string, ActiveLoop> _loops = new Dictionary<string, ActiveLoop>();
+        private static readonly List<string> _loopScratch = new List<string>();
+
+        /// <summary>Receiver: start or stop a peer's beam loop. Input comes off the wire: only the three beam effects
+        /// are accepted.</summary>
+        internal static void ApplyBeamLoop(string peerId, byte transition, int effectId, Transform? at)
+        {
+            if (string.IsNullOrEmpty(peerId) || transition == BeamLoopNone) return;
+            StopLoop(peerId);
+            if (transition != BeamLoopStart || at == null) return;
+
+            ProjectileEffect fx = ProjectileEffect.None;
+            foreach (var e in BeamLoopEffects) if ((int)e == effectId) fx = e;
+            if (fx == ProjectileEffect.None) return;
+            try
+            {
+                ProjectileEffectDefinition def = fx.GetAsset();
+                SoundEvent? ev = def != null ? def.soundEventShootLoop : null;
+                if (ev == null) return;
+                ev.Play(at);
+                _loops[peerId] = new ActiveLoop { Event = ev, At = at };
+                if (Plugin.Cfg.LogPlayerWeaponSync.Value)
+                    NetLogger.Info($"[PlayerWeaponFire] beam loop start peer={peerId} effect={fx} sound={ev.name}");
+            }
+            catch { }
+        }
+
+        /// <summary>Per frame: a loop whose shooter is no longer shown here is stopped.</summary>
+        internal static void TickLoops()
+        {
+            if (_loops.Count == 0) return;
+            _loopScratch.Clear();
+            foreach (var kv in _loops)
+                if (kv.Value.At == null || !kv.Value.At.gameObject.activeInHierarchy) _loopScratch.Add(kv.Key);
+            foreach (var peer in _loopScratch) StopLoop(peer);
+        }
+
+        internal static void RemovePeer(string peerId) => StopLoop(peerId);
+
+        internal static void ResetLoops()
+        {
+            _loopScratch.Clear();
+            _loopScratch.AddRange(_loops.Keys);
+            foreach (var peer in _loopScratch) StopLoop(peer);
+        }
+
+        private static void StopLoop(string peerId)
+        {
+            if (!_loops.TryGetValue(peerId, out var loop)) return;
+            _loops.Remove(peerId);
+            try { if (loop.Event != null && loop.At != null) loop.Event.Stop(loop.At); } catch { }
+            if (Plugin.Cfg.LogPlayerWeaponSync.Value)
+                NetLogger.Info($"[PlayerWeaponFire] beam loop stop peer={peerId}");
+        }
+
         // ----------------------------------------------------------------- capture (firing peer)
 
         private static Weapon? _capturing;
