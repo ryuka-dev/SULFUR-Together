@@ -17,6 +17,7 @@ namespace SULFURTogether.Patches
             LevelGenTracePatches.Apply(harmony);
             BossEncounterPatches.Apply(harmony);
             Networking.Gameplay.Boss.BossMusicSync.Apply(harmony); // BM-1 — boss music cues reach every end
+            RoomIsolationPatches.Apply(harmony);        // ISO-1 — a room isolation only for a player inside it
             BossSpawnPatches.Apply(harmony);
             CousinArmPatches.Apply(harmony);
             DeathSpawnSyncPatches.Apply(harmony);
