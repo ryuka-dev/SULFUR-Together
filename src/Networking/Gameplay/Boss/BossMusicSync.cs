@@ -30,6 +30,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
     /// (trigger, op) and every occurrence runs once per end, whichever arrives first: a prefix on the client skips a
     /// local call whose occurrence the mirror already played, and the mirror skips an occurrence the client already
     /// played. A boss that legitimately repeats a cue (PlayNextSong at each phase) keeps every repeat.</para>
+    /// <para>BM-2: a trigger that sits on a unit moves with it (Cousin's MusicTrigger is a component of the boss itself,
+    /// and its PlayBossMusic fires during the entrance), so such a trigger is addressed by the unit's cross-end identity
+    /// — host SpawnIndex, unit identifier as a type guard, and its index among the unit's MusicTriggers — and only a
+    /// trigger fixed in the scene is matched by position.</para>
     /// </summary>
     internal static class BossMusicSync
     {
@@ -143,15 +147,45 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 int ordinal = (_hostOrdinal.TryGetValue(key, out int o) ? o : 0) + 1;
                 _hostOrdinal[key] = ordinal;
                 float arg = ArgOf(op, __args);
+                string name = EventPrefix + (int)op + ":" + ordinal + ":" + arg.ToString("R", CultureInfo.InvariantCulture);
+                // BM-2: a trigger that sits on a unit (Cousin's is on the boss itself) moves with it, so it is addressed
+                // through the unit's cross-end identity instead of its position.
+                string owner = "";
+                if (TryGetOwnerAddress(__instance, out int hostIdx, out int childIdx, out string unitId))
+                {
+                    name += ":" + hostIdx + ":" + childIdx + ":" + unitId;
+                    owner = $" unit=#{hostIdx}/{childIdx} {unitId}";
+                }
                 NetGameplaySyncBridge.BroadcastHostBossDiscreteEvent(new NetBossDiscreteEvent
                 {
-                    EventName = EventPrefix + (int)op + ":" + ordinal + ":" + arg.ToString("R", CultureInfo.InvariantCulture),
+                    EventName = name,
                     HasPos = true, Position = pos,
                     ChapterName = run.ChapterName, LevelIndex = run.LevelIndex, HasSeed = run.HasLevelSeed, Seed = run.LevelSeed,
                 });
-                Plugin.Log.Info($"[BossMusic] host broadcast {__originalMethod.Name} #{ordinal} arg={arg} trigger={__instance.name} pos={pos:F1} boss={boss}");
+                Plugin.Log.Info($"[BossMusic] host broadcast {__originalMethod.Name} #{ordinal} arg={arg} trigger={__instance.name} pos={pos:F1}{owner} boss={boss}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[BossMusic] capture failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>HOST: the trigger's owning unit (host SpawnIndex + unit identifier) and which of that unit's
+        /// MusicTriggers it is, when it sits on one.</summary>
+        private static bool TryGetOwnerAddress(Component trigger, out int hostIdx, out int childIdx, out string unitId)
+        {
+            hostIdx = 0; childIdx = -1; unitId = "";
+            Npc? npc = trigger.GetComponentInParent<Npc>();
+            if (npc == null || !NetGameplayProbeManager.TryGetHostEntityBinding(npc, out hostIdx, out unitId) || hostIdx <= 0) return false;
+            childIdx = Array.IndexOf(npc.GetComponentsInChildren(_musicTriggerType!, true), trigger);
+            return childIdx >= 0;
+        }
+
+        /// <summary>CLIENT: the trigger at that address on this end's bound puppet, or null.</summary>
+        private static Component? FindTriggerOnUnit(int hostIdx, int childIdx, string unitId)
+        {
+            if (!NetGameplayProbeManager.TryGetHostBoundRuntimeObject(hostIdx, out object? obj) || !(obj is Npc npc) || npc == null) return null;
+            if (!NetGameplayProbeManager.TryGetClientPuppetBinding(npc, out _, out string localUnitId)
+                || !string.Equals(localUnitId, unitId, StringComparison.Ordinal)) return null; // a stale index on another kind of unit
+            var triggers = npc.GetComponentsInChildren(_musicTriggerType!, true);
+            return childIdx >= 0 && childIdx < triggers.Length ? triggers[childIdx] : null;
         }
 
         private static float ArgOf(Op op, object[] args)
@@ -197,8 +231,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (!NetSceneName.SameScene(msg.ChapterName, msg.LevelIndex, run.ChapterName, run.LevelIndex)) return;
                 if (msg.HasSeed && run.HasLevelSeed && msg.Seed != run.LevelSeed) return;
 
-                var parts = msg.EventName.Substring(EventPrefix.Length).Split(':');
-                if (parts.Length != 3
+                // "op:ordinal:arg" for a trigger in the scene, "op:ordinal:arg:hostIdx:childIdx:unitId" for one on a unit
+                // (the unit identifier is last and taken whole, so it may contain ':').
+                var parts = msg.EventName.Substring(EventPrefix.Length).Split(new[] { ':' }, 6);
+                if ((parts.Length != 3 && parts.Length != 6)
                     || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int opValue)
                     || !Enum.IsDefined(typeof(Op), opValue)
                     || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int ordinal) || ordinal <= 0
@@ -207,11 +243,26 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 var op = (Op)opValue;
                 if (!_methods.TryGetValue(op, out var method)) return;
 
-                Component? trigger = FindTrigger(msg.Position);
-                if (trigger == null)
+                Component? trigger;
+                if (parts.Length == 6)
                 {
-                    Plugin.Log.Info($"[BossMusic] client has no MusicTrigger near {msg.Position:F1} for {method.Name} #{ordinal}");
-                    return;
+                    if (!int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out int hostIdx) || hostIdx <= 0
+                        || !int.TryParse(parts[4], NumberStyles.Integer, CultureInfo.InvariantCulture, out int childIdx) || childIdx < 0) return;
+                    trigger = FindTriggerOnUnit(hostIdx, childIdx, parts[5]);
+                    if (trigger == null)
+                    {
+                        Plugin.Log.Info($"[BossMusic] client has no MusicTrigger #{childIdx} on unit #{hostIdx} ({parts[5]}) for {method.Name} #{ordinal}");
+                        return;
+                    }
+                }
+                else
+                {
+                    trigger = FindTrigger(msg.Position);
+                    if (trigger == null)
+                    {
+                        Plugin.Log.Info($"[BossMusic] client has no MusicTrigger near {msg.Position:F1} for {method.Name} #{ordinal}");
+                        return;
+                    }
                 }
                 long key = Key(trigger, op);
                 int played = _played.TryGetValue(key, out int p) ? p : 0;
