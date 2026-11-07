@@ -140,7 +140,9 @@ null for a remote hit.
 
 - Raised on the main thread; never offline or on the host. On the host, the game's own damage call is the event.
 - A subscriber that throws is logged; the other subscribers and SULFUR Together carry on.
-- Per peer, requests and results travel reliable-ordered; `RequestSeq` increases for the life of the game process.
+- Per peer, requests and results travel reliable-ordered on their own channel; `RequestSeq` increases for the life of
+  the game process. Other host messages (the enemy's death, its health) travel on another channel, so a `Killed`
+  result can arrive while the enemy is still alive locally, or after its local death.
 - Not reported: damage-over-time ticks (the host runs the status; a client never forwards a tick), damage the game
   deals to *other* units inside a client's hit (Voodoo spread to linked enemies, thorns), hits on other players
   (friendly fire has its own path), and the client's own hits on objects it owns locally.

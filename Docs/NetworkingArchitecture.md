@@ -154,6 +154,19 @@ Used for: per-frame position/rotation/animator bulk snapshots. Dropped packets r
 
 **Interest management:** Far enemies (>40u from host player) are sent at `EnemyFarSnapshotHz` (default 2 Hz) instead of every probe tick. Enemies with active combat actions skip the rate limit.
 
+### Layer 1b — Combat channel (HR-6)
+
+Used for: a client's hit requests, the host's per-request results and ST-1 on-hit status requests.
+
+**Properties:** LiteNetLib channel 1, ReliableOrdered (`NetManager.ChannelsCount = 2`; everything else stays on
+channel 0). One reliable-ordered queue per channel, so a lost datagram in a fight holds up only this traffic, not
+deaths, boss events or level traffic, and the other way round. The three share the channel because their relative
+order matters: an on-hit status must reach the host before its hit, and results come back in request order. Between
+channels there is no order: a client can see a kill's result before or after the host's death event. A client sends
+on it only after the host accepted its handshake; the host refuses it from a peer it has not registered.
+
+**Messages:** `ClientHitRequest`, `HostHitResult`, `ClientUnitStatusRequest`
+
 ### Layer 3 — Ordered State (Roster/Session)
 
 Used for: connection lifecycle, scene roster, join/leave.

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-**Network protocol 39 → 40: everyone in a session must update together.**
+**Network protocol 39 → 41: everyone in a session must update together.**
 
 **Changed:**
 - **A client's hits now follow the game's damage rules.** The host used to subtract the raw number a client's weapon

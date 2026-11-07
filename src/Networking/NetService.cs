@@ -102,7 +102,7 @@ namespace SULFURTogether.Networking
             _listener.NetworkReceiveEvent    += OnNetworkReceive;
             _listener.PeerDisconnectedEvent  += OnPeerDisconnected;
 
-            _net = new NetManager(_listener) { AutoRecycle = true };
+            _net = new NetManager(_listener) { AutoRecycle = true, ChannelsCount = ChannelCount };
 
             if (mode == NetMode.Host)
             {
@@ -1123,12 +1123,12 @@ namespace SULFURTogether.Networking
         // ST-1: client→host on-hit status modifiers (weapon enchantment) against a host-bound puppet enemy.
         internal void SendClientUnitStatusRequest(Gameplay.NetClientUnitStatusRequest req)
         {
-            if (_mode != NetMode.Client || _net == null || _hostPeer == null || req == null) return;
+            if (_mode != NetMode.Client || _net == null || _hostPeer == null || req == null || !HostAcceptedUs) return;
             try
             {
                 var w = NetMessage.For(NetMessageType.ClientUnitStatusRequest);
                 Gameplay.NetUnitStatusCodec.WriteClientRequest(w, req);
-                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+                _hostPeer.Send(w, CombatChannel, DeliveryMethod.ReliableOrdered); // HR-6: same channel as the hit it precedes
             }
             catch (Exception ex) { NetLogger.Warn($"[UnitStatus] failed to send ClientUnitStatusRequest: {ex.Message}"); }
         }
@@ -1141,7 +1141,13 @@ namespace SULFURTogether.Networking
                 NetLogger.Warn("[UnitStatus] malformed ClientUnitStatusRequest packet");
                 return;
             }
-            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            // HR-6: refuse a peer that has not completed the handshake (on its own channel a status request can now
+            // overtake the HandshakeRequest); the applier must be that peer's stand-in, never a guess.
+            if (!_peerIds.TryGetValue(peer, out var peerId))
+            {
+                NetLogger.Warn($"[UnitStatus] Ignoring status request from unregistered peer {peer.Address}");
+                return;
+            }
             Gameplay.UnitStatusSyncManager.HandleClientStatusRequest(req, peerId);
         }
 
@@ -3887,12 +3893,27 @@ namespace SULFURTogether.Networking
         // Phase 5.3-B: Client → Host hit request
         // ----------------------------------------------------------------
 
+        // HR-6: LiteNetLib keeps one reliable-ordered queue per channel, so one lost datagram holds up everything sent
+        // after it on that channel until it is resent. The client's hit traffic (hit requests, ST-1 status requests and
+        // the host's results) is the bulk of what a client sends in a fight; on its own channel a loss there no longer
+        // delays deaths, boss events or level traffic on channel 0, and vice versa. The three stay on ONE channel
+        // together: an on-hit status must reach the host before the hit it came with, and results keep request order.
+        // Both ends must use the same count — a peer on another protocol version (41+) is refused at the handshake.
+        // Results and deaths now travel separately, so a client may see the killing hit's result before or after the
+        // host's death event (ClientHitTracker handles both). The client sends on this channel only once the host has
+        // accepted its handshake: before that the host does not know the peer.
+        private const byte ChannelCount = 2;
+        private const byte CombatChannel = 1;
+
+        /// <summary>Client: the host has accepted our handshake (it maps the host peer to its session id then).</summary>
+        private bool HostAcceptedUs => _hostPeer != null && _peerIds.ContainsKey(_hostPeer);
+
         internal void SendClientHitRequest(NetClientHitRequest request)
         {
             if (_mode != NetMode.Client || _net == null) return;
             if (!Plugin.Cfg.EnableClientHitRequest.Value) return;
             if (request == null) return;
-            if (_hostPeer == null) return;
+            if (_hostPeer == null || !HostAcceptedUs) return;
 
             try
             {
@@ -3900,8 +3921,8 @@ namespace SULFURTogether.Networking
                 NetClientHitRequestCodec.Write(w, request);
                 // HR-1: ordered, on the channel ST-1's status request uses — vanilla applies an on-hit status before the
                 // damage, so the host must see the status (e.g. Crusader) before it settles the hit, and results come
-                // back in request order.
-                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
+                // back in request order. HR-6: that is the combat channel.
+                _hostPeer.Send(w, CombatChannel, DeliveryMethod.ReliableOrdered);
             }
             catch (Exception ex)
             {
@@ -3948,7 +3969,7 @@ namespace SULFURTogether.Networking
             {
                 var w = NetMessage.For(NetMessageType.HostHitResult);
                 NetHostHitResultCodec.Write(w, result);
-                peer.Send(w, DeliveryMethod.ReliableOrdered);
+                peer.Send(w, CombatChannel, DeliveryMethod.ReliableOrdered);
             }
             catch (Exception ex) { NetLogger.Warn($"[ClientHit] failed to send HostHitResult to {peerId}: {ex.Message}"); }
         }

@@ -25,8 +25,9 @@ namespace SULFURTogether.Networking.Gameplay
     ///
     /// <para>Kill credit: the client's existing XP credit point (a host death applied to a puppet the local player hit)
     /// calls <see cref="OnLocalKill"/> once the local death has run. If hits on that target are still unresolved — the
-    /// host's death event normally overtakes the result of the hit that caused it — the credit waits until they
-    /// resolve, so it fires after the killing hit's resolution and can say whether it was the killing blow. Boss-kind
+    /// host's death event and the result of the hit that caused it travel on different channels and arrive in either
+    /// order — the credit waits until they resolve, so it fires after the killing hit's resolution and can say whether
+    /// it was the killing blow. Boss-kind
     /// targets (no XP credit on this end) are credited from a Killed result, only for a unit of the game's Boss type and
     /// at most once per unit per level.</para>
     ///

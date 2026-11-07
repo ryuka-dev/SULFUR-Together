@@ -41,7 +41,10 @@ namespace SULFURTogether.Networking
         //     real ReceiveDamage) and HostHitResult (105) sent back to the requester; HR-1b routes boss / Emperor worm and
         //     spider / corpse hits through it too and retires ClientEmperorWormHit (60), ClientEmperorSpiderHit (66) and
         //     ClientCorpseHit (104); ClientBossHitRequest (34) carries absorb-feed reports only. Wire shape and set must match.
-        public const int    ProtocolVersion  = 40;
+        // 41: HR-3 ClientHitRequest v3 (projectile count) / HostHitResult v2 (lifesteal amounts); HR-6 a second LiteNetLib
+        //     channel for hit requests, results and ST-1 status requests. A peer with one channel silently drops what
+        //     arrives on the second (no ack, endless resend), so both ends must be on this version.
+        public const int    ProtocolVersion  = 41;
 
         /// <summary>The game build this process runs (Unity's Application.version, e.g. "1.0.2"). Read once on the main
         /// thread at first use; the handshake is written and read from the main-thread network poll.</summary>
