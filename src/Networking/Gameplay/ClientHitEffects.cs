@@ -33,6 +33,12 @@ namespace SULFURTogether.Networking.Gameplay
     /// through the host like the organs a client already rolls when it shoots a corpse; that roll stays the shooter's,
     /// as in single player. Hits on a body that is already dead before they are fired stay local and roll there as
     /// before.</item>
+    /// <item><b>Statuses the enemy puts on its attacker (HR-7).</b> A <c>DamageReverser</c> on an enemy (an
+    /// <c>onDamageRecieved</c> handler) puts its status on the player who hit it, through <c>sourceUnit.PlayerUnit</c> —
+    /// the local player of whichever machine runs it, and only for a hit with <c>isPlayer</c>. On the host a client's
+    /// hit has neither, and the attacker's player is the client's own state anyway, so the handler of the enemy's
+    /// local copy runs here, once per damage instance the host applied (the hit and each secondary), with this player
+    /// as the attacker. Not while this player is downed.</item>
     /// </list>
     /// </summary>
     internal static class ClientHitEffects
@@ -41,6 +47,79 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static System.Reflection.MethodInfo? _createDamageEffects;
         private static bool _createDamageEffectsResolved;
+
+        public static int TargetReactions;
+        private static Type? _reverserType;
+        private static System.Reflection.MethodInfo? _reverserOnDamage;
+        private static bool _reverserResolved;
+        // The enemy's DamageReverser components, looked up once per local unit (instance id); cleared with the level.
+        private static readonly System.Collections.Generic.Dictionary<int, UnityEngine.Component[]> _reversersByUnit
+            = new System.Collections.Generic.Dictionary<int, UnityEngine.Component[]>();
+
+        /// <summary>Level change: the cached components belong to units torn down with the level.</summary>
+        public static void ClearLevel() => _reversersByUnit.Clear();
+
+        /// <summary>Run the enemy-side handlers that react to the attacking player for one resolved hit.</summary>
+        public static void ApplyTargetReactions(object? localTarget, NetHostHitResult r, NetHitInput hit)
+        {
+            try
+            {
+                if (r == null || r.Outcome != NetHitOutcome.Applied) return;
+                if (!(localTarget is Unit unit) || unit == null) return;
+                var reversers = ReversersOf(unit);
+                if (reversers.Length == 0) return;
+                Unit? player = LocalPlayer();
+                if (player == null) return;
+
+                var sd = new DamageSourceData
+                {
+                    name       = "CoopAppliedHit",
+                    isPlayer   = true,
+                    melee      = hit.Melee,
+                    damageType = (DamageTypes)r.DamageType,
+                    sourceUnit = player,
+                    states     = new AttackStates { factionId = FactionIds.Player },
+                };
+                Invoke(reversers, unit, r.Damage, sd);
+                if (r.Secondary != null)
+                    foreach (var s in r.Secondary)
+                        // onDamageRecieved fires only for an instance that took health (not for one the game blocked).
+                        if (s.HealthRemoved > 0f) { sd.damageType = (DamageTypes)s.DamageType; Invoke(reversers, unit, s.Damage, sd); }
+            }
+            catch (Exception ex) { NetLogger.Warn($"[ClientHit] target reactions failed seq={r?.RequestSeq}: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static void Invoke(UnityEngine.Component[] reversers, Unit unit, float damage, DamageSourceData sd)
+        {
+            foreach (var c in reversers)
+            {
+                // Vanilla subscribes the handler in OnEnable and removes it in OnDisable.
+                if (!(c is UnityEngine.Behaviour b) || b == null || !b.isActiveAndEnabled) continue;
+                try { _reverserOnDamage!.Invoke(c, new object?[] { unit, damage, sd, null }); TargetReactions++; }
+                catch (Exception ex) { NetLogger.Warn($"[ClientHit] DamageReverser on {unit.name} threw: {(ex.InnerException ?? ex).GetType().Name}: {(ex.InnerException ?? ex).Message}"); }
+            }
+        }
+
+        private static UnityEngine.Component[] ReversersOf(Unit unit)
+        {
+            if (!_reverserResolved)
+            {
+                _reverserResolved = true;
+                _reverserType = HarmonyLib.AccessTools.TypeByName("PerfectRandom.Sulfur.Gameplay.DamageReverser");
+                _reverserOnDamage = _reverserType == null ? null : HarmonyLib.AccessTools.Method(_reverserType, "OnDamageReceived");
+                if (_reverserOnDamage == null) NetLogger.Warn("[ClientHit] DamageReverser.OnDamageReceived not found — its status does not reach a client");
+            }
+            if (_reverserType == null || _reverserOnDamage == null) return Array.Empty<UnityEngine.Component>();
+            int id = unit.GetInstanceID();
+            if (_reversersByUnit.TryGetValue(id, out var found)) return found;
+            // Vanilla: the component subscribes to GetComponentInParent<Npc>(), i.e. it sits on the unit or below it.
+            var all = unit.GetComponentsInChildren(_reverserType, true);
+            var mine = new System.Collections.Generic.List<UnityEngine.Component>();
+            foreach (var c in all) if (c != null && c.GetComponentInParent<Npc>() == unit) mine.Add(c);
+            found = mine.ToArray();
+            _reversersByUnit[id] = found;
+            return found;
+        }
 
         /// <summary>Apply the lifesteal amounts of one resolved hit to the local player.</summary>
         public static void ApplyLifesteal(object? localTarget, NetHostHitResult r)
@@ -146,7 +225,7 @@ namespace SULFURTogether.Networking.Gameplay
             return false;
         }
 
-        public static string FormatSummary() => $"lifestealCalls={LifestealCalls} killsCounted={KillsCounted} killingHitEffects={KillingHitEffects}";
+        public static string FormatSummary() => $"lifestealCalls={LifestealCalls} killsCounted={KillsCounted} killingHitEffects={KillingHitEffects} targetReactions={TargetReactions}";
 
         private static Unit? LocalPlayerAnyState()
         {

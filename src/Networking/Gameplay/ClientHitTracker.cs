@@ -192,7 +192,10 @@ namespace SULFURTogether.Networking.Gameplay
                 r.HitMultiplier, r.WasAlive, r.Killed, secondary);
             if (epoch != _epoch) return;
             // HR-3: the end-of-hit effect the game gives the attacker (lifesteal), after the seq has its resolution.
-            ClientHitEffects.ApplyLifesteal(p.Target is UnityEngine.Object lt && lt == null ? null : p.Target, r);
+            object? liveTarget = p.Target is UnityEngine.Object lt && lt == null ? null : p.Target;
+            ClientHitEffects.ApplyLifesteal(liveTarget, r);
+            if (epoch != _epoch) return;
+            ClientHitEffects.ApplyTargetReactions(liveTarget, r, p.Hit); // HR-7
             if (epoch != _epoch) return;
             TryFlushKill(p.TargetId);
         }
@@ -251,6 +254,7 @@ namespace SULFURTogether.Networking.Gameplay
         /// but no kill is credited from inside a teardown. Then all state is dropped.</summary>
         public static void Reset()
         {
+            ClientHitEffects.ClearLevel();
             _kills.Clear();
             _pendingByTarget.Clear();
             _credited.Clear();
@@ -272,6 +276,7 @@ namespace SULFURTogether.Networking.Gameplay
         public static void ClearLevel()
         {
             _credited.Clear();
+            ClientHitEffects.ClearLevel();
         }
 
         public static string FormatSummary()

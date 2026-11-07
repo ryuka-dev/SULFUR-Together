@@ -39,6 +39,9 @@ namespace SULFURTogether.Networking.Gameplay
 
         private readonly Dictionary<string, Ghost> _ghosts = new Dictionary<string, Ghost>();
 
+        /// <summary>Height of the stand-in's camera root above its feet (its eyes for detection and cover).</summary>
+        internal const float CameraRootHeight = 1.6f;
+
         /// <summary>HOST: the live ghost-player target Units by peer id (static so other host systems — e.g. Endless
         /// targeting, whose enemies use overridetargets instead of the hostilesInLOS scan — can add them as targets).</summary>
         internal static readonly Dictionary<string, object> GhostUnitsByPeer = new Dictionary<string, object>();
@@ -229,7 +232,7 @@ namespace SULFURTogether.Networking.Gameplay
                 // cameraRoot: LOS ray origin used by BatchedNPCRaycasts (players[j].cameraRoot.position).
                 var eyes = new GameObject("cameraRoot");
                 eyes.transform.SetParent(go.transform, false);
-                eyes.transform.localPosition = new Vector3(0f, 1.6f, 0f);
+                eyes.transform.localPosition = new Vector3(0f, CameraRootHeight, 0f);
 
                 // Headless Player — DISABLED so Start/OnEnable/Update never run.
                 var player = (Component)go.AddComponent(_playerType!);

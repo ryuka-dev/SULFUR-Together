@@ -22,9 +22,9 @@ namespace SULFURTogether.Patches
     /// attacker unit's <c>isPlayer</c>, so the stand-in's flag is raised for the duration of the call and put back.</item>
     /// </list>
     /// Each prefix is a no-op outside a remote resolution, and for damage that is not the remote peer's own hit.
-    /// Deliberately not covered: <c>DamageReverser</c> (it applies its status to the local player unit, i.e. the host's;
-    /// there is no path yet to apply a status to a remote player), Terrorbaum's projectile absorb (synced by
-    /// <c>TerrorbaumMechanicSync</c>). The AI alert at the end of <c>ReceiveDamage</c> is reproduced by
+    /// Not here: <c>DamageReverser</c> puts its status on the local player unit, which on the host is the host's; the
+    /// client runs it on its own copy of the enemy instead (<see cref="ClientHitEffects"/>, HR-7). Terrorbaum's
+    /// projectile absorb is synced by <c>TerrorbaumMechanicSync</c>. The AI alert at the end of <c>ReceiveDamage</c> is reproduced by
     /// <see cref="RemoteHitResolver"/>; organ drops are rolled on the client (<see cref="ClientHitEffects"/>).
     /// </summary>
     internal static class RemoteHitReactionPatches
