@@ -24,7 +24,7 @@ Each block is host-authoritative. "msg N" = `NetMessageType` value.
 
 | Block | What it does | Shared mechanism | Bosses using it |
 |-------|--------------|------------------|-----------------|
-| **Damage authority** | client hit → host applies real `ReceiveDamage` (fires `onDamageRecieved`, advances the real mechanic) | `BossDamageReflect.TryApplyRealDamage` (source = `GameManager.Instance.PlayerUnit`) | Witch/Lucia/Cousin via `TryClientBossHit`→`ClientBossHitRequest`(34); Emperor via bespoke `ClientEmperorWormHit`(60) |
+| **Damage authority** | client hit → host applies real `ReceiveDamage` (fires `onDamageRecieved`, advances the real mechanic) | `RemoteHitResolver.Resolve` (HR-1b; source = the client's ghost, `isPlayer=false`; the adapter's `TryGetHostHitInvoker` may wrap the call in a native gate) | Witch/Lucia/Cousin/Terrorbaum via `TryClientBossHit`; Emperor worm tail and spider via their own claimers — all as `ClientHitRequest` (24) v2 kinds, answered by `HostHitResult` (105) |
 | **Target resolution** | which unit a client hit maps to (main / eye / arm / tail / dome) | adapter `ResolveHitTargetRole` / `ResolveHostTargetForRole` | per-boss (this is the *only* damage part that isn't shared) |
 | **Death authority** | host death → broadcast → client **replays the real death method** + terminal-suppression flag | replay native `Die()`/death coroutine; `_terminalDead` (Emperor: `_clientDeathApplied`) | all four |
 | **Discrete event mirror** | host does mechanic X (+ optional position) → client replays native X instead of its own RNG | `NetBossDiscreteEvent`(36) — generic carrier (`EventName` + optional pos + seq) | Cousin pool moves + CousinDeath; **candidate carrier Emperor should have used** for 58/59 |
@@ -85,7 +85,7 @@ multi-section body with no TriggerFight/dialog start hook in the boss code**. It
 - **EMP-3b/3c** section-destroy (58) / death+`StartPhase2` (59) — replay native `DestroySection` /
   `DeathAnimation`. *Could* have ridden `NetBossDiscreteEvent`(36); used bespoke messages because the Emperor is
   not a registered encounter (no `EncounterKey`).
-- **EMP-3d** damage authority (60) — bespoke single-target route because it bypasses the encounter/roster path
+- **EMP-3d** damage authority — a single-target route because it bypasses the encounter/roster path (msg 60 until HR-1b; now a `ClientHitRequest` EmperorWormTail kind)
   (the runtime-spawned tail quarantines as "client-only"). Still calls the shared `BossDamageReflect`.
 - **EMP-4** fight-start (dialog) authority (61 client-request / 62 host-commit) — host-authoritative gate on
   `StartMovement` (the dialog-choice fight-start, §4a). A linked client blocks its own local start and requests;

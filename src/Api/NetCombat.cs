@@ -152,11 +152,12 @@ namespace SULFURTogether.Api
     /// without sending (an already dead target, a not-yet-bound unit) raises nothing.
     /// <see cref="LocalKillCredited"/> fires at most once per enemy, after the local death and after the resolution of
     /// every hit on it — so after the killing hit's; never from inside a session teardown. For bosses it fires from the
-    /// killing hit, for the boss unit itself only (not a phase illusion or a worm section).</para>
+    /// killing hit's result, for a unit of the game's Boss type only (not a phase illusion or a worm section).</para>
     ///
-    /// <para><b>Corpse hits.</b> A hit on a host-owned body (shattering a frozen corpse, blowing one up) is forwarded
-    /// too and resolves <see cref="HitOutcome.TargetDead"/> with Damage 0; whether the body burst arrives through the
-    /// game's own gib effect. Such hits never delay a kill credit.</para>
+    /// <para><b>Corpse hits.</b> A hit that can burst a host-owned body (on a frozen-solid corpse, or Explosive damage
+    /// above 75) is forwarded too and resolves <see cref="HitOutcome.TargetDead"/> with Damage 0, or Rejected when the
+    /// host refuses it; whether the body burst shows through the game's own gib effect. Other hits on a body stay local
+    /// and raise nothing. Corpse hits never delay a kill credit.</para>
     ///
     /// <para>Nothing is raised offline or on the host — there the game's own damage call runs and is the event.</para>
     ///

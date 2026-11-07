@@ -244,6 +244,9 @@ wrong once the worm is head-streamed** — the runtime-spawned tail gets quarant
 reach the host (see §8.8). Implemented instead as a dedicated single-target route, **EMP-3d** (`ClientEmperorWormHit`,
 msg 60 → `BossDamageReflect.TryApplyRealDamage` on the host's `lastSectionNpc`), bypassing the roster bind.
 
+> **Superseded by HR-1b:** the worm tail and spider hits now travel as `ClientHitRequest` v2 (kinds EmperorWormTail / EmperorSpider) and are settled by `RemoteHitResolver` with the client's ghost as the source; msgs 60 and 66 are retired and `BossDamageReflect.TryApplyRealDamage` is no longer used for them.
+
+
 ### 7.6 Death + phase-2 handoff
 Host drives real death; broadcasts terminal + `StartPhase2` trigger; client plays visual death and takes
 the handoff. Phase 2 (spider) authority is a separate effort (§9).
@@ -465,6 +468,9 @@ through EMP-3b/3c. This bypasses the fragile roster bind/quarantine entirely. In
 `EnsureWormVisualOnly`), so the tail is the only worm part the client can hit anyway. `[EmperorWorm] client -> host
 worm hit …` / `host applied client worm hit …`. Build 0 err, deployed — **pending real-match verification** (the
 first test that can actually reach a section kill + worm death, which then also validates EMP-3b/3c).
+
+> **Superseded by HR-1b:** the worm tail and spider hits now travel as `ClientHitRequest` v2 (kinds EmperorWormTail / EmperorSpider) and are settled by `RemoteHitResolver` with the client's ghost as the source; msgs 60 and 66 are retired and `BossDamageReflect.TryApplyRealDamage` is no longer used for them.
+
 
 ### (c) Host frame hitch — NOT caused by EMP-3b/3c; the EMP-2 native-physics spiral, now on the host
 The host dropped to 1–3 fps (`[EmperorWormFrame]` dt=1000–3400 ms) in the 2nd/3rd encounters, escalating per
@@ -712,6 +718,9 @@ animation-event-driven and run per-end) rather than re-deriving. Loot / checkpoi
   (per-end cosmetic + host-authoritative player damage) or needs host-authoritative rocket spawn.
 - **Death:** host-authoritative two-stage death; mirror `OnNpcDeath` (replay native), converge the walk via the
   position stream, suppress client loot/checkpoint.
+
+> **Superseded by HR-1b:** the worm tail and spider hits now travel as `ClientHitRequest` v2 (kinds EmperorWormTail / EmperorSpider) and are settled by `RemoteHitResolver` with the client's ghost as the source; msgs 60 and 66 are retired and `BossDamageReflect.TryApplyRealDamage` is no longer used for them.
+
 
 ### 9.6 EMP-6a probe — `EmperorSpiderDiagnostics` (observe-only, `EnableEmperorSpiderDiagnostics` + `LogBossEncounter`)
 Postfix-only, tagged `side=host/client`. Captures: **`Awake`** (one-shot manifest: legs L/R, waypoints, npc UnitId,

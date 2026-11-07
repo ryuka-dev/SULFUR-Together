@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+**Network protocol 39 → 40: everyone in a session must update together.**
+
+**Changed:**
+- **A client's hits now follow the game's damage rules.** The host used to subtract the raw number a client's weapon
+  dealt. It now runs every client hit through the game's own damage calculation: critical hits, headshots and
+  body-part multipliers, resistances, armoured and invulnerable parts, parries, and enchantments that trigger on
+  hit — Crusader's holy damage now lands for a client too. A few enemy reactions (alerting nearby enemies when shot
+  from cover, some blocking stances) still only notice the host's own shots.
+- **Body-part damage applies to clients.** This is a balance change: a client's shot to an arm or leg now does a
+  quarter of its damage and a body shot half, exactly as for the host, while an eye shot does more. Aim matters for
+  everyone now.
+- **A client's boss hits are no longer credited to the host.** A client's hits on bosses, the Emperor's worm and
+  spider were applied as if the host had fired them: the host's weapon could gain the experience, the host's kill
+  count went up, and the host's life steal drew on them. None of that happens any more.
+- **Enemy health catches up after a burst.** A client's view of an enemy's health could stay behind after a quick
+  series of hits.
+- **A charmed enemy follows the player who charmed it,** rather than always the host.
+
+**For mod authors:** `SULFURTogether.Api.NetCombat` reports, on a client, how the host settled each of the client's
+hits — final damage, critical hit, body part, kills and assists — and tells a mod on the host when damage belongs to
+a remote player. See `Docs/NetCombatApi.md` in the repository.
+
 ## 1.6.0 — SULFUR 1.0.4, and hearing each other
 
 You can finally hear your teammates. Their gunfire, the hum of a beam weapon, melee swings and throws
