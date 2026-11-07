@@ -27,6 +27,7 @@ namespace SULFURTogether.Networking.Gameplay
         public byte  DamageType;
         public bool  IsCritical;
         public bool  Killed;          // this inner call took the unit from alive to dead
+        public float GaveDamage;      // HR-3: what the game passed to the requester's OnGaveDamage for this call
     }
 
     /// <summary>
@@ -49,13 +50,19 @@ namespace SULFURTogether.Networking.Gameplay
         public bool          WasAlive;
         /// <summary>Settling this request (its own damage or a secondary instance) took the unit from alive to dead.</summary>
         public bool          Killed;
+        /// <summary>HR-3: the amount the game passed to the requester's <c>Unit.OnGaveDamage</c> (its lifesteal hook)
+        /// for this request's own call — on the host that is the requester's stand-in unit, which has no lifesteal, so
+        /// the client applies it to its own player. 0 when the game did not call it.</summary>
+        public float         GaveDamage;
+        /// <summary>HR-3: the same for damage the hit dealt to OTHER units (Voodoo shares on linked enemies), summed.</summary>
+        public float         GaveDamageOther;
         public List<NetHostHitSecondary>? Secondary;
 
         public const int MaxSecondary = 8;
 
         public string ToCompact()
             => $"seq={RequestSeq} outcome={Outcome} dmg={Damage:F1} hpRemoved={HealthRemoved:F1} incoming={IncomingDamage:F1} " +
-               $"type={DamageType} crit={IsCritical} shape=0x{ShapeId:X4} mult={HitMultiplier:F2} wasAlive={WasAlive} killed={Killed} " +
+               $"type={DamageType} crit={IsCritical} shape=0x{ShapeId:X4} mult={HitMultiplier:F2} wasAlive={WasAlive} killed={Killed} gave={GaveDamage:F1}/{GaveDamageOther:F1} " +
                $"secondary={DescribeSecondary()}";
 
         private string DescribeSecondary()
@@ -67,7 +74,7 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 var x = Secondary[i];
                 if (i > 0) sb.Append(' ');
-                sb.Append($"{x.Damage:F1}/{x.HealthRemoved:F1}t{x.DamageType}{(x.IsCritical ? "c" : "")}{(x.Killed ? "k" : "")}");
+                sb.Append($"{x.Damage:F1}/{x.HealthRemoved:F1}t{x.DamageType}{(x.IsCritical ? "c" : "")}{(x.Killed ? "k" : "")}{(x.GaveDamage > 0f ? $"g{x.GaveDamage:F1}" : "")}");
             }
             return sb.Append(']').ToString();
         }
@@ -75,7 +82,8 @@ namespace SULFURTogether.Networking.Gameplay
 
     internal static class NetHostHitResultCodec
     {
-        public const byte Version = 1;
+        // 2: HR-3 added GaveDamage / GaveDamageOther and the per-secondary GaveDamage.
+        public const byte Version = 2;
 
         public static void Write(NetDataWriter w, NetHostHitResult m)
         {
@@ -91,6 +99,8 @@ namespace SULFURTogether.Networking.Gameplay
             w.Put(m.HitMultiplier);
             w.Put(m.WasAlive);
             w.Put(m.Killed);
+            w.Put(m.GaveDamage);
+            w.Put(m.GaveDamageOther);
             int n = m.Secondary == null ? 0 : System.Math.Min(m.Secondary.Count, NetHostHitResult.MaxSecondary);
             w.Put((byte)n);
             for (int i = 0; i < n; i++)
@@ -101,6 +111,7 @@ namespace SULFURTogether.Networking.Gameplay
                 w.Put(s.DamageType);
                 w.Put(s.IsCritical);
                 w.Put(s.Killed);
+                w.Put(s.GaveDamage);
             }
         }
 
@@ -123,6 +134,8 @@ namespace SULFURTogether.Networking.Gameplay
                     HitMultiplier  = r.GetFloat(),
                     WasAlive       = r.GetBool(),
                     Killed         = r.GetBool(),
+                    GaveDamage     = r.GetFloat(),
+                    GaveDamageOther = r.GetFloat(),
                 };
                 if (m.Outcome < NetHitOutcome.Applied || m.Outcome > NetHitOutcome.TargetDead) return false;
                 int n = r.GetByte();
@@ -139,9 +152,11 @@ namespace SULFURTogether.Networking.Gameplay
                             DamageType    = r.GetByte(),
                             IsCritical    = r.GetBool(),
                             Killed        = r.GetBool(),
+                            GaveDamage    = r.GetFloat(),
                         });
                     }
                 }
+                if (r.AvailableBytes != 0) return false;
                 result = m;
                 return true;
             }

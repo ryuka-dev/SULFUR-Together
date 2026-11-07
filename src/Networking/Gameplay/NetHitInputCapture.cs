@@ -62,6 +62,7 @@ namespace SULFURTogether.Networking.Gameplay
                 CaliberType            = (byte)sd.projectile.caliberType,
                 ProjectileEffect       = (int)sd.projectile.effect,
                 GhostBonus             = ReadGhostBonus(target, sd),
+                ProjectileCount        = ReadProjectileCount(sd),
             };
 
             if (hasPos && target is Component c && c != null)
@@ -70,6 +71,19 @@ namespace SULFURTogether.Networking.Gameplay
                 hit.HitOffset    = c.transform.InverseTransformPoint(worldPos);
             }
             return true;
+        }
+
+        /// <summary>Vanilla <c>AttributeEffect.DistributeVoodooDamage</c>: one share per projectile of the shot,
+        /// <c>Mathf.Max(1, weapon.lastAmountShotProjectiles)</c> when the source has a weapon with stats, else 1.</summary>
+        private static byte ReadProjectileCount(in DamageSourceData sd)
+        {
+            try
+            {
+                var weapon = sd.sourceWeapon;
+                if (weapon == null || weapon.ItemStats == null) return 1;
+                return (byte)Mathf.Clamp(weapon.lastAmountShotProjectiles, 1, byte.MaxValue);
+            }
+            catch (Exception) { return 1; }
         }
 
         /// <summary>Vanilla <c>Unit.ReceiveDamage</c>: a Ghost-type target hit by a weapon with ExtraDamageGhost takes

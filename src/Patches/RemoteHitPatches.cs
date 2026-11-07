@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using System.Reflection.Emit;
 using PerfectRandom.Sulfur.Core;
 using PerfectRandom.Sulfur.Core.Stats;
 using PerfectRandom.Sulfur.Core.Units;
@@ -21,6 +23,11 @@ namespace SULFURTogether.Patches
     /// <item><c>Unit.CreateDamageLog</c> postfix — the final amount the game logs for that call (its only caller is
     /// ReceiveDamage).</item>
     /// <item><c>Npc.Die</c> prefix — runs before <c>GiveExperience</c>, which reads <c>damagedByPlayer</c>.</item>
+    /// <item>HR-3: <c>Unit.OnGaveDamage</c> prefix — the lifesteal amount the game hands the remote peer's stand-in, which
+    /// the client applies to its own player.</item>
+    /// <item>HR-3: <c>AttributeEffect.DistributeVoodooDamage</c> transpiler — its share count starts from
+    /// <see cref="RemoteHitResolver.VoodooShareCount"/> instead of the constant 1, so a remote shotgun hit spreads one
+    /// share per pellet as it does for the host.</item>
     /// </list>
     /// </summary>
     internal static class RemoteHitPatches
@@ -57,6 +64,7 @@ namespace SULFURTogether.Patches
                     harmony.Patch(npcDie, prefix: new HarmonyMethod(M(nameof(NpcDie_Pre))));
 
                 ApplyNullSourceGuards(harmony);
+                ApplyLifestealAndVoodoo(harmony);
 
                 if (receiveDamage == null || createDamageLog == null || npcDie == null)
                     Plugin.Log.Error($"[RemoteHit] missing hook(s): ReceiveDamage={receiveDamage != null} CreateDamageLog={createDamageLog != null} Npc.Die={npcDie != null} — client hit results / host XP guard are degraded");
@@ -88,6 +96,56 @@ namespace SULFURTogether.Patches
                 harmony.Patch(m, prefix: new HarmonyMethod(M(nameof(TerrorbaumEndless_OnDamageReceived_Pre))));
             }
             catch (Exception ex) { Plugin.Log.Warn($"[RemoteHit] null-source guard failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static void ApplyLifestealAndVoodoo(Harmony harmony)
+        {
+            try
+            {
+                var gave = AccessTools.DeclaredMethod(typeof(Unit), "OnGaveDamage", new[] { typeof(Unit), typeof(float) });
+                if (gave != null) harmony.Patch(gave, prefix: new HarmonyMethod(M(nameof(OnGaveDamage_Pre))));
+                else Plugin.Log.Warn("[RemoteHit] Unit.OnGaveDamage not found — a client's lifesteal on its own hits is inactive");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[RemoteHit] OnGaveDamage hook failed: {ex.GetType().Name}: {ex.Message}"); }
+
+            try
+            {
+                var voodoo = AccessTools.DeclaredMethod(typeof(AttributeEffect), "DistributeVoodooDamage");
+                if (voodoo != null) harmony.Patch(voodoo, transpiler: new HarmonyMethod(M(nameof(DistributeVoodooDamage_Transpiler))));
+                else Plugin.Log.Warn("[RemoteHit] AttributeEffect.DistributeVoodooDamage not found — a client's Voodoo spreads one share per hit");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[RemoteHit] Voodoo hook failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static void OnGaveDamage_Pre(Unit __instance, Unit target, float amount)
+        {
+            if (RemoteHitResolver.IsResolving) RemoteHitResolver.OnGaveDamage(__instance, target, amount);
+        }
+
+        /// <summary>Vanilla opens with <c>int num = 1; float num2 = 0.5f;</c> (IL <c>ldc.i4.1; stloc; ldc.r4 0.5</c>) and
+        /// only overrides <c>num</c> from <c>sourceData.sourceWeapon</c>. The <c>ldc.i4.1</c> of that sequence becomes a
+        /// call to <see cref="RemoteHitResolver.VoodooShareCount"/>(sourceData), which is 1 unless the damage being
+        /// distributed is a remote peer's own hit. If the
+        /// sequence is not found the method is left as it is.</summary>
+        private static IEnumerable<CodeInstruction> DistributeVoodooDamage_Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var list = instructions.ToList();
+            for (int i = 0; i + 2 < list.Count; i++)
+            {
+                if (list[i].opcode != OpCodes.Ldc_I4_1) continue;
+                if (!list[i + 1].IsStloc()) continue;
+                if (list[i + 2].opcode != OpCodes.Ldc_R4 || !(list[i + 2].operand is float f) || f != 0.5f) continue;
+                // ldarg.3 = sourceData (arg 0 is this): the helper applies the client's count only to its own hit.
+                var load = new CodeInstruction(OpCodes.Ldarg_3);
+                load.labels.AddRange(list[i].labels);
+                load.blocks.AddRange(list[i].blocks);
+                list[i] = load;
+                list.Insert(i + 1, new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(RemoteHitResolver), nameof(RemoteHitResolver.VoodooShareCount))));
+                Plugin.Log.Info("[RemoteHit] Patched AttributeEffect.DistributeVoodooDamage (share count per projectile for remote hits).");
+                return list;
+            }
+            Plugin.Log.Warn("[RemoteHit] DistributeVoodooDamage: 'int num = 1' not found — a client's Voodoo spreads one share per hit");
+            return list;
         }
 
         private static bool TerrorbaumEndless_OnDamageReceived_Pre(object[] __args)

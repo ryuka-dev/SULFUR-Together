@@ -35,6 +35,9 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static int     _depth;
         private static string? _peerId;
+        // HR-3: the outermost resolution's source unit (the peer's ghost, or null) and its shot's projectile count.
+        private static Unit?   _sourceUnit;
+        private static int     _projectileCount = 1;
 
         /// <summary>True while the host is settling a remote peer's hit (including nested damage dealt from it).</summary>
         public static bool IsResolving => _depth > 0;
@@ -50,6 +53,9 @@ namespace SULFURTogether.Networking.Gameplay
         private const float MaxHeadshotFactor = 10f;
         private const float MaxEffectScale = 10f;
         private const float MaxHitOffset = 50f;
+        /// <summary>Anti-forgery ceiling for <see cref="NetHitInput.ProjectileCount"/> (each one is another Voodoo
+        /// share to every linked unit).</summary>
+        public const int MaxProjectileCount = 64;
 
         /// <summary>Validate and clamp a wire-carried hit in place. Returns false (with a reason) when the request must be
         /// refused outright.</summary>
@@ -76,6 +82,9 @@ namespace SULFURTogether.Networking.Gameplay
             if (!Enum.IsDefined(typeof(DecalType), h.ReplacesBloodType)) h.ReplacesBloodType = (int)DecalType.Normal;
             if (!Enum.IsDefined(typeof(CaliberTypes), h.CaliberType)) h.CaliberType = (byte)CaliberTypes.None;
             if (!Enum.IsDefined(typeof(ProjectileEffect), h.ProjectileEffect)) h.ProjectileEffect = (int)ProjectileEffect.None;
+
+            if (h.ProjectileCount < 1) h.ProjectileCount = 1;
+            if (h.ProjectileCount > MaxProjectileCount) h.ProjectileCount = MaxProjectileCount;
 
             if (!IsFinite(h.GhostBonus) || h.GhostBonus < 0f) h.GhostBonus = 0f;
             if (h.GhostBonus > MaxHitDamage) h.GhostBonus = MaxHitDamage;
@@ -138,7 +147,26 @@ namespace SULFURTogether.Networking.Gameplay
             _open.Clear();
             _dbpBefore.Clear();
             _peerId = null;
+            _sourceUnit = null;
+            _projectileCount = 1;
         }
+
+        /// <summary>HR-3: Voodoo shares for the damage being distributed — <c>AttributeEffect.DistributeVoodooDamage</c>'s
+        /// initial <c>int num = 1</c> is replaced by a call to this (see <c>RemoteHitPatches</c>). Outside a resolution it
+        /// is the vanilla 1; inside one it is the client's projectile count. Vanilla then overrides it from
+        /// <c>sourceWeapon</c> when the source has one, which a remote hit never does.</summary>
+        public static int VoodooShareCount(DamageSourceData sourceData)
+            => _depth > 0 && IsRemoteSource(sourceData) ? _projectileCount : 1;
+
+        /// <summary>The marker <see cref="BuildSource"/> puts in <c>DamageSourceData.name</c>; the game copies the struct
+        /// into the damage it derives from a hit (Voodoo shares, Crusader procs), so it also marks those.</summary>
+        public const string RemoteSourceName = "CoopRemoteHit";
+
+        /// <summary>True for the remote peer's own hit being settled (or damage the game derives from it with the same
+        /// source), as opposed to other damage that happens to run inside the resolution (a death explosion, a status a
+        /// different unit applied).</summary>
+        public static bool IsRemoteSource(in DamageSourceData sd)
+            => _depth > 0 && sd.sourceWeapon == null && sd.name == RemoteSourceName && ReferenceEquals(sd.sourceUnit, _sourceUnit);
 
         // ----------------------------------------------------------------- resolution
 
@@ -209,8 +237,12 @@ namespace SULFURTogether.Networking.Gameplay
             bool outermost = _depth == 0;
             if (outermost) { _frames.Clear(); _open.Clear(); _dbpBefore.Clear(); }
             string? outerPeer = _peerId;
+            Unit? outerSource = _sourceUnit;
+            int outerCount = _projectileCount;
             _depth++;
             _peerId = peerId;
+            _sourceUnit = sourceUnit;
+            _projectileCount = Mathf.Clamp(h.ProjectileCount, 1, MaxProjectileCount);
             try
             {
                 try
@@ -236,6 +268,8 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 _depth--;
                 _peerId = outerPeer;
+                _sourceUnit = outerSource;
+                _projectileCount = outerCount;
                 if (outermost) RestoreDamagedByPlayer();
             }
 
@@ -290,7 +324,7 @@ namespace SULFURTogether.Networking.Gameplay
             var f = (NetHitStateFlags)h.StateFlags;
             var sd = new DamageSourceData
             {
-                name         = "CoopRemoteHit",
+                name         = RemoteSourceName,
                 damageType   = (DamageTypes)h.DamageType,
                 critChance   = h.CritChance,
                 melee        = h.Melee,
@@ -363,6 +397,7 @@ namespace SULFURTogether.Networking.Gameplay
             public float  HpAfter;
             public bool   AliveAfter;
             public float  ChildRemoved;     // health removed by nested same-target frames (excluded from this frame's own)
+            public float  Gave;             // HR-3: what this call passed to the remote source's OnGaveDamage
         }
 
         private static readonly List<Frame> _frames = new List<Frame>();
@@ -396,6 +431,22 @@ namespace SULFURTogether.Networking.Gameplay
             var f = _frames[_open[_open.Count - 1]];
             if (!ReferenceEquals(f.Target, unit) || f.Logged) return;
             f.Logged = true; f.Damage = damage; f.Incoming = incoming; f.Type = (byte)type; f.Shape = shape; f.Crit = crit;
+        }
+
+        /// <summary>HR-3: <c>Unit.OnGaveDamage</c> prefix — the game's lifesteal hook, called at the end of
+        /// ReceiveDamage on <c>sourceData.sourceUnit</c> with the logged damage. When that unit is the remote peer's
+        /// ghost, the amount belongs to the client (its own <c>Stat_Lifesteal</c> heals it there); recorded on the open
+        /// call for that target. A Crusader proc whose applier is the host player calls it on the host's player and is
+        /// not recorded — that lifesteal is the host's, as in vanilla.</summary>
+        public static void OnGaveDamage(Unit giver, Unit target, float amount)
+        {
+            if (_depth <= 0 || giver == null || _sourceUnit == null || !ReferenceEquals(giver, _sourceUnit)) return;
+            if (!IsFinite(amount) || amount <= 0f) return;
+            for (int i = _open.Count - 1; i >= 0; i--)
+            {
+                var f = _frames[_open[i]];
+                if (ReferenceEquals(f.Target, target)) { f.Gave += amount; return; }
+            }
         }
 
         /// <summary>Unit.ReceiveDamage postfix.</summary>
@@ -459,6 +510,11 @@ namespace SULFURTogether.Networking.Gameplay
                 result.DamageType     = r.Type;
             }
             if (r.Closed) result.HealthRemoved = Mathf.Max(0f, r.HpBefore - r.HpAfter - r.ChildRemoved);
+            result.GaveDamage = r.Gave;
+            // Lifesteal the game gave the source for damage to OTHER units inside this hit (Voodoo shares on linked
+            // enemies): vanilla heals the attacker for each of those too.
+            for (int i = 0; i < _frames.Count; i++)
+                if (!ReferenceEquals(_frames[i].Target, target)) result.GaveDamageOther += _frames[i].Gave;
 
             for (int i = root + 1; i < _frames.Count; i++)
             {
@@ -471,6 +527,7 @@ namespace SULFURTogether.Networking.Gameplay
                     DamageType    = f.Type,
                     IsCritical    = f.Crit,
                     Killed        = f.AliveBefore && !f.AliveAfter,
+                    GaveDamage    = f.Gave,
                 });
                 if (result.Secondary.Count >= NetHostHitResult.MaxSecondary) break;
             }

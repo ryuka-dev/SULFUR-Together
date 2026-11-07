@@ -5,9 +5,9 @@ namespace SULFURTogether.Networking.Gameplay
     internal static class NetClientHitRequestCodec
     {
         /// <summary>v1 (no version byte) carried only a raw damage number; v2 (HR-1) carries the full hit input and a
-        /// target kind. A peer on another protocol is refused at the handshake, so the byte guards against a
-        /// malformed packet rather than negotiating anything.</summary>
-        public const byte Version = 2;
+        /// target kind; v3 (HR-3) adds the shot's projectile count. A peer on another protocol is refused at the
+        /// handshake, so the byte guards against a malformed packet rather than negotiating anything.</summary>
+        public const byte Version = 3;
 
         private const int MaxStringLength = 256;
 
@@ -90,7 +90,7 @@ namespace SULFURTogether.Networking.Gameplay
 
                 req.Hit    = NetHitInputCodec.Read(r);
                 req.SentAt = r.GetFloat();
-                if (r.AvailableBytes != 0) return false; // trailing garbage = not a v2 request
+                if (r.AvailableBytes != 0) return false; // trailing garbage = not a request of this version
 
                 result = req;
                 return true;

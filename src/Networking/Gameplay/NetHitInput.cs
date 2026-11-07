@@ -46,6 +46,10 @@ namespace SULFURTogether.Networking.Gameplay
         /// <summary>The weapon's flat bonus against Ghost-type units, <c>weapon.Damage × ExtraDamageGhost</c>, computed
         /// by the client because the host has no weapon object. 0 unless the target is a Ghost and the weapon has it.</summary>
         public float GhostBonus;
+        /// <summary>HR-3: projectiles the weapon fired in the shot this hit came from
+        /// (<c>Weapon.lastAmountShotProjectiles</c>, at least 1; 1 without a weapon). Vanilla Voodoo spreads one share per
+        /// projectile and reads it from the weapon object, which the host does not have.</summary>
+        public byte ProjectileCount;
     }
 
     /// <summary>The boolean fields of the game's <c>AttackStates</c>. <c>isPeriodicModifier</c> is deliberately absent:
@@ -89,6 +93,7 @@ namespace SULFURTogether.Networking.Gameplay
             w.Put(h.CaliberType);
             w.Put(h.ProjectileEffect);
             w.Put(h.GhostBonus);
+            w.Put(h.ProjectileCount);
         }
 
         public static NetHitInput Read(NetDataReader r)
@@ -110,6 +115,7 @@ namespace SULFURTogether.Networking.Gameplay
             h.CaliberType            = r.GetByte();
             h.ProjectileEffect       = r.GetInt();
             h.GhostBonus             = r.GetFloat();
+            h.ProjectileCount        = r.GetByte();
             return h;
         }
     }

@@ -29,6 +29,10 @@ namespace SULFURTogether.Networking.Gameplay
     /// resolve, so it fires after the killing hit's resolution and can say whether it was the killing blow. Boss-kind
     /// targets (no XP credit on this end) are credited from a Killed result, only for a unit of the game's Boss type and
     /// at most once per unit per level.</para>
+    ///
+    /// <para>HR-3: the gameplay effects of those verdicts on this end — lifesteal from a resolved hit, the kill count from
+    /// a credit — run through <see cref="ClientHitEffects"/> just before the matching event, whether or not anything
+    /// subscribes to it.</para>
     /// </summary>
     internal static class ClientHitTracker
     {
@@ -50,6 +54,7 @@ namespace SULFURTogether.Networking.Gameplay
         private sealed class KillState
         {
             public object? Target;
+            public bool    IsNpc;          // read while the unit exists; it can be gone when the credit fires
             public int     KillingSeq = -1;
             public bool    KillingHeadshot;
             public object? KillingWeapon;
@@ -169,6 +174,9 @@ namespace SULFURTogether.Networking.Gameplay
             var outcome = (HitOutcome)(byte)r.Outcome;
             RaiseResolved(p, outcome, r.Damage, r.HealthRemoved, r.IncomingDamage, r.DamageType, r.IsCritical,
                 r.HitMultiplier, r.WasAlive, r.Killed, secondary);
+            if (epoch != _epoch) return;
+            // HR-3: the end-of-hit effect the game gives the attacker (lifesteal), after the seq has its resolution.
+            ClientHitEffects.ApplyLifesteal(p.Target is UnityEngine.Object lt && lt == null ? null : p.Target, r);
             if (epoch != _epoch) return;
             TryFlushKill(p.TargetId);
         }
@@ -293,15 +301,21 @@ namespace SULFURTogether.Networking.Gameplay
             KillsCredited++;
             bool killing = k.KillingSeq >= 0;
             object? target = k.Target is UnityEngine.Object uo && uo == null ? null : k.Target;
+            ClientHitEffects.OnKillCredited(k.IsNpc, killing, k.DamageDealt);
             NetCombat.RaiseKillCredited(new LocalKillCreditedArgs(target, killing, killing ? k.KillingSeq : -1,
                 killing ? k.KillingWeapon : k.LastWeapon, killing && k.KillingHeadshot, k.Experience, k.DamageDealt));
         }
 
         private static KillState GetKill(int id, object? target)
         {
-            if (!_kills.TryGetValue(id, out var k)) { k = new KillState { Target = target }; _kills[id] = k; }
+            if (!_kills.TryGetValue(id, out var k)) { k = new KillState { Target = target, IsNpc = ReadIsNpc(target) }; _kills[id] = k; }
             k.TouchedAt = Time.realtimeSinceStartup;
             return k;
+        }
+
+        private static bool ReadIsNpc(object? target)
+        {
+            try { return target is Unit u && u != null && u.isNpc; } catch { return false; }
         }
 
         private static void Remove(LinkedListNode<Pending> node)
