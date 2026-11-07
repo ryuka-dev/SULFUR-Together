@@ -255,6 +255,7 @@ namespace SULFURTogether.Networking.Gameplay
         public static void Reset()
         {
             ClientHitEffects.ClearLevel();
+            EnemyVisualStateSync.ClearLevel();
             _kills.Clear();
             _pendingByTarget.Clear();
             _credited.Clear();

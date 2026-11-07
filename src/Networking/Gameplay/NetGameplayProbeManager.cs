@@ -892,6 +892,7 @@ namespace SULFURTogether.Networking.Gameplay
             _tickProf.Restart();
             long e = 0;
 
+            EnemyVisualStateSync.TickHost(Time.realtimeSinceStartup);    // HR-8 (host only; own throttle)
             TryFlushPendingStableSpawnLogs();                            e = TickStep(0,  e);
             ApplyPendingEnemyStateTargets();                             e = TickStep(1,  e);
             UpdateCombatAnimatorBoolResets();                            e = TickStep(2,  e);
@@ -935,6 +936,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         public static void ClearLevelScoped(string source)
         {
+            EnemyVisualStateSync.ClearLevel(); // HR-8
             if (!IsEnabled()) return;
 
             int count = EntitiesByLocalId.Count;
@@ -2185,7 +2187,7 @@ namespace SULFURTogether.Networking.Gameplay
             Plugin.Log.Info($"[GameplayProbe] Phase5.0 hostAttackPhaseEventsSent={_hostAttackPhaseEventsSent} clientAttackPhaseEventsReceived={_clientAttackPhaseEventsReceived} clientAttackPhaseAnimatorApplies={_clientAttackPhaseAnimatorApplies} clientPuppetDamageSuppressed={_clientPuppetDamageSuppressed} interestManagementFarSkipped={_interestManagementFarSkipped} interestEngagedExempt={_interestEngagedExempt} attackPhaseThrottled={_attackPhaseThrottled} enemyDamageEventThrottled={_enemyDamageEventThrottled}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.2 hostDmgEventsSent={_hostEnemyDamageEventsSent} hostHealthStatesSent={_hostEnemyHealthStatesSent} clientDmgEventsRecv={_clientEnemyDamageEventsReceived} clientHealthStatesRecv={_clientEnemyHealthStatesReceived} clientHealthApplied={_clientEnemyHealthStatesApplied} clientHealthNoBinding={_clientEnemyHealthApplySkippedNoBinding} healthPendingQueued={_clientHealthStatesPendingQueued} healthPendingApplied={_clientHealthStatesPendingApplied} healthPendingExpired={_clientHealthStatesPendingExpired} deathByRosterBind={_hostDeathAppliedByRosterBinding} deathSnapped={_hostDeathAppliedAfterSnap} deathRejectedNoBinding={_hostDeathRejectedNoBinding} deathTombstone={_hostDeathTombstoneHit} deathNeverBound={_hostDeathNeverBound} lateBindAttempts={_hostDeathLateBindAttempts} lateBindSuccess={_hostDeathLateBindSuccess} claimsSuppressed={_clientDeathClaimsSuppressedByHostAuthority}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.2-diag healthFail_disabled={_clientHealthApplyDisabled} healthFail_noHp={_clientHealthNoCurrentHp} healthFail_noEntity={_clientHealthNoEntity} healthFail_noRuntimeObj={_clientHealthNoRuntimeObj} healthFail_unityDestroyed={_clientHealthUnityDestroyed} healthFail_noStats={_clientHealthNoStats} healthFail_noSetStatus={_clientHealthSetStatusMissing} healthFail_enumArgBuild={_clientHealthEnumArgFailed} healthFail_invokeFail={_clientHealthSetStatusFailed} healthFail_write={_clientHealthWriteFailed} healthFail_readBackUnchanged={_clientHealthWriteReadBackUnchanged} puppetSuppressedAwaitingHost={_puppetReleaseSuppressedAwaitingHost} puppetStaleSuppressed={_puppetStaleReleaseSuppressed} nonFiniteFacingsRejected={RejectedNonFiniteFacings} transformsRepaired={RepairedPoisonedTransforms} releasesKeptSuppressed={_suppressedUnrepairableReleases} safeTeleports={SafeTeleports} safeTeleportHoldsExpired={SafeTeleportHoldsExpired} safeTeleportHoldsActive={PuppetColliderHolds.Count} mountedSuppressionSkipped={_mountedPuppetSuppressionSkipped} carrierDrivenSuppressionSkipped={_carrierDrivenSuppressionSkipped}");
-            Plugin.Log.Info($"[GameplayProbe] Phase5.3-B clientHitSent={_clientHitRequestsSent} clientHitSkipNoPuppet={_clientHitRequestsSkippedNoPuppet} clientHitSkipNoBinding={_clientHitRequestsSkippedNoBinding} puppetNonPlayerDmgIgnored={_clientPuppetNonPlayerDamageIgnored} clientHitSkipPendingDead={_clientHitSkipPendingDead} clientHitSkipTerminalDead={_clientHitSkipTerminalDead} clientHitResults={_clientHitResultsRecv} clientHitConfirmed={_clientLocalHitConfirmed} clientHitCaptureFallback={_clientHitCaptureFallback} tracker[{ClientHitTracker.FormatSummary()}] effects[{ClientHitEffects.FormatSummary()}] hostHitRecv={_hostHitRequestsRecv} hostHitRejectScene={_hostHitRequestsRejectedScene} hostHitRejectNoTarget={_hostHitRequestsRejectedNoTarget} hostHitRejectType={_hostHitRequestsRejectedTypeMismatch} hostHitRejectDead={_hostHitRequestsRejectedDead} hostHitRejectInput={_hostHitRequestsRejectedInput} hostHitRejectRateLimit={_hostHitRequestsRejectedRateLimit} hostHitAccepted={_hostHitRequestsAccepted} hostHitDmgApplied={_hostHitRequestsDamageApplied} hostHitDeclined={_hostHitRequestsDeclined} remoteResolved={RemoteHitResolver.Resolved} remoteResolveFailed={RemoteHitResolver.ResolveFailed} remoteGhostBonus={RemoteHitResolver.GhostBonusApplied} remoteSynthShape={RemoteHitResolver.SynthesizedShape} remoteHitboxHit={RemoteHitResolver.HitboxHitRaised} remoteAlerts={RemoteHitResolver.AlertsReproduced} standInGate={SULFURTogether.Patches.StandInCoverPatches.GateStandIn} standInCover={SULFURTogether.Patches.StandInCoverPatches.CoverSearchStandIn}");
+            Plugin.Log.Info($"[GameplayProbe] Phase5.3-B clientHitSent={_clientHitRequestsSent} clientHitSkipNoPuppet={_clientHitRequestsSkippedNoPuppet} clientHitSkipNoBinding={_clientHitRequestsSkippedNoBinding} puppetNonPlayerDmgIgnored={_clientPuppetNonPlayerDamageIgnored} clientHitSkipPendingDead={_clientHitSkipPendingDead} clientHitSkipTerminalDead={_clientHitSkipTerminalDead} clientHitResults={_clientHitResultsRecv} clientHitConfirmed={_clientLocalHitConfirmed} clientHitCaptureFallback={_clientHitCaptureFallback} tracker[{ClientHitTracker.FormatSummary()}] effects[{ClientHitEffects.FormatSummary()}] hostHitRecv={_hostHitRequestsRecv} hostHitRejectScene={_hostHitRequestsRejectedScene} hostHitRejectNoTarget={_hostHitRequestsRejectedNoTarget} hostHitRejectType={_hostHitRequestsRejectedTypeMismatch} hostHitRejectDead={_hostHitRequestsRejectedDead} hostHitRejectInput={_hostHitRequestsRejectedInput} hostHitRejectRateLimit={_hostHitRequestsRejectedRateLimit} hostHitAccepted={_hostHitRequestsAccepted} hostHitDmgApplied={_hostHitRequestsDamageApplied} hostHitDeclined={_hostHitRequestsDeclined} remoteResolved={RemoteHitResolver.Resolved} remoteResolveFailed={RemoteHitResolver.ResolveFailed} remoteGhostBonus={RemoteHitResolver.GhostBonusApplied} remoteSynthShape={RemoteHitResolver.SynthesizedShape} remoteHitboxHit={RemoteHitResolver.HitboxHitRaised} remoteAlerts={RemoteHitResolver.AlertsReproduced} standInGate={SULFURTogether.Patches.StandInCoverPatches.GateStandIn} standInCover={SULFURTogether.Patches.StandInCoverPatches.CoverSearchStandIn} {EnemyVisualStateSync.FormatSummary()}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-D-death pendingDeadMarked={_pendingDeadMarked} pendingDeadHostDeathApplied={_pendingDeadHostDeathApplied} pendingDeadAwaitingHostDeath={_clientPendingDeadHostIdx.Count} pdVisualFallbackAttempted={_pendingDeadVisualFallbackAttempted} pdVisualFallbackSucceeded={_pendingDeadVisualFallbackSucceeded} pdVisualFallbackFailed={_pendingDeadVisualFallbackFailed} pdBlockedHitFlash={_pendingDeadBlockedHitFlash} pdBlockedClientHit={_pendingDeadBlockedClientHit} terminalDeadMarkedAfterDie={_terminalDeadMarkedAfterDie} terminalDeadMarkedAfterVisualFallback={_terminalDeadMarkedAfterVisualFallback} terminalDeadMarkedFromHealthOnly={_terminalDeadMarkedFromHealthOnly} activeTerminalDead={_clientTerminalDeadHostIdx.Count} tdBlockedAttackPhase={_terminalDeadBlockedAttackPhase} tdBlockedGenericReplay={_terminalDeadBlockedGenericReplay} tdBlockedMovement={_terminalDeadBlockedMovement} tdBlockedHitReaction={_terminalDeadBlockedHitReaction} tdHealthIgnored={_terminalDeadHealthUpdatesIgnored} tdDeathReapplySkipped={_terminalDeadDeathReapplySkipped}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-D-flash dmgVisualPlayed={_damageVisualReactionsPlayed} dmgVisualDoWhiteFlash={_dmgVisualNativeDoWhiteFlash} dmgVisualSetHitEffect={_dmgVisualNativeSetHitEffect} dmgVisualMaterialHitTime={_dmgVisualMaterialHitTime} dmgVisualFallbackColor={_dmgVisualFallbackColor} dmgVisualFailNoNpc={_dmgVisualFailedNoNpc} dmgVisualFailNoMethod={_dmgVisualFailedNoMethod} dmgVisualFailNoMaterial={_dmgVisualFailedNoMaterial} dmgVisualSkipTerminalDead={_damageVisualReactionSkippedTerminalDead} dmgVisualSkipPendingDead={_damageVisualReactionSkippedPendingDead} dmgVisualSkipNoBinding={_damageVisualReactionSkippedNoBinding} dmgVisualSkipDupSeq={_damageVisualReactionSkippedDuplicateSeq} activeFlashes={_pendingHitFlashes.Count}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-E-manifest hostManifestBuilt={_hostManifestBuilt} clientManifestBuilt={_clientManifestBuilt} hostManifestSent={_hostManifestSent} clientManifestReceived={_clientManifestReceived} seedMismatch={_manifestSeedMismatch} roomMismatch={_manifestRoomMismatch} unitMismatch={_manifestUnitMismatch} specialMismatch={_manifestSpecialMismatch} modifierMismatch={_manifestHostEnemyModifierMismatch} hostOnlyUnits={_manifestHostOnlyUnits} clientOnlyUnits={_manifestClientOnlyUnits} hostEnemyBoundExisting={_manifestHostEnemyBoundExisting} hostEnemyBindFailedNoCandidate={_manifestHostEnemyBindFailedNoCandidate} hostEnemyBindFailedAmbiguous={_manifestHostEnemyBindFailedAmbiguous}");
@@ -4956,6 +4958,9 @@ namespace SULFURTogether.Networking.Gameplay
             record.Snapshot = snapshot;
             record.LastHostSnapshot = hostSnapshot;
             record.Npc = npc;
+            // HR-8: visual states that arrived before this puppet was bound.
+            if (ClientLocalKeyToHostSpawnIndex.TryGetValue(key, out int visualIdx))
+                EnemyVisualStateSync.OnClientPuppetBound(visualIdx, npc);
             int newNpcId = ObjectIdentity(npc);
             if (record.NpcId != 0 && record.NpcId != newNpcId)
                 ActiveEnemyPuppetsByNpcId.Remove(record.NpcId);
@@ -10083,6 +10088,35 @@ namespace SULFURTogether.Networking.Gameplay
                     NetLogger.Debug($"[HitVisual] ProcessHostHitVisualEvent failed: {ex.Message}");
             }
         }
+
+        // ----------------------------------------------------------------
+        // HR-8: lookups for EnemyVisualStateSync
+        // ----------------------------------------------------------------
+
+        /// <summary>HOST: the roster spawn index and unit identifier of a runtime enemy.</summary>
+        internal static bool TryGetHostRosterIdentity(object npc, out int spawnIndex, out string unitIdentifier)
+        {
+            spawnIndex = -1; unitIdentifier = "";
+            var snapshot = npc == null ? null : FindSnapshotForRuntimeObject(npc);
+            if (snapshot == null) return false;
+            spawnIndex = snapshot.SpawnIndex;
+            unitIdentifier = snapshot.EntityId?.UnitIdentifier ?? "";
+            return true;
+        }
+
+        /// <summary>CLIENT: the bound puppet for a host spawn index.</summary>
+        internal static bool TryGetClientPuppetNpc(int hostIdx, out object npc)
+        {
+            npc = null!;
+            if (!ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(hostIdx, out var localKey)
+                || !ActiveEnemyPuppets.TryGetValue(localKey, out var puppet) || puppet.Npc == null) return false;
+            if (puppet.Npc is UnityEngine.Object u && u == null) return false;
+            npc = puppet.Npc;
+            return true;
+        }
+
+        /// <summary>CLIENT: the host spawn index is dying or dead on this end.</summary>
+        internal static bool IsClientDeadOrDying(int hostIdx) => IsClientTerminalDead(hostIdx) || IsClientPendingDead(hostIdx);
 
         // ----------------------------------------------------------------
         // Phase 5.3-D P0-2: Two-phase death state (PendingDead → TerminalDead)

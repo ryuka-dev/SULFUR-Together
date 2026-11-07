@@ -499,5 +499,9 @@ namespace SULFURTogether.Networking
 
         /// <summary>HR-1 host→requesting client only: how the host settled one ClientHitRequest (see NetHostHitResult).</summary>
         HostHitResult           = 105,
+
+        /// <summary>HR-8 host→clients: a roster enemy visual state the client's copy cannot reach (a hidden Snipa
+        /// discovered, a block pose) — see EnemyVisualStateSync.</summary>
+        HostEnemyVisualState    = 106,
     }
 }

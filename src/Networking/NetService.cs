@@ -4103,6 +4103,34 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // HR-8: host → every client, reliable-ordered on channel 0 after the roster/state traffic that binds the unit.
+        internal void ReportHostEnemyVisualState(Gameplay.NetHostEnemyVisualState evt)
+        {
+            if (_mode != NetMode.Host || _net == null || evt == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostEnemyVisualState);
+                    Gameplay.NetHostEnemyVisualStateCodec.Write(w, evt);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[EnemyVisual] failed to send: {ex.Message}"); }
+            }
+        }
+
+        private void HandleHostEnemyVisualState(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (peer != _hostPeer) return; // only the host decides
+            if (!Gameplay.NetHostEnemyVisualStateCodec.TryRead(reader, out var evt))
+            {
+                NetLogger.Warn("[EnemyVisual] malformed HostEnemyVisualState packet");
+                return;
+            }
+            Gameplay.EnemyVisualStateSync.Process(evt);
+        }
+
         private void HandleHostHitVisualEvent(NetPeer peer, NetDataReader reader)
         {
             try
@@ -4333,6 +4361,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.HostHitVisualEvent:
                         HandleHostHitVisualEvent(peer, reader);
+                        break;
+
+                    case NetMessageType.HostEnemyVisualState:
+                        HandleHostEnemyVisualState(peer, reader);
                         break;
 
                     case NetMessageType.ClientBossStartRequest:

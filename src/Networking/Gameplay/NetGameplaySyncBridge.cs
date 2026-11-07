@@ -256,6 +256,12 @@ namespace SULFURTogether.Networking.Gameplay
             _service?.ReportHostHitVisualEvent(evt);
         }
 
+        // HR-8 Host → clients: an enemy visual state (reveal, block pose).
+        public static void ReportHostEnemyVisualState(NetHostEnemyVisualState evt)
+        {
+            _service?.ReportHostEnemyVisualState(evt);
+        }
+
         // Phase 5.4-E Boss Encounter Authority.
         public static NetMode BossMode => _service?.Mode ?? NetMode.Off;
 
