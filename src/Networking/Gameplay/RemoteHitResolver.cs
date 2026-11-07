@@ -180,9 +180,14 @@ namespace SULFURTogether.Networking.Gameplay
         public static int ResolveFailed;
         public static int GhostBonusApplied;
         public static int SynthesizedShape;
+        public static int HitboxHitRaised;
 
         /// <summary>Settle <paramref name="h"/> (already validated) on <paramref name="target"/>. Never throws.</summary>
-        public static NetHostHitResult Resolve(Unit target, NetHitInput h, string peerId, int requestSeq, ReceiveDamageInvoker? invoke = null)
+        /// <param name="raiseHitboxHit">HR-4: also raise the target's <c>onHitboxHit</c> after the damage call, as the
+        /// game's projectile and melee hit code does on the shooter's machine (see <see cref="RaiseHitboxHit"/>). Only
+        /// for an ordinary enemy: a boss's eye handlers are reproduced through its own client route.</param>
+        public static NetHostHitResult Resolve(Unit target, NetHitInput h, string peerId, int requestSeq, ReceiveDamageInvoker? invoke = null,
+            bool raiseHitboxHit = false)
         {
             var result = new NetHostHitResult
             {
@@ -249,6 +254,7 @@ namespace SULFURTogether.Networking.Gameplay
                 {
                     returned = (invoke ?? DefaultInvoker)(target, damage, sd, hitbox, hitPosition);
                     Resolved++;
+                    if (raiseHitboxHit) RaiseHitboxHit(target, h, sd, shape, hitPosition);
                 }
                 catch (Exception ex)
                 {
@@ -287,6 +293,46 @@ namespace SULFURTogether.Networking.Gameplay
             }
             if (outermost) { _frames.Clear(); _open.Clear(); }
             return result;
+        }
+
+        // BossFightHelper (Gameplay assembly, namespace PerfectRandom.Sulfur.Core), resolved once.
+        private static bool _bossHelperTypeResolved;
+        private static Type? _bossHelperType;
+
+        /// <summary>HR-4: the game raises <c>Unit.onHitboxHit(damage, source, hitbox, position)</c> right after a
+        /// projectile damage component's or a melee swing's <c>ReceiveDamage</c>, outside it, with the raw damage and the
+        /// hitbox read again after the call. On a client that happens on its local copy only, so the host-side
+        /// subscribers (Amalgamation's eyes, a Black Guild guard's power core) never saw a client's hit. This raises it
+        /// on the host's unit for the remote hit, inside the resolution scope.
+        /// <para>Only for a hit that named a hitbox part — a weaponless hit (an explosion) never raises it. Subscribers
+        /// that belong to a boss fight helper are skipped: a boss's eye handler (Terrorbaum's <c>OnEyeHit</c>) deals the
+        /// damage itself, and on a client it already runs and routes that damage to the host as a boss-role hit; raising
+        /// it here as well would apply the eye damage twice.</para></summary>
+        private static void RaiseHitboxHit(Unit target, in NetHitInput h, DamageSourceData sd, HitboxColliders.ShapeId shape, Vector3? hitPosition)
+        {
+            if (shape.part == HitboxColliders.Parts.None) return;
+            try
+            {
+                var handlers = target.onHitboxHit;
+                if (handlers == null) return;
+                if (!_bossHelperTypeResolved)
+                {
+                    _bossHelperTypeResolved = true;
+                    _bossHelperType = HarmonyLib.AccessTools.TypeByName("PerfectRandom.Sulfur.Core.BossFightHelper");
+                    if (_bossHelperType == null)
+                        NetLogger.Warn("[RemoteHit] BossFightHelper type not found — onHitboxHit is not raised for remote hits (a boss eye handler would apply its damage twice)");
+                }
+                if (_bossHelperType == null) return;
+                Hitmesh.Data hitbox = ResolveHitbox(target, shape);
+                Vector3 position = hitPosition ?? target.transform.position;
+                foreach (var d in handlers.GetInvocationList())
+                {
+                    if (d.Target != null && _bossHelperType.IsInstanceOfType(d.Target)) continue;
+                    try { ((Unit.OnHitboxHit)d)(h.RawDamage, sd, hitbox, position); HitboxHitRaised++; }
+                    catch (Exception ex) { NetLogger.Warn($"[RemoteHit] onHitboxHit handler {d.Method.DeclaringType?.Name}.{d.Method.Name} threw: {ex.GetType().Name}: {ex.Message}"); }
+                }
+            }
+            catch (Exception ex) { NetLogger.Warn($"[RemoteHit] onHitboxHit raise failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
         /// <summary>The host's <c>Hitmesh.Data</c> for <paramref name="shape"/> on <paramref name="target"/>. Vanilla melee

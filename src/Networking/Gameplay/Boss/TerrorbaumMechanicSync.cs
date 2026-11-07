@@ -282,6 +282,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         {
             try
             {
+                // HR-4: the Endless Terrorbaum shares the eye routing (and so this body sentinel) but not this absorb
+                // mechanic — it has no projectileMaxCollect / absorbedProjectiles, and the host-side replay is built
+                // for the story helper's fields only.
+                if (component == null || component.GetType().Name != "TerrorbaumBossFightHelper") return;
                 GameManager gm = GameManager.Instance;
                 EquipmentManager em = gm != null ? gm.EquipmentManager : null;
                 if (em == null) return;

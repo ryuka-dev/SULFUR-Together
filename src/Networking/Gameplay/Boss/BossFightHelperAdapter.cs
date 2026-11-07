@@ -229,6 +229,21 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch { return false; }
         }
 
+        /// <summary>HR-4: a boss whose body is permanently invulnerable and takes damage only through its own
+        /// <c>OnEyeHit</c> (an <c>onHitboxHit</c> handler that lifts the invulnerability around a second ReceiveDamage):
+        /// the story Terrorbaum and its Endless variant. Only the hit routing below uses this; the story-only client
+        /// mechanics (dig/erupt mirror, pure puppet) stay on <see cref="IsTerrorbaum"/>.</summary>
+        private static bool HasEyeGate(object component)
+        {
+            try
+            {
+                if (component == null) return false;
+                string n = component.GetType().Name;
+                return n == "TerrorbaumBossFightHelper" || n == "TerrorbaumBossEndlessHelper";
+            }
+            catch { return false; }
+        }
+
         // ---- TB-DMG: Terrorbaum eye-hit damage authority --------------------------------------------------------
         // The Terrorbaum body is PERMANENTLY invulnerable (SetBossVars → SetInvulnerable(true)); its only damage path
         // is the native OnEyeHit — fired by the projectile dispatch's onHitboxHit AFTER the first (rejected)
@@ -240,7 +255,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// client hit was routed as "main" and rejected by the host's standing invulnerability — hp frozen).
         public override string? ResolveHitTargetRole(object component, object hitUnit)
         {
-            if (!IsTerrorbaum(component)) return base.ResolveHitTargetRole(component, hitUnit);
+            if (!HasEyeGate(component)) return base.ResolveHitTargetRole(component, hitUnit);
             if (hitUnit == null) return null;
             var hu = GetHealthUnit(component);
             if (hu == null || !ReferenceEquals(hu, hitUnit)) return null;
@@ -252,14 +267,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         }
 
         public override object? ResolveHostTargetForRole(object component, string role)
-            => role == "eye" && IsTerrorbaum(component) ? GetHealthUnit(component) : base.ResolveHostTargetForRole(component, role);
+            => role == "eye" && HasEyeGate(component) ? GetHealthUnit(component) : base.ResolveHostTargetForRole(component, role);
 
         /// <summary>TB-DMG: HOST — a routed eye hit reaches ReceiveDamage exactly like the native OnEyeHit: gate on
         /// (fightStarted &amp;&amp; the part hit is the Eye &amp;&amp; not underground (story) / not transitioning
         /// (Endless)), lift the standing invulnerability around the call, restore it.</summary>
         public override bool TryGetHostHitInvoker(object component, string role, object target, int hitPart, out RemoteHitResolver.ReceiveDamageInvoker? invoker, out string detail)
         {
-            if (role != "eye" || !IsTerrorbaum(component))
+            if (role != "eye" || !HasEyeGate(component))
                 return base.TryGetHostHitInvoker(component, role, target, hitPart, out invoker, out detail);
             invoker = null;
             if (!IsStarted(component)) { detail = "eye-gate: fight not started"; return false; }
