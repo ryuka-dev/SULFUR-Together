@@ -9759,41 +9759,15 @@ namespace SULFURTogether.Networking.Gameplay
                     return true; // suppress local damage; host already resolving this death
                 }
 
-                if (!NetRunStateBridge.TryGetLocalRunState(out var state) || !state.HasLevel)
+                string unitIdentifier = record?.Snapshot?.EntityId?.UnitIdentifier ?? "";
+                if (!SendTargetedHit(NetHitTargetKind.Roster, npc, damage, args,
+                        r => { r.TargetHostSpawnIndex = hostIdx; r.TargetUnitIdentifier = unitIdentifier; }))
                     return false;
 
-                if (!NetHitInputCapture.TryCapture(npc, damage, args, out var hit))
-                {
-                    // Not the DamageSourceData overload (never expected) — still a player hit on a host-owned unit, so
-                    // forward what is known rather than letting it land locally.
-                    hit = new NetHitInput { RawDamage = damage, DamageType = (byte)PerfectRandom.Sulfur.Core.Stats.DamageTypes.Normal };
-                    _clientHitCaptureFallback++;
-                }
-
-                string unitIdentifier = record?.Snapshot?.EntityId?.UnitIdentifier ?? "";
-
-                var req = new NetClientHitRequest
-                {
-                    ChapterName            = state.ChapterName,
-                    LevelIndex             = state.LevelIndex,
-                    HasLevelSeed           = state.HasLevelSeed,
-                    LevelSeed              = state.LevelSeed,
-                    RequestSeq             = NextClientHitSeq(),
-                    TargetKind             = NetHitTargetKind.Roster,
-                    TargetHostSpawnIndex   = hostIdx,
-                    TargetUnitIdentifier   = unitIdentifier,
-                    Hit                    = hit,
-                    SentAt                 = Time.realtimeSinceStartup,
-                };
-
-                NetGameplaySyncBridge.SendClientHitRequest(req);
                 _clientHitRequestsSent++;
                 // Issue #4: tag this puppet as damaged by the local player so its death credits local weapon XP.
                 // Mirrors vanilla Unit.ReceiveDamage setting damagedByPlayer for a player-faction source.
                 if (record != null) record.DamagedByLocalPlayer = true;
-
-                if (Plugin.Cfg.LogClientHitRequests.Value)
-                    NetLogger.Info($"[ClientHit] Sent {req.ToCompact()} unit={unitIdentifier}");
 
                 return true;
             }
@@ -9808,6 +9782,48 @@ namespace SULFURTogether.Networking.Gameplay
         /// <summary>HR-1: the one request sequence every client hit path draws from, so a result is unambiguous whatever
         /// kind of target it was aimed at.</summary>
         public static int NextClientHitSeq() => ++_clientHitRequestSeq;
+
+        /// <summary>
+        /// HR-1 (CLIENT): the single send path every client hit takes — roster enemy, boss role, Emperor worm tail and
+        /// spider, host-owned corpse. Captures the suppressed call's hit input, stamps the scene and the next request
+        /// seq, lets <paramref name="address"/> fill the kind-specific target fields and sends it. Returns false (nothing
+        /// sent) only when there is no live level to address it in; the caller then leaves the hit to the game.
+        /// </summary>
+        public static bool SendTargetedHit(NetHitTargetKind kind, object target, float damage, object[]? args, Action<NetClientHitRequest> address)
+        {
+            if (!NetRunStateBridge.TryGetLocalRunState(out var state) || !state.HasLevel)
+                return false;
+
+            if (!NetHitInputCapture.TryCapture(target, damage, args, out var hit))
+            {
+                // Not the DamageSourceData overload (never expected) — still a player hit on a host-owned unit, so
+                // forward what is known rather than letting it land locally.
+                hit = new NetHitInput { RawDamage = damage, DamageType = (byte)PerfectRandom.Sulfur.Core.Stats.DamageTypes.Normal };
+                _clientHitCaptureFallback++;
+            }
+
+            var req = new NetClientHitRequest
+            {
+                ChapterName  = state.ChapterName,
+                LevelIndex   = state.LevelIndex,
+                HasLevelSeed = state.HasLevelSeed,
+                LevelSeed    = state.LevelSeed,
+                RequestSeq   = NextClientHitSeq(),
+                TargetKind   = kind,
+                Hit          = hit,
+                SentAt       = Time.realtimeSinceStartup,
+            };
+            address(req);
+            NetGameplaySyncBridge.SendClientHitRequest(req);
+
+            if (Plugin.Cfg.LogClientHitRequests.Value)
+                NetLogger.Info($"[ClientHit] Sent {req.ToCompact()} unit={req.TargetUnitIdentifier}");
+            return true;
+        }
+
+        /// <summary>HR-1 (HOST): the Rejected answer to a request, for the target-kind settlers outside this file.</summary>
+        public static NetHostHitResult RejectedResult(NetClientHitRequest request)
+            => new NetHostHitResult { RequestSeq = request.RequestSeq, Outcome = NetHitOutcome.Rejected, DamageType = request.Hit.DamageType, ShapeId = request.Hit.ShapeId };
 
         /// <summary>
         /// Phase 5.3-B / HR-1 (HOST): a ClientHitRequest arrived. Validate the scene, the input and the target, then let
@@ -9838,14 +9854,14 @@ namespace SULFURTogether.Networking.Gameplay
             counter++;
             if (Plugin.Cfg.LogClientHitRequests.Value)
                 NetLogger.Warn($"[ClientHit] REJECT {why} peer={peerId} {request.ToCompact()}");
-            return new NetHostHitResult { RequestSeq = request.RequestSeq, Outcome = NetHitOutcome.Rejected, DamageType = request.Hit.DamageType, ShapeId = request.Hit.ShapeId };
+            return RejectedResult(request);
         }
 
         private static NetHostHitResult SettleClientHitRequest(NetClientHitRequest request, string peerId)
         {
             _hostHitRequestsRecv++;
 
-            if (!Plugin.Cfg.EnableClientHitRequest.Value || !IsEnabled())
+            if (!Plugin.Cfg.EnableClientHitRequest.Value)
                 return Reject(request, ref _hostHitRequestsRejectedScene, peerId, "disabled");
 
             if (!NetRunStateBridge.TryGetLocalRunState(out var hostState) || !request.MatchesScene(hostState))
@@ -9860,8 +9876,11 @@ namespace SULFURTogether.Networking.Gameplay
 
             switch (request.TargetKind)
             {
-                case NetHitTargetKind.Roster:
-                    return SettleRosterHit(request, hit, peerId, hostState!);
+                case NetHitTargetKind.Roster:          return SettleRosterHit(request, hit, peerId, hostState!);
+                case NetHitTargetKind.BossRole:        return Boss.NetBossEncounterManager.SettleClientBossHit(request, hit, peerId);
+                case NetHitTargetKind.EmperorWormTail: return Boss.NetEmperorWormSync.SettleClientWormHit(request, hit, peerId);
+                case NetHitTargetKind.EmperorSpider:   return Boss.NetEmperorSpiderSync.SettleClientSpiderHit(request, hit, peerId);
+                case NetHitTargetKind.Corpse:          return CorpseGibSyncManager.SettleClientCorpseHit(request, hit, peerId);
                 default:
                     return Reject(request, ref _hostHitRequestsRejectedNoTarget, peerId, "kind-unsupported");
             }
@@ -9869,6 +9888,11 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static NetHostHitResult SettleRosterHit(NetClientHitRequest request, NetHitInput hit, string peerId, NetRunState hostState)
         {
+            // The roster lives in this probe's entity registry, so the probe switch gates this kind (as it gated the
+            // roster hit path before HR-1). The boss / worm / spider / corpse kinds have their own registries.
+            if (!IsEnabled())
+                return Reject(request, ref _hostHitRequestsRejectedScene, peerId, "entity-probe-off");
+
             NetGameplayEntitySnapshot? targetSnapshot = null;
             foreach (var snap in EntitiesByLocalId.Values)
             {

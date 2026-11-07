@@ -59,17 +59,7 @@ namespace SULFURTogether.Networking.Gameplay
             if (!IsFinite(h.RawDamage) || h.RawDamage <= 0f) { reason = "damage"; return false; }
             if (h.RawDamage > MaxHitDamage) h.RawDamage = MaxHitDamage;
 
-            // DamageTypes is `: byte`: Enum.IsDefined must be handed a byte (an int THROWS for a byte-backed enum — CG-1b).
-            if (!Enum.IsDefined(typeof(DamageTypes), h.DamageType)) { reason = "damageType"; return false; }
-            switch ((DamageTypes)h.DamageType)
-            {
-                case DamageTypes.None:
-                case DamageTypes.End:
-                case DamageTypes.Punish:     // environment trap / self-punish damage
-                case DamageTypes.Suffocate:  // bypasses the same-faction guard
-                case DamageTypes.Sacrifice:  // a weapon's damage to its own owner
-                    reason = "damageType"; return false;
-            }
+            if (!IsAcceptedDamageType(h.DamageType)) { reason = "damageType"; return false; }
 
             if (float.IsNaN(h.CritChance)) { reason = "critChance"; return false; }
             h.CritChance = Mathf.Clamp01(h.CritChance);
@@ -100,7 +90,26 @@ namespace SULFURTogether.Networking.Gameplay
             return true;
         }
 
-        private static bool IsFinite(float v) => !float.IsNaN(v) && !float.IsInfinity(v);
+        public static bool IsFinite(float v) => !float.IsNaN(v) && !float.IsInfinity(v);
+
+        /// <summary>A damage type a player's attack can carry. DamageTypes is <c>: byte</c>: Enum.IsDefined must be
+        /// handed a byte (an int THROWS for a byte-backed enum — CG-1b).</summary>
+        public static bool IsAcceptedDamageType(int value)
+        {
+            if (value < 0 || value > byte.MaxValue) return false;
+            byte b = (byte)value;
+            if (!Enum.IsDefined(typeof(DamageTypes), b)) return false;
+            switch ((DamageTypes)b)
+            {
+                case DamageTypes.None:
+                case DamageTypes.End:
+                case DamageTypes.Punish:     // environment trap / self-punish damage
+                case DamageTypes.Suffocate:  // bypasses the same-faction guard
+                case DamageTypes.Sacrifice:  // a weapon's damage to its own owner
+                    return false;
+            }
+            return true;
+        }
 
         // Per-peer arrival budget across every target kind. Generous: a multi-pellet, multi-component weapon at a high
         // fire rate sends hundreds of components a second; this only bounds a flood.

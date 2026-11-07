@@ -196,11 +196,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// the boss's health unit). Null if the role is unknown / not yet supported.</summary>
         object? ResolveHostTargetForRole(object component, string role);
 
-        /// <summary>On the HOST: apply a client's routed hit to the resolved target. Default = the plain vanilla
-        /// <c>Unit.ReceiveDamage</c> reflect. A boss whose damage path is conditional overrides this to replicate the
-        /// native gate (TB-DMG: Terrorbaum is permanently invulnerable and only its <c>OnEyeHit</c> lifts the
-        /// invulnerability around ReceiveDamage — role "eye" wraps the apply the same way).</summary>
-        bool TryApplyHostBossHit(object component, string role, object target, float damage, int damageTypeInt, object? source, out bool vanillaResult, out string detail);
+        /// <summary>On the HOST: how a client's routed hit on <paramref name="role"/> reaches the game's ReceiveDamage
+        /// (HR-1b — the hit itself is settled by <see cref="RemoteHitResolver"/>). Returns false when the boss's native
+        /// gate is closed (the hit is declined). <paramref name="invoker"/> null = the plain virtual ReceiveDamage. A boss
+        /// whose damage path is conditional replicates the native gate (TB-DMG: Terrorbaum is permanently invulnerable
+        /// and only its <c>OnEyeHit</c> lifts the invulnerability around ReceiveDamage — role "eye" wraps it the same
+        /// way).</summary>
+        /// <param name="hitPart">The hit's <c>HitboxColliders.Parts</c> value (0 = no hitbox).</param>
+        bool TryGetHostHitInvoker(object component, string role, object target, int hitPart, out RemoteHitResolver.ReceiveDamageInvoker? invoker, out string detail);
 
         // ---- Phase 5.4-F2 BossStartPresentation: make the local boss ENTER combat presentation on the Client ----
 

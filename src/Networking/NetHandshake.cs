@@ -38,7 +38,9 @@ namespace SULFURTogether.Networking
         //     attribute 118), so peers on different game builds must not join each other.
         // 39: WS-SND-1 appended the shot sounds to PlayerWeaponFire (codec v2); wire shape must match.
         // 40: HR-1 — ClientHitRequest v2 (version byte + full hit input + target kind, the host settles it through the
-        //     real ReceiveDamage) and HostHitResult (105) sent back to the requester; wire shape and set must match.
+        //     real ReceiveDamage) and HostHitResult (105) sent back to the requester; HR-1b routes boss / Emperor worm and
+        //     spider / corpse hits through it too and retires ClientEmperorWormHit (60), ClientEmperorSpiderHit (66) and
+        //     ClientCorpseHit (104); ClientBossHitRequest (34) carries absorb-feed reports only. Wire shape and set must match.
         public const int    ProtocolVersion  = 40;
 
         /// <summary>The game build this process runs (Unity's Application.version, e.g. "1.0.2"). Read once on the main

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using PerfectRandom.Sulfur.Core.Units;
 using UnityEngine;
 
 namespace SULFURTogether.Networking.Gameplay.Boss
@@ -3529,7 +3530,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// <summary>CLIENT: called from the Npc.ReceiveDamage prefix when the normal puppet/roster hit path did NOT
         /// claim this hit. If the hit Unit is a registered boss's target (main body this phase), route the hit to the
         /// Host through the real boss damage pipeline and suppress local damage (return true). Never throws.</summary>
-        public static bool TryClientBossHit(object hitUnit, float damage, int damageTypeInt)
+        public static bool TryClientBossHit(object hitUnit, float damage, int damageTypeInt, object[]? args = null)
         {
             try
             {
@@ -3573,17 +3574,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 }
                 lock (_lock) { if (_terminalDead.Contains(key)) return true; } // boss is dead — suppress local damage, don't request
 
-                if (!TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed)) return false;
-                var req = new NetClientBossHitRequest
-                {
-                    EncounterKey = key, BossType = component.GetType().Name, RootName = BossReflect.RootName(component),
-                    ChapterName = chap, LevelIndex = lvl, HasSeed = hasSeed, Seed = seed,
-                    TargetRole = role, Damage = damage, DamageTypeInt = damageTypeInt,
-                    RequestSeq = ++_bossHitSeq, SentAt = Time.realtimeSinceStartup,
-                };
+                // HR-1b: the hit travels as a ClientHitRequest (BossRole) with the full hit input, and the host settles
+                // it through the same RemoteHitResolver as every other client hit.
+                string bossType = component.GetType().Name, rootName = BossReflect.RootName(component), hitRole = role;
+                if (!NetGameplayProbeManager.SendTargetedHit(NetHitTargetKind.BossRole, hitUnit, damage, args,
+                        r => { r.EncounterKey = key; r.BossType = bossType; r.RootName = rootName; r.TargetRole = hitRole; }))
+                    return false;
                 BossHitClientSent++;
-                if (LogOn) Plugin.Log.Info($"[BossDamage] client hit local target={BossReflect.RootName(hitUnit)} -> route to host (reusedRoster=false) {req.ToCompact()}");
-                NetGameplaySyncBridge.SendClientBossHitRequest(req);
+                if (LogOn) Plugin.Log.Info($"[BossDamage] client hit local target={BossReflect.RootName(hitUnit)} -> host key={key} role={role} dmg={damage:0.0}");
                 return true; // suppress local damage; host owns the result
             }
             catch (Exception ex)
@@ -3621,9 +3619,10 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (Exception ex) { Plugin.Log.Warn($"[BossDamage] FlushClientAbsorbBatch failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        /// <summary>HOST: resolve the boss target role to the real Unit and apply the client's damage through the
-        /// vanilla Unit.ReceiveDamage so the boss's native mechanic (onDamageRecieved) advances.</summary>
-        public static void HandleClientBossHitRequest(NetClientBossHitRequest req, string peerId)
+        /// <summary>HOST: TB-ABSORB2 absorb-feed reports — the batched body hits a client swallowed against Terrorbaum's
+        /// standing invulnerability, replayed into the tree's native bullet absorb. Since HR-1b this message carries no
+        /// damage hit; those travel as ClientHitRequest (BossRole).</summary>
+                public static void HandleClientBossHitRequest(NetClientBossHitRequest req, string peerId)
         {
             try
             {
@@ -3631,108 +3630,160 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 try { if (!Plugin.Cfg.EnableBossDamageAuthority.Value) return; } catch { return; }
                 BossHitHostRecv++;
 
+                // HR-1b: this channel now carries only TB-ABSORB2's batched absorb-feed reports. Damage hits arrive as
+                // ClientHitRequest (BossRole) and are settled in SettleClientBossHit. Counted, not logged per packet:
+                // a peer sending these is malformed or hostile, and a line each would be a log flood.
+                if (req.TargetRole == null || !req.TargetRole.StartsWith("absorb:", StringComparison.Ordinal))
+                {
+                    BossHitHostRejected++;
+                    return;
+                }
+                // The same per-peer arrival budget every client hit draws from.
+                if (!RemoteHitResolver.ConsumePeerBudget(peerId)) { BossHitHostRejected++; return; }
                 if (!TryBuildContext(out var ctx, out _) || !string.Equals(ctx.ChapterName, req.ChapterName, StringComparison.Ordinal)
                     || ctx.LevelIndex != req.LevelIndex || (ctx.HasSeed && req.HasSeed && ctx.Seed != req.Seed))
                 {
                     BossHitHostRejected++;
-                    Plugin.Log.Warn($"[BossDamage] host REJECT hit from {peerId}: run mismatch req={req.ChapterName}:{req.LevelIndex} host={ctx.ChapterName}:{ctx.LevelIndex}");
+                    Plugin.Log.Warn($"[BossDamage] host REJECT absorb from {peerId}: run mismatch req={req.ChapterName}:{req.LevelIndex} host={ctx.ChapterName}:{ctx.LevelIndex}");
                     return;
                 }
                 if (!TryFindLocalEncounter(req.EncounterKey, out var adapter, out var component))
                 {
                     BossHitHostRejected++;
-                    Plugin.Log.Warn($"[BossDamage] host REJECT hit from {peerId}: no encounter key={req.EncounterKey} (missingEncounter)");
+                    Plugin.Log.Warn($"[BossDamage] host REJECT absorb from {peerId}: no encounter key={req.EncounterKey} (missingEncounter)");
                     return;
                 }
                 // TB-ABSORB2: not a damage hit — a batched absorb-feed report for body hits the client swallowed.
                 // Replay the native AbsorbPlayerBullet so the tree's volley/sky queue counts every player's bullets.
-                if (req.TargetRole != null && req.TargetRole.StartsWith("absorb:", StringComparison.Ordinal))
+                bool fed = TerrorbaumMechanicSync.HostAbsorbFeed(component, req.TargetRole, req.Damage, req.DamageTypeInt, out string ad);
+                if (fed) { BossHitHostApplied++; Plugin.Log.Info($"[BossDamage] host ABSORB feed from {peerId} key={req.EncounterKey} {ad}"); }
+                else { BossHitHostRejected++; Plugin.Log.Info($"[BossDamage] host absorb feed skipped from {peerId} key={req.EncounterKey} reason={ad}"); }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"[BossDamage] HandleClientBossHitRequest failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>HR-1b (HOST): settle a client's hit on a registered boss's role target. The role resolves to the real
+        /// Unit; the adapter may wrap the game's ReceiveDamage in a native gate (Terrorbaum's eye window); the game then
+        /// decides the hit through <see cref="RemoteHitResolver"/>, which drives the boss mechanic (onDamageRecieved)
+        /// exactly as the host's own hit would — without the host's player standing in as the source.</summary>
+        public static NetHostHitResult SettleClientBossHit(NetClientHitRequest req, NetHitInput hit, string peerId)
+        {
+            var rejected = NetGameplayProbeManager.RejectedResult(req);
+            try
+            {
+                if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host) return rejected;
+                try { if (!Plugin.Cfg.EnableBossDamageAuthority.Value) return rejected; } catch { return rejected; }
+                BossHitHostRecv++;
+
+                if (string.IsNullOrEmpty(req.TargetRole) || req.TargetRole.StartsWith("absorb:", StringComparison.Ordinal))
                 {
-                    bool fed = TerrorbaumMechanicSync.HostAbsorbFeed(component, req.TargetRole, req.Damage, req.DamageTypeInt, out string ad);
-                    if (fed) { BossHitHostApplied++; Plugin.Log.Info($"[BossDamage] host ABSORB feed from {peerId} key={req.EncounterKey} {ad}"); }
-                    else { BossHitHostRejected++; Plugin.Log.Info($"[BossDamage] host absorb feed skipped from {peerId} key={req.EncounterKey} reason={ad}"); }
-                    return;
+                    BossHitHostRejected++;
+                    return rejected;
+                }
+                if (!TryFindLocalEncounter(req.EncounterKey, out var adapter, out var component))
+                {
+                    BossHitHostRejected++;
+                    Plugin.Log.Warn($"[BossDamage] host REJECT hit from {peerId}: no encounter key={req.EncounterKey} (missingEncounter)");
+                    return rejected;
                 }
                 object? target = null;
                 try { target = adapter.ResolveHostTargetForRole(component, req.TargetRole); } catch { }
-                if (target == null)
+                if (target is not Unit unit || unit == null)
                 {
                     BossHitHostRejected++;
                     // Include the Host's current state so a 'wrongRole' can be told apart from phase desync (Witch: the
                     // role names a phase whose witch the Host hasn't entered yet / already left) vs a real bad role.
                     Plugin.Log.Warn($"[BossDamage] host REJECT hit from {peerId}: role '{req.TargetRole}' resolved no target (wrongRole) key={req.EncounterKey} hostState[{SafeDescribe(adapter, component)}]");
-                    return;
+                    return rejected;
                 }
 
-                NetGameplayProbeManager.TryReadBossUnitHealth(target, out float before, out float maxHp);
-                // The real IDamager source = GameManager.Instance.PlayerUnit (a Unit : IDamager). NOT the Player/PlayerScript.
-                object? source = BossDamageReflect.ResolveHostPlayerUnit();
-                string srcType = source?.GetType().FullName ?? "null";
-                string targetUnitId = BossReflect.ReadUnitId(target);
-
+                NetGameplayProbeManager.TryReadBossUnitHealth(unit, out float before, out float maxHp);
                 // The MAIN health unit may differ from the hit target (Witch: phase witchUnit forwards to witchMainUnit
                 // via OnDamageMainWitch). Read it before/after so the main health drop is observable even when the hit
                 // target is a forwarding phase witch. For Lucia/Cousin the health unit == target, so this is identical.
                 object? healthUnit = null;
                 try { healthUnit = adapter.GetHealthUnit(component); } catch { }
-                bool sepHealth = healthUnit != null && !ReferenceEquals(healthUnit, target);
+                bool sepHealth = healthUnit != null && !ReferenceEquals(healthUnit, unit);
                 float mainBefore = 0f, mainMax = 0f;
                 if (sepHealth) NetGameplayProbeManager.TryReadBossUnitHealth(healthUnit, out mainBefore, out mainMax);
 
-                // TB-DMG: apply through the adapter — default is the plain vanilla ReceiveDamage reflect; a boss with
-                // a conditional native damage gate (Terrorbaum "eye": lift the standing invulnerability around the
-                // call, like the native OnEyeHit) replicates that gate so the client's hit lands like a local one.
-                bool ok = adapter.TryApplyHostBossHit(component, req.TargetRole, target, req.Damage, req.DamageTypeInt, source, out bool vanilla, out string detail);
-                NetGameplayProbeManager.TryReadBossUnitHealth(target, out float after, out _);
-                string mainHp = "";
-                float mainAfter = 0f;
-                if (sepHealth)
+                // A dead boss target takes no hit: vanilla's dead-unit section can burst a non-boss body, and a hit in
+                // flight across the boss's death must not reach it.
+                if (!unit.IsAlive)
                 {
-                    NetGameplayProbeManager.TryReadBossUnitHealth(healthUnit, out mainAfter, out _);
-                    mainHp = $" mainHp={mainBefore:0}->{mainAfter:0}/{mainMax:0}";
+                    BossHitHostRejected++;
+                    return new NetHostHitResult { RequestSeq = req.RequestSeq, Outcome = NetHitOutcome.TargetDead, DamageType = hit.DamageType, ShapeId = hit.ShapeId };
                 }
 
-                string diag = $"source=[{srcType} isIDamager={BossDamageReflect.IsValidDamageSource(source)}] target=[{target.GetType().Name} unitId={(string.IsNullOrEmpty(targetUnitId) ? "?" : targetUnitId)}]{mainHp} overload={BossDamageReflect.ReceiveDamageSignature}";
-                if (ok && vanilla)
+                RemoteHitResolver.ReceiveDamageInvoker? invoker = null;
+                string gate = "";
+                bool open = true;
+                int hitPart = hit.ShapeId & 0xFF;
+                try { open = adapter.TryGetHostHitInvoker(component, req.TargetRole, unit, hitPart, out invoker, out gate); }
+                catch (Exception ex) { open = false; gate = $"invoker threw {ex.GetType().Name}"; }
+                if (!open)
+                {
+                    BossHitHostRejected++;
+                    if (LogOn) Plugin.Log.Info($"[BossDamage] host hit from {peerId} key={req.EncounterKey} role={req.TargetRole} declined by gate: {gate}");
+                    return new NetHostHitResult
+                    {
+                        RequestSeq = req.RequestSeq, Outcome = unit.IsAlive ? NetHitOutcome.Invulnerable : NetHitOutcome.TargetDead,
+                        DamageType = hit.DamageType, ShapeId = hit.ShapeId, WasAlive = unit.IsAlive,
+                    };
+                }
+
+                var result = RemoteHitResolver.Resolve(unit, hit, peerId, req.RequestSeq, invoker);
+
+                NetGameplayProbeManager.TryReadBossUnitHealth(unit, out float after, out _);
+                float mainAfter = 0f;
+                if (sepHealth) NetGameplayProbeManager.TryReadBossUnitHealth(healthUnit, out mainAfter, out _);
+
+                if (result.Outcome == NetHitOutcome.Applied)
                 {
                     BossHitHostApplied++;
-                    Plugin.Log.Info($"[BossDamage] host APPLY hit from {peerId} key={req.EncounterKey} role={req.TargetRole} dmg={req.Damage:0.0} hp={before:0}->{after:0}/{maxHp:0} result=true {diag}");
-
-                    // RS-1: attribute the boss's real HP loss (main health when the hit target forwards to a
-                    // separate health unit, e.g. Witch phase→main) to this peer for damage-dealt + kill attribution.
-                    float dealtDelta = sepHealth ? (mainBefore - mainAfter) : (before - after);
-                    object dealtTarget = sepHealth ? healthUnit! : target;
-                    NetRunStatsManager.RecordDamageDealtDelta(peerId, NetRunStatsManager.EntityKey(dealtTarget), dealtDelta);
-
-                    // F2 feedback: tell clients to play the local hit visual (throttled; visual only).
-                    bool sendVisual;
-                    lock (_lock)
+                    if (LogOn) Plugin.Log.Info($"[BossDamage] host APPLY hit from {peerId} key={req.EncounterKey} role={req.TargetRole} hp={before:0}->{after:0}/{maxHp:0}{(sepHealth ? $" mainHp={mainBefore:0}->{mainAfter:0}/{mainMax:0}" : "")} {result.ToCompact()}");
+                    try
                     {
-                        _lastHitVisualAt.TryGetValue(req.EncounterKey, out float last);
-                        sendVisual = (Time.realtimeSinceStartup - last) >= HitVisualMinInterval;
-                        if (sendVisual) _lastHitVisualAt[req.EncounterKey] = Time.realtimeSinceStartup;
-                    }
-                    if (sendVisual)
-                    {
-                        BossHitVisualSent++;
-                        NetGameplaySyncBridge.BroadcastHostBossHitVisual(new NetHostBossHitVisual
+                        // RS-1: attribute the boss's real HP loss (main health when the hit target forwards to a
+                        // separate health unit, e.g. Witch phase→main) to this peer for damage-dealt attribution.
+                        float dealtDelta = sepHealth ? (mainBefore - mainAfter) : (before - after);
+                        object dealtTarget = sepHealth ? healthUnit! : unit;
+                        NetRunStatsManager.RecordDamageDealtDelta(peerId, NetRunStatsManager.EntityKey(dealtTarget), dealtDelta);
+
+                        // F2 feedback: tell clients to play the local hit visual (throttled; visual only).
+                        bool sendVisual;
+                        lock (_lock)
                         {
-                            EncounterKey = req.EncounterKey, BossType = req.BossType, TargetRole = req.TargetRole,
-                            TargetUnitId = targetUnitId, Seq = ++_bossHitVisualSeq,
-                        });
+                            _lastHitVisualAt.TryGetValue(req.EncounterKey, out float last);
+                            sendVisual = (Time.realtimeSinceStartup - last) >= HitVisualMinInterval;
+                            if (sendVisual) _lastHitVisualAt[req.EncounterKey] = Time.realtimeSinceStartup;
+                        }
+                        if (sendVisual)
+                        {
+                            BossHitVisualSent++;
+                            NetGameplaySyncBridge.BroadcastHostBossHitVisual(new NetHostBossHitVisual
+                            {
+                                EncounterKey = req.EncounterKey, BossType = req.BossType, TargetRole = req.TargetRole,
+                                TargetUnitId = BossReflect.ReadUnitId(unit), Seq = ++_bossHitVisualSeq,
+                            });
+                        }
                     }
+                    catch (Exception ex) { Plugin.Log.Warn($"[BossDamage] post-apply bookkeeping failed: {ex.Message}"); }
                 }
                 else
                 {
                     BossHitHostRejected++;
-                    // vanilla==false means invulnerable/parried (correct vanilla behavior); ok==false is a reflect/source problem.
-                    string reason = ok ? "vanilla-false(invuln/hitbox-invuln/parry)" : "apply-failed";
-                    Plugin.Log.Warn($"[BossDamage] host hit NOT applied from {peerId} key={req.EncounterKey} role={req.TargetRole} result=false reason={reason} detail={detail} hp={before:0}/{maxHp:0} {diag}");
+                    if (LogOn) Plugin.Log.Info($"[BossDamage] host hit from {peerId} key={req.EncounterKey} role={req.TargetRole} not applied: {result.ToCompact()} hp={before:0}/{maxHp:0}");
                 }
+                return result;
             }
             catch (Exception ex)
             {
-                Plugin.Log.Warn($"[BossDamage] HandleClientBossHitRequest failed: {ex.GetType().Name}: {ex.Message}");
+                Plugin.Log.Warn($"[BossDamage] SettleClientBossHit failed: {ex.GetType().Name}: {ex.Message}");
+                return rejected;
             }
         }
 

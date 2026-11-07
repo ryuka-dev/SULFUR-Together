@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Reflection;
 using HarmonyLib;
+using PerfectRandom.Sulfur.Core.Units;
 using UnityEngine;
 
 namespace SULFURTogether.Networking.Gameplay.Boss
@@ -473,12 +474,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         }
 
         // ================================================================ EMP-3d analog: damage authority (CLIENT -> HOST)
-        private static int   _hitSendSeq;
+        private static int   _hitsSent;   // diagnostic count (the request seq is NetGameplayProbeManager's)
         private static float _lastHitLogAt = -999f;
 
         /// <summary>Client: if <paramref name="npc"/> is the local spider's npc, forward the hit to the host and suppress
         /// the local damage. Returns true when the caller should swallow the damage. Called from Npc_ReceiveDamage_Pre.</summary>
-        public static bool TryClientSpiderHit(object npc, float damage, int damageTypeInt)
+        public static bool TryClientSpiderHit(object npc, float damage, object[]? args)
         {
             try
             {
@@ -492,8 +493,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (!(npc is Component nc) || nc == null) return false;
                 if (nc.gameObject.GetInstanceID() != spiderNpc.gameObject.GetInstanceID()) return false;
 
-                _hitSendSeq++;
-                NetGameplaySyncBridge.SendClientEmperorSpiderHit(damage, damageTypeInt, _hitSendSeq);
+                // HR-1b: a ClientHitRequest (EmperorSpider) carrying the full hit input; the host resolves its own npc.
+                // Unsendable (no live level) still stays claimed: the local spider is a host-driven copy and must not
+                // take the hit itself.
+                if (!NetGameplayProbeManager.SendTargetedHit(NetHitTargetKind.EmperorSpider, npc, damage, args, _ => { }))
+                    return true;
+                _hitsSent++;
 
                 // Hit feedback (Log261: "P2 client health synced but no white-flash on hit"). The client's local damage is
                 // suppressed so the vanilla DoWhiteFlash never fires — play it optimistically here. Skip while defending
@@ -508,35 +513,49 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (now - _lastHitLogAt > 1f)
                 {
                     _lastHitLogAt = now;
-                    Plugin.Log.Info($"[EmperorSpider] client -> host spider hit dmg={damage:F1} dtype={damageTypeInt} seq={_hitSendSeq} (local suppressed)");
+                    Plugin.Log.Info($"[EmperorSpider] client -> host spider hit dmg={damage:F1} sent={_hitsSent} (local suppressed)");
                 }
                 return true;
             }
             catch { return false; }
         }
 
-        /// <summary>Host: apply a client-forwarded hit to the real spider npc via vanilla ReceiveDamage, firing
+        /// <summary>HR-1b (HOST): settle a client's hit on the real spider npc. The game's ReceiveDamage fires
         /// onDamageRecieved → OnDamageTaken so the real mechanic advances (defend / particle stages / rapid-fire / death).</summary>
-        public static void HostApplyClientSpiderHit(float damage, int damageTypeInt, int seq)
+        public static NetHostHitResult SettleClientSpiderHit(NetClientHitRequest req, NetHitInput hit, string peerId)
         {
             try
             {
                 var spider = _hostSpiderRef;
-                if (spider == null) { Plugin.Log.Warn($"[EmperorSpider] client hit seq={seq} but no host spider is active — dropped."); return; }
+                if (spider == null) { Plugin.Log.Warn($"[EmperorSpider] client hit seq={req.RequestSeq} but no host spider is active — rejected."); return NetGameplayProbeManager.RejectedResult(req); }
                 EnsureReflect(spider);
-                var npc = _npcField?.GetValue(spider);
-                if (npc == null) { Plugin.Log.Warn($"[EmperorSpider] client hit seq={seq}: host spider npc is null — dropped."); return; }
+                if (!(_npcField?.GetValue(spider) is Unit npc) || npc == null)
+                { Plugin.Log.Warn($"[EmperorSpider] client hit seq={req.RequestSeq}: host spider npc is null — rejected."); return NetGameplayProbeManager.RejectedResult(req); }
 
-                object source = BossDamageReflect.ResolveHostPlayerUnit();
-                bool ok = BossDamageReflect.TryApplyRealDamage(npc, damage, damageTypeInt, source, out bool vanillaResult, out string detail);
+                if (!npc.IsAlive)
+                    return new NetHostHitResult { RequestSeq = req.RequestSeq, Outcome = NetHitOutcome.TargetDead, DamageType = hit.DamageType, ShapeId = hit.ShapeId };
+
+                var result = RemoteHitResolver.Resolve(npc, hit, peerId, req.RequestSeq);
+                if (result.Outcome == NetHitOutcome.Applied)
+                {
+                    // RS-1: the real health this peer's hit removed (its own damage and what the game dealt from it).
+                    float dealt = result.HealthRemoved;
+                    if (result.Secondary != null) foreach (var s in result.Secondary) dealt += s.HealthRemoved;
+                    NetRunStatsManager.RecordDamageDealtDelta(peerId, NetRunStatsManager.EntityKey(npc), dealt);
+                }
                 float now = Time.realtimeSinceStartup;
                 if (now - _lastHitLogAt > 1f)
                 {
                     _lastHitLogAt = now;
-                    Plugin.Log.Info($"[EmperorSpider] host applied client spider hit seq={seq} dmg={damage:F1} ok={ok} vanilla={vanillaResult} ({detail})");
+                    Plugin.Log.Info($"[EmperorSpider] host settled client spider hit from {peerId}: {result.ToCompact()}");
                 }
+                return result;
             }
-            catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorSpider] HostApplyClientSpiderHit seq={seq} failed: {ex.Message}"); }
+            catch (System.Exception ex)
+            {
+                Plugin.Log.Warn($"[EmperorSpider] SettleClientSpiderHit seq={req.RequestSeq} failed: {ex.Message}");
+                return NetGameplayProbeManager.RejectedResult(req);
+            }
         }
 
         // ================================================================ discrete events (HOST -> CLIENT)
@@ -617,7 +636,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _hasSample = false; _seq = -1; _recvAt = 0f; _prevRecvAt = 0f; _hp = -1f; _lastWrittenHp = -1f;
             _clientSpiderRef = null; _hostSpiderRef = null; _hostLocalPlayer = null;
             _clientDeathApplied = false;
-            _sendSeq = 0; _eventSendSeq = 0; _hitSendSeq = 0;
+            _sendSeq = 0; _eventSendSeq = 0; _hitsSent = 0;
             _fightStartCommittedId = 0; _fightStartRequestedId = 0;
             _hostFightStartPending = false; _inFightStartCommit = false;
             _p2StarterPeerId = null; _p2LatePulled = false; _pendingStarterPeerId = null; // EMP-6g

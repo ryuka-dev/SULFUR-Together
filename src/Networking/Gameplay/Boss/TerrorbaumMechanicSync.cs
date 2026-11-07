@@ -323,6 +323,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// native volley/sky re-aim it and only clamp its length) and invokes the native private
         /// <c>AbsorbPlayerBullet</c> — TreeShake + queue growth + the existing TerrorAbsorb/TerrorVolley/TerrorSky
         /// mirrors all follow natively.</summary>
+        private const int MaxAbsorbBatch = 200;
+
         public static bool HostAbsorbFeed(object helper, string role, float damage, int dtype, out string detail)
         {
             detail = "";
@@ -336,6 +338,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 float speed = float.Parse(p[2], inv);
                 int type = int.Parse(p[3], inv), caliber = int.Parse(p[4], inv), effect = int.Parse(p[5], inv), vfx = int.Parse(p[6], inv);
                 if (count <= 0) { detail = "count<=0"; return false; }
+                // The client batches at most 200 hits; the host enforces it too — a forged count would otherwise run the
+                // absorb loop below that many times on the main thread. Damage and type re-fire at players, so they
+                // take the same checks as a client hit.
+                if (count > MaxAbsorbBatch) count = MaxAbsorbBatch;
+                if (!RemoteHitResolver.IsFinite(damage) || damage < 0f) { detail = "bad damage"; return false; }
+                if (damage > RemoteHitResolver.MaxHitDamage) damage = RemoteHitResolver.MaxHitDamage;
+                if (!RemoteHitResolver.IsAcceptedDamageType(dtype)) { detail = "bad damage type"; return false; }
+                if (!RemoteHitResolver.IsFinite(speed)) { detail = "bad speed"; return false; }
 
                 // Native collection gates (OnHitReceivedFrom): fight running, not mid-volley, queue below the cap.
                 if (!(BossReflect.GetMember(helper, "fightStarted") is bool fs && fs)) { detail = "fight not started"; return false; }
@@ -373,7 +383,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
                 // TryAbsorbBullets halves a non-damaging hit surplus: max(1, count*0.5). Body hits never damage (the
                 // standing invulnerability rejects them), so the whole batch is surplus — same arithmetic here.
-                int absorbs = Mathf.Max(1, (int)(count * 0.5f));
+                int absorbs = Mathf.Min(Mathf.Max(1, (int)(count * 0.5f)), Mathf.Max(1, cap - have));
                 object[] arg = { desc };
                 for (int i = 0; i < absorbs; i++) _mAbsorbBullet.Invoke(helper, arg);
                 detail = $"hits={count} absorbs={absorbs} dmg={damage:0.0} dtype={dtype} speed={speed:0.0} queue={have}->{have + absorbs * 3}";

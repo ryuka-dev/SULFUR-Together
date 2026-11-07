@@ -61,9 +61,6 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public static bool IsValidDamageSource(object? o) => o != null && _damagerInterface != null && _damagerInterface.IsInstanceOfType(o);
 
         public static string DamagerInterfaceName => _damagerInterface?.Name ?? "<unresolved>";
-        public static string ReceiveDamageSignature
-            => _receiveDamage == null ? "<unresolved>"
-             : $"{_receiveDamage.DeclaringType?.Name}.ReceiveDamage({string.Join(",", _receiveDamage.GetParameters().Select(p => p.ParameterType.Name))})";
 
         private static void ResolveFor(object unit)
         {

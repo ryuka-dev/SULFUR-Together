@@ -745,30 +745,6 @@ namespace SULFURTogether.Networking
             catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] malformed death packet: {ex.Message}"); }
         }
 
-        // EMP-3d: client forwards a hit on the worm's vulnerable tail to the host (single-target damage authority).
-        internal void SendClientEmperorWormHit(float damage, int damageTypeInt, int seq)
-        {
-            if (_mode != NetMode.Client || _net == null || _hostPeer == null) return;
-            try
-            {
-                var w = NetMessage.For(NetMessageType.ClientEmperorWormHit);
-                w.Put(damage); w.Put(damageTypeInt); w.Put(seq);
-                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
-            }
-            catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] failed to send worm hit: {ex.Message}"); }
-        }
-
-        private void HandleClientEmperorWormHit(NetPeer peer, NetDataReader reader)
-        {
-            if (_mode != NetMode.Host) return;
-            try
-            {
-                float damage = reader.GetFloat(); int damageTypeInt = reader.GetInt(); int seq = reader.GetInt();
-                Gameplay.Boss.NetEmperorWormSync.HostApplyClientWormHit(damage, damageTypeInt, seq);
-            }
-            catch (Exception ex) { NetLogger.Warn($"[EmperorWorm] malformed worm-hit packet: {ex.Message}"); }
-        }
-
         // EMP-4: client → host "my player picked the Emperor fight-start option". Host commits authoritatively.
         internal void SendClientEmperorFightStart()
         {
@@ -886,30 +862,6 @@ namespace SULFURTogether.Networking
                 Gameplay.Boss.NetEmperorSpiderSync.OnFightStartCommitReceived(starterPeerId);
             }
             catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] fight-start commit handling failed: {ex.Message}"); }
-        }
-
-        // EMP-6b: client forwards a hit on the spider npc to the host (single-target damage authority).
-        internal void SendClientEmperorSpiderHit(float damage, int damageTypeInt, int seq)
-        {
-            if (_mode != NetMode.Client || _net == null || _hostPeer == null) return;
-            try
-            {
-                var w = NetMessage.For(NetMessageType.ClientEmperorSpiderHit);
-                w.Put(damage); w.Put(damageTypeInt); w.Put(seq);
-                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
-            }
-            catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] failed to send spider hit: {ex.Message}"); }
-        }
-
-        private void HandleClientEmperorSpiderHit(NetPeer peer, NetDataReader reader)
-        {
-            if (_mode != NetMode.Host) return;
-            try
-            {
-                float damage = reader.GetFloat(); int damageTypeInt = reader.GetInt(); int seq = reader.GetInt();
-                Gameplay.Boss.NetEmperorSpiderSync.HostApplyClientSpiderHit(damage, damageTypeInt, seq);
-            }
-            catch (Exception ex) { NetLogger.Warn($"[EmperorSpider] malformed spider-hit packet: {ex.Message}"); }
         }
 
         // EMP-6b: discrete mechanic / death event — client replays the native method exactly once.
@@ -1106,7 +1058,8 @@ namespace SULFURTogether.Networking
                 NetLogger.Warn("[BossDamage] malformed ClientBossHitRequest packet");
                 return;
             }
-            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
+            // Only a registered session peer: this report re-fires projectiles at players.
+            if (!_peerIds.TryGetValue(peer, out var peerId)) return;
             Gameplay.Boss.NetBossEncounterManager.HandleClientBossHitRequest(req, peerId);
         }
 
@@ -1243,31 +1196,6 @@ namespace SULFURTogether.Networking
                 return;
             }
             Gameplay.CorpseGibSyncManager.ApplyHostCorpseGib(msg);
-        }
-
-        // CG-1b: client→host corpse hit, never relayed — only the host owns the body.
-        internal void SendClientCorpseHit(Gameplay.NetClientCorpseHit msg)
-        {
-            if (_mode != NetMode.Client || _net == null || _hostPeer == null || msg == null) return;
-            try
-            {
-                var w = NetMessage.For(NetMessageType.ClientCorpseHit);
-                Gameplay.NetClientCorpseHitCodec.Write(w, msg);
-                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
-            }
-            catch (Exception ex) { NetLogger.Warn($"[CorpseGib] failed to send ClientCorpseHit: {ex.Message}"); }
-        }
-
-        private void HandleClientCorpseHit(NetPeer peer, NetDataReader reader)
-        {
-            if (_mode != NetMode.Host) return;
-            if (!Gameplay.NetClientCorpseHitCodec.TryRead(reader, out var msg))
-            {
-                NetLogger.Warn("[CorpseGib] malformed ClientCorpseHit packet");
-                return;
-            }
-            string peerId = _peerIds.TryGetValue(peer, out var mapped) ? mapped : peer.Address.ToString();
-            Gameplay.CorpseGibSyncManager.HandleClientCorpseHit(msg, peerId);
         }
 
         // PK-2: client→host desert-pike ambush request (the host has no camera rig for a remote player, see NetClientPikeJump).
@@ -4417,10 +4345,6 @@ namespace SULFURTogether.Networking
                         HandleEmperorWormDeath(peer, reader);
                         break;
 
-                    case NetMessageType.ClientEmperorWormHit:
-                        HandleClientEmperorWormHit(peer, reader);
-                        break;
-
                     case NetMessageType.ClientEmperorFightStart:
                         HandleClientEmperorFightStart(peer, reader);
                         break;
@@ -4436,9 +4360,6 @@ namespace SULFURTogether.Networking
                         break;
                     case NetMessageType.HostEmperorSpiderFightStart:
                         HandleEmperorSpiderFightStart(peer, reader);
-                        break;
-                    case NetMessageType.ClientEmperorSpiderHit:
-                        HandleClientEmperorSpiderHit(peer, reader);
                         break;
                     case NetMessageType.HostEmperorSpiderEvent:
                         HandleEmperorSpiderEvent(peer, reader);
@@ -4470,9 +4391,6 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.HostCorpseGib:
                         HandleHostCorpseGib(peer, reader);
-                        break;
-                    case NetMessageType.ClientCorpseHit:
-                        HandleClientCorpseHit(peer, reader);
                         break;
                     case NetMessageType.HostUnitStatusState:
                         HandleHostUnitStatusState(peer, reader);

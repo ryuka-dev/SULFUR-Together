@@ -1726,19 +1726,6 @@ namespace SULFURTogether.Patches
         // than a field: ReceiveDamage nests (a corpse burst can damage what is around it).
         private struct CorpseHitState { public bool WasDead; public bool WasFrozenSolid; }
 
-        /// <summary>CG-1b: vanilla bursts a frozen body on ONE melee hit but needs five ranged ones, so the blow's
-        /// melee flag is part of the decision and has to cross with it.</summary>
-        private static bool TryReadMeleeFlag(object? source)
-        {
-            try
-            {
-                if (source == null) return false;
-                var f = AccessTools.Field(source.GetType(), "melee");
-                return f != null && f.GetValue(source) is bool b && b;
-            }
-            catch { return false; }
-        }
-
         private static void Npc_ReceiveDamage_Post(object __instance, bool __result, object __state)
         {
             try
@@ -1774,19 +1761,19 @@ namespace SULFURTogether.Patches
                 // TryClientBossHit only claims a hit on a REGISTERED boss's current target (Witch phase1/3/4/5/6 witchUnit
                 // + main, Lucia, Cousin); ordinary enemies, Witch egg and adds are NOT matched and fall through below.
                 int damageTypeInt = ReadDamageTypeInt(source);
-                if (SULFURTogether.Networking.Gameplay.Boss.NetBossEncounterManager.TryClientBossHit(__instance, damage, damageTypeInt))
+                if (SULFURTogether.Networking.Gameplay.Boss.NetBossEncounterManager.TryClientBossHit(__instance, damage, damageTypeInt, __args))
                     return false;
 
                 // EMP-3d: the Emperor is not a registered boss encounter, and its vulnerable tail is a runtime spawn
                 // that the roster ClientHitRequest path below quarantines as "client-only" (Log250-252: hits never
                 // reach the host). Route a client hit on the worm's vulnerable tail straight to the host's real worm.
-                if (SULFURTogether.Networking.Gameplay.Boss.NetEmperorWormSync.TryClientWormHit(__instance, damage, damageTypeInt))
+                if (SULFURTogether.Networking.Gameplay.Boss.NetEmperorWormSync.TryClientWormHit(__instance, damage, __args))
                     return false;
 
                 // EMP-6b: the Emperor phase-2 spider npc is a normal roster unit, but the client runs its own local boss
                 // (not a puppet) so its hits aren't forwarded (Log259 clientHitSent=0). Route a client hit on the spider
                 // npc straight to the host's real spider, same single-target authority as the worm's tail.
-                if (SULFURTogether.Networking.Gameplay.Boss.NetEmperorSpiderSync.TryClientSpiderHit(__instance, damage, damageTypeInt))
+                if (SULFURTogether.Networking.Gameplay.Boss.NetEmperorSpiderSync.TryClientSpiderHit(__instance, damage, __args))
                     return false;
 
                 // CG-1b: a body the host owns. Its bindings are gone (the host-death release drops them), so every
@@ -1794,7 +1781,7 @@ namespace SULFURTogether.Patches
                 // THIS end's corpse alone. Claimed here instead and replayed on the host through the real call, which
                 // is the only thing that reaches ReceiveDamage's dead-unit section.
                 if (SULFURTogether.Networking.Gameplay.CorpseGibSyncManager.TryForwardClientCorpseHit(
-                        __instance, damage, damageTypeInt, TryReadMeleeFlag(source)))
+                        __instance, damage, damageTypeInt, __args))
                     return false;
 
                 // Phase 5.5-RT3-A2: a host-driven puppet is host-authoritative over all its damage. Drop non-player

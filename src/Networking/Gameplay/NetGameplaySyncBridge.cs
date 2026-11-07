@@ -274,7 +274,6 @@ namespace SULFURTogether.Networking.Gameplay
 
         // CG-1a — host→all corpse gib mirror.
         public static void BroadcastHostCorpseGib(NetHostCorpseGib msg) => _service?.BroadcastHostCorpseGib(msg);
-        public static void SendClientCorpseHit(NetClientCorpseHit msg) => _service?.SendClientCorpseHit(msg);
 
         // PK-2 — client→host desert-pike ambush request.
         public static void SendClientPikeJump(SULFURTogether.Networking.Gameplay.Boss.NetClientPikeJump msg) => _service?.SendClientPikeJump(msg);
@@ -311,9 +310,6 @@ namespace SULFURTogether.Networking.Gameplay
         public static void BroadcastEmperorWormDeath(int seq)
             => _service?.BroadcastEmperorWormDeath(seq);
 
-        // EMP-3d: Emperor worm damage authority (client → host).
-        public static void SendClientEmperorWormHit(float damage, int damageTypeInt, int seq)
-            => _service?.SendClientEmperorWormHit(damage, damageTypeInt, seq);
 
         // EMP-4: Emperor fight-start (dialog) commit — client requests, host broadcasts the authoritative start.
         public static void SendClientEmperorFightStart()
@@ -329,8 +325,6 @@ namespace SULFURTogether.Networking.Gameplay
             => _service?.SendClientEmperorSpiderFightStart();
         public static void BroadcastEmperorSpiderFightStart(string starterPeerId)
             => _service?.BroadcastEmperorSpiderFightStart(starterPeerId);
-        public static void SendClientEmperorSpiderHit(float damage, int damageTypeInt, int seq)
-            => _service?.SendClientEmperorSpiderHit(damage, damageTypeInt, seq);
         public static void BroadcastEmperorSpiderEvent(int eventCode, int seq)
             => _service?.BroadcastEmperorSpiderEvent(eventCode, seq);
 

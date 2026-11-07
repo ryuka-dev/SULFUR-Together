@@ -254,23 +254,26 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public override object? ResolveHostTargetForRole(object component, string role)
             => role == "eye" && IsTerrorbaum(component) ? GetHealthUnit(component) : base.ResolveHostTargetForRole(component, role);
 
-        /// <summary>TB-DMG: HOST — apply a routed eye hit exactly like the native OnEyeHit: gate on
-        /// (fightStarted &amp;&amp; !IsTransitioning), lift the standing invulnerability around ReceiveDamage, restore it.</summary>
-        public override bool TryApplyHostBossHit(object component, string role, object target, float damage, int damageTypeInt, object? source, out bool vanillaResult, out string detail)
+        /// <summary>TB-DMG: HOST — a routed eye hit reaches ReceiveDamage exactly like the native OnEyeHit: gate on
+        /// (fightStarted &amp;&amp; the part hit is the Eye &amp;&amp; not underground (story) / not transitioning
+        /// (Endless)), lift the standing invulnerability around the call, restore it.</summary>
+        public override bool TryGetHostHitInvoker(object component, string role, object target, int hitPart, out RemoteHitResolver.ReceiveDamageInvoker? invoker, out string detail)
         {
             if (role != "eye" || !IsTerrorbaum(component))
-                return base.TryApplyHostBossHit(component, role, target, damage, damageTypeInt, source, out vanillaResult, out detail);
-            vanillaResult = false;
+                return base.TryGetHostHitInvoker(component, role, target, hitPart, out invoker, out detail);
+            invoker = null;
             if (!IsStarted(component)) { detail = "eye-gate: fight not started"; return false; }
+            if (hitPart != (int)PerfectRandom.Sulfur.Core.HitboxColliders.Parts.Eye) { detail = $"eye-gate: part {hitPart} is not the Eye"; return false; }
+            if (BossReflect.TryGetBool(component, "isUnderground", out bool under) && under) { detail = "eye-gate: underground"; return false; }
             if (BossReflect.TryGetBool(component, "IsTransitioning", out bool trans) && trans) { detail = "eye-gate: transitioning"; return false; }
-            BossReflect.TryInvokeBool(target, "SetInvulnerable", false, out _);
-            try
+            detail = "eye-window";
+            invoker = (unit, damage, source, hitbox, hitPosition) =>
             {
-                bool ok = base.TryApplyHostBossHit(component, role, target, damage, damageTypeInt, source, out vanillaResult, out detail);
-                detail = "eye-window: " + detail;
-                return ok;
-            }
-            finally { BossReflect.TryInvokeBool(target, "SetInvulnerable", true, out _); }
+                BossReflect.TryInvokeBool(unit, "SetInvulnerable", false, out _);
+                try { return unit.ReceiveDamage(damage, source, hitbox, hitPosition); }
+                finally { BossReflect.TryInvokeBool(unit, "SetInvulnerable", true, out _); }
+            };
+            return true;
         }
 
         /// <summary>TB-D: HOST — open the boss's own opening dialog (bossNPC.Interact(null)). The native Interact postfix

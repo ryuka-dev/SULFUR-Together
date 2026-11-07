@@ -301,10 +301,14 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public virtual object? ResolveHostTargetForRole(object component, string role)
             => role == "main" ? GetHealthUnit(component) : null;
 
-        /// <summary>HOST: default apply = the plain vanilla ReceiveDamage reflect (Phase 5.4-F). A boss whose native
-        /// damage path is conditional (TB-DMG: Terrorbaum's eye window) overrides to replicate that gate.</summary>
-        public virtual bool TryApplyHostBossHit(object component, string role, object target, float damage, int damageTypeInt, object? source, out bool vanillaResult, out string detail)
-            => BossDamageReflect.TryApplyRealDamage(target, damage, damageTypeInt, source, out vanillaResult, out detail);
+        /// <summary>HOST: default = the plain virtual ReceiveDamage, no gate. A boss whose native damage path is
+        /// conditional (TB-DMG: Terrorbaum's eye window) overrides to replicate that gate.</summary>
+        public virtual bool TryGetHostHitInvoker(object component, string role, object target, int hitPart, out RemoteHitResolver.ReceiveDamageInvoker? invoker, out string detail)
+        {
+            invoker = null;
+            detail = "";
+            return true;
+        }
 
         public virtual void OnClientPresentationStart(object component) { }
 

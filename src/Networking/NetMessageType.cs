@@ -265,7 +265,7 @@ namespace SULFURTogether.Networking
         // forwards a client hit on the tail straight to the host, which applies it to its real lastSectionNpc via the
         // vanilla ReceiveDamage (fires onDamageRecieved → WeakpointHit → section-destroy/death). Payload: damage +
         // damageType + seq. Mirrors the §7.5 design that was assumed working but the head-streamed local worm broke.
-        ClientEmperorWormHit = 60,
+        ClientEmperorWormHit = 60,   // retired by HR-1b: worm hits travel as ClientHitRequest (EmperorWormTail); value kept, never reused
 
         // EMP-4 Emperor fight-start (dialog) sync. Log254 pinned the Emperor's fight-start: EmperorBossWorm.StartMovement
         // is invoked by the pre-fight dialog's final MultipleChoiceNode option (a NodeCanvas ActionNode →
@@ -304,7 +304,7 @@ namespace SULFURTogether.Networking
         // EMP-6b damage authority (client→host, Reliable): the spider npc is a normal roster unit but the client runs
         // its own local boss (not a puppet), so its hits are not forwarded (Log259 clientHitSent=0). Route them like the
         // worm's EMP-3d: damage + damageType + seq → host applies the real ReceiveDamage on its spider npc.
-        ClientEmperorSpiderHit = 66,
+        ClientEmperorSpiderHit = 66, // retired by HR-1b: spider hits travel as ClientHitRequest (EmperorSpider); value kept, never reused
 
         // EMP-6b discrete mechanic + death (host→clients, Reliable): eventCode + seq. Codes: 1=Defend (invuln window),
         // 2=RapidFire (rocket launcher), 3=Death (OnNpcDeath walk-to-death begins). Client replays the native method.
@@ -493,7 +493,8 @@ namespace SULFURTogether.Networking
         /// <summary>CG-1a host→all: a corpse burst into gibs (see NetHostCorpseGib).</summary>
         HostCorpseGib           = 103,
 
-        /// <summary>CG-1b client→host: a hit on a body the host owns (see NetClientCorpseHit).</summary>
+        /// <summary>CG-1b client→host corpse hit — retired by HR-1b: corpse hits travel as ClientHitRequest (Corpse).
+        /// Value kept so it is never reused.</summary>
         ClientCorpseHit         = 104,
 
         /// <summary>HR-1 host→requesting client only: how the host settled one ClientHitRequest (see NetHostHitResult).</summary>

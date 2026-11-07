@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
+using PerfectRandom.Sulfur.Core.Units;
 using UnityEngine;
 
 namespace SULFURTogether.Networking.Gameplay.Boss
@@ -398,7 +399,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         // ================================================================ EMP-3d: damage authority (CLIENT -> HOST)
 
-        private static int _wormHitSendSeq;
+        private static int _wormHitsSent;   // diagnostic count (the request seq is NetGameplayProbeManager's)
         private static float _lastWormHitLogAt = -999f;
 
         /// <summary>Client: if <paramref name="npc"/> is the local worm's vulnerable tail section, forward the hit to the
@@ -406,7 +407,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// swallow the damage (routed to host). Called from Npc_ReceiveDamage_Pre BEFORE the ordinary roster
         /// ClientHitRequest path — the worm's runtime-spawned tail is quarantined as "client-only" by that path, so
         /// hits would otherwise never reach the host (Log250-252). Single target, so no role/target resolution needed.</summary>
-        public static bool TryClientWormHit(object npc, float damage, int damageTypeInt)
+        public static bool TryClientWormHit(object npc, float damage, object[]? args)
         {
             try
             {
@@ -423,41 +424,59 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (!(npc is Component nc) || nc == null) return false;
                 if (nc.gameObject.GetInstanceID() != tail.gameObject.GetInstanceID()) return false;
 
-                _wormHitSendSeq++;
-                NetGameplaySyncBridge.SendClientEmperorWormHit(damage, damageTypeInt, _wormHitSendSeq);
+                // HR-1b: a ClientHitRequest (EmperorWormTail) carrying the full hit input; the host resolves its own tail.
+                // Unsendable (no live level) still stays claimed: the local worm is a host-driven copy and must not
+                // take the hit itself.
+                if (!NetGameplayProbeManager.SendTargetedHit(NetHitTargetKind.EmperorWormTail, npc, damage, args, _ => { }))
+                    return true;
+                _wormHitsSent++;
                 float now = Time.realtimeSinceStartup;
                 if (now - _lastWormHitLogAt > 1f)
                 {
                     _lastWormHitLogAt = now;
-                    Plugin.Log.Info($"[EmperorWorm] client -> host worm hit dmg={damage:F1} dtype={damageTypeInt} seq={_wormHitSendSeq} (local damage suppressed)");
+                    Plugin.Log.Info($"[EmperorWorm] client -> host worm hit dmg={damage:F1} sent={_wormHitsSent} (local damage suppressed)");
                 }
                 return true; // suppress local: the host is authoritative; its WeakpointHit drives destroy/death which we mirror
             }
             catch { return false; }
         }
 
-        /// <summary>Host: apply a client-forwarded worm hit to the real vulnerable tail via the vanilla ReceiveDamage.
-        /// This fires onDamageRecieved → WeakpointHit, advancing the real mechanic (health, section-destroy, death),
-        /// whose results are broadcast back through the existing enemy health-state sync + EMP-3b/3c events.</summary>
-        public static void HostApplyClientWormHit(float damage, int damageTypeInt, int seq)
+        /// <summary>HR-1b (HOST): settle a client's hit on the worm through its real vulnerable tail. The game's
+        /// ReceiveDamage fires onDamageRecieved → WeakpointHit, advancing the real mechanic (health, section-destroy,
+        /// death), whose results are broadcast back through the existing enemy health-state sync + EMP-3b/3c events.</summary>
+        public static NetHostHitResult SettleClientWormHit(NetClientHitRequest req, NetHitInput hit, string peerId)
         {
             try
             {
                 var worm = _hostWormRef;
-                if (worm == null) { Plugin.Log.Warn($"[EmperorWorm] client worm hit seq={seq} but no host worm is active — dropped."); return; }
-                var tail = _lastSectionNpcField?.GetValue(worm);
-                if (tail == null) { Plugin.Log.Warn($"[EmperorWorm] client worm hit seq={seq}: host lastSectionNpc is null — dropped."); return; }
+                if (worm == null) { Plugin.Log.Warn($"[EmperorWorm] client worm hit seq={req.RequestSeq} but no host worm is active — rejected."); return NetGameplayProbeManager.RejectedResult(req); }
+                if (!(_lastSectionNpcField?.GetValue(worm) is Unit tail) || tail == null)
+                { Plugin.Log.Warn($"[EmperorWorm] client worm hit seq={req.RequestSeq}: host lastSectionNpc is null — rejected."); return NetGameplayProbeManager.RejectedResult(req); }
 
-                object? source = BossDamageReflect.ResolveHostPlayerUnit();
-                bool ok = BossDamageReflect.TryApplyRealDamage(tail, damage, damageTypeInt, source, out bool vanillaResult, out string detail);
+                if (!tail.IsAlive)
+                    return new NetHostHitResult { RequestSeq = req.RequestSeq, Outcome = NetHitOutcome.TargetDead, DamageType = hit.DamageType, ShapeId = hit.ShapeId };
+
+                var result = RemoteHitResolver.Resolve(tail, hit, peerId, req.RequestSeq);
+                if (result.Outcome == NetHitOutcome.Applied)
+                {
+                    // RS-1: the real health this peer's hit removed (its own damage and what the game dealt from it).
+                    float dealt = result.HealthRemoved;
+                    if (result.Secondary != null) foreach (var s in result.Secondary) dealt += s.HealthRemoved;
+                    NetRunStatsManager.RecordDamageDealtDelta(peerId, NetRunStatsManager.EntityKey(tail), dealt);
+                }
                 float now = Time.realtimeSinceStartup;
                 if (now - _lastWormHitLogAt > 1f)
                 {
                     _lastWormHitLogAt = now;
-                    Plugin.Log.Info($"[EmperorWorm] host applied client worm hit seq={seq} dmg={damage:F1} ok={ok} vanilla={vanillaResult} ({detail})");
+                    Plugin.Log.Info($"[EmperorWorm] host settled client worm hit from {peerId}: {result.ToCompact()}");
                 }
+                return result;
             }
-            catch (System.Exception ex) { Plugin.Log.Warn($"[EmperorWorm] HostApplyClientWormHit seq={seq} failed: {ex.Message}"); }
+            catch (System.Exception ex)
+            {
+                Plugin.Log.Warn($"[EmperorWorm] SettleClientWormHit seq={req.RequestSeq} failed: {ex.Message}");
+                return NetGameplayProbeManager.RejectedResult(req);
+            }
         }
 
         // ================================================================ EMP-4: fight-start (dialog) authority
@@ -721,7 +740,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             _clientDeathApplied = false;
             _sectionDestroySendSeq = 0;
             _deathSendSeq = 0;
-            _wormHitSendSeq = 0;
+            _wormHitsSent = 0;
             // EMP-4: fight-start commit state (self-rearms per worm instance, but clear on full teardown).
             _fightStartCommittedWormId = 0;
             _fightStartRequestedWormId = 0;
