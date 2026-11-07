@@ -22,8 +22,11 @@
   and enemies they helped kill, count towards their own kill total. A Voodoo shot spreads one share per bullet, as
   for the host, and the organ an enemy can drop on the killing shot drops for the client who fired it.
 - **Enemies react to a client's shots.** An enemy shot from cover now alerts the ones around it and comes looking,
-  a hidden Snipa comes out, and the Sentinel and the Shav'Wa Warden raise their guard. A client could also shoot
-  out a Corrupted Amalgamation's eyes only on their own screen; those hits now count for everyone.
+  a hidden Snipa comes out, and the Sentinel and the Shav'Wa Warden raise their guard. Enemies that lose sight of a
+  client now take cover from them, as they do from the host. A client could also shoot out a Corrupted
+  Amalgamation's eyes only on their own screen; those hits now count for everyone.
+- **A client sees what the host's enemies do.** A Snipa that came out on the host stayed hidden on everyone else's
+  screen, and a Sentinel's or a Shav'Wa Warden's block only showed for the host. Both now show for everyone.
 - **A frost enemy no longer freezes a client who hits it in melee.** It only ever did that to non-players.
 - **A client's hits travel on their own network lane,** so a lost packet in a fight no longer holds up deaths and
   boss events, and the other way round.

@@ -158,10 +158,10 @@ null for a remote hit.
   damage dealt), and for an ordinary enemy's killing blow the damage effects of that hit on the dead local copy —
   the game's organ roll, blood and bullet hole (also for the client's hits of the same volley that arrived after the
   death).
-- Known gaps in what the host reproduces: `DamageReverser` does not put its status on a client (there is no path to
-  apply a status to a remote player); enemies do not take defensive positions against a client
-  (`AiAgent.TryFindDefensivePosition` reads the attacker's `isPlayer`). Voodoo spreads one share per projectile, but
-  a shot whose requests reach the host spread over more than two host frames splits again.
+- Also on the client, right after `LocalHitResolved` for an `Applied` hit: an enemy `DamageReverser` (which puts a
+  status on the player who hit it) runs on the client's copy of the enemy with the client as the attacker.
+- Known gap in what the host reproduces: Voodoo spreads one share per projectile, but a shot whose requests reach the
+  host spread over more than two host frames splits again.
 
 ## Migrating a companion mod
 
