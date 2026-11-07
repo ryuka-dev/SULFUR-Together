@@ -7,7 +7,7 @@ like "RM-2a" look opaque. This document is the single source of truth for both.
 
 ## 1. Plugin version (semver) — the release number
 
-- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.6.0`** (built against game **1.0.4**, depends on SULFUR Native UI Lib **0.11.0**; 1.5.0 on game 1.0.2 was the first full release, out of Public Beta). Protocol **39** since WS-SND-1 in the 1.6.0 release; the unreleased HR-1a moved it to **40** (ClientHitRequest v2 + HostHitResult) and HR-6 to **41** (ClientHitRequest v3 / HostHitResult v2 and the second channel); GU102-3 added the refusal of a peer on a different game build; `RequireSameModVersion` defaults to on, so a release must still be taken by every peer together.
+- Defined in **`src/ModInfo.cs`** (`ModInfo.Version`) and **`Thunderstore/manifest.json`**. Current: **`1.7.0`** (built against game **1.0.5**, depends on SULFUR Native UI Lib **0.11.0**; 1.5.0 on game 1.0.2 was the first full release, out of Public Beta). Protocol **41** since the 1.7.0 release (HR-1a: ClientHitRequest v2 + HostHitResult → 40; HR-3/HR-6: ClientHitRequest v3, HostHitResult v2, a second channel, HostEnemyVisualState → 41); GU102-3 added the refusal of a peer on a different game build; `RequireSameModVersion` defaults to on, so a release must still be taken by every peer together.
 - This is the only number a *player* ever sees (Thunderstore, BepInEx load line).
 - Bumped **only at a Thunderstore release milestone**, MAJOR.MINOR.PATCH:
   - **PATCH** (0.2.0 → 0.2.1): bug-fix release. All players should still update to the same version when a fix touches network messages.

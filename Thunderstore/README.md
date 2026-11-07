@@ -4,7 +4,7 @@ Co-op multiplayer for **SULFUR**.
 
 **Language:** **English** · [简体中文](#简体中文) · [日本語](#日本語)
 
-> **Version 1.6.0.** Built for **SULFUR 1.0.4**; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
+> **Version 1.7.0.** Built for **SULFUR 1.0.5**; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 ---
 
@@ -76,6 +76,7 @@ Your settings save automatically as you type. Quick keys still exist: **Page Dow
 - Synced procedural level generation, seeds, and level transitions
 - Remote players, held weapons, and player projectiles
 - Enemy movement/combat sync; host-authoritative enemy damage, deaths, and ranged attacks
+- Every player's hits follow the game's own damage rules (critical hits, body parts, resistances, on-hit enchantments)
 - Co-op downed / revive / death flow with an on-screen rescue prompt
 - Boss-encounter sync for several bosses (Cousin, Witch, Lucia, Desert boss, Terrorbaum, Black Guild Cardinal, …)
 - Synced destructible objects and player-dropped items
@@ -98,7 +99,7 @@ The world does **not pause** while multiplayer is active — opening the invento
 
 SULFUR Together does not synchronize other mods. Content another mod adds — its enemies, its objects, its effects — normally exists only on the screen of whoever's game created it, so it can look broken in co-op even when both players have the mod installed.
 
-Mods that want their content to work in a session can integrate with SULFUR Together directly. There is a small public API for handing spawns to the host, keeping a mod's own objects out of the shared mirror, sending a mod's own messages between players, and asking whether a player is down. **False Gods** uses it. If you are a mod author, the details are in the GitHub repository.
+Mods that want their content to work in a session can integrate with SULFUR Together directly. There is a small public API for handing spawns to the host, keeping a mod's own objects out of the shared mirror, sending a mod's own messages between players, asking whether a player is down, and learning how the host settled a client's hits (for damage numbers and hit feedback). **False Gods** uses it. If you are a mod author, the details are in the GitHub repository.
 
 Everyone in a session should run the **same set of mods**, not just the same version of this one.
 

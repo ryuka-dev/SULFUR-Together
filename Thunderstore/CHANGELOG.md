@@ -1,8 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.7.0 — SULFUR 1.0.5, every hit counts
 
-**Network protocol 39 → 41: everyone in a session must update together.**
+A client's shots now count the way the host's do. The host settles every one of them through the game's own
+damage rules, so crits, headshots, armour and enchantments behave the same for everyone, and what a hit gives
+back (life steal, kills, the enemies' reactions) reaches the player who fired it.
+
+**1.7.0 is built for SULFUR 1.0.5. The network protocol changed (39 to 41), so everyone must update to 1.7.0
+together, and everyone must run the same build of SULFUR.**
 
 **Changed:**
 - **A client's hits now follow the game's damage rules.** The host used to subtract the raw number a client's weapon

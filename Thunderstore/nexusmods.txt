@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.6.0.[/b] Built for [b]SULFUR 1.0.4[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
+> [b]Version 1.7.0.[/b] Built for [b]SULFUR 1.0.5[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 [line]
 
@@ -87,6 +87,7 @@ Your settings save automatically as you type. Quick keys still exist: [b]Page Do
 [*]Synced procedural level generation, seeds, and level transitions[/*]
 [*]Remote players, held weapons, and player projectiles[/*]
 [*]Enemy movement/combat sync; host-authoritative enemy damage, deaths, and ranged attacks[/*]
+[*]Every player's hits follow the game's own damage rules (critical hits, body parts, resistances, on-hit enchantments)[/*]
 [*]Co-op downed / revive / death flow with an on-screen rescue prompt[/*]
 [*]Boss-encounter sync for several bosses (Cousin, Witch, Lucia, Desert boss, Terrorbaum, Black Guild Cardinal, …)[/*]
 [*]Synced destructible objects and player-dropped items[/*]
@@ -109,7 +110,7 @@ The world does [b]not pause[/b] while multiplayer is active — opening the inve
 
 SULFUR Together does not synchronize other mods. Content another mod adds — its enemies, its objects, its effects — normally exists only on the screen of whoever's game created it, so it can look broken in co-op even when both players have the mod installed.
 
-Mods that want their content to work in a session can integrate with SULFUR Together directly. There is a small public API for handing spawns to the host, keeping a mod's own objects out of the shared mirror, sending a mod's own messages between players, and asking whether a player is down. [b]False Gods[/b] uses it. If you are a mod author, the details are in the GitHub repository.
+Mods that want their content to work in a session can integrate with SULFUR Together directly. There is a small public API for handing spawns to the host, keeping a mod's own objects out of the shared mirror, sending a mod's own messages between players, asking whether a player is down, and learning how the host settled a client's hits (for damage numbers and hit feedback). [b]False Gods[/b] uses it. If you are a mod author, the details are in the GitHub repository.
 
 Everyone in a session should run the [b]same set of mods[/b], not just the same version of this one.
 
@@ -439,6 +440,62 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.7.0 — SULFUR 1.0.5, every hit counts[/b][/color]
+
+A client's shots now count the way the host's do. The host settles every one of them through the game's own
+damage rules, so crits, headshots, armour and enchantments behave the same for everyone, and what a hit gives
+back (life steal, kills, the enemies' reactions) reaches the player who fired it.
+
+**1.7.0 is built for SULFUR 1.0.5. The network protocol changed (39 to 41), so everyone must update to 1.7.0
+together, and everyone must run the same build of SULFUR.**
+
+[b]Changed:[/b]
+[list]
+[*][b]A client's hits now follow the game's damage rules.[/b] The host used to subtract the raw number a client's weapon[/*]
+[/list]
+  dealt. It now runs every client hit through the game's own damage calculation: critical hits, headshots and
+  body-part multipliers, resistances, armoured and invulnerable parts, parries, and enchantments that trigger on
+  hit — Crusader's holy damage now lands for a client too.
+[list]
+[*][b]Body-part damage applies to clients.[/b] This is a balance change: a client's shot to an arm or leg now does a[/*]
+[/list]
+  quarter of its damage and a body shot half, exactly as for the host, while an eye shot does more. Aim matters for
+  everyone now.
+[list]
+[*][b]A client's boss hits are no longer credited to the host.[/b] A client's hits on bosses, the Emperor's worm and[/*]
+[/list]
+  spider were applied as if the host had fired them: the host's weapon could gain the experience, the host's kill
+  count went up, and the host's life steal drew on them. None of that happens any more.
+[list]
+[*][b]Enemy health catches up after a burst.[/b] A client's view of an enemy's health could stay behind after a quick[/*]
+[/list]
+  series of hits.
+[list]
+[*][b]A charmed enemy follows the player who charmed it,[/b] rather than always the host.[/*]
+[*][b]What a hit gives back now reaches a client too.[/b] Life steal heals a client from their own hits. Their kills,[/*]
+[/list]
+  and enemies they helped kill, count towards their own kill total. A Voodoo shot spreads one share per bullet, as
+  for the host, and the organ an enemy can drop on the killing shot drops for the client who fired it.
+[list]
+[*][b]Enemies react to a client's shots.[/b] An enemy shot from cover now alerts the ones around it and comes looking,[/*]
+[/list]
+  a hidden Snipa comes out, and the Sentinel and the Shav'Wa Warden raise their guard. Enemies that lose sight of a
+  client now take cover from them, as they do from the host. A client could also shoot out a Corrupted
+  Amalgamation's eyes only on their own screen; those hits now count for everyone.
+[list]
+[*][b]A client sees what the host's enemies do.[/b] A Snipa that came out on the host stayed hidden on everyone else's[/*]
+[/list]
+  screen, and a Sentinel's or a Shav'Wa Warden's block only showed for the host. Both now show for everyone.
+[list]
+[*][b]A frost enemy no longer freezes a client who hits it in melee.[/b] It only ever did that to non-players.[/*]
+[*][b]A client's hits travel on their own network lane,[/b] so a lost packet in a fight no longer holds up deaths and[/*]
+[/list]
+  boss events, and the other way round.
+
+[b]For mod authors:[/b] [color=#ffff00]SULFURTogether.Api.NetCombat[/color] reports, on a client, how the host settled each of the client's
+hits — final damage, critical hit, body part, kills and assists — and tells a mod on the host when damage belongs to
+a remote player. See [color=#ffff00]Docs/NetCombatApi.md[/color] in the repository.
 
 [color=RoyalBlue][b]1.6.0 — SULFUR 1.0.4, and hearing each other[/b][/color]
 
