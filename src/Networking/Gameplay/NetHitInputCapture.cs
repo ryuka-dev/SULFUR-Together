@@ -17,14 +17,24 @@ namespace SULFURTogether.Networking.Gameplay
     {
         /// <param name="args">The patched call's <c>__args</c>: [damage, DamageSourceData, Hitmesh.Data, Vector3?].</param>
         public static bool TryCapture(object target, float damage, object[]? args, out NetHitInput hit)
+            => TryCapture(target, damage, args, out hit, out _, out _);
+
+        /// <param name="weapon">The local weapon that dealt the hit (null for weaponless damage). Kept on this end for the
+        /// public combat events; never sent.</param>
+        /// <param name="worldPosition">The local world position of the hit, when the game supplied one.</param>
+        public static bool TryCapture(object target, float damage, object[]? args, out NetHitInput hit, out object? weapon, out Vector3? worldPosition)
         {
             hit = default;
+            weapon = null;
+            worldPosition = null;
             if (args == null || args.Length < 3) return false;
             if (args[1] is not DamageSourceData sd) return false;
+            weapon = sd.sourceWeapon != null ? sd.sourceWeapon : null;
             Hitmesh.Data hitbox = args[2] is Hitmesh.Data hb ? hb : Hitmesh.Data.Default;
             // A boxed Vector3? arrives as either null or a boxed Vector3.
             bool hasPos = args.Length > 3 && args[3] is Vector3;
             Vector3 worldPos = hasPos ? (Vector3)args[3] : Vector3.zero;
+            if (hasPos) worldPosition = worldPos;
 
             var s = sd.states;
             NetHitStateFlags flags = NetHitStateFlags.None;

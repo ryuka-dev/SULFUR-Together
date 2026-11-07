@@ -255,6 +255,8 @@ namespace SULFURTogether.Networking
         {
             _service?.Tick();
             SteamRelayBridge.Tick(); // STEAM-2: pump the Steam<->loopback byte relay (no-op when neither role is active)
+            // HR-2: hit-result timeouts are judged after this frame's network poll and relay pump, never before them.
+            if (NetConfig.GetMode() == NetMode.Client) Gameplay.ClientHitTracker.Tick();
         }
 
         public static void FixedTick() => _service?.FixedTick();

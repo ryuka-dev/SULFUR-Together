@@ -239,6 +239,7 @@ namespace SULFURTogether.Networking
             _receivedEnemyDeathEvents.Clear();
             _receivedClientEnemyDeathClaims.Clear();
             NetSessionSettings.ResetSession();
+            Gameplay.ClientHitTracker.Reset();       // HR-2: every outstanding hit resolves (Lost) before the session goes
             Gameplay.RemoteHitResolver.ResetSession();
             Vote.CoopVoteManager.Reset(); // VOTE-1: clear any in-flight vote
             CoopDevAuthority.OnSessionEnded("networking stopped"); // DEV-1: back to solo → follow local entitlement
@@ -6080,6 +6081,7 @@ namespace SULFURTogether.Networking
                 if (peer == _hostPeer)
                 {
                     _hostPeer = null;
+                    Gameplay.ClientHitTracker.Reset(); // HR-2: no result can arrive any more — resolve what is outstanding as Lost
                     NetClientJoinFlow.LeaveSession("disconnect");
                     CoopDevAuthority.OnSessionEnded("host connection lost"); // DEV-1: revert to local entitlement while disconnected
                     NetLogger.Info("[Session] Host connection lost");
