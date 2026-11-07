@@ -8,8 +8,7 @@
 - **A client's hits now follow the game's damage rules.** The host used to subtract the raw number a client's weapon
   dealt. It now runs every client hit through the game's own damage calculation: critical hits, headshots and
   body-part multipliers, resistances, armoured and invulnerable parts, parries, and enchantments that trigger on
-  hit — Crusader's holy damage now lands for a client too. A few enemy reactions (alerting nearby enemies when shot
-  from cover, some blocking stances) still only notice the host's own shots.
+  hit — Crusader's holy damage now lands for a client too.
 - **Body-part damage applies to clients.** This is a balance change: a client's shot to an arm or leg now does a
   quarter of its damage and a body shot half, exactly as for the host, while an eye shot does more. Aim matters for
   everyone now.
@@ -19,6 +18,15 @@
 - **Enemy health catches up after a burst.** A client's view of an enemy's health could stay behind after a quick
   series of hits.
 - **A charmed enemy follows the player who charmed it,** rather than always the host.
+- **What a hit gives back now reaches a client too.** Life steal heals a client from their own hits. Their kills,
+  and enemies they helped kill, count towards their own kill total. A Voodoo shot spreads one share per bullet, as
+  for the host, and the organ an enemy can drop on the killing shot drops for the client who fired it.
+- **Enemies react to a client's shots.** An enemy shot from cover now alerts the ones around it and comes looking,
+  a hidden Snipa comes out, and the Sentinel and the Shav'Wa Warden raise their guard. A client could also shoot
+  out a Corrupted Amalgamation's eyes only on their own screen; those hits now count for everyone.
+- **A frost enemy no longer freezes a client who hits it in melee.** It only ever did that to non-players.
+- **A client's hits travel on their own network lane,** so a lost packet in a fight no longer holds up deaths and
+  boss events, and the other way round.
 
 **For mod authors:** `SULFURTogether.Api.NetCombat` reports, on a client, how the host settled each of the client's
 hits — final damage, critical hit, body part, kills and assists — and tells a mod on the host when damage belongs to

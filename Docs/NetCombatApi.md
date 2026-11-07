@@ -19,6 +19,11 @@ remote player (its `Unit.isPlayer` is false), or null while that player has none
 requires `isPlayer || sourceUnit.isPlayer` therefore normally ignores it; `IsResolvingRemoteHit` says so explicitly.
 See the host section below for the cases where the two tests differ.
 
+The host also raises the target's `Unit.onHitboxHit` after an ordinary enemy's remote hit (the game raises it after
+`ReceiveDamage` on the shooter's machine), inside the same scope. A few enemy handlers that look for a player's hit
+(CrawSentinel and ShavWaWarden blocking) see the stand-in's `Unit.isPlayer` raised for the duration of that one call;
+a mod reading it from inside such a handler can see true there.
+
 ## Members
 
 ```csharp
@@ -146,11 +151,17 @@ null for a remote hit.
 - Not reported: damage-over-time ticks (the host runs the status; a client never forwards a tick), damage the game
   deals to *other* units inside a client's hit (Voodoo spread to linked enemies, thorns), hits on other players
   (friendly fire has its own path), and the client's own hits on objects it owns locally.
-- Known gaps in what the host reproduces: Voodoo spreads one share instead of one per projectile (the host has no weapon
-  object to read `lastAmountShotProjectiles` from); the game's "a player hit me" reactions keyed on
-  `DamageSourceData.isPlayer` (enemy alert propagation, CrawSentinel / ShavWaWarden blocking, DamageReverser) do not
-  react to a client's hit; a client's lifesteal is not applied. `onHitboxHit` consumers (Amalgamation and Terrorbaum
-  eyes, a power core) still run only on the client's local copy for a roster enemy.
+- What the game does for the attacker at the end of a hit happens on the client, from the host's result, whether or
+  not anything subscribes: right after `LocalHitResolved`, the client's own lifesteal (`Unit.OnGaveDamage` on its
+  player, once per damage instance, plus one call for the Voodoo shares the hit spread to other units); just before
+  `LocalKillCredited`, its kill count (`ENEMIES_KILLED` and the `enemies_killed` stat, for a killing blow or an assist with
+  damage dealt), and for an ordinary enemy's killing blow the damage effects of that hit on the dead local copy —
+  the game's organ roll, blood and bullet hole (also for the client's hits of the same volley that arrived after the
+  death).
+- Known gaps in what the host reproduces: `DamageReverser` does not put its status on a client (there is no path to
+  apply a status to a remote player); enemies do not take defensive positions against a client
+  (`AiAgent.TryFindDefensivePosition` reads the attacker's `isPlayer`). Voodoo spreads one share per projectile, but
+  a shot whose requests reach the host spread over more than two host frames splits again.
 
 ## Migrating a companion mod
 
