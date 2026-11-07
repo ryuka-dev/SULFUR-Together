@@ -17,9 +17,9 @@ namespace SULFURTogether.Networking.Gameplay
     ///
     /// <para><b>The source is not the host's player.</b> The <c>DamageSourceData</c> is built here, not from an
     /// <c>IDamager</c>: <c>isPlayer = false</c> (so the host's kill counter, explosion achievement and weapon-XP
-    /// attribution are not credited to the host — and, as a known gap, the game's "a player hit me" reactions keyed on
-    /// that flag (AI alert propagation, CrawSentinel / ShavWaWarden blocking, DamageReverser) do not react to a client's
-    /// hit, as they did not before either), <c>states.factionId = Player</c> (so faction
+    /// attribution are not credited to the host; the few enemy reactions that look for a player's hit are given it
+    /// separately — the AI alert below, the handlers in <c>RemoteHitReactionPatches</c>), <c>states.factionId = Player</c>
+    /// (so faction
     /// checks treat it as a player-side hit), and <c>sourceUnit</c> = that peer's ghost unit on the host
     /// (<see cref="RemotePlayerRegistryManager"/>) — the unit that already stands for the peer, or null when it has none
     /// (downed, between scenes). A player-faction source still makes vanilla set <c>damagedByPlayer</c>, which gates the
@@ -181,6 +181,7 @@ namespace SULFURTogether.Networking.Gameplay
         public static int GhostBonusApplied;
         public static int SynthesizedShape;
         public static int HitboxHitRaised;
+        public static int AlertsReproduced;
 
         /// <summary>Settle <paramref name="h"/> (already validated) on <paramref name="target"/>. Never throws.</summary>
         /// <param name="raiseHitboxHit">HR-4: also raise the target's <c>onHitboxHit</c> after the damage call, as the
@@ -254,6 +255,7 @@ namespace SULFURTogether.Networking.Gameplay
                 {
                     returned = (invoke ?? DefaultInvoker)(target, damage, sd, hitbox, hitPosition);
                     Resolved++;
+                    if (wasAlive) ReproducePlayerHitAlert(target, sd, sourceUnit);
                     if (raiseHitboxHit) RaiseHitboxHit(target, h, sd, shape, hitPosition);
                 }
                 catch (Exception ex)
@@ -293,6 +295,66 @@ namespace SULFURTogether.Networking.Gameplay
             }
             if (outermost) { _frames.Clear(); _open.Clear(); }
             return result;
+        }
+
+        /// <summary>HR-5: the end of vanilla <c>Unit.ReceiveDamage</c>, which needs <c>sourceData.isPlayer</c>: an NPC
+        /// still alive after a player's hit reports where the shot came from (<c>AiAgent.ReportLastSeen</c>, and for a
+        /// player target the position goes on to the NPC's group through <c>BatchedNPCRaycasts.ReportUnitPosition</c>
+        /// when it moved more than 2 m) and runs its first-aggro step. Reproduced for the remote hit with the peer's
+        /// stand-in as the target: the stand-in is the entry in <c>GameManager.Players</c> that enemy detection
+        /// already tracks for that peer. Runs only when the game's call got past its early returns (parry, invulnerable
+        /// part or unit), which is when it logged the hit.</summary>
+        private static void ReproducePlayerHitAlert(Unit target, DamageSourceData sd, Unit? source)
+        {
+            try
+            {
+                if (!(target is Npc npc) || npc == null || npc.AiAgent == null || !target.IsAlive) return;
+                if (!RootLogged(target)) return;
+                var agent = npc.AiAgent;
+                if (!sd.states.isSilenced && sd.alertPosition.HasValue && source != null)
+                {
+                    Vector3 seen = sd.alertPosition.Value;
+                    float? moved = null;
+                    if (agent.positionReportSet.TryGetUnitIndex(source, out int index))
+                        moved = (agent.positionReportSet.reports[index].position - seen).sqrMagnitude;
+                    agent.ReportLastSeen(source, seen, target.transform.position, propagate: true);
+                    // ReportLastSeen hands a position to the group only for an isPlayer target; do that step here.
+                    if (agent.useLineOfSight && (!moved.HasValue || moved.Value > 4f))
+                    {
+                        var player = source.GetComponent<Player>();
+                        var gm = GameManager.Instance;
+                        var batched = StaticInstance<BatchedNPCRaycasts>.Instance;
+                        if (player != null && gm != null && batched != null && gm.Players != null && gm.Players.IndexOf(player) >= 0)
+                            batched.ReportUnitPosition(agent, player, seen, target.transform.position);
+                    }
+                }
+                if (!npc.hasBeenAggroedOnce) npc.OnFirstAggro();
+                AlertsReproduced++;
+            }
+            catch (Exception ex) { NetLogger.Warn($"[RemoteHit] alert reproduction failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static bool RootLogged(Unit target)
+        {
+            for (int i = 0; i < _frames.Count; i++)
+                if (ReferenceEquals(_frames[i].Target, target) && _frames[i].Parent < 0) return _frames[i].Logged;
+            return false;
+        }
+
+        /// <summary>HR-5: for an enemy handler that reads the ATTACKER unit's <c>isPlayer</c>: raise the flag on the
+        /// remote peer's stand-in for the duration of that call when <paramref name="attacker"/> is it. Returns the unit
+        /// to restore with <see cref="LowerStandInPlayerFlag"/>, or null when nothing changed.</summary>
+        public static Unit? RaiseStandInPlayerFlag(Unit? attacker)
+        {
+            if (_depth <= 0 || attacker == null || _sourceUnit == null || !ReferenceEquals(attacker, _sourceUnit)) return null;
+            if (attacker.isPlayer) return null;
+            attacker.isPlayer = true;
+            return attacker;
+        }
+
+        public static void LowerStandInPlayerFlag(Unit unit)
+        {
+            try { if (unit != null) unit.isPlayer = false; } catch { }
         }
 
         // BossFightHelper (Gameplay assembly, namespace PerfectRandom.Sulfur.Core), resolved once.

@@ -47,6 +47,7 @@ namespace SULFURTogether.Networking.Gameplay
             public int      DamageType;
             public ushort   ShapeId;
             public Vector3? HitPosition;
+            public NetHitInput Hit;          // HR-5: the killing hit's inputs feed the organ roll
             public float    SentAt;
             public int      OverdueSinceFrame = -1;
         }
@@ -58,6 +59,11 @@ namespace SULFURTogether.Networking.Gameplay
             public int     KillingSeq = -1;
             public bool    KillingHeadshot;
             public object? KillingWeapon;
+            public NetHitInput KillingHit;
+            public Vector3? KillingPosition;
+            public bool    BossCredit;     // credited from the killing hit's result (boss kinds), not a local death
+            // HR-5: this client's hits resolved TargetDead after the killing hit (the rest of a shotgun volley).
+            public List<(NetHitInput Hit, object? Weapon, Vector3? Position)>? VolleyAfterKill;
             public object? LastWeapon;
             public float   DamageDealt;
             public bool    CreditPending;  // the death arrived; waiting for this target's unresolved hits
@@ -81,6 +87,7 @@ namespace SULFURTogether.Networking.Gameplay
         public static int Forwarded, Resolved, Lost, LateDropped, KillsCredited;
 
         private const float KillStateMaxAgeSeconds = 30f;
+        private const int MaxVolleyAfterKill = 16;
         private static readonly IReadOnlyList<SecondaryHit> NoSecondary = new ReadOnlyCollection<SecondaryHit>(Array.Empty<SecondaryHit>());
 
         /// <summary>Register a hit that was just sent and raise <see cref="NetCombat.LocalHitForwarded"/>.</summary>
@@ -93,7 +100,7 @@ namespace SULFURTogether.Networking.Gameplay
                 var p = new Pending
                 {
                     Seq = seq, Kind = kind, Target = target, TargetId = targetId, Weapon = weapon, Melee = hit.Melee,
-                    DamageType = hit.DamageType, ShapeId = hit.ShapeId, HitPosition = hitPosition,
+                    DamageType = hit.DamageType, ShapeId = hit.ShapeId, HitPosition = hitPosition, Hit = hit,
                     SentAt = Time.realtimeSinceStartup,
                 };
                 _bySeq[seq] = _pending.AddLast(p);
@@ -160,6 +167,8 @@ namespace SULFURTogether.Networking.Gameplay
                     k.KillingHeadshot = part == (int)PerfectRandom.Sulfur.Core.HitboxColliders.Parts.Head
                                      || part == (int)PerfectRandom.Sulfur.Core.HitboxColliders.Parts.Eye;
                     k.KillingWeapon = p.Weapon;
+                    k.KillingHit = p.Hit;
+                    k.KillingPosition = p.HitPosition;
                     // A boss role, the Emperor worm and spider never reach the puppet death-credit hook (no XP is
                     // credited for them on this end), so their killing blow is the credit — but only for a unit of the
                     // game's Boss type: a Witch illusion, a phase witch or a worm section dying is not "the enemy".
@@ -167,7 +176,13 @@ namespace SULFURTogether.Networking.Gameplay
                     {
                         k.CreditPending = true;
                         k.Experience = 0;
+                        k.BossCredit = true;
                     }
+                }
+                else if (r.Outcome == NetHitOutcome.TargetDead && k.KillingSeq >= 0 && p.Seq > k.KillingSeq && !k.BossCredit)
+                {
+                    var list = k.VolleyAfterKill ??= new List<(NetHitInput, object?, Vector3?)>();
+                    if (list.Count < MaxVolleyAfterKill) list.Add((p.Hit, p.Weapon, p.HitPosition));
                 }
             }
 
@@ -302,6 +317,12 @@ namespace SULFURTogether.Networking.Gameplay
             bool killing = k.KillingSeq >= 0;
             object? target = k.Target is UnityEngine.Object uo && uo == null ? null : k.Target;
             ClientHitEffects.OnKillCredited(k.IsNpc, killing, k.DamageDealt);
+            if (killing && !k.BossCredit)
+            {
+                ClientHitEffects.RollKillingHitOrgans(target, k.KillingHit, k.KillingWeapon, k.KillingPosition);
+                if (k.VolleyAfterKill != null)
+                    foreach (var v in k.VolleyAfterKill) ClientHitEffects.RollKillingHitOrgans(target, v.Hit, v.Weapon, v.Position);
+            }
             NetCombat.RaiseKillCredited(new LocalKillCreditedArgs(target, killing, killing ? k.KillingSeq : -1,
                 killing ? k.KillingWeapon : k.LastWeapon, killing && k.KillingHeadshot, k.Experience, k.DamageDealt));
         }
