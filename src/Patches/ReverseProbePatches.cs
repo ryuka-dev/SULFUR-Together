@@ -737,7 +737,7 @@ namespace SULFURTogether.Patches
                 // RS-1: kill attribution — Breakables are tracked separately (destructibles destroyed), and a
                 // player's own death never reaches here (blocked above).
                 if (category != "Breakable" && category != "Player")
-                    NetRunStatsManager.RecordKill(NetRunStatsManager.EntityKey(__instance), RunStatsHostPeerId());
+                    NetRunStatsManager.RecordKill(NetRunStatsManager.EntityKey(__instance), RunStatsHostPeerId(), SULFURTogether.Networking.Gameplay.RemoteHitResolver.RemotePeerId);
                 Log.Info($"[Unit] Die << {F(__instance)}");
             }
             catch (Exception ex) { Log.Error($"[Unit.Die] {ex.Message}"); }
@@ -1446,7 +1446,7 @@ namespace SULFURTogether.Patches
                 ReverseProbeSummary.IncrementDeath("Npc");
                 ReverseProbeKnownObjects.RegisterDeath(ID(__instance));
                 NetGameplayProbeManager.ReportDeath(__instance, "Npc.Die", "Npc");
-                NetRunStatsManager.RecordKill(NetRunStatsManager.EntityKey(__instance), RunStatsHostPeerId());
+                NetRunStatsManager.RecordKill(NetRunStatsManager.EntityKey(__instance), RunStatsHostPeerId(), SULFURTogether.Networking.Gameplay.RemoteHitResolver.RemotePeerId);
                 Log.Info($"[Npc] Die << {F(__instance)}");
             }
             catch (Exception ex) { Log.Error($"[Npc.Die] {ex.Message}"); }
@@ -1752,7 +1752,7 @@ namespace SULFURTogether.Patches
             catch (Exception ex) { Log.Warn($"[CorpseGib] Npc.ReceiveDamage postfix failed: {ex.Message}"); }
         }
 
-        private static bool Npc_ReceiveDamage_Pre(object __instance, float damage, object source, out object __state)
+        private static bool Npc_ReceiveDamage_Pre(object __instance, float damage, object source, object[] __args, out object __state)
         {
             __state = null!;
             try
@@ -1806,7 +1806,7 @@ namespace SULFURTogether.Patches
                 // Phase 5.3-B: intercept client player → puppet NPC damage and redirect to Host.
                 // If TrySendClientHitRequest returns true, the host will apply authoritative damage;
                 // suppress local application to avoid divergence.
-                if (NetGameplayProbeManager.TrySendClientHitRequest(__instance, damage, ReadDamageType(source)))
+                if (NetGameplayProbeManager.TrySendClientHitRequest(__instance, damage, __args))
                 {
                     // GU102-5: the suppressed ReceiveDamage would have recorded the hitting weapon for XP attribution.
                     WeaponXpCreditManager.RegisterLocalHitAttribution(__instance, source);
@@ -1818,10 +1818,14 @@ namespace SULFURTogether.Patches
                 NetGameplayProbeManager.ReportDamage(__instance, "Npc.ReceiveDamage", "Npc", damage, ReadDamageType(source));
                 // Phase 5.2: damage event (amount only) sent here; health is read in
                 // Unit_ReceiveDamage_Post after the actual Stats deduction in Unit.ReceiveDamage.
-                NetGameplayProbeManager.ReportHostNpcDamageForSync(__instance, damage);
+                // HR-1: a client hit the host is settling already gets its flash from the host-hit visual sent once the
+                // result is known (Applied only) — this pre-result damage event would flash it a second time, and would
+                // flash declined hits too.
+                if (!SULFURTogether.Networking.Gameplay.RemoteHitResolver.IsResolving)
+                    NetGameplayProbeManager.ReportHostNpcDamageForSync(__instance, damage);
 
-                // EM-5c: record who damaged this enemy for Independent-mode Endless XP attribution. HostApplyingHitPeer
-                // (set around the client-hit apply) attributes client-forwarded damage to that client; otherwise = host.
+                // EM-5c: record who damaged this enemy for Independent-mode Endless XP attribution. While the host settles
+                // a client's hit (HR-1 RemoteHitResolver scope) the damage is that client's; otherwise = host.
                 if (damage > 0f) SULFURTogether.Networking.Gameplay.EndlessSyncManager.RecordHostSideDamager(__instance);
 
                 // RS-1: reaching this fallthrough (past all client-redirect / boss-claim checks above) on the HOST

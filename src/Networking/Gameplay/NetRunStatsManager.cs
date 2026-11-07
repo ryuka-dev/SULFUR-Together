@@ -186,12 +186,16 @@ namespace SULFURTogether.Networking.Gameplay
 
         /// <summary>Attribute a kill to whoever last damaged this entity (falling back to the Host's own peer id for
         /// unattributed kills — environment, host-only damage sources, etc.), deduped per entity.</summary>
-        public static void RecordKill(int entityKey, string fallbackPeerId)
+        /// <param name="killerPeerId">HR-1: the peer whose hit the host is settling when the death happens inside that
+        /// settlement (<c>RemoteHitResolver.RemotePeerId</c>). The death runs inside the game's ReceiveDamage, before the
+        /// settlement records the damage, so <c>_lastDamager</c> would still name whoever hit the unit before.</param>
+        public static void RecordKill(int entityKey, string fallbackPeerId, string? killerPeerId = null)
         {
             if (!IsHost || !RunActive) return;
             if (!_killedKeys.Add(entityKey)) return; // already attributed (e.g. Npc.Die + Unit.Die both firing)
 
-            string peerId = _lastDamager.TryGetValue(entityKey, out var lastDamager) ? lastDamager : fallbackPeerId;
+            string peerId = !string.IsNullOrWhiteSpace(killerPeerId) ? killerPeerId!
+                          : _lastDamager.TryGetValue(entityKey, out var lastDamager) ? lastDamager : fallbackPeerId;
             _lastDamager.Remove(entityKey);
             if (string.IsNullOrWhiteSpace(peerId)) return;
             GetOrCreate(peerId).Kills++;

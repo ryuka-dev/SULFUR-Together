@@ -262,11 +262,18 @@ namespace SULFURTogether.Networking.Gameplay
 
                 if (!npc.IsAlive || npc.Stats == null) { _hostRequestsRejected++; return; }
 
-                // The host's own player stands in as the applying unit: this end has no Unit for a remote player that the
-                // status bookkeeping would accept, and the one vanilla consumer of that attribution — frozen-solid's
-                // shatter kill — already falls back to exactly this unit when the source is unknown.
-                Unit? source = null;
-                try { source = GameManager.Instance != null ? GameManager.Instance.PlayerUnit : null; } catch { }
+                // HR-1: the applying unit is the requesting peer's ghost on this end — the unit that already stands for
+                // that player. Vanilla reads the applier back as the SOURCE of what the status does later: Crusader's
+                // Holy damage, a periodic tick, the frozen-solid shatter, and which unit a Charmed enemy now sides with
+                // and follows. With the host's player as applier, all of that was credited to (and followed) the host:
+                // the host's damage numbers showed the client's Crusader procs, and the host's lifesteal fed on them.
+                // Without a ghost (downed, between scenes) the host's player stays the fallback: a null applier would
+                // leave Charmed with no faction to switch to, and frozen-solid falls back to the host's player anyway.
+                Unit? source = RemoteHitResolver.ResolvePeerUnit(peerId);
+                if (source == null)
+                {
+                    try { source = GameManager.Instance != null ? GameManager.Instance.PlayerUnit : null; } catch { }
+                }
 
                 var attrs  = request.Attributes ?? Array.Empty<ushort>();
                 var values = request.Values     ?? Array.Empty<float>();

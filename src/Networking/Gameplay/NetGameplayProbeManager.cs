@@ -391,7 +391,8 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _puppetReleaseSuppressedAwaitingHost;
         private static int _puppetStaleReleaseSuppressed; // stale timer fired but puppet is host-bound
 
-        // Phase 5.3-B: Client → Host hit request pipeline.
+        // Phase 5.3-B: Client → Host hit request pipeline. HR-1: the request seq increases for the life of the process —
+        // never reset, so no two requests (and no late result) can share one.
         private static int _clientHitRequestSeq;
         private static int _clientHitRequestsSent;
         private static int _clientHitRequestsSkippedNoPuppet;    // NPC is not a puppet
@@ -404,27 +405,17 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _hostHitRequestsRejectedNoTarget;
         private static int _hostHitRequestsRejectedTypeMismatch;
         private static int _hostHitRequestsRejectedDead;
-        private static int _hostHitRequestsRejectedPreFightInvuln; // EM-Boss: absorbed while boss invulnerable pre-fight
+        private static int _hostHitRequestsRejectedInput;        // HR-1: malformed / out-of-range hit input, unknown hitbox shape
         private static int _hostHitRequestsRejectedRateLimit;
         private static int _hostHitRequestsAccepted;
         private static int _hostHitRequestsDamageApplied;
-        private static int _hostHitRequestsDamageFailed;
+        private static int _hostHitRequestsDeclined;              // HR-1: reached the game, which declined it (invulnerable, parried, ...)
         // Per-target last-accepted time for rate limiting (host side).
         private static readonly Dictionary<int, float> _hostHitRequestLastAtByHostIdx = new Dictionary<int, float>();
-        // Phase 5.5-RT3-A4: damage from hits that arrive inside the per-target window is COALESCED here (not dropped) and
-        // applied on the next accepted hit / on Tick flush — so burst & multi-pellet weapons don't lose 50%+ of damage.
-        private static readonly Dictionary<int, float> _hostHitPendingDamageByHostIdx = new Dictionary<int, float>();
-        // RS-1: last peer whose hit contributed to a hostIdx's coalesced pending damage — lets FlushPendingClientHitDamage
-        // (which has no request/peerId of its own) still attribute the flushed tail damage to somebody.
-        private static readonly Dictionary<int, string> _hostHitPendingDamagePeerByHostIdx = new Dictionary<int, string>();
-        private static int _hostHitRequestsCoalesced;
-        // Phase 5.3-B: host hit result + client predicted/confirmed tracking.
-        private static int _hostHitResultHealthStateSent;
-        private static int _clientLocalHitPredicted;
-        private static int _clientLocalHitConfirmed;
-        // Client: hostIdx → time we last sent a hit request, used to confirm via subsequent HealthState.
-        private static readonly Dictionary<int, float> _clientPendingHitByHostIdx = new Dictionary<int, float>();
-        private const float ClientHitConfirmWindowSeconds = 2f;
+        // HR-1: client-side result tracking.
+        private static int _clientHitResultsRecv;
+        private static int _clientLocalHitConfirmed;              // results with Outcome Applied
+        private static int _clientHitCaptureFallback;             // forwarded without a readable DamageSourceData
 
         // ----------------------------------------------------------------
         // Phase 5.3-D P0-2: Two-phase death state (client side).
@@ -532,8 +523,6 @@ namespace SULFURTogether.Networking.Gameplay
         // ----------------------------------------------------------------
         // Phase 5.3-F: ClientHit visual chain (Host plays + broadcasts; Client mirrors).
         // ----------------------------------------------------------------
-        private static int _hostHitVisualPlayed;
-        private static int _hostHitVisualFailedNoNpc;
         private static int _hostHitVisualEventSent;
         private static int _hostHitVisualSeq;
         private static int _clientHitVisualEventRecv;
@@ -543,7 +532,6 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _clientHitVisualSkipTerminalDead;
         private static int _clientHitVisualDuplicateSeq;
         // Phase 5.3-G fatal-hit visual tracking.
-        private static int _hostHitFatalVisualPlayed;
         private static int _clientHitFatalVisualPlayed;
         private static int _clientHitVisualSkippedFatalTerminalDead;
         private static readonly Dictionary<int, int> _clientHitVisualLastSeqByHostIdx = new Dictionary<int, int>();
@@ -861,7 +849,7 @@ namespace SULFURTogether.Networking.Gameplay
         private static readonly string[] TickStepNames =
         {
             "flushSpawnLogs", "applyEnemyState", "animBoolResets", "visualProjectiles", "hitFlashes",
-            "pendingDead", "flushHitDamage", "deferredManifest", "releaseStalePuppets", "pruneCombatActions",
+            "pendingDead", "hitResults", "deferredManifest", "releaseStalePuppets", "pruneCombatActions",
             "pruneAiIntents", "pruneIntentWindows", "expireHealthStates", "expireHostBinds", "summary",
         };
         private static readonly long[] _tickStepMs = new long[15];
@@ -910,7 +898,8 @@ namespace SULFURTogether.Networking.Gameplay
             UpdateClientVisualProjectiles();                             e = TickStep(3,  e);
             UpdateClientHitFlashes();                                    e = TickStep(4,  e);
             UpdateClientPendingDead();                                   e = TickStep(5,  e);
-            FlushPendingClientHitDamage();                               e = TickStep(6,  e);
+            FlushTrailingEnemyHealth();
+                                                                         e = TickStep(6,  e);
             TryProcessDeferredManifest();                                e = TickStep(7,  e);
             ReleaseStaleEnemyPuppets();                                  e = TickStep(8,  e);
             PruneExpiredHostEnemyCombatActions();                        e = TickStep(9,  e);
@@ -1099,7 +1088,8 @@ namespace SULFURTogether.Networking.Gameplay
             _clientHealthWriteReadBackUnchanged = 0;
             _puppetReleaseSuppressedAwaitingHost = 0;
             _puppetStaleReleaseSuppressed = 0;
-            _clientHitRequestSeq = 0;
+            // HR-1: _clientHitRequestSeq is deliberately NOT reset here — results of the previous level can still be in
+            // flight, and a request's seq must never collide with one of them (it only ever increases).
             _clientHitRequestsSent = 0;
             _clientHitRequestsSkippedNoPuppet = 0;
             _clientHitRequestsSkippedNoBinding = 0;
@@ -1109,19 +1099,17 @@ namespace SULFURTogether.Networking.Gameplay
             _hostHitRequestsRejectedNoTarget = 0;
             _hostHitRequestsRejectedTypeMismatch = 0;
             _hostHitRequestsRejectedDead = 0;
-            _hostHitRequestsRejectedPreFightInvuln = 0;
+            _hostHitRequestsRejectedInput = 0;
             _hostHitRequestsRejectedRateLimit = 0;
-            _hostHitRequestsCoalesced = 0;
-            _hostHitPendingDamageByHostIdx.Clear();
-            _hostHitPendingDamagePeerByHostIdx.Clear();
             _hostHitRequestsAccepted = 0;
             _hostHitRequestsDamageApplied = 0;
-            _hostHitRequestsDamageFailed = 0;
+            _hostHitRequestsDeclined = 0;
             _hostHitRequestLastAtByHostIdx.Clear();
-            _hostHitResultHealthStateSent = 0;
-            _clientLocalHitPredicted = 0;
+            _clientHitResultsRecv = 0;
+            _clientHitCaptureFallback = 0;
             _clientLocalHitConfirmed = 0;
-            _clientPendingHitByHostIdx.Clear();
+            RemoteHitResolver.ResetSession();
+            _enemyHealthTrailingBySpawnIdx.Clear(); // keyed by spawn index, which the next level reuses
             // Phase 5.3-D two-phase death + hit flash.
             _clientTerminalDeadHostIdx.Clear();
             _clientPendingDeadHostIdx.Clear();
@@ -1202,8 +1190,6 @@ namespace SULFURTogether.Networking.Gameplay
             _manifestClientOnlyQuarantineApplied = 0;
             _manifestClientOnlyQuarantineFailed = 0;
             // Phase 5.3-F hit visual.
-            _hostHitVisualPlayed = 0;
-            _hostHitVisualFailedNoNpc = 0;
             _hostHitVisualEventSent = 0;
             _hostHitVisualSeq = 0;
             _clientHitVisualEventRecv = 0;
@@ -1212,7 +1198,6 @@ namespace SULFURTogether.Networking.Gameplay
             _clientHitVisualSkipPendingDead = 0;
             _clientHitVisualSkipTerminalDead = 0;
             _clientHitVisualDuplicateSeq = 0;
-            _hostHitFatalVisualPlayed = 0;
             _clientHitFatalVisualPlayed = 0;
             _clientHitVisualSkippedFatalTerminalDead = 0;
             _clientHitVisualLastSeqByHostIdx.Clear();
@@ -2194,13 +2179,13 @@ namespace SULFURTogether.Networking.Gameplay
             Plugin.Log.Info($"[GameplayProbe] Phase5.0 hostAttackPhaseEventsSent={_hostAttackPhaseEventsSent} clientAttackPhaseEventsReceived={_clientAttackPhaseEventsReceived} clientAttackPhaseAnimatorApplies={_clientAttackPhaseAnimatorApplies} clientPuppetDamageSuppressed={_clientPuppetDamageSuppressed} interestManagementFarSkipped={_interestManagementFarSkipped} interestEngagedExempt={_interestEngagedExempt} attackPhaseThrottled={_attackPhaseThrottled} enemyDamageEventThrottled={_enemyDamageEventThrottled}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.2 hostDmgEventsSent={_hostEnemyDamageEventsSent} hostHealthStatesSent={_hostEnemyHealthStatesSent} clientDmgEventsRecv={_clientEnemyDamageEventsReceived} clientHealthStatesRecv={_clientEnemyHealthStatesReceived} clientHealthApplied={_clientEnemyHealthStatesApplied} clientHealthNoBinding={_clientEnemyHealthApplySkippedNoBinding} healthPendingQueued={_clientHealthStatesPendingQueued} healthPendingApplied={_clientHealthStatesPendingApplied} healthPendingExpired={_clientHealthStatesPendingExpired} deathByRosterBind={_hostDeathAppliedByRosterBinding} deathSnapped={_hostDeathAppliedAfterSnap} deathRejectedNoBinding={_hostDeathRejectedNoBinding} deathTombstone={_hostDeathTombstoneHit} deathNeverBound={_hostDeathNeverBound} lateBindAttempts={_hostDeathLateBindAttempts} lateBindSuccess={_hostDeathLateBindSuccess} claimsSuppressed={_clientDeathClaimsSuppressedByHostAuthority}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.2-diag healthFail_disabled={_clientHealthApplyDisabled} healthFail_noHp={_clientHealthNoCurrentHp} healthFail_noEntity={_clientHealthNoEntity} healthFail_noRuntimeObj={_clientHealthNoRuntimeObj} healthFail_unityDestroyed={_clientHealthUnityDestroyed} healthFail_noStats={_clientHealthNoStats} healthFail_noSetStatus={_clientHealthSetStatusMissing} healthFail_enumArgBuild={_clientHealthEnumArgFailed} healthFail_invokeFail={_clientHealthSetStatusFailed} healthFail_write={_clientHealthWriteFailed} healthFail_readBackUnchanged={_clientHealthWriteReadBackUnchanged} puppetSuppressedAwaitingHost={_puppetReleaseSuppressedAwaitingHost} puppetStaleSuppressed={_puppetStaleReleaseSuppressed} nonFiniteFacingsRejected={RejectedNonFiniteFacings} transformsRepaired={RepairedPoisonedTransforms} releasesKeptSuppressed={_suppressedUnrepairableReleases} safeTeleports={SafeTeleports} safeTeleportHoldsExpired={SafeTeleportHoldsExpired} safeTeleportHoldsActive={PuppetColliderHolds.Count} mountedSuppressionSkipped={_mountedPuppetSuppressionSkipped} carrierDrivenSuppressionSkipped={_carrierDrivenSuppressionSkipped}");
-            Plugin.Log.Info($"[GameplayProbe] Phase5.3-B clientHitSent={_clientHitRequestsSent} clientHitSkipNoPuppet={_clientHitRequestsSkippedNoPuppet} clientHitSkipNoBinding={_clientHitRequestsSkippedNoBinding} puppetNonPlayerDmgIgnored={_clientPuppetNonPlayerDamageIgnored} clientHitSkipPendingDead={_clientHitSkipPendingDead} clientHitSkipTerminalDead={_clientHitSkipTerminalDead} clientHitPredicted={_clientLocalHitPredicted} clientHitConfirmed={_clientLocalHitConfirmed} hostHitRecv={_hostHitRequestsRecv} hostHitRejectScene={_hostHitRequestsRejectedScene} hostHitRejectNoTarget={_hostHitRequestsRejectedNoTarget} hostHitRejectType={_hostHitRequestsRejectedTypeMismatch} hostHitRejectDead={_hostHitRequestsRejectedDead} hostHitRejectPreFightInvuln={_hostHitRequestsRejectedPreFightInvuln} hostHitRejectRateLimit={_hostHitRequestsRejectedRateLimit} hostHitCoalesced={_hostHitRequestsCoalesced} hostHitAccepted={_hostHitRequestsAccepted} hostHitDmgApplied={_hostHitRequestsDamageApplied} hostHitDmgFailed={_hostHitRequestsDamageFailed} hostHitResultHealthSent={_hostHitResultHealthStateSent}");
+            Plugin.Log.Info($"[GameplayProbe] Phase5.3-B clientHitSent={_clientHitRequestsSent} clientHitSkipNoPuppet={_clientHitRequestsSkippedNoPuppet} clientHitSkipNoBinding={_clientHitRequestsSkippedNoBinding} puppetNonPlayerDmgIgnored={_clientPuppetNonPlayerDamageIgnored} clientHitSkipPendingDead={_clientHitSkipPendingDead} clientHitSkipTerminalDead={_clientHitSkipTerminalDead} clientHitResults={_clientHitResultsRecv} clientHitConfirmed={_clientLocalHitConfirmed} clientHitCaptureFallback={_clientHitCaptureFallback} hostHitRecv={_hostHitRequestsRecv} hostHitRejectScene={_hostHitRequestsRejectedScene} hostHitRejectNoTarget={_hostHitRequestsRejectedNoTarget} hostHitRejectType={_hostHitRequestsRejectedTypeMismatch} hostHitRejectDead={_hostHitRequestsRejectedDead} hostHitRejectInput={_hostHitRequestsRejectedInput} hostHitRejectRateLimit={_hostHitRequestsRejectedRateLimit} hostHitAccepted={_hostHitRequestsAccepted} hostHitDmgApplied={_hostHitRequestsDamageApplied} hostHitDeclined={_hostHitRequestsDeclined} remoteResolved={RemoteHitResolver.Resolved} remoteResolveFailed={RemoteHitResolver.ResolveFailed} remoteGhostBonus={RemoteHitResolver.GhostBonusApplied} remoteSynthShape={RemoteHitResolver.SynthesizedShape}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-D-death pendingDeadMarked={_pendingDeadMarked} pendingDeadHostDeathApplied={_pendingDeadHostDeathApplied} pendingDeadAwaitingHostDeath={_clientPendingDeadHostIdx.Count} pdVisualFallbackAttempted={_pendingDeadVisualFallbackAttempted} pdVisualFallbackSucceeded={_pendingDeadVisualFallbackSucceeded} pdVisualFallbackFailed={_pendingDeadVisualFallbackFailed} pdBlockedHitFlash={_pendingDeadBlockedHitFlash} pdBlockedClientHit={_pendingDeadBlockedClientHit} terminalDeadMarkedAfterDie={_terminalDeadMarkedAfterDie} terminalDeadMarkedAfterVisualFallback={_terminalDeadMarkedAfterVisualFallback} terminalDeadMarkedFromHealthOnly={_terminalDeadMarkedFromHealthOnly} activeTerminalDead={_clientTerminalDeadHostIdx.Count} tdBlockedAttackPhase={_terminalDeadBlockedAttackPhase} tdBlockedGenericReplay={_terminalDeadBlockedGenericReplay} tdBlockedMovement={_terminalDeadBlockedMovement} tdBlockedHitReaction={_terminalDeadBlockedHitReaction} tdHealthIgnored={_terminalDeadHealthUpdatesIgnored} tdDeathReapplySkipped={_terminalDeadDeathReapplySkipped}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-D-flash dmgVisualPlayed={_damageVisualReactionsPlayed} dmgVisualDoWhiteFlash={_dmgVisualNativeDoWhiteFlash} dmgVisualSetHitEffect={_dmgVisualNativeSetHitEffect} dmgVisualMaterialHitTime={_dmgVisualMaterialHitTime} dmgVisualFallbackColor={_dmgVisualFallbackColor} dmgVisualFailNoNpc={_dmgVisualFailedNoNpc} dmgVisualFailNoMethod={_dmgVisualFailedNoMethod} dmgVisualFailNoMaterial={_dmgVisualFailedNoMaterial} dmgVisualSkipTerminalDead={_damageVisualReactionSkippedTerminalDead} dmgVisualSkipPendingDead={_damageVisualReactionSkippedPendingDead} dmgVisualSkipNoBinding={_damageVisualReactionSkippedNoBinding} dmgVisualSkipDupSeq={_damageVisualReactionSkippedDuplicateSeq} activeFlashes={_pendingHitFlashes.Count}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-E-manifest hostManifestBuilt={_hostManifestBuilt} clientManifestBuilt={_clientManifestBuilt} hostManifestSent={_hostManifestSent} clientManifestReceived={_clientManifestReceived} seedMismatch={_manifestSeedMismatch} roomMismatch={_manifestRoomMismatch} unitMismatch={_manifestUnitMismatch} specialMismatch={_manifestSpecialMismatch} modifierMismatch={_manifestHostEnemyModifierMismatch} hostOnlyUnits={_manifestHostOnlyUnits} clientOnlyUnits={_manifestClientOnlyUnits} hostEnemyBoundExisting={_manifestHostEnemyBoundExisting} hostEnemyBindFailedNoCandidate={_manifestHostEnemyBindFailedNoCandidate} hostEnemyBindFailedAmbiguous={_manifestHostEnemyBindFailedAmbiguous}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-F-generation-diff generationHashMatch={_generationHashMatch} generationHashMismatch={_generationHashMismatch} runtimeHashMatch={_runtimeHashMatch} runtimeHashMismatch={_runtimeHashMismatch} genHashStableSameRev={_generationHashStableSameRevision} genHashChangedSameRev={_generationHashChangedSameRevision}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-F-quarantine clientOnlyQuarantined={_manifestClientOnlyCombatQuarantined} qApplied={_manifestClientOnlyQuarantineApplied} qFailed={_manifestClientOnlyQuarantineFailed} qNoLocalKey={_manifestClientOnlyQuarantineNoLocalKey} qNoRuntime={_manifestClientOnlyQuarantineNoRuntime} qNonCombatSkipped={_manifestClientOnlyNonCombatSkipped} qAlready={_manifestClientOnlyAlreadyQuarantined}");
-            Plugin.Log.Info($"[GameplayProbe] Phase5.3-G-client-hit-visual hostHitVisualPlayed={_hostHitVisualPlayed} hostHitFatalVisualPlayed={_hostHitFatalVisualPlayed} hostHitVisualFailedNoNpc={_hostHitVisualFailedNoNpc} hostHitVisualEventSent={_hostHitVisualEventSent} clientHitVisualEventRecv={_clientHitVisualEventRecv} clientHitVisualPlayed={_clientHitVisualPlayed} clientHitFatalVisualPlayed={_clientHitFatalVisualPlayed} clientHitVisualSkipNoBinding={_clientHitVisualSkipNoBinding} clientHitVisualSkipPendingDead={_clientHitVisualSkipPendingDead} clientHitVisualSkipTerminalDead={_clientHitVisualSkipTerminalDead} clientHitVisualSkipFatalTerminalDead={_clientHitVisualSkippedFatalTerminalDead} clientHitVisualDuplicateSeq={_clientHitVisualDuplicateSeq}");
+            Plugin.Log.Info($"[GameplayProbe] Phase5.3-G-client-hit-visual hostHitVisualEventSent={_hostHitVisualEventSent} clientHitVisualEventRecv={_clientHitVisualEventRecv} clientHitVisualPlayed={_clientHitVisualPlayed} clientHitFatalVisualPlayed={_clientHitFatalVisualPlayed} clientHitVisualSkipNoBinding={_clientHitVisualSkipNoBinding} clientHitVisualSkipPendingDead={_clientHitVisualSkipPendingDead} clientHitVisualSkipTerminalDead={_clientHitVisualSkipTerminalDead} clientHitVisualSkipFatalTerminalDead={_clientHitVisualSkippedFatalTerminalDead} clientHitVisualDuplicateSeq={_clientHitVisualDuplicateSeq}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-H-levelstep-trace levelStepResetContext={_levelGenStepTraced} nodeCoroutineMoveNext={_levelGenNodeCoroutineTraced}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-G-connector-trace finalizeConnection={_levelGenFinalizeConnectionTraced} connectorFinalizeSpawn={_levelGenConnectorFinalizeSpawnTraced} doorBlockerRecorded={_levelGenDoorBlockerRecorded}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-G-extra-room-trace extraRoomMoveNext={_levelGenExtraRoomTraced}");
@@ -9544,11 +9529,19 @@ namespace SULFURTogether.Networking.Gameplay
 
                 bool isDead = currentHp <= 0f;
 
-                // (2) Throttle intermediate health states per enemy (health converges via snapshot). ALWAYS send the
-                // death state (isDead) so the client's death sync is never dropped.
+                // (2) Throttle intermediate health states per enemy. ALWAYS send the death state (isDead) so the
+                // client's death sync is never dropped. A throttled state is not dropped for good: the enemy-state
+                // snapshot carries no health, so the last hits of a burst would otherwise never reach the client. It is
+                // parked and sent once the window has passed (FlushTrailingEnemyHealth) — HR-1 made this visible: every
+                // damage component of a client hit is now its own ReceiveDamage, where the old 0.08 s coalescing pool
+                // used to hide it.
                 if (!isDead && Plugin.Cfg.EnableCombatEventCoalescing.Value
                     && ThrottlePerEntity(_enemyHealthLastSentBySpawnIdx, spawnIdx, Plugin.Cfg.EnemyDamageEventMinIntervalSeconds.Value, Time.realtimeSinceStartup))
+                {
+                    _enemyHealthTrailingBySpawnIdx[spawnIdx] = npc;
                     return;
+                }
+                _enemyHealthTrailingBySpawnIdx.Remove(spawnIdx);
 
                 bool hasPos = TryGetPosition(npc, out var pos);
 
@@ -9691,7 +9684,13 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return "?"; }
         }
 
-        public static bool TrySendClientHitRequest(object? npc, float damage, object? damageType)
+        /// <summary>
+        /// Phase 5.3-B / HR-1 (CLIENT): forward one suppressed <c>Npc.ReceiveDamage</c> call on a host-bound puppet to the
+        /// host as a <see cref="NetClientHitRequest"/> carrying the full hit input, and suppress the local damage.
+        /// Returns true when the caller must skip the local call (sent, or deliberately swallowed).
+        /// </summary>
+        /// <param name="args">The patched call's <c>__args</c> — the DamageSourceData, Hitmesh.Data and hit position.</param>
+        public static bool TrySendClientHitRequest(object? npc, float damage, object[]? args)
         {
             if (npc == null || damage <= 0f) return false;
             try
@@ -9763,6 +9762,14 @@ namespace SULFURTogether.Networking.Gameplay
                 if (!NetRunStateBridge.TryGetLocalRunState(out var state) || !state.HasLevel)
                     return false;
 
+                if (!NetHitInputCapture.TryCapture(npc, damage, args, out var hit))
+                {
+                    // Not the DamageSourceData overload (never expected) — still a player hit on a host-owned unit, so
+                    // forward what is known rather than letting it land locally.
+                    hit = new NetHitInput { RawDamage = damage, DamageType = (byte)PerfectRandom.Sulfur.Core.Stats.DamageTypes.Normal };
+                    _clientHitCaptureFallback++;
+                }
+
                 string unitIdentifier = record?.Snapshot?.EntityId?.UnitIdentifier ?? "";
 
                 var req = new NetClientHitRequest
@@ -9771,26 +9778,22 @@ namespace SULFURTogether.Networking.Gameplay
                     LevelIndex             = state.LevelIndex,
                     HasLevelSeed           = state.HasLevelSeed,
                     LevelSeed              = state.LevelSeed,
-                    RequestSeq             = ++_clientHitRequestSeq,
-                    ClientPeerId           = state.PeerId ?? "",
+                    RequestSeq             = NextClientHitSeq(),
+                    TargetKind             = NetHitTargetKind.Roster,
                     TargetHostSpawnIndex   = hostIdx,
                     TargetUnitIdentifier   = unitIdentifier,
-                    DamageCandidate        = damage,
-                    HasAttackerPosition    = false,
+                    Hit                    = hit,
                     SentAt                 = Time.realtimeSinceStartup,
                 };
 
                 NetGameplaySyncBridge.SendClientHitRequest(req);
                 _clientHitRequestsSent++;
-                _clientLocalHitPredicted++;
                 // Issue #4: tag this puppet as damaged by the local player so its death credits local weapon XP.
                 // Mirrors vanilla Unit.ReceiveDamage setting damagedByPlayer for a player-faction source.
                 if (record != null) record.DamagedByLocalPlayer = true;
-                // Record so the resulting HostEnemyHealthState can confirm this hit.
-                _clientPendingHitByHostIdx[hostIdx] = Time.realtimeSinceStartup;
 
                 if (Plugin.Cfg.LogClientHitRequests.Value)
-                    NetLogger.Info($"[ClientHit] Sent seq={req.RequestSeq} hostIdx={hostIdx} unit={unitIdentifier} dmg={damage:F1} type={damageType} (predicted)");
+                    NetLogger.Info($"[ClientHit] Sent {req.ToCompact()} unit={unitIdentifier}");
 
                 return true;
             }
@@ -9802,220 +9805,148 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
+        /// <summary>HR-1: the one request sequence every client hit path draws from, so a result is unambiguous whatever
+        /// kind of target it was aimed at.</summary>
+        public static int NextClientHitSeq() => ++_clientHitRequestSeq;
+
         /// <summary>
-        /// Called on HOST when a ClientHitRequest packet arrives from a client peer.
-        /// Validates scene, target, type, rate-limit, then applies damage via Stats.SetStatus.
-        /// Existing HealthState/DeathEvent broadcast handles the result.
+        /// Phase 5.3-B / HR-1 (HOST): a ClientHitRequest arrived. Validate the scene, the input and the target, then let
+        /// the game settle it on the real unit (<see cref="RemoteHitResolver"/>) and answer the sender — every request
+        /// that reaches the host gets exactly one <see cref="NetHostHitResult"/>.
         /// </summary>
-        /// <summary>Host Tick: apply coalesced damage whose target's rate-limit window has elapsed with no further hit to
-        /// flush it (e.g. the last pellets of a burst). Without this, a burst's tail damage would be stranded.</summary>
-        private static void FlushPendingClientHitDamage()
-        {
-            if (NetConfig.GetMode() != NetMode.Host) return;
-            if (_hostHitPendingDamageByHostIdx.Count == 0) return;
-            float rateLimit = Plugin.Cfg.ClientHitRequestRateLimitSeconds.Value;
-            if (rateLimit <= 0f) { _hostHitPendingDamageByHostIdx.Clear(); return; }
-            float now = Time.realtimeSinceStartup;
-            if (!NetRunStateBridge.TryGetLocalRunState(out var hostState)) return;
-
-            List<int>? ready = null;
-            foreach (var kv in _hostHitPendingDamageByHostIdx)
-            {
-                _hostHitRequestLastAtByHostIdx.TryGetValue(kv.Key, out float lastAt);
-                if (now - lastAt >= rateLimit) (ready ??= new List<int>()).Add(kv.Key);
-            }
-            if (ready == null) return;
-
-            foreach (int hostIdx in ready)
-            {
-                float pending = _hostHitPendingDamageByHostIdx[hostIdx];
-                _hostHitPendingDamageByHostIdx.Remove(hostIdx);
-                _hostHitPendingDamagePeerByHostIdx.TryGetValue(hostIdx, out string? pendingPeerId);
-                _hostHitPendingDamagePeerByHostIdx.Remove(hostIdx);
-                if (pending <= 0f) continue;
-
-                NetGameplayEntitySnapshot? target = null;
-                foreach (var snap in EntitiesByLocalId.Values)
-                    if (snap.SpawnIndex == hostIdx) { target = snap; break; }
-                if (target == null || target.IsDead) continue; // target gone/dead — drop the stranded damage
-
-                _hostHitRequestLastAtByHostIdx[hostIdx] = now;
-                if (TryApplyHostHitDamage(target, pending, out _, out bool fatal, out float actualApplied))
-                {
-                    _hostHitRequestsDamageApplied++;
-                    // RS-1: attribute the flushed tail damage to whoever last contributed to this hostIdx's coalesced
-                    // pending pool (typically the same peer whose burst caused the coalescing in the first place).
-                    if (!string.IsNullOrWhiteSpace(pendingPeerId))
-                        NetRunStatsManager.RecordDamageDealtDelta(pendingPeerId, RunStatsEntityKey(target), actualApplied);
-                    BroadcastHostHitVisual(target, hostState, fatal);
-                    if (Plugin.Cfg.LogClientHitRequests.Value)
-                        NetLogger.Info($"[ClientHit] FLUSH coalesced hostIdx={hostIdx} dmg={pending:F1} fatal={fatal}");
-                }
-            }
-        }
-
         public static void ProcessClientHitRequest(NetClientHitRequest request, string peerId)
         {
             if (request == null) return;
+            if (NetConfig.GetMode() != NetMode.Host) return;
+            NetHostHitResult result;
             try
             {
-                if (NetConfig.GetMode() != NetMode.Host) return;
-                if (!Plugin.Cfg.EnableClientHitRequest.Value) return;
-                if (!IsEnabled()) return;
-
-                _hostHitRequestsRecv++;
-
-                // Scene validation.
-                if (!NetRunStateBridge.TryGetLocalRunState(out var hostState) || !request.MatchesScene(hostState))
-                {
-                    _hostHitRequestsRejectedScene++;
-                    if (Plugin.Cfg.LogClientHitRequests.Value)
-                        NetLogger.Warn($"[ClientHit] REJECT scene-mismatch peer={peerId} seq={request.RequestSeq} reqScene={request.SceneKey} hostScene={hostState?.ChapterName}:{hostState?.LevelIndex}");
-                    return;
-                }
-
-                // Validate damage is positive.
-                if (request.DamageCandidate <= 0f)
-                {
-                    _hostHitRequestsRejectedNoTarget++;
-                    return;
-                }
-
-                // Find target entity by spawnIndex on host.
-                NetGameplayEntitySnapshot? targetSnapshot = null;
-                foreach (var snap in EntitiesByLocalId.Values)
-                {
-                    if (snap.SpawnIndex == request.TargetHostSpawnIndex) { targetSnapshot = snap; break; }
-                }
-
-                if (targetSnapshot == null)
-                {
-                    _hostHitRequestsRejectedNoTarget++;
-                    if (Plugin.Cfg.LogClientHitRequests.Value)
-                        NetLogger.Warn($"[ClientHit] REJECT no-target peer={peerId} seq={request.RequestSeq} hostIdx={request.TargetHostSpawnIndex}");
-                    return;
-                }
-
-                // Unit identifier type guard.
-                string hostUnitId = targetSnapshot.EntityId?.UnitIdentifier ?? "";
-                if (!string.IsNullOrEmpty(request.TargetUnitIdentifier)
-                    && !string.Equals(request.TargetUnitIdentifier, hostUnitId, StringComparison.Ordinal))
-                {
-                    _hostHitRequestsRejectedTypeMismatch++;
-                    if (Plugin.Cfg.LogClientHitRequests.Value)
-                        NetLogger.Warn($"[ClientHit] REJECT type-mismatch peer={peerId} seq={request.RequestSeq} clientUnit={request.TargetUnitIdentifier} hostUnit={hostUnitId}");
-                    return;
-                }
-
-                // Dead check — don't damage already-dead entities.
-                if (targetSnapshot.IsDead)
-                {
-                    _hostHitRequestsRejectedDead++;
-                    if (Plugin.Cfg.LogClientHitRequests.Value)
-                        NetLogger.Info($"[ClientHit] REJECT dead peer={peerId} seq={request.RequestSeq} hostIdx={request.TargetHostSpawnIndex} unit={hostUnitId}");
-                    return;
-                }
-
-                // EM-Boss: honor a boss's pre-fight invulnerability. An Endless (and story) boss spawns invulnerable
-                // (BossFightHelper.Awake → SetInvulnerable(true)) and stays so through its intro animation until its
-                // animation-event fight start (Anim_OnStartBossFight → TriggerFight). Vanilla Unit.ReceiveDamage blocks
-                // damage while isInvulnerable (Unit.cs:1652), so the host's own shots do nothing during the intro. But
-                // this client-hit path writes health via Stats.SetStatus and never calls ReceiveDamage, bypassing that
-                // guard — so a strong client weapon melts the boss during its intro and kills it BEFORE the fight starts
-                // (observed Log482: Cousin/Lucia died at fightStarted=False, invuln=True, in ~2s). Drop the client hit
-                // while the boss is invulnerable AND its fight has not started. Deliberately narrow: gated on the boss
-                // having a BossFightHelper with fightStarted==false, so Terrorbaum (permanent body-invuln + eye-hitbox
-                // damage, fightStarted==true during its fight) and ordinary enemies (no helper) are unaffected.
-                if (targetSnapshot.TryGetRuntimeObject(out var preFightObj) && preFightObj != null
-                    && IsBossInPreFightInvulnerability(preFightObj))
-                {
-                    _hostHitRequestsRejectedPreFightInvuln++;
-                    if (Plugin.Cfg.LogClientHitRequests.Value)
-                        NetLogger.Info($"[ClientHit] ABSORB pre-fight-invuln peer={peerId} seq={request.RequestSeq} hostIdx={request.TargetHostSpawnIndex} unit={hostUnitId} (boss invulnerable until its fight starts)");
-                    return;
-                }
-
-                // Rate limit per target — but COALESCE, don't drop. The limit exists to cap SetStatus/broadcast frequency,
-                // not to discard damage. A hit inside the window adds its damage to the target's pending accumulator,
-                // applied on the next accepted hit or flushed in Tick. Otherwise burst/multi-pellet weapons (8 pellets in
-                // one frame on the same goblin) lose all but one hit (log52: 104/192 = 54% rate-limited away).
-                float rateLimit = Plugin.Cfg.ClientHitRequestRateLimitSeconds.Value;
-                if (rateLimit > 0f)
-                {
-                    float now = Time.realtimeSinceStartup;
-                    _hostHitRequestLastAtByHostIdx.TryGetValue(request.TargetHostSpawnIndex, out float lastAt);
-                    if (now - lastAt < rateLimit)
-                    {
-                        _hostHitPendingDamageByHostIdx.TryGetValue(request.TargetHostSpawnIndex, out float pend);
-                        _hostHitPendingDamageByHostIdx[request.TargetHostSpawnIndex] = pend + request.DamageCandidate;
-                        _hostHitPendingDamagePeerByHostIdx[request.TargetHostSpawnIndex] = peerId;
-                        _hostHitRequestsCoalesced++;
-                        return;
-                    }
-                    _hostHitRequestLastAtByHostIdx[request.TargetHostSpawnIndex] = now;
-                }
-
-                // Optional range check.
-                float maxRange = Plugin.Cfg.ClientHitRequestMaxRangeMeters.Value;
-                if (maxRange > 0f && request.HasAttackerPosition && TryGetPosition(targetSnapshot, out var targetPos))
-                {
-                    float dist = Vector3.Distance(request.AttackerPosition, targetPos);
-                    if (dist > maxRange)
-                    {
-                        _hostHitRequestsRejectedRateLimit++;
-                        if (Plugin.Cfg.LogClientHitRequests.Value)
-                            NetLogger.Warn($"[ClientHit] REJECT range peer={peerId} seq={request.RequestSeq} dist={dist:F1} max={maxRange:F1}");
-                        return;
-                    }
-                }
-
-                _hostHitRequestsAccepted++;
-
-                // Fold in any damage coalesced while this target was inside its rate-limit window.
-                float applyDamage = request.DamageCandidate;
-                if (_hostHitPendingDamageByHostIdx.TryGetValue(request.TargetHostSpawnIndex, out float pendingExtra) && pendingExtra > 0f)
-                {
-                    applyDamage += pendingExtra;
-                    _hostHitPendingDamageByHostIdx.Remove(request.TargetHostSpawnIndex);
-                    _hostHitPendingDamagePeerByHostIdx.Remove(request.TargetHostSpawnIndex);
-                }
-
-                if (Plugin.Cfg.LogClientHitRequests.Value)
-                    NetLogger.Info($"[ClientHit] ACCEPT peer={peerId} seq={request.RequestSeq} hostIdx={request.TargetHostSpawnIndex} unit={hostUnitId} dmg={applyDamage:F1}{(pendingExtra > 0f ? $" (+{pendingExtra:F1} coalesced)" : "")}");
-
-                // EM-5c: record this client as a damager of the enemy (for Independent-mode Endless XP attribution), and
-                // flag the apply so the ReceiveDamage host hook attributes the forwarded damage to this client too.
-                EndlessSyncManager.RecordEnemyDamager(request.TargetHostSpawnIndex, peerId);
-                EndlessSyncManager.HostApplyingHitPeer = peerId;
-                bool __applied;
-                string applyResult; bool fatal; float actualApplied;
-                try { __applied = TryApplyHostHitDamage(targetSnapshot, applyDamage, out applyResult, out fatal, out actualApplied); }
-                finally { EndlessSyncManager.HostApplyingHitPeer = null; }
-                // Apply damage to the real host-side NPC.
-                if (__applied)
-                {
-                    _hostHitRequestsDamageApplied++;
-                    // RS-1: attribute the real, post-mitigation damage (and folded-in coalesced tail) to this peer.
-                    NetRunStatsManager.RecordDamageDealtDelta(peerId, RunStatsEntityKey(targetSnapshot), actualApplied);
-                    // Phase 5.3-F: broadcast a hit-visual event so the client mirrors the white flash.
-                    // (HealthState handles HP; this is visual-only.)
-                    BroadcastHostHitVisual(targetSnapshot, hostState, fatal);
-                }
-                else
-                {
-                    _hostHitRequestsDamageFailed++;
-                    NetLogger.Warn($"[ClientHit] Damage apply failed peer={peerId} seq={request.RequestSeq} hostIdx={request.TargetHostSpawnIndex} result={applyResult}");
-                }
+                result = SettleClientHitRequest(request, peerId);
             }
             catch (Exception ex)
             {
-                NetLogger.Warn($"[ClientHit] ProcessClientHitRequest failed: {ex.Message}");
+                NetLogger.Warn($"[ClientHit] ProcessClientHitRequest failed peer={peerId} seq={request.RequestSeq}: {ex.GetType().Name}: {ex.Message}");
+                result = new NetHostHitResult { RequestSeq = request.RequestSeq, Outcome = NetHitOutcome.Rejected, DamageType = request.Hit.DamageType, ShapeId = request.Hit.ShapeId };
+            }
+            NetGameplaySyncBridge.SendHostHitResult(peerId, result);
+            if (Plugin.Cfg.LogClientHitRequests.Value)
+                NetLogger.Info($"[ClientHit] result peer={peerId} {result.ToCompact()}");
+        }
+
+        private static NetHostHitResult Reject(NetClientHitRequest request, ref int counter, string peerId, string why)
+        {
+            counter++;
+            if (Plugin.Cfg.LogClientHitRequests.Value)
+                NetLogger.Warn($"[ClientHit] REJECT {why} peer={peerId} {request.ToCompact()}");
+            return new NetHostHitResult { RequestSeq = request.RequestSeq, Outcome = NetHitOutcome.Rejected, DamageType = request.Hit.DamageType, ShapeId = request.Hit.ShapeId };
+        }
+
+        private static NetHostHitResult SettleClientHitRequest(NetClientHitRequest request, string peerId)
+        {
+            _hostHitRequestsRecv++;
+
+            if (!Plugin.Cfg.EnableClientHitRequest.Value || !IsEnabled())
+                return Reject(request, ref _hostHitRequestsRejectedScene, peerId, "disabled");
+
+            if (!NetRunStateBridge.TryGetLocalRunState(out var hostState) || !request.MatchesScene(hostState))
+                return Reject(request, ref _hostHitRequestsRejectedScene, peerId, $"scene-mismatch host={hostState?.ChapterName}:{hostState?.LevelIndex}");
+
+            if (!RemoteHitResolver.ConsumePeerBudget(peerId))
+                return Reject(request, ref _hostHitRequestsRejectedRateLimit, peerId, "rate-budget");
+
+            var hit = request.Hit;
+            if (!RemoteHitResolver.TryValidate(ref hit, out string invalid))
+                return Reject(request, ref _hostHitRequestsRejectedInput, peerId, $"input({invalid})");
+
+            switch (request.TargetKind)
+            {
+                case NetHitTargetKind.Roster:
+                    return SettleRosterHit(request, hit, peerId, hostState!);
+                default:
+                    return Reject(request, ref _hostHitRequestsRejectedNoTarget, peerId, "kind-unsupported");
             }
         }
 
-        private static bool TryApplyHostHitDamage(NetGameplayEntitySnapshot snapshot, float damage, out string result, out bool fatal)
+        private static NetHostHitResult SettleRosterHit(NetClientHitRequest request, NetHitInput hit, string peerId, NetRunState hostState)
         {
-            return TryApplyHostHitDamage(snapshot, damage, out result, out fatal, out _);
+            NetGameplayEntitySnapshot? targetSnapshot = null;
+            foreach (var snap in EntitiesByLocalId.Values)
+            {
+                if (snap.SpawnIndex == request.TargetHostSpawnIndex) { targetSnapshot = snap; break; }
+            }
+            if (targetSnapshot == null)
+                return Reject(request, ref _hostHitRequestsRejectedNoTarget, peerId, "no-target");
+
+            // Unit identifier type guard.
+            string hostUnitId = targetSnapshot.EntityId?.UnitIdentifier ?? "";
+            if (!string.IsNullOrEmpty(request.TargetUnitIdentifier)
+                && !string.Equals(request.TargetUnitIdentifier, hostUnitId, StringComparison.Ordinal))
+                return Reject(request, ref _hostHitRequestsRejectedTypeMismatch, peerId, $"type-mismatch host={hostUnitId}");
+
+            if (!targetSnapshot.TryGetRuntimeObject(out var runtimeObj) || runtimeObj is not PerfectRandom.Sulfur.Core.Units.Unit unit || unit == null)
+                return Reject(request, ref _hostHitRequestsRejectedNoTarget, peerId, "no-runtime-unit");
+
+            // Dead check — the roster path never damages a corpse (that is the Corpse kind's job).
+            if (targetSnapshot.IsDead || !unit.IsAlive)
+            {
+                _hostHitRequestsRejectedDead++;
+                return new NetHostHitResult
+                {
+                    RequestSeq = request.RequestSeq, Outcome = NetHitOutcome.TargetDead,
+                    DamageType = hit.DamageType, ShapeId = hit.ShapeId, WasAlive = false,
+                };
+            }
+
+            _hostHitRequestsAccepted++;
+            // Phase 5.7-RB2: interest management keeps an enemy a client is fighting at full snapshot rate.
+            _hostHitRequestLastAtByHostIdx[request.TargetHostSpawnIndex] = Time.realtimeSinceStartup;
+            // EM-5c: record this client as a damager of the enemy (Independent-mode Endless XP attribution).
+            EndlessSyncManager.RecordEnemyDamager(request.TargetHostSpawnIndex, peerId);
+
+            var result = RemoteHitResolver.Resolve(unit, hit, peerId, request.RequestSeq);
+
+            if (result.Outcome == NetHitOutcome.Applied)
+            {
+                _hostHitRequestsDamageApplied++;
+                // The damage has landed: whatever goes wrong in the bookkeeping below must not turn the result the
+                // client receives into anything but what the game did.
+                try
+                {
+                    float dealt = result.HealthRemoved;
+                    if (result.Secondary != null) foreach (var s in result.Secondary) dealt += s.HealthRemoved;
+                    // RS-1: the real health this peer's hit removed (its own damage and what the game dealt from it).
+                    NetRunStatsManager.RecordDamageDealtDelta(peerId, RunStatsEntityKey(targetSnapshot), dealt);
+                    // Phase 5.3-F: every client mirrors the hit flash on its puppet (the host's own flash is the game's).
+                    BroadcastHostHitVisual(targetSnapshot, hostState, result.Killed);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[ClientHit] post-apply bookkeeping failed peer={peerId} seq={request.RequestSeq}: {ex.Message}"); }
+            }
+            else if (result.Outcome == NetHitOutcome.Rejected)
+            {
+                _hostHitRequestsRejectedInput++;
+            }
+            else
+            {
+                _hostHitRequestsDeclined++;
+            }
+            return result;
+        }
+
+        /// <summary>HR-1 (CLIENT): the host's answer to one of our hit requests.</summary>
+        public static void ProcessHostHitResult(NetHostHitResult result)
+        {
+            if (result == null) return;
+            try
+            {
+                _clientHitResultsRecv++;
+                if (result.Outcome == NetHitOutcome.Applied) _clientLocalHitConfirmed++;
+                if (Plugin.Cfg.LogClientHitRequests.Value)
+                    NetLogger.Info($"[ClientHit] result {result.ToCompact()}");
+            }
+            catch (Exception ex)
+            {
+                NetLogger.Warn($"[ClientHit] ProcessHostHitResult failed: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         /// <summary>RS-1: the same stable per-instance identity Npc_Die_Pre/Unit_Die_Pre key kill attribution on
@@ -10026,163 +9957,6 @@ namespace SULFURTogether.Networking.Gameplay
             if (snapshot.TryGetRuntimeObject(out var runtimeObject) && runtimeObject != null)
                 return NetRunStatsManager.EntityKey(runtimeObject);
             return snapshot.SpawnIndex; // weak ref already collected; entity is gone, kill attribution moot
-        }
-
-        private static bool TryApplyHostHitDamage(NetGameplayEntitySnapshot snapshot, float damage, out string result, out bool fatal, out float actualApplied)
-        {
-            result = "";
-            fatal = false;
-            actualApplied = 0f;
-            if (!snapshot.TryGetRuntimeObject(out var runtimeObj) || runtimeObj == null)
-            { result = "noRuntimeObj"; return false; }
-
-            if (runtimeObj is UnityEngine.Object u && u == null)
-            { result = "unityDestroyed"; return false; }
-
-            if (!TryReadUnitHealthNative(runtimeObj, out float currentHp, out _))
-            { result = "cantReadHp"; return false; }
-
-            if (currentHp <= 0f)
-            { result = "alreadyDead"; return false; }
-
-            float newHp = Mathf.Max(0f, currentHp - damage);
-            fatal = newHp <= 0f;
-            actualApplied = currentHp - newHp;
-
-            if (!TryWriteUnitHealthNative(runtimeObj, newHp))
-            { result = $"writeHpFailed hp={currentHp:F1}→{newHp:F1}"; return false; }
-
-            result = $"hp={currentHp:F1}→{newHp:F1} dmg={damage:F1}";
-
-            // Trigger host health-state broadcast via existing pipeline.
-            ReportHostNpcHealthAfterDamage(runtimeObj, damage);
-            _hostHitResultHealthStateSent++;
-
-            // TD-1: this SetStatus write bypasses onDamageRecieved, so a target dummy hit by a CLIENT would show no
-            // damage number anywhere (the client's own ReceiveDamage was suppressed when the hit was routed here). Drive
-            // the number on the host's dummy — the ShowDamage postfix captures it and broadcasts to every peer (the
-            // shooter included), matching how the host's OWN hits already sync. No-op for units without a DamageTracker.
-            // The wire request carries no damage type, so client-dealt numbers use Normal(7) colour (cosmetic).
-            TargetDummySyncManager.ShowHostNumberForClientHit(runtimeObj, (int)actualApplied, 7, false, null);
-
-            // Phase 5.3-G: play the white flash on the host's OWN real NPC for EVERY landed hit,
-            // including the fatal one, so client attacks always produce host-visible feedback.
-            // (The death animation still runs afterwards via the Die() call below.)
-            if (Plugin.Cfg.EnableClientHitVisual.Value)
-            {
-                Renderer[]? hostRenderers = null;
-                try
-                {
-                    if (runtimeObj is Component hc) hostRenderers = hc.GetComponentsInChildren<Renderer>(true);
-                    else if (runtimeObj is GameObject hgo) hostRenderers = hgo.GetComponentsInChildren<Renderer>(true);
-                }
-                catch { }
-                string path = InvokeNpcWhiteFlash(runtimeObj, hostRenderers, snapshot.SpawnIndex);
-                if (path != "none" && path != "none-noMaterial")
-                {
-                    _hostHitVisualPlayed++;
-                    if (fatal) _hostHitFatalVisualPlayed++;
-                }
-                else _hostHitVisualFailedNoNpc++;
-                if (Plugin.Cfg.LogClientHitFlash.Value)
-                    NetLogger.Info($"[HitVisual] Host local flash hostIdx={snapshot.SpawnIndex} unit={snapshot.EntityId.UnitIdentifier} fatal={fatal} path={path}");
-            }
-
-            // If HP hit zero, trigger NPC death on host via reflection.
-            if (newHp <= 0f && !snapshot.IsDead)
-            {
-                try
-                {
-                    var dieMi = runtimeObj.GetType()
-                        .GetMethod("Die", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
-                    if (dieMi != null)
-                    {
-                        dieMi.Invoke(runtimeObj, null);
-                        result += " triggered-die";
-                    }
-                    else
-                        result += " die-notfound";
-                }
-                catch (Exception ex)
-                {
-                    result += $" die-failed({ex.GetType().Name})";
-                }
-            }
-
-            return true;
-        }
-
-        // EM-Boss: reflection handles for the pre-fight-invulnerability guard (resolved once, lazily).
-        private static bool _bossGuardResolved;
-        private static Type? _bossEndlessHelperType;           // PerfectRandom.Sulfur.Gameplay.BossEndlessHelper (base of the Endless boss helpers)
-        private static FieldInfo? _bfhFightStartedField;       // BossFightHelper.fightStarted : public bool (inherited by BossEndlessHelper)
-        private static readonly Dictionary<Type, PropertyInfo?> _unitInvulnGetterCache = new Dictionary<Type, PropertyInfo?>();
-
-        /// <summary>
-        /// EM-Boss: true when <paramref name="unit"/> is an <b>Endless</b> boss currently sitting in its pre-fight
-        /// invulnerability window — i.e. the unit reads <c>isInvulnerable</c> and it carries a <c>BossEndlessHelper</c>
-        /// whose (inherited) <c>fightStarted</c> is still false. Endless bosses spawn invulnerable
-        /// (BossFightHelper.Awake → SetInvulnerable(true)) and only clear it when their animation-event fight start runs
-        /// (Anim_OnStartBossFight → TriggerFight). The host's own shots are blocked by vanilla ReceiveDamage during this
-        /// window (Unit.cs:1652), but the client-hit path writes health via SetStatus and bypasses that guard, so
-        /// without this check a strong client weapon kills the boss during its intro (Log482: Cousin/Lucia died at
-        /// fightStarted=False, invuln=True). Deliberately narrow: scoped to the BossEndlessHelper family so the tested
-        /// story-boss damage paths are untouched; ordinary enemies have no such helper (→ false); and a boss whose
-        /// fight has started (Terrorbaum's permanent body-invuln + eye-hitbox damage, fightStarted==true) is not blocked.
-        /// </summary>
-        private static bool IsBossInPreFightInvulnerability(object unit)
-        {
-            try
-            {
-                if (!_bossGuardResolved)
-                {
-                    _bossGuardResolved = true;
-                    _bossEndlessHelperType = AccessTools.TypeByName("PerfectRandom.Sulfur.Gameplay.BossEndlessHelper")
-                                          ?? AccessTools.TypeByName("BossEndlessHelper");
-                    if (_bossEndlessHelperType != null)
-                        _bfhFightStartedField = AccessTools.Field(_bossEndlessHelperType, "fightStarted"); // walks up to BossFightHelper
-                }
-                if (_bossEndlessHelperType == null || _bfhFightStartedField == null) return false;
-                if (unit is not Component comp) return false;
-
-                // Only invulnerable units are candidates — short-circuit before the component lookup so ordinary,
-                // damageable enemies (the overwhelming majority of client hits) never pay for the search.
-                if (!ReadUnitIsInvulnerable(unit)) return false;
-
-                // The endless boss helper normally lives on the boss NPC's own GameObject; search self, then
-                // descendants, then ancestors, so a prefab that parents/childs the helper differently is still covered.
-                Component? helper = comp.GetComponent(_bossEndlessHelperType)
-                                 ?? comp.GetComponentInChildren(_bossEndlessHelperType, true)
-                                 ?? comp.GetComponentInParent(_bossEndlessHelperType);
-                if (helper == null) return false; // invulnerable but not an endless boss fight → not our case
-
-                object? fs = _bfhFightStartedField.GetValue(helper);
-                return fs is bool started && !started; // pre-fight (fight not yet started) → absorb client damage
-            }
-            catch { return false; }
-        }
-
-        private static bool ReadUnitIsInvulnerable(object unit)
-        {
-            try
-            {
-                Type t = unit.GetType();
-                if (!_unitInvulnGetterCache.TryGetValue(t, out var pi))
-                {
-                    pi = AccessTools.Property(t, "isInvulnerable"); // inherited from Unit; AccessTools walks the hierarchy
-                    _unitInvulnGetterCache[t] = pi;
-                }
-                return pi?.GetValue(unit) is bool b && b;
-            }
-            catch { return false; }
-        }
-
-        // Helper: get position from a snapshot's runtime object for range checking.
-        private static bool TryGetPosition(NetGameplayEntitySnapshot snapshot, out Vector3 pos)
-        {
-            pos = Vector3.zero;
-            if (!snapshot.TryGetRuntimeObject(out var obj) || obj == null) return false;
-            return TryGetPosition(obj, out pos);
         }
 
         // Phase 5.3-F: Host broadcasts a hit-visual event so the client mirrors the white flash.
@@ -11375,14 +11149,6 @@ namespace SULFURTogether.Networking.Gameplay
                 if (state.HasMaxHealth)
                     ClientPuppetMaxHealthBySpawnIndex[state.HostSpawnIndex] = state.MaxHealth;
 
-                // Phase 5.3-B: confirm a recent client hit request via the resulting HealthState.
-                if (_clientPendingHitByHostIdx.TryGetValue(state.HostSpawnIndex, out var hitSentAt))
-                {
-                    _clientPendingHitByHostIdx.Remove(state.HostSpawnIndex);
-                    if (Time.realtimeSinceStartup - hitSentAt <= ClientHitConfirmWindowSeconds)
-                        _clientLocalHitConfirmed++;
-                }
-
                 // Phase 5.3-D P0-2: hp<=0 / isDead only ever produces PendingDead here — NEVER
                 // TerminalDead. TerminalDead is reserved for the actual death-visual path so the
                 // HostDeathEvent / Npc.Die() (which sets Animator "Dead") is allowed to run first.
@@ -11704,6 +11470,33 @@ namespace SULFURTogether.Networking.Gameplay
         private static readonly Dictionary<int, float> _attackPhaseLastSentBySpawnIdx = new Dictionary<int, float>();
         private static readonly Dictionary<int, float> _enemyDmgEventLastSentBySpawnIdx = new Dictionary<int, float>();
         private static readonly Dictionary<int, float> _enemyHealthLastSentBySpawnIdx = new Dictionary<int, float>();
+        // Health states the throttle held back, by spawn index → the unit, re-sent once the window has passed.
+        private static readonly Dictionary<int, object> _enemyHealthTrailingBySpawnIdx = new Dictionary<int, object>();
+        private static List<int>? _trailingScratch;
+
+        /// <summary>HOST Tick: send the newest health of every enemy whose state the throttle held back, once its window
+        /// has passed — so the client converges on the real value after a burst instead of keeping a stale one.</summary>
+        private static void FlushTrailingEnemyHealth()
+        {
+            if (_enemyHealthTrailingBySpawnIdx.Count == 0) return;
+            if (NetConfig.GetMode() != NetMode.Host) { _enemyHealthTrailingBySpawnIdx.Clear(); return; }
+            float now = Time.realtimeSinceStartup;
+            float interval = Plugin.Cfg.EnemyDamageEventMinIntervalSeconds.Value;
+            var ready = _trailingScratch ??= new List<int>();
+            ready.Clear();
+            foreach (var kv in _enemyHealthTrailingBySpawnIdx)
+            {
+                _enemyHealthLastSentBySpawnIdx.TryGetValue(kv.Key, out float lastAt);
+                if (now - lastAt >= interval) ready.Add(kv.Key);
+            }
+            foreach (int idx in ready)
+            {
+                var npc = _enemyHealthTrailingBySpawnIdx[idx];
+                _enemyHealthTrailingBySpawnIdx.Remove(idx);
+                if (npc is UnityEngine.Object uo && uo == null) continue;
+                ReportHostNpcHealthAfterDamage(npc, 0f); // passes the throttle now, and clears nothing else
+            }
+        }
         private static int _attackPhaseThrottled, _enemyDamageEventThrottled;
 
         private static bool ThrottlePerEntity(Dictionary<int, float> lastSentByIdx, int spawnIdx, float minInterval, float now)

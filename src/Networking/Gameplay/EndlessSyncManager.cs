@@ -511,19 +511,16 @@ namespace SULFURTogether.Networking.Gameplay
         private static readonly System.Collections.Generic.Dictionary<int, string> _firstDamager = new System.Collections.Generic.Dictionary<int, string>();
         private static readonly System.Collections.Generic.Dictionary<int, string> _lastDamager  = new System.Collections.Generic.Dictionary<int, string>();
 
-        /// <summary>Set by the client-hit handler while it applies a client's forwarded damage, so the host-side damage
-        /// hook attributes that damage to the client peer rather than the host.</summary>
-        public static string? HostApplyingHitPeer;
-
         /// <summary>HOST: record who damaged an Endless enemy (from the ReceiveDamage host hook). Only tracks in Independent
-        /// mode (Shared uses the pickup path). <see cref="HostApplyingHitPeer"/> attributes client-forwarded damage.</summary>
+        /// mode (Shared uses the pickup path). Damage dealt while the host settles a client's hit
+        /// (<see cref="RemoteHitResolver.RemotePeerId"/>) is attributed to that client.</summary>
         public static void RecordHostSideDamager(object npc)
         {
             try
             {
                 if (!Enabled || NetGameplaySyncBridge.BossMode != NetMode.Host || SharedMode) return;
                 int idx = NetGameplayProbeManager.GetSpawnIndexForObject(npc);
-                RecordEnemyDamager(idx, HostApplyingHitPeer ?? NetGameplaySyncBridge.LocalPeerId);
+                RecordEnemyDamager(idx, RemoteHitResolver.RemotePeerId ?? NetGameplaySyncBridge.LocalPeerId);
             }
             catch { }
         }
@@ -641,7 +638,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         public static void ClearDamagerTracking()
         {
-            _firstDamager.Clear(); _lastDamager.Clear(); HostApplyingHitPeer = null;
+            _firstDamager.Clear(); _lastDamager.Clear();
             lock (_forcePulls) _forcePulls.Clear();
         }
 

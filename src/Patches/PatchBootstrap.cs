@@ -40,6 +40,7 @@ namespace SULFURTogether.Patches
             EndlessBossBarFixPatches.Apply(harmony);
             GhostPlayerPatches.Apply(harmony);
             UnitStatusPatches.Apply(harmony);
+            RemoteHitPatches.Apply(harmony);            // HR-1 — settle client hits through the real ReceiveDamage
             Plugin.Log.Info("[PatchBootstrap] Done.");
         }
     }

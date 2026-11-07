@@ -239,6 +239,7 @@ namespace SULFURTogether.Networking
             _receivedEnemyDeathEvents.Clear();
             _receivedClientEnemyDeathClaims.Clear();
             NetSessionSettings.ResetSession();
+            Gameplay.RemoteHitResolver.ResetSession();
             Vote.CoopVoteManager.Reset(); // VOTE-1: clear any in-flight vote
             CoopDevAuthority.OnSessionEnded("networking stopped"); // DEV-1: back to solo → follow local entitlement
             _ffHitProxies.Clear();
@@ -3968,7 +3969,10 @@ namespace SULFURTogether.Networking
             {
                 var w = NetMessage.For(NetMessageType.ClientHitRequest);
                 NetClientHitRequestCodec.Write(w, request);
-                _hostPeer.Send(w, DeliveryMethod.ReliableUnordered);
+                // HR-1: ordered, on the channel ST-1's status request uses — vanilla applies an on-hit status before the
+                // damage, so the host must see the status (e.g. Crusader) before it settles the hit, and results come
+                // back in request order.
+                _hostPeer.Send(w, DeliveryMethod.ReliableOrdered);
             }
             catch (Exception ex)
             {
@@ -4003,6 +4007,33 @@ namespace SULFURTogether.Networking
             {
                 NetLogger.Warn($"[ClientHit] Receive error: {ex.Message}");
             }
+        }
+
+        // HR-1: host → the requesting client only. Never broadcast: the result is that peer's own hit.
+        internal void SendHostHitResult(string peerId, NetHostHitResult result)
+        {
+            if (_mode != NetMode.Host || _net == null || result == null || string.IsNullOrEmpty(peerId)) return;
+            var peer = FindPeerById(peerId);
+            if (peer == null) return;
+            try
+            {
+                var w = NetMessage.For(NetMessageType.HostHitResult);
+                NetHostHitResultCodec.Write(w, result);
+                peer.Send(w, DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[ClientHit] failed to send HostHitResult to {peerId}: {ex.Message}"); }
+        }
+
+        private void HandleHostHitResult(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (peer != _hostPeer) return; // only the host settles hits
+            if (!NetHostHitResultCodec.TryRead(reader, out var result))
+            {
+                NetLogger.Warn("[ClientHit] malformed HostHitResult packet");
+                return;
+            }
+            NetGameplayProbeManager.ProcessHostHitResult(result);
         }
 
         // ---- Issue #5: client asks the host to run a one-shot TriggerSpawner ambush (host-authoritative) ----
@@ -4332,6 +4363,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.ClientHitRequest:
                         HandleClientHitRequest(peer, reader);
+                        break;
+
+                    case NetMessageType.HostHitResult:
+                        HandleHostHitResult(peer, reader);
                         break;
 
                     case NetMessageType.ClientTriggerSpawn:

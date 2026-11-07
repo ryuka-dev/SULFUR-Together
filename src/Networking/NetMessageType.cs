@@ -495,5 +495,8 @@ namespace SULFURTogether.Networking
 
         /// <summary>CG-1b client→host: a hit on a body the host owns (see NetClientCorpseHit).</summary>
         ClientCorpseHit         = 104,
+
+        /// <summary>HR-1 host→requesting client only: how the host settled one ClientHitRequest (see NetHostHitResult).</summary>
+        HostHitResult           = 105,
     }
 }

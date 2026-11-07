@@ -231,6 +231,8 @@ namespace SULFURTogether.Networking.Gameplay
         }
 
         // Phase 5.3-B Client → Host hit request.
+        public static void SendHostHitResult(string peerId, NetHostHitResult result) => _service?.SendHostHitResult(peerId, result);
+
         public static void SendClientHitRequest(NetClientHitRequest request)
         {
             _service?.SendClientHitRequest(request);
