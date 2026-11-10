@@ -87,6 +87,11 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// never throws. Default = no-op (boss has no deferred intro arm).</summary>
         bool TryReplayIntroArm(object component, out string detail);
 
+        /// <summary>Phase PF-ArmDefer: true once <see cref="TryReplayIntroArm"/> has what it needs. An end that forced
+        /// the intro late (out of room) is still spawning the boss's arms at the fight commit, so the manager waits
+        /// for this before replaying. Default = always ready.</summary>
+        bool IsIntroArmReady(object component);
+
         /// <summary>Phase RM (room-membership): true if this start source marks the local player having crossed into the
         /// boss room (the room-entry trigger). Each end fires its own (PlayerTrigger.onlyOnce is per-end), so it
         /// captures every player who reaches the boss. Default = the boss's primary trigger; Cousin = "Trigger".</summary>

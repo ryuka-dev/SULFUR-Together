@@ -278,6 +278,26 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         private System.Reflection.MethodInfo? _spawnArmMethod;
 
+        // SpawnArm(position) reads owningArm.Npc of the pool nearest that position, and TryReplayIntroArm passes the
+        // boss's own position. owningArm is filled by SpawnAllArms(), which Introduction() starts as an async loop of
+        // one awaited spawn per pool, so on an end that ran the intro at the commit it is still null for a few frames.
+        public override bool IsIntroArmReady(object component)
+        {
+            if (!(BossReflect.GetMember(component, "owner") is Component owner) || owner == null) return false;
+            if (!(BossReflect.GetMember(component, "pools") is System.Collections.IEnumerable pools)) return false;
+            Vector3 at = owner.transform.position;
+            Component? nearest = null; float best = float.PositiveInfinity;
+            foreach (var pool in pools)
+            {
+                if (!(pool is Component pc) || pc == null) continue;
+                float d = Vector3.Distance(pc.transform.position, at); // SpawnArm measures pool.transform, not cousinPosition
+                if (d < best) { best = d; nearest = pc; }
+            }
+            if (nearest == null) return false;
+            if (!(BossReflect.GetMember(nearest, "owningArm") is Component arm) || arm == null) return false;
+            return BossReflect.GetMember(arm, "Npc") is UnityEngine.Object npc && npc != null;
+        }
+
         // Phase RM (room-membership): the local player crosses "CousinTrigger" (-> CousinHelper.Trigger) to reach the
         // boss; that crossing marks them in-room. PlayerTrigger.onlyOnce is per-end, so every player who walks up to the
         // boss fires their own end's trigger -> the host learns each in-room player. (The wider room-doorway "Trigger"

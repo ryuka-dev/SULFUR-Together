@@ -59,8 +59,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         private static readonly Dictionary<string, ContinuationWindow> _continuation = new Dictionary<string, ContinuationWindow>();
 
         // ---- Phase 5.4-E2: deferred post-apply verification (the start chain is async; check a beat later) ----
-        private sealed class PendingVerify { public string Key = ""; public string Source = ""; public string Invoked = ""; public string Before = ""; public float DueAt; }
+        private sealed class PendingVerify { public string Key = ""; public string Source = ""; public string Invoked = ""; public string Before = ""; public float DueAt; public float QueuedAt; public bool Deferred; }
         private static readonly List<PendingVerify> _pendingVerify = new List<PendingVerify>();
+        private const float AwaitFightCommitReportSeconds = 120f;
 
         // ---- Phase 5.4-E4: deferred dialog finalize (the local boss dialog may open just AFTER the commit) ----
         private sealed class PendingDialogFinalize { public string Key = ""; public float Until; }
@@ -243,6 +244,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _terminalDead.Clear();
                 _cousinFightLoopStarted.Clear();
                 _introArmReplayed.Clear();
+                _pendingIntroArms.Clear();
                 _preFightLogged.Clear();
                 _luciaEyeConsumed.Clear();
                 _luciaEyeCycleComplete.Clear();
@@ -261,6 +263,32 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (fullSession) _runScope = "";
                 _reentryDepth = 0;
             }
+        }
+
+        // The scope used to roll only when some boss call built a context. A client whose player stayed outside the
+        // arena gets the whole encounter from host messages, which record per-encounter state without rolling it, so
+        // its first roll on the new level came from inside the fight commit and wiped the commit it had just made
+        // (#20). Rolling it here keeps the scope current from the moment the level is known. A run state without a
+        // seed is a level still loading, and a same-level GoToLevel churn passes through it too (Log134), so only a
+        // seeded run state moves the scope.
+        private const float RunScopePollSeconds = 0.25f;
+        private static float _nextRunScopePollAt;
+
+        private static void TickRunScope()
+        {
+            float now = Time.realtimeSinceStartup;
+            if (now < _nextRunScopePollAt) return;
+            _nextRunScopePollAt = now + RunScopePollSeconds;
+            EnsureRunScope();
+        }
+
+        // Host messages are handled after Tick in the frame, so each client handler also rolls the scope itself
+        // before it records anything. A message that arrives while this end is still loading (no seed yet) is
+        // recorded under the old scope and lost at the roll, as before.
+        private static void EnsureRunScope()
+        {
+            try { if (TryBuildContext(out var ctx, out string runScope) && ctx.HasSeed) OnLevelChanged(runScope); }
+            catch { }
         }
 
         /// <summary>Called on level change so per-run dedup/registry does not leak across scenes.</summary>
@@ -313,6 +341,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _terminalDead.Clear();
                 _cousinFightLoopStarted.Clear();
                 _introArmReplayed.Clear();
+                _pendingIntroArms.Clear();
                 _preFightLogged.Clear();
                 _luciaEyeConsumed.Clear();
                 _luciaEyeCycleComplete.Clear();
@@ -3137,21 +3166,108 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                     bool firstReplay; lock (_lock) { firstReplay = _introArmReplayed.Add(key); }
                     if (firstReplay)
                     {
-                        BeginApply();
-                        bool armed; string armDetail;
-                        try { armed = adapter.TryReplayIntroArm(component, out armDetail); }
-                        catch (Exception ex) { armed = false; armDetail = $"ex {ex.GetType().Name}: {ex.Message}"; }
-                        finally { EndApply(); }
-                        Plugin.Log.Info($"[BossArmDefer] replayed intro arm at commit key={key} ok={armed} ({armDetail})");
+                        // An end that forced the intro just above (out of room) has only now started spawning the arms
+                        // the replay needs, so the replay may have to wait for them (TickPendingIntroArms).
+                        var pending = new PendingIntroArm
+                        {
+                            Key = key, Adapter = adapter, Component = component,
+                            GiveUpAt = Time.realtimeSinceStartup + IntroArmReadyTimeoutSeconds,
+                        };
+                        if (!TryReplayPendingIntroArm(pending, "at commit"))
+                            lock (_lock) { _pendingIntroArms.Add(pending); }
                     }
                 }
             }
             return true;
         }
 
+        // PF-ArmDefer: deferred intro arms whose replay is waiting for the boss's own arms to finish spawning.
+        private sealed class PendingIntroArm
+        {
+            public string Key = ""; public IBossEncounterAdapter Adapter = null!; public object Component = null!;
+            public float GiveUpAt; public float NextTryAt;
+        }
+        private static readonly List<PendingIntroArm> _pendingIntroArms = new List<PendingIntroArm>();
+        private const float IntroArmReadyTimeoutSeconds = 10f;
+        private const float IntroArmPollSeconds = 0.25f;
+
+        /// <summary>Replay a deferred intro arm once the boss can spawn it. Returns true when the entry is finished
+        /// (replayed, failed, or given up) and false while it should keep waiting.</summary>
+        private static bool TryReplayPendingIntroArm(PendingIntroArm p, string when)
+        {
+            float now = Time.realtimeSinceStartup;
+            if (!(p.Component is UnityEngine.Object uo) || uo == null) return true; // boss gone (level change)
+            bool ready = false; try { ready = p.Adapter.IsIntroArmReady(p.Component); } catch { }
+            if (!ready)
+            {
+                if (now < p.GiveUpAt) { p.NextTryAt = now + IntroArmPollSeconds; return false; }
+                Plugin.Log.Warn($"[BossArmDefer] gave up on the intro arm key={p.Key}: the boss's arms were not spawned within {IntroArmReadyTimeoutSeconds:0}s");
+                return true;
+            }
+            BeginApply();
+            bool armed; string armDetail;
+            try { armed = p.Adapter.TryReplayIntroArm(p.Component, out armDetail); }
+            catch (Exception ex) { armed = false; armDetail = $"ex {ex.GetType().Name}: {ex.Message}"; }
+            finally { EndApply(); }
+            Plugin.Log.Info($"[BossArmDefer] replayed intro arm {when} key={p.Key} ok={armed} ({armDetail})");
+            return true;
+        }
+
+        private static void TickPendingIntroArms()
+        {
+            List<PendingIntroArm>? due = null;
+            lock (_lock)
+            {
+                if (_pendingIntroArms.Count == 0) return;
+                float now = Time.realtimeSinceStartup;
+                for (int i = _pendingIntroArms.Count - 1; i >= 0; i--)
+                {
+                    if (_pendingIntroArms[i].NextTryAt > now) continue;
+                    (due ??= new List<PendingIntroArm>()).Add(_pendingIntroArms[i]);
+                    _pendingIntroArms.RemoveAt(i);
+                }
+            }
+            if (due == null) return;
+            foreach (var p in due)
+            {
+                try { TickPendingIntroArm(p); }
+                catch (Exception ex) { Plugin.Log.Warn($"[BossArmDefer] pending intro arm failed key={p.Key}: {ex.GetType().Name}: {ex.Message}"); }
+            }
+        }
+
+        private static void TickPendingIntroArm(PendingIntroArm p)
+        {
+            bool terminal, loopStarted;
+            lock (_lock) { terminal = _terminalDead.Contains(p.Key); loopStarted = _cousinFightLoopStarted.Contains(p.Key); }
+            // A dead boss gets no arm, and once Submerge/Reappear run the fight loop spawns its own arms.
+            if (terminal || loopStarted)
+            {
+                Plugin.Log.Info($"[BossArmDefer] dropped the pending intro arm key={p.Key} ({(terminal ? "boss dead" : "fight loop already running")})");
+                return;
+            }
+            if (!TryReplayPendingIntroArm(p, "after the arms spawned"))
+                lock (_lock) { _pendingIntroArms.Add(p); }
+        }
+
+        /// <summary>True while this end holds a dialog-gated boss's StartFight back until the dialog-close fight commit.</summary>
+        private static bool IsAwaitingFightCommit(string key, IBossEncounterAdapter adapter, object component)
+        {
+            if (!GateFightActive) return false;
+            bool gated = false; try { gated = adapter.GatesFightOnDialogClose(component); } catch { }
+            if (!gated) return false;
+            lock (_lock) { return !_fightCommitted.Contains(key); }
+        }
+
         // PF-ArmDefer: encounters whose deferred intro arm we have already replayed at commit. Prevents a double replay
         // and lets the gate block a late-client's trailing behavior-tree intro arm (the duplicate of our replay).
         private static readonly HashSet<string> _introArmReplayed = new HashSet<string>();
+
+        private static bool IsDeclaredDiscreteEvent(IBossEncounterAdapter adapter, string? eventName)
+        {
+            if (string.IsNullOrEmpty(eventName)) return false;
+            string[]? declared = null; try { declared = adapter.DiscreteEventMethods; } catch { }
+            return declared != null && Array.IndexOf(declared, eventName) >= 0;
+        }
 
         private static void MarkCousinFightLoopStarted(string key)
         {
@@ -3239,6 +3355,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         public static void HandleHostRoomMembership(NetHostRoomMembership msg)
         {
+            EnsureRunScope(); // #20: roll before this message records anything for the level
             try
             {
                 if (!Enabled || !RoomMembershipActive || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
@@ -3299,6 +3416,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         public static void HandleHostBossDialogCommit(NetBossDialogCommit msg)
         {
+            EnsureRunScope(); // #20: roll before this message records anything for the level
             try
             {
                 if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
@@ -3476,6 +3594,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         public static void HandleHostBossState(NetBossState state)
         {
+            EnsureRunScope(); // #20: roll before this message records anything for the level
             try
             {
                 if (!Enabled || state == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
@@ -3856,6 +3975,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         public static void HandleHostBossDiscreteEvent(NetBossDiscreteEvent msg)
         {
+            EnsureRunScope(); // #20: roll before this message records anything for the level
             try
             {
                 if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
@@ -3949,7 +4069,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
                 bool terminal = false; try { terminal = adapter.IsTerminalEvent(msg.EventName); } catch { }
                 // PF-ArmDefer: client mirrors the host's fight-loop step → arms after this are mid-fight Reappear arms.
-                if (!terminal) MarkCousinFightLoopStarted(msg.EncounterKey);
+                // Only the adapter's own loop steps count: the host also sends "DialogClose" here right at the fight
+                // commit, and marking the loop on that dropped the intro arm this end was still waiting to replay.
+                if (!terminal && IsDeclaredDiscreteEvent(adapter, msg.EventName)) MarkCousinFightLoopStarted(msg.EncounterKey);
                 if (terminal)
                 {
                     bool first; lock (_lock) { first = _terminalDead.Add(msg.EncounterKey); }
@@ -4027,6 +4149,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// target. Visual ONLY: never re-applies damage, never advances local mechanics.</summary>
         public static void HandleHostBossHitVisual(NetHostBossHitVisual msg)
         {
+            EnsureRunScope(); // #20: roll before this message records anything for the level
             try
             {
                 if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client) return;
@@ -4222,6 +4345,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// darkness). The body's phase/health/invulnerability stays Host-driven — never unlocked locally.</summary>
         public static void HandleHostLuciaEyeState(NetLuciaEyeState msg)
         {
+            EnsureRunScope(); // #20: roll before this message records anything for the level
             try
             {
                 if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client || !LuciaEyeEnabled) return;
@@ -4335,6 +4459,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// hit/state is sent for this encounter.</summary>
         public static void HandleHostLuciaDeath(NetLuciaDeath msg)
         {
+            EnsureRunScope(); // #20: roll before this message records anything for the level
             try
             {
                 if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client || !LuciaDeathEnabled) return;
@@ -4438,6 +4563,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         /// presentation (witch spawn, animations, room teleport for 5/6) runs natively.</summary>
         public static void HandleHostWitchPhase(NetWitchPhase msg)
         {
+            EnsureRunScope(); // #20: roll before this message records anything for the level
             try
             {
                 if (!Enabled || msg == null || NetGameplaySyncBridge.BossMode != NetMode.Client || !WitchPhaseAuthorityEnabled) return;
@@ -4821,6 +4947,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         public static void HandleHostBossEncounterStart(NetBossEncounterState state)
         {
+            EnsureRunScope(); // #20: roll before this message records anything for the level
             try
             {
                 if (!Enabled || state == null) return;
@@ -4906,7 +5033,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         _pendingVerify.Add(new PendingVerify
                         {
                             Key = state.EncounterKey, Source = state.StartSource, Invoked = detail,
-                            Before = before, DueAt = Time.realtimeSinceStartup + 2f,
+                            Before = before, DueAt = Time.realtimeSinceStartup + 2f, QueuedAt = Time.realtimeSinceStartup,
                         });
                     }
                 }
@@ -5211,7 +5338,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             {
                 if (!Enabled) return;
 
+                TickRunScope();
                 TickHostBossStateBroadcast(); // Phase 5.4-E4.2: periodic boss health/state push (host)
+                TickPendingIntroArms();       // PF-ArmDefer: intro arm replays waiting for the boss's arms
                 DesertGhostMissiles.Tick();   // F4-MISSILE D2: advance the visual twins of the homing missiles
 
                 // TB: a pure-puppet boss (Terrorbaum) must NEVER run its own fight mechanics on the client — it is a puppet
@@ -5369,6 +5498,26 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                         if (!TryFindLocalEncounter(v.Key, out var adapter, out var component)) continue;
                         bool started = SafeStarted(adapter, component);
                         bool contActive = IsContinuationActive(v.Key, out _);
+                        if (!started && IsAwaitingFightCommit(v.Key, adapter, component))
+                        {
+                            // A dialog-gated boss only starts once a player closes its intro dialog, which can take any
+                            // amount of time; judging it 2 s after the start was a false "incomplete" on every encounter.
+                            // Look again after the commit, which starts the fight on this end synchronously. A commit
+                            // that never arrives is still reported, once, after a wait no dialog normally needs.
+                            float waited = Time.realtimeSinceStartup - v.QueuedAt;
+                            if (waited >= AwaitFightCommitReportSeconds)
+                            {
+                                BossApplyIncomplete++;
+                                Plugin.Log.Warn($"[BossEncounter] host-authority start still waiting for the dialog-close fight commit after {waited:0}s key={v.Key} source={v.Source} after[{SafeDescribe(adapter, component)}]");
+                                continue;
+                            }
+                            if (!v.Deferred && LogOn)
+                                Plugin.Log.Info($"[BossEncounter] host-authority start verification waits for the dialog-close fight commit key={v.Key}");
+                            v.Deferred = true;
+                            v.DueAt = Time.realtimeSinceStartup + 2f;
+                            lock (_lock) { _pendingVerify.Add(v); }
+                            continue;
+                        }
                         if (started)
                         {
                             if (LogOn) Plugin.Log.Info($"[BossEncounter] host-authority start verified key={v.Key} source={v.Source} after[{SafeDescribe(adapter, component)}] continuationActive={contActive}");

@@ -127,6 +127,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         public virtual bool DefersIntroArmUntilCommit(object component) => false;
         public virtual bool TryReplayIntroArm(object component, out string detail)
         { detail = "no deferred intro arm for this adapter"; return false; }
+        public virtual bool IsIntroArmReady(object component) => true;
 
         /// <summary>Phase RM (room-membership): default = no room-entry source declared (membership not tracked for this
         /// boss). Bosses that participate override to name their room-entry trigger method.</summary>
