@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "جارٍ السحب…" },
     { "key": "endless.cardvote.resolved", "value": "تم اختيار البطاقة {index}" },
     { "key": "endless.cardvote.resolved_skip", "value": "تم التخطي" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "جارٍ إعادة سحب البطاقات…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "جارٍ إعادة سحب البطاقات…" },
+    { "key": "connect.section.balance", "value": "التوازن (المضيف)" },
+    { "key": "session.teamMarks.label", "value": "علامات الفريق" },
+    { "key": "connect.desc.teamMarks", "value": "ضرب عدو أصابه زميلك للتو يُلحق ضررًا أكبر بنسبة 50% (و75% مع زميلين)، وتُظهر الجماجم فوقه عدد الزملاء الذين يهاجمونه. ينطبق إعداد المضيف على الجلسة بأكملها." },
+    { "key": "session.enemyHealth.label", "value": "أعداء أقوى: الصحة" },
+    { "key": "connect.desc.enemyHealth", "value": "يحصل الأعداء غير الزعماء على صحة أكبر: ×1.5 مع لاعبَين، و×1.75 مع 3 لاعبين أو أكثر. يسري من المستوى التالي. ينطبق إعداد المضيف على الجلسة بأكملها." },
+    { "key": "session.enemyMutations.label", "value": "أعداء أقوى: الطفرات" },
+    { "key": "connect.desc.enemyMutations", "value": "يتضاعف عدد الأعداء المتحوّرين. يسري من المستوى التالي. ينطبق إعداد المضيف على الجلسة بأكملها." },
+    { "key": "connect.sessionValue", "value": "إعداد المضيف: {state}" },
+    { "key": "teamMarks.hint.title", "value": "علامات الفريق" },
+    { "key": "teamMarks.hint.body", "value": "تُشير الجمجمة إلى عدو يهاجمه زميلك. اضربه أنت أيضًا: علامة واحدة تمنح ضررًا أكبر بنسبة 50%، وعلامتان بنسبة 75%." }
   ]
 }

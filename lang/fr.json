@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "Tirage…" },
     { "key": "endless.cardvote.resolved", "value": "Carte {index} choisie" },
     { "key": "endless.cardvote.resolved_skip", "value": "Passé" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "Nouveau tirage des cartes…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "Nouveau tirage des cartes…" },
+    { "key": "connect.section.balance", "value": "Équilibrage (hôte)" },
+    { "key": "session.teamMarks.label", "value": "Marques d'équipe" },
+    { "key": "connect.desc.teamMarks", "value": "Frapper un ennemi qu'un coéquipier vient de toucher inflige 50 % de dégâts en plus (75 % avec deux coéquipiers), et des crânes au-dessus de lui indiquent combien de coéquipiers l'attaquent. Le réglage de l'hôte s'applique à toute la session." },
+    { "key": "session.enemyHealth.label", "value": "Ennemis renforcés : santé" },
+    { "key": "connect.desc.enemyHealth", "value": "Les ennemis autres que les boss ont plus de santé : x1,5 à 2 joueurs, x1,75 à 3 ou plus. Prend effet au niveau suivant. Le réglage de l'hôte s'applique à toute la session." },
+    { "key": "session.enemyMutations.label", "value": "Ennemis renforcés : mutations" },
+    { "key": "connect.desc.enemyMutations", "value": "Deux fois plus d'ennemis sont mutés. Prend effet au niveau suivant. Le réglage de l'hôte s'applique à toute la session." },
+    { "key": "connect.sessionValue", "value": "Réglage de l'hôte : {state}" },
+    { "key": "teamMarks.hint.title", "value": "Marques d'équipe" },
+    { "key": "teamMarks.hint.body", "value": "Un crâne signale un ennemi qu'un coéquipier attaque. Frappez-le aussi : une marque donne +50 % de dégâts, deux donnent +75 %." }
   ]
 }

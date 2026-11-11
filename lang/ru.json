@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "Выбор карт…" },
     { "key": "endless.cardvote.resolved", "value": "Выбрана карта {index}" },
     { "key": "endless.cardvote.resolved_skip", "value": "Пропущено" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "Смена карт…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "Смена карт…" },
+    { "key": "connect.section.balance", "value": "Баланс (хост)" },
+    { "key": "session.teamMarks.label", "value": "Командные метки" },
+    { "key": "connect.desc.teamMarks", "value": "Удар по врагу, которого только что ранил союзник, наносит на 50% больше урона (на 75% при двух союзниках), а черепа над ним показывают, сколько союзников его атакует. Настройка хоста применяется ко всей сессии." },
+    { "key": "session.enemyHealth.label", "value": "Усиленные враги: здоровье" },
+    { "key": "connect.desc.enemyHealth", "value": "У врагов, кроме боссов, больше здоровья: x1,5 при 2 игроках, x1,75 при 3 и более. Действует со следующего уровня. Настройка хоста применяется ко всей сессии." },
+    { "key": "session.enemyMutations.label", "value": "Усиленные враги: мутации" },
+    { "key": "connect.desc.enemyMutations", "value": "Мутировавших врагов вдвое больше. Действует со следующего уровня. Настройка хоста применяется ко всей сессии." },
+    { "key": "connect.sessionValue", "value": "Настройка хоста: {state}" },
+    { "key": "teamMarks.hint.title", "value": "Командные метки" },
+    { "key": "teamMarks.hint.body", "value": "Череп отмечает врага, которого атакует союзник. Бейте его тоже: одна метка даёт +50% урона, две — +75%." }
   ]
 }

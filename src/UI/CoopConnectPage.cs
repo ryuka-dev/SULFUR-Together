@@ -29,7 +29,7 @@ namespace SULFURTogether.UI
 
         private static readonly Color ErrorColor  = new Color(1f, 0.45f, 0.45f, 1f);
         private static readonly Color OkColor     = new Color(0.55f, 1f, 0.65f, 1f);
-        private static readonly Color NeutralColor = new Color(0.80f, 0.82f, 0.88f, 1f);
+        internal static readonly Color NeutralColor = new Color(0.80f, 0.82f, 0.88f, 1f);
 
         private static bool _registered;
 
@@ -85,10 +85,13 @@ namespace SULFURTogether.UI
         private static PerfectRandom.Sulfur.Core.OptionsScreenOption _fdToggleOption;
         private static bool _fdLockApplied;
 
-        private static readonly System.Reflection.FieldInfo FfCheckboxField =
+        // #26: the "Balance (host)" section, one row per BalanceSettings entry.
+        private static readonly HostSessionToggleRow[] _balanceRows = Array.ConvertAll(BalanceSettings.All, s => new HostSessionToggleRow(s));
+
+        internal static readonly System.Reflection.FieldInfo FfCheckboxField =
             typeof(PerfectRandom.Sulfur.Core.OptionsScreenOption).GetField("checkboxToggle",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        private static readonly System.Reflection.FieldInfo FfIsLockedField =
+        internal static readonly System.Reflection.FieldInfo FfIsLockedField =
             typeof(PerfectRandom.Sulfur.Core.OptionsScreenOption).GetField("IsLocked",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
@@ -152,6 +155,7 @@ namespace SULFURTogether.UI
                 ApplySessionFriendlyFireControl();
                 ApplySessionSharedLootControl();
                 ApplySessionEndlessProgressControl();
+                foreach (var row in _balanceRows) row.Tick();
                 ApplyDevVoteControl();
                 RefreshPlayerList();
                 PollJoinClose();
@@ -279,6 +283,10 @@ namespace SULFURTogether.UI
                 OnFriendlyFireToggled);
             _ffSessionHandle = ctx.AddTextRow("");
             _ffSessionHandle.SetVisible(false);
+
+            // --- Balance (host-authoritative; #26) ----------------------------------------------------------
+            ctx.AddSection(CoopLoc.Get("connect.section.balance", "Balance (host)"));
+            foreach (var row in _balanceRows) row.Build(ctx);
 
             // --- Session events (vote-gated; VOTE-1, issue #8) ------------------------------------------
             // Transient, everyone-must-agree events kept separate from the persistent local prefs / host settings
@@ -670,6 +678,7 @@ namespace SULFURTogether.UI
             _epLockApplied            = false;
             _fdSessionHandle          = null;
             _fdToggleOption           = null;
+            foreach (var row in _balanceRows) row.Reset();
             _fdLockApplied            = false;
             _devVoteStatusHandle      = null;
             _devVoteButton            = null;

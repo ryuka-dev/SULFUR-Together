@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "Estrazione…" },
     { "key": "endless.cardvote.resolved", "value": "Carta {index} scelta" },
     { "key": "endless.cardvote.resolved_skip", "value": "Saltata" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "Nuova estrazione delle carte…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "Nuova estrazione delle carte…" },
+    { "key": "connect.section.balance", "value": "Bilanciamento (host)" },
+    { "key": "session.teamMarks.label", "value": "Marchi di squadra" },
+    { "key": "connect.desc.teamMarks", "value": "Colpire un nemico appena colpito da un compagno infligge il 50% di danni in più (il 75% con due compagni), e i teschi sopra di lui mostrano quanti compagni lo stanno attaccando. L'impostazione dell'host si applica all'intera sessione." },
+    { "key": "session.enemyHealth.label", "value": "Nemici più forti: salute" },
+    { "key": "connect.desc.enemyHealth", "value": "I nemici che non sono boss hanno più salute: x1,5 con 2 giocatori, x1,75 con 3 o più. Ha effetto dal livello successivo. L'impostazione dell'host si applica all'intera sessione." },
+    { "key": "session.enemyMutations.label", "value": "Nemici più forti: mutazioni" },
+    { "key": "connect.desc.enemyMutations", "value": "Il doppio dei nemici è mutato. Ha effetto dal livello successivo. L'impostazione dell'host si applica all'intera sessione." },
+    { "key": "connect.sessionValue", "value": "Impostazione dell'host: {state}" },
+    { "key": "teamMarks.hint.title", "value": "Marchi di squadra" },
+    { "key": "teamMarks.hint.body", "value": "Un teschio segnala un nemico che un compagno sta colpendo. Colpiscilo anche tu: un marchio dà +50% di danni, due danno +75%." }
   ]
 }

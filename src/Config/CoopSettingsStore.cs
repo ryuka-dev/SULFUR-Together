@@ -34,6 +34,10 @@ namespace SULFURTogether.Config
             public bool   friendlyFire          = false; // FF-1: host-authoritative session setting; OFF by default
             public bool   sharedEndlessProgress = true;  // EM-4: host-authoritative Endless progression mode; Shared by default
             public bool   endlessXpFirstDamage  = false; // EM-5c: Independent-mode XP goes to first-damager (true) or last-hit killer (false, default)
+            public bool   teamMarks             = true;  // #26: team marks (damage bonus on a teammate's target); host-authoritative
+            public bool   enemyHealthBoost      = true;  // #26: non-boss enemies get more health in a session; host-authoritative
+            public bool   enemyMutationBoost    = false; // #26: twice the level generator's mutation chance; host-authoritative
+            public bool   teamMarksHintShown    = false; // #26: this install has shown the first-mark explanation (personal, never synced)
         }
 
         // BepInEx keys that no longer exist as bound entries: the connection/UI settings that moved into this store,

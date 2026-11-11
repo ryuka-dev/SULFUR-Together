@@ -95,6 +95,7 @@ namespace SULFURTogether.Networking
             NetLinkState.InitFromConfig();
             Gameplay.Boss.NetBossEncounterManager.Reset();
             Gameplay.Boss.BossDynamicSpawnManifest.Reset();
+            Gameplay.TeamMarks.TeamMarkManager.Reset();
 
             _listener = new EventBasedNetListener();
             _listener.ConnectionRequestEvent += OnConnectionRequest;
@@ -215,6 +216,7 @@ namespace SULFURTogether.Networking
             NetHostTransitionGuard.Reset();
             Gameplay.Boss.NetBossEncounterManager.Reset();
             Gameplay.Boss.BossDynamicSpawnManifest.Reset();
+            Gameplay.TeamMarks.TeamMarkManager.Reset();
             _clientConnectInProgress = false;
             _nextClientReconnectTime = 0f;
             _clientReconnectAttempts = 0;
@@ -2903,6 +2905,23 @@ namespace SULFURTogether.Networking
 
         /// <summary>LD-2a (host): every end (host + connected clients) currently in the given level. PeerId per end
         /// ("host" for the local host state). Used to compute the non-in-room lockdown targets.</summary>
+        /// <summary>#26: the host plus every connected client whose run is on <paramref name="fromChapter"/>:<paramref name="fromLevel"/>
+        /// (the level the host is leaving) or on the target level — the players playing this run with the host, not
+        /// clients sitting in their own hub.</summary>
+        internal int CountPlayersWithHost(string fromChapter, int fromLevel, string toChapter, int toLevel)
+        {
+            int n = 1;
+            foreach (var rs in _runStates.RemoteStates)
+            {
+                if (rs == null || !rs.HasLevel) continue;
+                if (!_sessions.Sessions.Any(s => s.IsConnected && !s.IsLocal && s.PeerId == rs.PeerId)) continue;
+                bool onFrom = string.Equals(rs.ChapterName, fromChapter, StringComparison.Ordinal) && rs.LevelIndex == fromLevel;
+                bool onTo = string.Equals(rs.ChapterName, toChapter, StringComparison.Ordinal) && rs.LevelIndex == toLevel;
+                if (onFrom || onTo) n++;
+            }
+            return n;
+        }
+
         internal List<string> GetPeerIdsInLevel(string chapter, int level, bool hasSeed, int seed)
         {
             var result = new List<string>();
@@ -3369,6 +3388,9 @@ namespace SULFURTogether.Networking
                 SharedLoot = Plugin.Cfg.ShareAllLoot.Value,
                 SharedEndlessProgress = Plugin.Cfg.SharedEndlessProgress.Value,
                 EndlessXpFirstDamage = Plugin.Cfg.EndlessXpFirstDamage.Value,
+                TeamMarks = Plugin.Cfg.TeamMarks.Value,
+                EnemyHealthBoost = Plugin.Cfg.EnemyHealthBoost.Value,
+                EnemyMutationBoost = Plugin.Cfg.EnemyMutationBoost.Value,
             };
         }
 
@@ -3421,6 +3443,12 @@ namespace SULFURTogether.Networking
                 UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.sharedEndless.label", "Shared endless progress"), state.SharedEndlessProgress);
             if (change.EndlessXpFirstDamage)
                 UI.CoopToasts.NotifySessionSetting(UI.CoopLoc.Get("session.xpFirstDamage.label", "Endless XP: first-damage (Independent mode)"), state.EndlessXpFirstDamage);
+            if (change.TeamMarks)
+                UI.CoopToasts.NotifySessionSetting(UI.BalanceSettings.TeamMarks.Label, state.TeamMarks);
+            if (change.EnemyHealthBoost)
+                UI.CoopToasts.NotifySessionSetting(UI.BalanceSettings.EnemyHealth.Label, state.EnemyHealthBoost);
+            if (change.EnemyMutationBoost)
+                UI.CoopToasts.NotifySessionSetting(UI.BalanceSettings.EnemyMutations.Label, state.EnemyMutationBoost);
             if (change.DeveloperMode)
                 UI.CoopToasts.NotifyDeveloperMode(state.DeveloperMode);
             // DEV-1: re-assert the local GameManager.DeveloperMode flag to the received session value. Runs even on
@@ -4119,6 +4147,34 @@ namespace SULFURTogether.Networking
             }
         }
 
+        // Team marks (issue #26): host → every client, reliable-ordered on channel 0.
+        internal void BroadcastHostTeamMarks(Gameplay.TeamMarks.NetHostTeamMarks msg)
+        {
+            if (_mode != NetMode.Host || _net == null || msg == null || _clients.Count == 0) return;
+            foreach (var peer in _clients.ToArray())
+            {
+                try
+                {
+                    var w = NetMessage.For(NetMessageType.HostTeamMarks);
+                    Gameplay.TeamMarks.NetHostTeamMarksCodec.Write(w, msg);
+                    peer.Send(w, DeliveryMethod.ReliableOrdered);
+                }
+                catch (Exception ex) { NetLogger.Warn($"[TeamMark] failed to send: {ex.Message}"); }
+            }
+        }
+
+        private void HandleHostTeamMarks(NetPeer peer, NetDataReader reader)
+        {
+            if (_mode != NetMode.Client) return;
+            if (peer != _hostPeer) return; // only the host decides
+            if (!Gameplay.TeamMarks.NetHostTeamMarksCodec.TryRead(reader, out var msg))
+            {
+                NetLogger.Warn("[TeamMark] malformed HostTeamMarks packet");
+                return;
+            }
+            Gameplay.TeamMarks.TeamMarkManager.Process(msg);
+        }
+
         private void HandleHostEnemyVisualState(NetPeer peer, NetDataReader reader)
         {
             if (_mode != NetMode.Client) return;
@@ -4365,6 +4421,10 @@ namespace SULFURTogether.Networking
 
                     case NetMessageType.HostEnemyVisualState:
                         HandleHostEnemyVisualState(peer, reader);
+                        break;
+
+                    case NetMessageType.HostTeamMarks:
+                        HandleHostTeamMarks(peer, reader);
                         break;
 
                     case NetMessageType.ClientBossStartRequest:
@@ -5177,6 +5237,11 @@ namespace SULFURTogether.Networking
                         NetLoadBarrier.RunKeyFor(request.ChapterName, request.LevelIndex, request.HasLevelSeed, request.LevelSeed, request.GraphName),
                         request.GraphName,
                         hubTarget ? "session-return-finalized" : "combat");
+
+                // #26: the request describes the level the host generated; these are the factors it generated it with.
+                Gameplay.TeamMarks.CoopBalance.GetFactorsFor(request.ChapterName, request.LevelIndex, out float hf, out float mf);
+                request.EnemyHealthFactor   = hf;
+                request.EnemyMutationFactor = mf;
 
                 var w = NetMessage.For(NetMessageType.HostSceneRequest);
                 NetSceneRequestCodec.WriteHostRequest(w, request);

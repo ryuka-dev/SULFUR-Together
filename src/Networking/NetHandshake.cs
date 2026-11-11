@@ -44,7 +44,10 @@ namespace SULFURTogether.Networking
         // 41: HR-3 ClientHitRequest v3 (projectile count) / HostHitResult v2 (lifesteal amounts); HR-6 a second LiteNetLib
         //     channel for hit requests, results and ST-1 status requests. A peer with one channel silently drops what
         //     arrives on the second (no ack, endless resend), so both ends must be on this version.
-        public const int    ProtocolVersion  = 41;
+        // 42: #26 team marks — HostTeamMarks (msg 107).
+        // 43: #26 balance settings — three more bools on SessionSettings (msg 70), two factors appended to HostSceneRequest.
+        // 44: #26 HostHitResult v3 (team multiplier).
+        public const int    ProtocolVersion  = 44;
 
         /// <summary>The game build this process runs (Unity's Application.version, e.g. "1.0.2"). Read once on the main
         /// thread at first use; the handshake is written and read from the main-thread network poll.</summary>

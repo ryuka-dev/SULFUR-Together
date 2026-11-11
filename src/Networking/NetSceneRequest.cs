@@ -36,6 +36,11 @@ namespace SULFURTogether.Networking
         public string GraphName       { get; set; } = "";
         public string GenerationRunId { get; set; } = "";
 
+        // #26 tougher enemies: the host's factors for this level, fixed when it started the level. The mutation factor
+        // is generation input (both ends must generate with it); the health factor scales ordinary enemies' max health.
+        public float  EnemyHealthFactor   { get; set; } = 1f;
+        public float  EnemyMutationFactor { get; set; } = 1f;
+
         public NetHostUsedSets ToUsedSets() => new NetHostUsedSets
         {
             Captured = HasUsedSets,

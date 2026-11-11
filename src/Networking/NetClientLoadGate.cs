@@ -343,6 +343,13 @@ namespace SULFURTogether.Networking
 
         // ---- host generation input arrival ----
 
+        /// <summary>#26: the newest host scene request this client received (the generation input it loads with).</summary>
+        public static bool TryGetLatestHostRequest(out NetHostSceneRequest? request)
+        {
+            lock (_lock) { request = _latestHostRequest; }
+            return request != null;
+        }
+
         public static void OnHostGenerationInput(NetHostSceneRequest request)
         {
             if (request == null) return;

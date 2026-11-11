@@ -1,8 +1,9 @@
 # NetCombat — client hit results for companion mods
 
-`SULFURTogether.Api.NetCombat` (ApiVersion **1**, introduced in phase HR-2, protocol 40) tells a mod running on a
+`SULFURTogether.Api.NetCombat` (ApiVersion **2**; 1 was introduced in phase HR-2, protocol 40) tells a mod running on a
 co-op **client** what the host decided for each of the client's own hits, and tells a mod on the **host** when the
-damage it sees is a remote player's.
+damage it sees is a remote player's. API 2 adds team marks (issue #26): the bonus each hit got, and
+`SULFURTogether.Api.NetTeamMarks` for showing the marks (see the last sections).
 
 ## Why a client needs it
 
@@ -33,7 +34,7 @@ namespace SULFURTogether.Api
 
     public static class NetCombat
     {
-        public static int   ApiVersion { get; }            // 1 — a property, read at run time
+        public static int   ApiVersion { get; }            // 2 — a property, read at run time
         public static float ResultTimeoutSeconds { get; }  // 2
 
         public static event Action<LocalHitForwardedArgs>? LocalHitForwarded;   // client only
@@ -42,6 +43,16 @@ namespace SULFURTogether.Api
 
         public static bool    IsResolvingRemoteHit { get; } // host only (false elsewhere)
         public static string? RemoteHitPeerId { get; }      // host only (null elsewhere)
+        public static float   LocalHostHitMultiplier { get; } // API 2, host only (1 elsewhere)
+    }
+
+    public static class NetTeamMarks                          // API 2
+    {
+        public static float GetMultiplier(object unit);
+        public static int   GetOtherMarkCount(object unit);
+        public static event Action? MultiplierChanged;
+        public static IDisposable RegisterMarkPresenter(Func<object, bool> isShowing);
+        public static IDisposable RegisterHitPresenter();
     }
 }
 ```
@@ -88,6 +99,7 @@ Exactly once per `RequestSeq`, on the main thread, in `RequestSeq` order.
 | `WasAlive` | bool | The host's unit was alive when the hit arrived. |
 | `Killed` | bool | Settling this hit (its own damage or a secondary instance) killed the target. |
 | `Secondary` | IReadOnlyList\<SecondaryHit\> | Further damage the game dealt to the same target inside this hit, in order — e.g. Crusader's Holy damage. Read-only, empty when none, at most 8 entries. |
+| `TeamMultiplier` | float | API 2. The team-mark bonus the host applied to this hit: 1.5 for one other player's mark on the target, 1.75 for two or more; 1 when none, and always 1 unless `Outcome` is `Applied` (a `Lost` hit reports 1 even if the host applied a bonus). `Damage` already includes it. `Secondary` entries never carry one. |
 
 `SecondaryHit`: `Damage`, `HealthRemoved`, `DamageType`, `IsCritical`, `Killed` (the death happened during that
 instance — on a Crusader killing hit the hit's own damage can take the last health and the game's death check runs
@@ -141,6 +153,14 @@ host applied that Crusader, or when the client had no stand-in at the time. To t
 combine both: outside the scope **and** `isPlayer || sourceUnit.isPlayer` — and null-check `sourceUnit`, which can be
 null for a remote hit.
 
+### `LocalHostHitMultiplier` (host, API 2)
+
+The team-mark bonus of the damage call that is running, read from inside it — typically a postfix on the game's
+`Unit.CreateDamageLog`, which the game calls inside `Unit.ReceiveDamage`. 1.5 or 1.75 inside the host player's own
+direct hit that took the bonus (its logged damage already includes it); 1 everywhere else: outside a damage call,
+inside damage the game deals from inside that hit (Crusader's Holy damage, thorns reflected at the player), inside a
+remote peer's hit (use `IsResolvingRemoteHit`), on a client and offline.
+
 ## Guarantees and limits
 
 - Raised on the main thread; never offline or on the host. On the host, the game's own damage call is the event.
@@ -179,3 +199,30 @@ as before; nothing else gives either side extra weapon XP.
 
 Check `NetCombat.ApiVersion >= 1` (or the type's presence) before subscribing; keep the subscription optional so the mod
 runs without SULFUR Together.
+
+## Team marks (API 2)
+
+In a session with the host's **Team marks** setting on, each player's direct gun or melee hit on an ordinary enemy (not
+a boss, a boss's add or a protected NPC) puts that player's mark on it for 3 s; every hit refreshes it, and moving it to
+another enemy takes 2 hits and 1.5 s. Another player's direct hit on a marked enemy deals x1.5 for one mark that is not
+the attacker's own, x1.75 for two or more. The host decides every bonus; explosions, damage over time, Voodoo and
+thorns neither place nor use marks.
+
+SULFUR Together shows a skull icon above a marked enemy (one to three skulls for the number of other players on it)
+and the multiplier next to the crosshair while the player aims at one. `SULFURTogether.Api.NetTeamMarks` lets a
+companion mod read the marks and take either over. All of it is main thread only and answers for the local player.
+
+| Member | Meaning |
+|---|---|
+| `GetMultiplier(unit)` | The bonus the local player's next direct hit on `unit` would get, as this end knows it now: 1, 1.5 or 1.75. A forecast on a client (from the host's last message, sent on change and every 2.5 s); the bonus a hit actually got is `LocalHitResolvedArgs.TeamMultiplier` or `LocalHostHitMultiplier`. |
+| `GetOtherMarkCount(unit)` | How many players other than the local one have their mark on `unit`: the number of skulls the icon shows. 0 for a dead enemy and for anything that cannot carry a mark. |
+| `MultiplierChanged` | Raised at most once per frame when the marks this end shows change. Read `GetOtherMarkCount` for the units you show. |
+| `RegisterMarkPresenter(isShowing)` | While `isShowing(unit)` returns true, SULFUR Together does not draw its icon above that unit. Called every frame per marked unit. Dispose the result to unregister. |
+| `RegisterHitPresenter()` | While any is registered, SULFUR Together does not show the multiplier next to the crosshair. Register only while your mod can actually show it. Dispose the result to unregister. |
+
+**Damage numbers.** Show a small multiplier with a hit's number from `LocalHitResolvedArgs.TeamMultiplier` on a client
+and `LocalHostHitMultiplier` on the host, and register as a hit presenter while doing so. The damage already includes
+the bonus; do not apply it again. Keep working on ApiVersion 1 by skipping all of this.
+
+**Health bars.** Show `GetOtherMarkCount` on the bar, refresh on `MultiplierChanged`, and register a mark presenter that
+returns true for the units whose bar is visible.

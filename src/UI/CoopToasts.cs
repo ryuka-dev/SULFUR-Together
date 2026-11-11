@@ -21,6 +21,9 @@ namespace SULFURTogether.UI
         /// <summary>Assign the resolved toast seam. Null is allowed (lib absent → log-only).</summary>
         public static void Wire(Action<string, string> showToast) => _show = showToast;
 
+        /// <summary>A toast can actually be shown (the UI Lib's toast surface is wired), not only logged.</summary>
+        public static bool CanShow => _show != null;
+
         public static void Notify(string message) => Notify(null, message);
 
         /// <summary>
@@ -49,6 +52,13 @@ namespace SULFURTogether.UI
             => Notify(null, enabled
                 ? CoopLoc.Get("session.devmode.enabled", "Developer mode enabled")
                 : CoopLoc.Get("session.devmode.disabled", "Developer mode disabled — not all players have dev access"),
+                respectPreference: false);
+
+        /// <summary>#26: the one-time explanation shown the first time this player sees a teammate's mark. Bypasses the
+        /// join/leave preference: it explains a damage rule, and it is shown once per install.</summary>
+        public static void NotifyTeamMarksHint()
+            => Notify(CoopLoc.Get("teamMarks.hint.title", "Team marks"),
+                CoopLoc.Get("teamMarks.hint.body", "A skull marks an enemy a teammate is hitting. Hit it too: one mark gives +50% damage, two give +75%."),
                 respectPreference: false);
 
         private static float _nextLinkHintAt;

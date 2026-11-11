@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "Drawing…" },
     { "key": "endless.cardvote.resolved", "value": "Card {index} chosen" },
     { "key": "endless.cardvote.resolved_skip", "value": "Skipped" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "Rerolling cards…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "Rerolling cards…" },
+    { "key": "connect.section.balance", "value": "Balance (host)" },
+    { "key": "session.teamMarks.label", "value": "Team marks" },
+    { "key": "connect.desc.teamMarks", "value": "Hitting an enemy a teammate just hit deals 50% more damage (75% with two teammates on it), and skulls above it show how many teammates are on it. The host's setting applies to the whole session." },
+    { "key": "session.enemyHealth.label", "value": "Tougher enemies: health" },
+    { "key": "connect.desc.enemyHealth", "value": "Enemies other than bosses have more health: x1.5 with 2 players, x1.75 with 3 or more. Takes effect from the next level. The host's setting applies to the whole session." },
+    { "key": "session.enemyMutations.label", "value": "Tougher enemies: mutations" },
+    { "key": "connect.desc.enemyMutations", "value": "Twice as many enemies are mutated. Takes effect from the next level. The host's setting applies to the whole session." },
+    { "key": "connect.sessionValue", "value": "Host's setting: {state}" },
+    { "key": "teamMarks.hint.title", "value": "Team marks" },
+    { "key": "teamMarks.hint.body", "value": "A skull marks an enemy a teammate is hitting. Hit it too: one mark gives +50% damage, two give +75%." }
   ]
 }

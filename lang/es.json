@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "Robando…" },
     { "key": "endless.cardvote.resolved", "value": "Carta {index} elegida" },
     { "key": "endless.cardvote.resolved_skip", "value": "Omitida" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "Cambiando cartas…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "Cambiando cartas…" },
+    { "key": "connect.section.balance", "value": "Equilibrio (anfitrión)" },
+    { "key": "session.teamMarks.label", "value": "Marcas de equipo" },
+    { "key": "connect.desc.teamMarks", "value": "Golpear a un enemigo que un compañero acaba de golpear inflige un 50 % más de daño (un 75 % con dos compañeros), y las calaveras sobre él muestran cuántos compañeros lo atacan. El ajuste del anfitrión se aplica a toda la sesión." },
+    { "key": "session.enemyHealth.label", "value": "Enemigos más duros: salud" },
+    { "key": "connect.desc.enemyHealth", "value": "Los enemigos que no son jefes tienen más salud: x1,5 con 2 jugadores, x1,75 con 3 o más. Se aplica desde el siguiente nivel. El ajuste del anfitrión se aplica a toda la sesión." },
+    { "key": "session.enemyMutations.label", "value": "Enemigos más duros: mutaciones" },
+    { "key": "connect.desc.enemyMutations", "value": "El doble de enemigos están mutados. Se aplica desde el siguiente nivel. El ajuste del anfitrión se aplica a toda la sesión." },
+    { "key": "connect.sessionValue", "value": "Ajuste del anfitrión: {state}" },
+    { "key": "teamMarks.hint.title", "value": "Marcas de equipo" },
+    { "key": "teamMarks.hint.body", "value": "Una calavera marca a un enemigo que un compañero está atacando. Atácalo tú también: una marca da +50 % de daño y dos dan +75 %." }
   ]
 }

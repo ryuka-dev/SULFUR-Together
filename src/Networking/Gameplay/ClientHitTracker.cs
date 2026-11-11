@@ -50,6 +50,7 @@ namespace SULFURTogether.Networking.Gameplay
             public Vector3? HitPosition;
             public NetHitInput Hit;          // HR-5: the killing hit's inputs feed the organ roll
             public float    SentAt;
+            public int      SentFrame;     // #26: one shot's pellets and damage components are forwarded in one frame
             public int      OverdueSinceFrame = -1;
         }
 
@@ -102,7 +103,7 @@ namespace SULFURTogether.Networking.Gameplay
                 {
                     Seq = seq, Kind = kind, Target = target, TargetId = targetId, Weapon = weapon, Melee = hit.Melee,
                     DamageType = hit.DamageType, ShapeId = hit.ShapeId, HitPosition = hitPosition, Hit = hit,
-                    SentAt = Time.realtimeSinceStartup,
+                    SentAt = Time.realtimeSinceStartup, SentFrame = Time.frameCount,
                 };
                 _bySeq[seq] = _pending.AddLast(p);
                 if (CountsForKill(p))
@@ -188,8 +189,11 @@ namespace SULFURTogether.Networking.Gameplay
             }
 
             var outcome = (HitOutcome)(byte)r.Outcome;
+            float teamMultiplier = r.Outcome == NetHitOutcome.Applied ? r.TeamMultiplier : 1f;
+            // #26: the bonus sound, from what the host applied to this very hit.
+            if (teamMultiplier > 1f && p.Target is Unit boosted && boosted != null) TeamMarks.TeamMarkFeedback.Play(boosted, p.SentFrame);
             RaiseResolved(p, outcome, r.Damage, r.HealthRemoved, r.IncomingDamage, r.DamageType, r.IsCritical,
-                r.HitMultiplier, r.WasAlive, r.Killed, secondary);
+                r.HitMultiplier, r.WasAlive, r.Killed, secondary, teamMultiplier);
             if (epoch != _epoch) return;
             // HR-3: the end-of-hit effect the game gives the attacker (lifesteal), after the seq has its resolution.
             object? liveTarget = p.Target is UnityEngine.Object lt && lt == null ? null : p.Target;
@@ -266,7 +270,7 @@ namespace SULFURTogether.Networking.Gameplay
                 _bySeq.Remove(node.Value.Seq);
                 _pending.Remove(node);
                 Lost++;
-                RaiseResolved(node.Value, HitOutcome.Lost, 0f, 0f, 0f, node.Value.DamageType, false, 0f, false, false, NoSecondary);
+                RaiseResolved(node.Value, HitOutcome.Lost, 0f, 0f, 0f, node.Value.DamageType, false, 0f, false, false, NoSecondary, 1f);
                 if (epoch != _epoch) return; // a handler started another teardown; it finishes the job
             }
             _kills.Clear();
@@ -300,18 +304,20 @@ namespace SULFURTogether.Networking.Gameplay
         {
             Lost++;
             int epoch = _epoch;
-            RaiseResolved(p, HitOutcome.Lost, 0f, 0f, 0f, p.DamageType, false, 0f, false, false, NoSecondary);
+            RaiseResolved(p, HitOutcome.Lost, 0f, 0f, 0f, p.DamageType, false, 0f, false, false, NoSecondary, 1f);
             if (epoch != _epoch) return;
             TryFlushKill(p.TargetId);
         }
 
         private static void RaiseResolved(Pending p, HitOutcome outcome, float damage, float healthRemoved, float incoming,
-            int damageType, bool crit, float multiplier, bool wasAlive, bool killed, IReadOnlyList<SecondaryHit> secondary)
+            int damageType, bool crit, float multiplier, bool wasAlive, bool killed, IReadOnlyList<SecondaryHit> secondary,
+            float teamMultiplier)
         {
             Resolved++;
             object? target = p.Target is UnityEngine.Object uo && uo == null ? null : p.Target;
             NetCombat.RaiseResolved(new LocalHitResolvedArgs(p.Seq, target, outcome, damage, healthRemoved, incoming,
-                damageType, crit, p.ShapeId & 0xFF, multiplier, p.Weapon, p.Melee, p.HitPosition, wasAlive, killed, secondary));
+                damageType, crit, p.ShapeId & 0xFF, multiplier, p.Weapon, p.Melee, p.HitPosition, wasAlive, killed, secondary,
+                teamMultiplier));
         }
 
         private static void TryFlushKill(int targetId)

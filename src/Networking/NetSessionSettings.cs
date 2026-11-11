@@ -13,6 +13,9 @@ namespace SULFURTogether.Networking
         public bool SharedLoot;      // SL-4: host-authoritative shared world loot (Model A rolling); the host's ShareAllLoot
         public bool SharedEndlessProgress; // EM-4: host-authoritative Endless progression mode (Shared vs Independent)
         public bool EndlessXpFirstDamage;  // EM-5c: Independent-mode XP attribution (first-damage vs last-hit)
+        public bool TeamMarks;             // #26: team marks
+        public bool EnemyHealthBoost;      // #26: tougher enemies, health
+        public bool EnemyMutationBoost;    // #26: tougher enemies, mutations
     }
 
     /// <summary>DEV-1: which session-setting fields changed in a live (non-initial) apply, so the caller toasts
@@ -24,7 +27,11 @@ namespace SULFURTogether.Networking
         public bool SharedLoot;
         public bool SharedEndlessProgress;
         public bool EndlessXpFirstDamage;
-        public bool Any => FriendlyFire || DeveloperMode || SharedLoot || SharedEndlessProgress || EndlessXpFirstDamage;
+        public bool TeamMarks;
+        public bool EnemyHealthBoost;
+        public bool EnemyMutationBoost;
+        public bool Any => FriendlyFire || DeveloperMode || SharedLoot || SharedEndlessProgress || EndlessXpFirstDamage
+                           || TeamMarks || EnemyHealthBoost || EnemyMutationBoost;
     }
 
     /// <summary>
@@ -42,6 +49,7 @@ namespace SULFURTogether.Networking
         private static bool _receivedSharedLoot;
         private static bool _receivedSharedEndlessProgress = true; // EM-4: default Shared until the host's snapshot arrives
         private static bool _receivedEndlessXpFirstDamage;         // EM-5c: default last-hit until the host's snapshot arrives
+        private static bool _receivedTeamMarks, _receivedEnemyHealthBoost, _receivedEnemyMutationBoost; // #26: OFF until told
         private static int  _lastAppliedRevision = -1;
 
         /// <summary>The effective friendly-fire setting for the local end, whatever its role.</summary>
@@ -136,6 +144,26 @@ namespace SULFURTogether.Networking
             }
         }
 
+        /// <summary>#26: team marks for the local end. Host: its own coop.json; client: the host's broadcast (OFF until
+        /// told); offline: off.</summary>
+        public static bool TeamMarksEnabled => HostOrMirror(() => Plugin.Cfg.TeamMarks.Value, _receivedTeamMarks);
+
+        /// <summary>#26: tougher enemies, health. Read by the host when a level starts (see TeamMarkManager).</summary>
+        public static bool EnemyHealthBoostEnabled => HostOrMirror(() => Plugin.Cfg.EnemyHealthBoost.Value, _receivedEnemyHealthBoost);
+
+        /// <summary>#26: tougher enemies, mutations. Read by the host when it captures a level's generation input.</summary>
+        public static bool EnemyMutationBoostEnabled => HostOrMirror(() => Plugin.Cfg.EnemyMutationBoost.Value, _receivedEnemyMutationBoost);
+
+        private static bool HostOrMirror(Func<bool> hostValue, bool mirrored)
+        {
+            switch (NetConfig.GetMode())
+            {
+                case NetMode.Host:   try { return hostValue(); } catch { return false; }
+                case NetMode.Client: return mirrored;
+                default:             return false;
+            }
+        }
+
         private static bool ReadHostSharedLootConfig()
         {
             try { return Plugin.Cfg.ShareAllLoot.Value; }
@@ -159,11 +187,17 @@ namespace SULFURTogether.Networking
             bool slChanged  = _receivedSharedLoot    != state.SharedLoot;
             bool epChanged  = _receivedSharedEndlessProgress != state.SharedEndlessProgress;
             bool fdChanged  = _receivedEndlessXpFirstDamage  != state.EndlessXpFirstDamage;
+            bool tmChanged  = _receivedTeamMarks          != state.TeamMarks;
+            bool ehChanged  = _receivedEnemyHealthBoost   != state.EnemyHealthBoost;
+            bool emChanged  = _receivedEnemyMutationBoost != state.EnemyMutationBoost;
             _receivedFriendlyFire  = state.FriendlyFire;
             _receivedDeveloperMode = state.DeveloperMode;
             _receivedSharedLoot    = state.SharedLoot;
             _receivedSharedEndlessProgress = state.SharedEndlessProgress;
             _receivedEndlessXpFirstDamage  = state.EndlessXpFirstDamage;
+            _receivedTeamMarks          = state.TeamMarks;
+            _receivedEnemyHealthBoost   = state.EnemyHealthBoost;
+            _receivedEnemyMutationBoost = state.EnemyMutationBoost;
 
             if ((ffChanged || devChanged || slChanged || epChanged || fdChanged) && Plugin.Cfg.LogFriendlyFire.Value)
                 Plugin.Log.Info($"[SessionSettings] applied: friendlyFire={state.FriendlyFire} developerMode={state.DeveloperMode} sharedLoot={state.SharedLoot} sharedEndless={state.SharedEndlessProgress} xpFirstDamage={state.EndlessXpFirstDamage} rev={state.Revision}");
@@ -173,6 +207,9 @@ namespace SULFURTogether.Networking
             change.SharedLoot    = slChanged  && !initial;
             change.SharedEndlessProgress = epChanged && !initial;
             change.EndlessXpFirstDamage  = fdChanged && !initial;
+            change.TeamMarks          = tmChanged && !initial;
+            change.EnemyHealthBoost   = ehChanged && !initial;
+            change.EnemyMutationBoost = emChanged && !initial;
             return change;
         }
 
@@ -184,6 +221,7 @@ namespace SULFURTogether.Networking
             _receivedSharedLoot    = false;
             _receivedSharedEndlessProgress = true; // EM-4: back to the Shared default
             _receivedEndlessXpFirstDamage  = false; // EM-5c: back to the last-hit default
+            _receivedTeamMarks = _receivedEnemyHealthBoost = _receivedEnemyMutationBoost = false;
             _lastAppliedRevision = -1;
         }
     }

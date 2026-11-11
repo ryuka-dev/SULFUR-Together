@@ -183,6 +183,35 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             }
         }
 
+        /// <summary>A unit some boss spawned at run time on this end and that has been recorded, e.g. a Cousin arm or a
+        /// Lucia eye.</summary>
+        public static bool IsBossAdd(object unit)
+        {
+            if (unit == null) return false;
+            int id = BossReflect.InstanceId(unit);
+            lock (_lock)
+            {
+                foreach (var list in _localBySlot.Values)
+                    foreach (var a in list) if (a.InstanceId == id) return true;
+            }
+            return false;
+        }
+
+        /// <summary>A boss's spawn of this unit's UnitSO is in flight: the unit may be that add, reading its stats before
+        /// it is recorded. A guess — never cache it.</summary>
+        public static bool IsBossSpawnPendingFor(object unit)
+        {
+            object? so = (unit as PerfectRandom.Sulfur.Core.Units.Unit)?.unitSO;
+            if (so == null) return false;
+            float now = Time.realtimeSinceStartup;
+            lock (_lock)
+            {
+                foreach (var p in _pending)
+                    if (ReferenceEquals(p.UnitSO, so) && now - p.At <= PendingTtlSeconds) return true;
+            }
+            return false;
+        }
+
         // ================================================================== client: host manifest
 
         public static void HandleHostBossDynamicSpawn(NetBossDynamicSpawn msg)

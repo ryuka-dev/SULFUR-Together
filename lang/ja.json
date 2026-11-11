@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "抽選中…" },
     { "key": "endless.cardvote.resolved", "value": "カード {index} を選択" },
     { "key": "endless.cardvote.resolved_skip", "value": "スキップ" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "カードを引き直し中…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "カードを引き直し中…" },
+    { "key": "connect.section.balance", "value": "バランス（ホスト）" },
+    { "key": "session.teamMarks.label", "value": "連携マーク" },
+    { "key": "connect.desc.teamMarks", "value": "味方が直前に攻撃した敵を攻撃するとダメージが50%上がります（味方2人なら75%）。敵の頭上のドクロは、その敵を攻撃している味方の人数を示します。ホストの設定がセッション全体に適用されます。" },
+    { "key": "session.enemyHealth.label", "value": "敵の強化：体力" },
+    { "key": "connect.desc.enemyHealth", "value": "ボス以外の敵の体力が増えます：2人なら×1.5、3人以上なら×1.75。次のレベルから適用されます。ホストの設定がセッション全体に適用されます。" },
+    { "key": "session.enemyMutations.label", "value": "敵の強化：変異" },
+    { "key": "connect.desc.enemyMutations", "value": "変異した敵が2倍に増えます。次のレベルから適用されます。ホストの設定がセッション全体に適用されます。" },
+    { "key": "connect.sessionValue", "value": "ホストの設定：{state}" },
+    { "key": "teamMarks.hint.title", "value": "連携マーク" },
+    { "key": "teamMarks.hint.body", "value": "ドクロは味方が攻撃中の敵を示します。一緒に攻撃しましょう：マーク1つでダメージ+50%、2つで+75%。" }
   ]
 }

@@ -9940,12 +9940,41 @@ namespace SULFURTogether.Networking.Gameplay
             // EM-5c: record this client as a damager of the enemy (Independent-mode Endless XP attribution).
             EndlessSyncManager.RecordEnemyDamager(request.TargetHostSpawnIndex, peerId);
 
+            // #26: a direct hit (it names a body part, not an explosion) on an ordinary enemy takes the other players'
+            // team marks into account and places or refreshes this peer's own mark. The raw damage is scaled before
+            // Resolve, as the host's own hit is scaled before the game's damage call (the Ghost bonus is added after it
+            // on both ends).
+            var hitPart = new PerfectRandom.Sulfur.Core.HitboxColliders.ShapeId { partAndIndex = hit.ShapeId }.part;
+            bool direct = hitPart != PerfectRandom.Sulfur.Core.HitboxColliders.Parts.None && hitPart != PerfectRandom.Sulfur.Core.HitboxColliders.Parts.Block
+                          && hit.DamageType != (int)PerfectRandom.Sulfur.Core.Stats.DamageTypes.Explosive
+                          && TeamMarks.TeamMarkManager.TryGetEligibleIndex(unit, out _);
+            float teamMult = 1f;
+            if (direct && hit.RawDamage > 0f)
+            {
+                float mult = TeamMarks.TeamMarkManager.GetMultiplier(unit, peerId);
+                if (mult > 1f)
+                {
+                    float boosted = Mathf.Min(hit.RawDamage * mult, RemoteHitResolver.MaxHitDamage);
+                    teamMult = boosted / hit.RawDamage; // what the clamp left of it
+                    if (teamMult > 1.0001f) hit.RawDamage = boosted; else teamMult = 1f;
+                }
+            }
+
             // HR-4: an ordinary enemy's onHitboxHit subscribers (Amalgamation eyes, a power core) run on the host too.
-            var result = RemoteHitResolver.Resolve(unit, hit, peerId, request.RequestSeq, raiseHitboxHit: true);
+            NetHostHitResult result;
+            if (teamMult > 1f) SULFURTogether.Patches.TeamMarkPatches.ArmRemoteBoost(unit, teamMult);
+            try { result = RemoteHitResolver.Resolve(unit, hit, peerId, request.RequestSeq, raiseHitboxHit: true); }
+            finally { if (teamMult > 1f) SULFURTogether.Patches.TeamMarkPatches.DisarmRemoteBoost(); }
+            if (teamMult > 1f && result.Outcome == NetHitOutcome.Applied)
+            {
+                result.TeamMultiplier = teamMult;
+                TeamMarks.TeamMarkManager.HostHitsBoosted++;
+            }
 
             if (result.Outcome == NetHitOutcome.Applied)
             {
                 _hostHitRequestsDamageApplied++;
+                if (direct) { try { TeamMarks.TeamMarkManager.OnDirectHit(peerId, unit); } catch { } }
                 // The damage has landed: whatever goes wrong in the bookkeeping below must not turn the result the
                 // client receives into anything but what the game did.
                 try

@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "Wird gezogen…" },
     { "key": "endless.cardvote.resolved", "value": "Karte {index} gewählt" },
     { "key": "endless.cardvote.resolved_skip", "value": "Übersprungen" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "Karten werden neu gezogen…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "Karten werden neu gezogen…" },
+    { "key": "connect.section.balance", "value": "Balance (Host)" },
+    { "key": "session.teamMarks.label", "value": "Team-Markierungen" },
+    { "key": "connect.desc.teamMarks", "value": "Ein Gegner, den ein Mitspieler gerade getroffen hat, nimmt 50 % mehr Schaden (75 % bei zwei Mitspielern), und Totenköpfe über ihm zeigen, wie viele Mitspieler ihn angreifen. Die Einstellung des Hosts gilt für die gesamte Sitzung." },
+    { "key": "session.enemyHealth.label", "value": "Stärkere Gegner: Gesundheit" },
+    { "key": "connect.desc.enemyHealth", "value": "Gegner außer Bossen haben mehr Gesundheit: x1,5 bei 2 Spielern, x1,75 bei 3 oder mehr. Gilt ab dem nächsten Level. Die Einstellung des Hosts gilt für die gesamte Sitzung." },
+    { "key": "session.enemyMutations.label", "value": "Stärkere Gegner: Mutationen" },
+    { "key": "connect.desc.enemyMutations", "value": "Doppelt so viele Gegner sind mutiert. Gilt ab dem nächsten Level. Die Einstellung des Hosts gilt für die gesamte Sitzung." },
+    { "key": "connect.sessionValue", "value": "Einstellung des Hosts: {state}" },
+    { "key": "teamMarks.hint.title", "value": "Team-Markierungen" },
+    { "key": "teamMarks.hint.body", "value": "Ein Totenkopf markiert einen Gegner, den ein Mitspieler angreift. Greif ihn auch an: eine Markierung gibt +50 % Schaden, zwei geben +75 %." }
   ]
 }

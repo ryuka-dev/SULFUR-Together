@@ -44,6 +44,7 @@ namespace SULFURTogether.Patches
             RemoteHitReactionPatches.Apply(harmony);    // HR-5 — enemy reactions to a player's hit see a client's hit too
             StandInCoverPatches.Apply(harmony);         // HR-7 — enemies take cover from a remote player too
             EnemyRevealPatches.Apply(harmony);          // HR-8 — a Snipa discovered on the host is revealed on clients
+            TeamMarkPatches.Apply(harmony);             // #26 team marks (the host's own hits) and the tougher-enemies balance settings
             Plugin.Log.Info("[PatchBootstrap] Done.");
         }
     }

@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "Sorteando…" },
     { "key": "endless.cardvote.resolved", "value": "Carta {index} escolhida" },
     { "key": "endless.cardvote.resolved_skip", "value": "Pulada" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "Sorteando novas cartas…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "Sorteando novas cartas…" },
+    { "key": "connect.section.balance", "value": "Equilíbrio (anfitrião)" },
+    { "key": "session.teamMarks.label", "value": "Marcas de equipe" },
+    { "key": "connect.desc.teamMarks", "value": "Atingir um inimigo que um colega acabou de atingir causa 50% mais dano (75% com dois colegas), e caveiras acima dele mostram quantos colegas o estão atacando. A configuração do anfitrião se aplica a toda a sessão." },
+    { "key": "session.enemyHealth.label", "value": "Inimigos mais fortes: vida" },
+    { "key": "connect.desc.enemyHealth", "value": "Inimigos que não são chefes têm mais vida: x1,5 com 2 jogadores, x1,75 com 3 ou mais. Vale a partir do próximo nível. A configuração do anfitrião se aplica a toda a sessão." },
+    { "key": "session.enemyMutations.label", "value": "Inimigos mais fortes: mutações" },
+    { "key": "connect.desc.enemyMutations", "value": "O dobro de inimigos é mutado. Vale a partir do próximo nível. A configuração do anfitrião se aplica a toda a sessão." },
+    { "key": "connect.sessionValue", "value": "Configuração do anfitrião: {state}" },
+    { "key": "teamMarks.hint.title", "value": "Marcas de equipe" },
+    { "key": "teamMarks.hint.body", "value": "Uma caveira marca um inimigo que um colega está atacando. Ataque-o também: uma marca dá +50% de dano, duas dão +75%." }
   ]
 }

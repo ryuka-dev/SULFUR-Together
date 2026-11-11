@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "뽑는 중…" },
     { "key": "endless.cardvote.resolved", "value": "{index}번 카드 선택됨" },
     { "key": "endless.cardvote.resolved_skip", "value": "건너뜀" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "카드 다시 뽑는 중…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "카드 다시 뽑는 중…" },
+    { "key": "connect.section.balance", "value": "밸런스 (호스트)" },
+    { "key": "session.teamMarks.label", "value": "협공 표식" },
+    { "key": "connect.desc.teamMarks", "value": "팀원이 방금 공격한 적을 공격하면 피해가 50% 증가하며(팀원 2명이면 75%), 적 머리 위의 해골은 그 적을 공격 중인 팀원 수를 나타냅니다. 호스트의 설정이 세션 전체에 적용됩니다." },
+    { "key": "session.enemyHealth.label", "value": "적 강화: 체력" },
+    { "key": "connect.desc.enemyHealth", "value": "보스를 제외한 적의 체력이 늘어납니다: 2명이면 ×1.5, 3명 이상이면 ×1.75. 다음 레벨부터 적용됩니다. 호스트의 설정이 세션 전체에 적용됩니다." },
+    { "key": "session.enemyMutations.label", "value": "적 강화: 변이" },
+    { "key": "connect.desc.enemyMutations", "value": "변이된 적이 두 배로 늘어납니다. 다음 레벨부터 적용됩니다. 호스트의 설정이 세션 전체에 적용됩니다." },
+    { "key": "connect.sessionValue", "value": "호스트 설정: {state}" },
+    { "key": "teamMarks.hint.title", "value": "협공 표식" },
+    { "key": "teamMarks.hint.body", "value": "해골은 팀원이 공격 중인 적을 표시합니다. 함께 공격하세요: 표식 1개는 피해 +50%, 2개는 +75%." }
   ]
 }

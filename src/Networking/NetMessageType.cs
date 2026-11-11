@@ -503,5 +503,9 @@ namespace SULFURTogether.Networking
         /// <summary>HR-8 host→clients: a roster enemy visual state the client's copy cannot reach (a hidden Snipa
         /// discovered, a block pose) — see EnemyVisualStateSync.</summary>
         HostEnemyVisualState    = 106,
+
+        /// <summary>Team marks (issue #26) host→clients: every mark the host holds, as (peer, host spawn index) pairs —
+        /// see TeamMarkManager.</summary>
+        HostTeamMarks           = 107,
     }
 }

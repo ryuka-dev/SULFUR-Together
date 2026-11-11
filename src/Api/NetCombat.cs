@@ -74,12 +74,12 @@ namespace SULFURTogether.Api
     {
         internal LocalHitResolvedArgs(int requestSeq, object? target, HitOutcome outcome, float damage, float healthRemoved,
             float incomingDamage, int damageType, bool isCritical, int hitPart, float hitMultiplier, object? weapon, bool melee,
-            Vector3? hitPosition, bool wasAlive, bool killed, IReadOnlyList<SecondaryHit> secondary)
+            Vector3? hitPosition, bool wasAlive, bool killed, IReadOnlyList<SecondaryHit> secondary, float teamMultiplier)
         {
             RequestSeq = requestSeq; Target = target; Outcome = outcome; Damage = damage; HealthRemoved = healthRemoved;
             IncomingDamage = incomingDamage; DamageType = damageType; IsCritical = isCritical; HitPart = hitPart;
             HitMultiplier = hitMultiplier; Weapon = weapon; Melee = melee; HitPosition = hitPosition; WasAlive = wasAlive;
-            Killed = killed; Secondary = secondary;
+            Killed = killed; Secondary = secondary; TeamMultiplier = teamMultiplier;
         }
 
         public int RequestSeq { get; }
@@ -110,6 +110,11 @@ namespace SULFURTogether.Api
         /// <summary>Further damage the game dealt to the same target inside this hit (e.g. Crusader's Holy damage), in
         /// the order dealt. Read-only and empty when there was none.</summary>
         public IReadOnlyList<SecondaryHit> Secondary { get; }
+        /// <summary>API 2: the team-mark multiplier the host applied to this hit (1.5 for one teammate's mark on the
+        /// target, 1.75 for two or more); 1 when none, and always 1 unless <see cref="Outcome"/> is Applied.
+        /// <see cref="Damage"/> already includes it, so it is for display only. <see cref="Secondary"/> never carries one.
+        /// A hit that resolved as Lost reports 1 even if the host applied a bonus to it. See <see cref="NetTeamMarks"/>.</summary>
+        public float TeamMultiplier { get; }
     }
 
     /// <summary>A kill the local player is credited with — the killing blow or an assist.</summary>
@@ -165,8 +170,10 @@ namespace SULFURTogether.Api
     /// </summary>
     public static class NetCombat
     {
-        /// <summary>Read at run time (a property, not a constant), so a companion mod sees the installed version.</summary>
-        public static int ApiVersion => 1;
+        /// <summary>Read at run time (a property, not a constant), so a companion mod sees the installed version.
+        /// 2 added team marks: <see cref="LocalHitResolvedArgs.TeamMultiplier"/>, <see cref="LocalHostHitMultiplier"/> and
+        /// <see cref="NetTeamMarks"/>.</summary>
+        public static int ApiVersion => 2;
 
         /// <summary>How long a forwarded hit waits for the host's result before it resolves as Lost.</summary>
         public static float ResultTimeoutSeconds => 2f;
@@ -187,6 +194,13 @@ namespace SULFURTogether.Api
 
         /// <summary>Host: the session peer id whose hit is being settled while <see cref="IsResolvingRemoteHit"/>, else null.</summary>
         public static string? RemoteHitPeerId => SULFURTogether.Networking.Gameplay.RemoteHitResolver.RemotePeerId;
+
+        /// <summary>API 2, host: the team-mark multiplier of the damage call that is running, read from inside it (e.g.
+        /// a postfix on the game's <c>CreateDamageLog</c>). 1.5 or 1.75 inside the host player's own direct hit that took
+        /// the team bonus, whose logged damage already includes it; 1 everywhere else, including damage the game deals
+        /// from inside that hit (Crusader, thorns) and a remote peer's hit (see <see cref="IsResolvingRemoteHit"/>).
+        /// Always 1 on a client and offline.</summary>
+        public static float LocalHostHitMultiplier => SULFURTogether.Patches.TeamMarkPatches.CurrentHostHitMultiplier;
 
         internal static void RaiseForwarded(LocalHitForwardedArgs a) => Raise(LocalHitForwarded, a, nameof(LocalHitForwarded));
         internal static void RaiseResolved(LocalHitResolvedArgs a) => Raise(LocalHitResolved, a, nameof(LocalHitResolved));

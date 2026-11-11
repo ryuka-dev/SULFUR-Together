@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "Losowanie…" },
     { "key": "endless.cardvote.resolved", "value": "Wybrano kartę {index}" },
     { "key": "endless.cardvote.resolved_skip", "value": "Pominięto" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "Ponowne losowanie kart…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "Ponowne losowanie kart…" },
+    { "key": "connect.section.balance", "value": "Balans (host)" },
+    { "key": "session.teamMarks.label", "value": "Znaczniki drużyny" },
+    { "key": "connect.desc.teamMarks", "value": "Trafienie wroga, którego przed chwilą trafił towarzysz, zadaje o 50% więcej obrażeń (o 75% przy dwóch towarzyszach), a czaszki nad nim pokazują, ilu towarzyszy go atakuje. Ustawienie hosta obowiązuje w całej sesji." },
+    { "key": "session.enemyHealth.label", "value": "Silniejsi wrogowie: zdrowie" },
+    { "key": "connect.desc.enemyHealth", "value": "Wrogowie inni niż bossowie mają więcej zdrowia: x1,5 przy 2 graczach, x1,75 przy 3 lub więcej. Działa od następnego poziomu. Ustawienie hosta obowiązuje w całej sesji." },
+    { "key": "session.enemyMutations.label", "value": "Silniejsi wrogowie: mutacje" },
+    { "key": "connect.desc.enemyMutations", "value": "Dwa razy więcej wrogów jest zmutowanych. Działa od następnego poziomu. Ustawienie hosta obowiązuje w całej sesji." },
+    { "key": "connect.sessionValue", "value": "Ustawienie hosta: {state}" },
+    { "key": "teamMarks.hint.title", "value": "Znaczniki drużyny" },
+    { "key": "teamMarks.hint.body", "value": "Czaszka oznacza wroga, którego atakuje towarzysz. Też go zaatakuj: jeden znacznik daje +50% obrażeń, dwa dają +75%." }
   ]
 }

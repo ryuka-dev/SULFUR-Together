@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "正在抽选…" },
     { "key": "endless.cardvote.resolved", "value": "已选择第 {index} 张卡" },
     { "key": "endless.cardvote.resolved_skip", "value": "已跳过" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "正在重摇卡牌…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "正在重摇卡牌…" },
+    { "key": "connect.section.balance", "value": "平衡性（主机）" },
+    { "key": "session.teamMarks.label", "value": "合击标记" },
+    { "key": "connect.desc.teamMarks", "value": "攻击队友刚命中过的敌人时伤害提高 50%（两名队友时提高 75%），敌人头顶的骷髅表示有几名队友正在攻击它。主机的设置将应用于整个会话。" },
+    { "key": "session.enemyHealth.label", "value": "强化敌人：生命值" },
+    { "key": "connect.desc.enemyHealth", "value": "首领以外的敌人生命值提高：2 名玩家时 ×1.5，3 名及以上时 ×1.75。从下一关开始生效。主机的设置将应用于整个会话。" },
+    { "key": "session.enemyMutations.label", "value": "强化敌人：变异" },
+    { "key": "connect.desc.enemyMutations", "value": "变异敌人的数量翻倍。从下一关开始生效。主机的设置将应用于整个会话。" },
+    { "key": "connect.sessionValue", "value": "主机的设置：{state}" },
+    { "key": "teamMarks.hint.title", "value": "合击标记" },
+    { "key": "teamMarks.hint.body", "value": "骷髅标出了队友正在攻击的敌人。你也攻击它：一个标记伤害 +50%，两个标记 +75%。" }
   ]
 }

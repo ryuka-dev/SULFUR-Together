@@ -56,13 +56,16 @@ namespace SULFURTogether.Networking.Gameplay
         public float         GaveDamage;
         /// <summary>HR-3: the same for damage the hit dealt to OTHER units (Voodoo shares on linked enemies), summed.</summary>
         public float         GaveDamageOther;
+        /// <summary>#26: the team-mark multiplier the host applied to this hit's damage before settling it (already part
+        /// of <see cref="Damage"/>); 1 when none or when the outcome is not Applied. Secondary instances never carry one.</summary>
+        public float         TeamMultiplier = 1f;
         public List<NetHostHitSecondary>? Secondary;
 
         public const int MaxSecondary = 8;
 
         public string ToCompact()
             => $"seq={RequestSeq} outcome={Outcome} dmg={Damage:F1} hpRemoved={HealthRemoved:F1} incoming={IncomingDamage:F1} " +
-               $"type={DamageType} crit={IsCritical} shape=0x{ShapeId:X4} mult={HitMultiplier:F2} wasAlive={WasAlive} killed={Killed} gave={GaveDamage:F1}/{GaveDamageOther:F1} " +
+               $"type={DamageType} crit={IsCritical} shape=0x{ShapeId:X4} mult={HitMultiplier:F2} wasAlive={WasAlive} killed={Killed} gave={GaveDamage:F1}/{GaveDamageOther:F1} team={TeamMultiplier:0.##} " +
                $"secondary={DescribeSecondary()}";
 
         private string DescribeSecondary()
@@ -83,7 +86,11 @@ namespace SULFURTogether.Networking.Gameplay
     internal static class NetHostHitResultCodec
     {
         // 2: HR-3 added GaveDamage / GaveDamageOther and the per-secondary GaveDamage.
-        public const byte Version = 2;
+        // 3: #26 added TeamMultiplier.
+        public const byte Version = 3;
+
+        /// <summary>The largest team multiplier a result may carry (the two-mark cap), with room for float rounding.</summary>
+        private const float MaxTeamMultiplier = 2f;
 
         public static void Write(NetDataWriter w, NetHostHitResult m)
         {
@@ -101,7 +108,8 @@ namespace SULFURTogether.Networking.Gameplay
             w.Put(m.Killed);
             w.Put(m.GaveDamage);
             w.Put(m.GaveDamageOther);
-            int n = m.Secondary == null ? 0 : System.Math.Min(m.Secondary.Count, NetHostHitResult.MaxSecondary);
+            w.Put(m.TeamMultiplier);
+            int n =m.Secondary == null ? 0 : System.Math.Min(m.Secondary.Count, NetHostHitResult.MaxSecondary);
             w.Put((byte)n);
             for (int i = 0; i < n; i++)
             {
@@ -136,8 +144,10 @@ namespace SULFURTogether.Networking.Gameplay
                     Killed         = r.GetBool(),
                     GaveDamage     = r.GetFloat(),
                     GaveDamageOther = r.GetFloat(),
+                    TeamMultiplier  = r.GetFloat(),
                 };
                 if (m.Outcome < NetHitOutcome.Applied || m.Outcome > NetHitOutcome.TargetDead) return false;
+                if (!(m.TeamMultiplier >= 1f && m.TeamMultiplier <= MaxTeamMultiplier)) return false; // also rejects NaN
                 int n = r.GetByte();
                 if (n > NetHostHitResult.MaxSecondary) return false;
                 if (n > 0)

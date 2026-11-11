@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "Çekiliyor…" },
     { "key": "endless.cardvote.resolved", "value": "{index}. kart seçildi" },
     { "key": "endless.cardvote.resolved_skip", "value": "Atlandı" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "Kartlar yeniden çekiliyor…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "Kartlar yeniden çekiliyor…" },
+    { "key": "connect.section.balance", "value": "Denge (sunucu)" },
+    { "key": "session.teamMarks.label", "value": "Takım işaretleri" },
+    { "key": "connect.desc.teamMarks", "value": "Bir takım arkadaşının az önce vurduğu düşmana vurmak %50 daha fazla hasar verir (iki takım arkadaşıyla %75) ve üstündeki kafatasları ona kaç takım arkadaşının saldırdığını gösterir. Sunucunun ayarı tüm oturuma uygulanır." },
+    { "key": "session.enemyHealth.label", "value": "Daha güçlü düşmanlar: can" },
+    { "key": "connect.desc.enemyHealth", "value": "Boss olmayan düşmanların canı artar: 2 oyuncuda x1,5, 3 veya daha fazlasında x1,75. Bir sonraki seviyeden itibaren geçerlidir. Sunucunun ayarı tüm oturuma uygulanır." },
+    { "key": "session.enemyMutations.label", "value": "Daha güçlü düşmanlar: mutasyonlar" },
+    { "key": "connect.desc.enemyMutations", "value": "Mutasyona uğramış düşman sayısı iki katına çıkar. Bir sonraki seviyeden itibaren geçerlidir. Sunucunun ayarı tüm oturuma uygulanır." },
+    { "key": "connect.sessionValue", "value": "Sunucunun ayarı: {state}" },
+    { "key": "teamMarks.hint.title", "value": "Takım işaretleri" },
+    { "key": "teamMarks.hint.body", "value": "Kafatası, bir takım arkadaşının saldırdığı düşmanı gösterir. Sen de vur: bir işaret %50, iki işaret %75 daha fazla hasar verir." }
   ]
 }

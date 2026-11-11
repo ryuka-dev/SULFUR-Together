@@ -140,6 +140,10 @@ namespace SULFURTogether
                 // glyph fallback for every language; a sampled font can be a Latin-only face.
                 if (AccessTools.TypeByName("Ryuka.Sulfur.NativeUI.SulfurFonts") != null)
                     UI.NativeFontSampler.RoleFont = UI.NativeUiFonts.OverlayFont;
+
+                // #26: the team-mark multiplier next to the crosshair uses the game's round bold font.
+                if (AccessTools.TypeByName("Ryuka.Sulfur.NativeUI.SulfurFonts") != null)
+                    Networking.Gameplay.TeamMarks.TeamMarkPresenter.BindCrosshairFont = UI.NativeUiFonts.BindRoundBold;
 #endif
             }
             catch (Exception ex)
@@ -167,6 +171,7 @@ namespace SULFURTogether
             Networking.Gameplay.Boss.BossDynamicSpawnManifest.TickReleaseStaleGated(); // RT3-A safety: release stuck gates
             Networking.Gameplay.Boss.EndlessBossDiagnostics.Tick(); // EM-Boss: observe-only endless boss controller state (host vs client)
             Networking.Gameplay.ArenaLockdownManager.Tick(); // LD-2a: host arena lockdown timers
+            Networking.Gameplay.TeamMarks.TeamMarkManager.Tick(); // #26 prototype: team marks
             Networking.Gameplay.CardinalFightSyncManager.Tick(); // BGC-2: fail open if a blocked cardinal start is never committed
             Networking.Gameplay.FrozenSolidDiffProbe.Tick();     // ST-3-DIFF: diagnostic only — dump settled ice-corpse state
             UI.RunStatsOverlay.RunStatsOverlayManager.Tick(); // RS-2: Run-end stat cards over the Hub loading screen

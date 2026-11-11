@@ -31,6 +31,10 @@ namespace SULFURTogether.Networking
             // Phase 5.3-J P0-6: graph name + run id (append-only; older readers stop before this).
             w.Put(request.GraphName ?? "");
             w.Put(request.GenerationRunId ?? "");
+
+            // #26 (append-only): tougher-enemies factors for this level.
+            w.Put(request.EnemyHealthFactor);
+            w.Put(request.EnemyMutationFactor);
         }
 
         private static void WriteStringList(NetDataWriter w, System.Collections.Generic.List<string>? list)
@@ -81,6 +85,11 @@ namespace SULFURTogether.Networking
                 }
                 if (r.AvailableBytes > 0) request.GraphName = r.GetString();
                 if (r.AvailableBytes > 0) request.GenerationRunId = r.GetString();
+                if (r.AvailableBytes >= 8)
+                {
+                    request.EnemyHealthFactor   = ClampFactor(r.GetFloat(), 2f);
+                    request.EnemyMutationFactor = ClampFactor(r.GetFloat(), 4f);
+                }
                 return true;
             }
             catch
@@ -88,6 +97,8 @@ namespace SULFURTogether.Networking
                 return false;
             }
         }
+
+        private static float ClampFactor(float v, float max) => float.IsNaN(v) || v < 1f ? 1f : (v > max ? max : v);
 
         public static void WriteClientResponse(NetDataWriter w, NetClientSceneResponse response)
         {

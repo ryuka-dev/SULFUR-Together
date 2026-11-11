@@ -193,6 +193,9 @@ namespace SULFURTogether.Networking.Gameplay
             return _service != null && _service.TryGetLocalScene(out chapter, out level, out hasSeed, out seed);
         }
 
+        public static int CountPlayersWithHost(string fromChapter, int fromLevel, string toChapter, int toLevel)
+            => _service?.CountPlayersWithHost(fromChapter, fromLevel, toChapter, toLevel) ?? 1;
+
         public static System.Collections.Generic.List<string> GetPeerIdsInLevel(string chapter, int level, bool hasSeed, int seed)
             => _service?.GetPeerIdsInLevel(chapter, level, hasSeed, seed) ?? new System.Collections.Generic.List<string>();
 
@@ -261,6 +264,9 @@ namespace SULFURTogether.Networking.Gameplay
         {
             _service?.ReportHostEnemyVisualState(evt);
         }
+
+        // #26 prototype: host → clients, the whole team mark table.
+        public static void BroadcastHostTeamMarks(TeamMarks.NetHostTeamMarks msg) => _service?.BroadcastHostTeamMarks(msg);
 
         // Phase 5.4-E Boss Encounter Authority.
         public static NetMode BossMode => _service?.Mode ?? NetMode.Off;

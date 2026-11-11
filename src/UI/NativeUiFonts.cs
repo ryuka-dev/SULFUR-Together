@@ -11,6 +11,9 @@ namespace SULFURTogether.UI
         /// <summary>The game's current serif semibold face (small HUD text, dialogue body), with the lib's CJK and symbol
         /// fallback attached, so it renders every language.</summary>
         public static TMP_FontAsset? OverlayFont() => SulfurFonts.Get(SulfurFontRole.SerifSemibold);
+
+        /// <summary>The round bold face (Nunito in Latin languages), kept on the current language's font.</summary>
+        public static void BindRoundBold(TMP_Text text) => SulfurFonts.Bind(text, SulfurFontRole.RoundBold);
     }
 }
 #endif

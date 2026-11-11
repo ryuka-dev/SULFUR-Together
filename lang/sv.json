@@ -144,6 +144,16 @@
     { "key": "endless.cardvote.rolling", "value": "Drar kort…" },
     { "key": "endless.cardvote.resolved", "value": "Kort {index} valt" },
     { "key": "endless.cardvote.resolved_skip", "value": "Hoppades över" },
-    { "key": "endless.cardvote.resolved_reroll", "value": "Drar nya kort…" }
+    { "key": "endless.cardvote.resolved_reroll", "value": "Drar nya kort…" },
+    { "key": "connect.section.balance", "value": "Balans (värd)" },
+    { "key": "session.teamMarks.label", "value": "Lagmarkeringar" },
+    { "key": "connect.desc.teamMarks", "value": "Att träffa en fiende som en lagkamrat just träffat gör 50 % mer skada (75 % med två lagkamrater), och dödskallar ovanför den visar hur många lagkamrater som anfaller den. Värdens inställning gäller för hela sessionen." },
+    { "key": "session.enemyHealth.label", "value": "Tuffare fiender: hälsa" },
+    { "key": "connect.desc.enemyHealth", "value": "Andra fiender än bossar har mer hälsa: x1,5 med 2 spelare, x1,75 med 3 eller fler. Gäller från nästa nivå. Värdens inställning gäller för hela sessionen." },
+    { "key": "session.enemyMutations.label", "value": "Tuffare fiender: mutationer" },
+    { "key": "connect.desc.enemyMutations", "value": "Dubbelt så många fiender är muterade. Gäller från nästa nivå. Värdens inställning gäller för hela sessionen." },
+    { "key": "connect.sessionValue", "value": "Värdens inställning: {state}" },
+    { "key": "teamMarks.hint.title", "value": "Lagmarkeringar" },
+    { "key": "teamMarks.hint.body", "value": "En dödskalle markerar en fiende som en lagkamrat anfaller. Träffa den du också: en markering ger +50 % skada, två ger +75 %." }
   ]
 }
