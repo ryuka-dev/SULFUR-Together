@@ -93,6 +93,26 @@ namespace SULFURTogether.Networking
 
         internal static string LocalPeerId => CoopConnection.Service?.LocalPeerId ?? "";
 
+        /// <summary>The session peer a player unit belongs to: the local player's own unit, or a unit this end keeps for
+        /// a remote player (the host's headless player per peer, a client's hit proxy). Accepts the unit or any component
+        /// on its GameObject.</summary>
+        internal static bool TryGetPeerOf(object? playerUnit, out string peerId)
+        {
+            peerId = "";
+            try
+            {
+                var svc = CoopConnection.Service;
+                if (svc == null || !IsSessionActive) return false;
+                if (!(playerUnit is UnityEngine.Component c) || c == null) return false;
+                var unit = c as PerfectRandom.Sulfur.Core.Units.Unit ?? c.GetComponent<PerfectRandom.Sulfur.Core.Units.Unit>();
+                if (unit == null) return false;
+                var gm = PerfectRandom.Sulfur.Core.GameManager.Instance;
+                if (gm != null && ReferenceEquals(gm.PlayerUnit, unit)) { peerId = svc.LocalPeerId ?? ""; return peerId.Length > 0; }
+                return RemotePlayerTargetProxyManager.TryGetProxyPeer(unit, out peerId) && !string.IsNullOrEmpty(peerId);
+            }
+            catch { peerId = ""; return false; }
+        }
+
         internal static IReadOnlyList<ExternalPeer> Peers
         {
             get
@@ -104,8 +124,8 @@ namespace SULFURTogether.Networking
                 foreach (var s in svc.SessionSnapshot)
                 {
                     if (!s.IsConnected) continue;
-                    // Host-only: the headless per-peer player index, so a companion host can route a per-player
-                    // decision back to the owning peer. -1 elsewhere (a client keeps no per-peer players).
+                    // Host-only: the playerIndex of the headless player kept per peer. -1 elsewhere (a client keeps no
+                    // per-peer players) and while that peer has none (downed, between scenes).
                     int playerIndex = Gameplay.RemotePlayerRegistryManager.PlayerIndexByPeer.TryGetValue(s.PeerId, out var idx) ? idx : -1;
                     list.Add(new ExternalPeer(s.PeerId, s.Role == NetPeerRole.Host, s.IsLocal, playerIndex));
                 }

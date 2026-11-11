@@ -46,9 +46,10 @@ namespace SULFURTogether.Networking.Gameplay
         /// targeting, whose enemies use overridetargets instead of the hostilesInLOS scan — can add them as targets).</summary>
         internal static readonly Dictionary<string, object> GhostUnitsByPeer = new Dictionary<string, object>();
 
-        /// <summary>HOST: the ghost player's index in GameManager.Players by peer id, so the external-mod bridge can
-        /// report it on <c>ExternalPeer.PlayerIndex</c> and a companion host can route a per-player decision to the
-        /// owning peer. Kept in lockstep with <see cref="GhostUnitsByPeer"/>.</summary>
+        /// <summary>HOST: the ghost player's <c>Player.playerIndex</c> by peer id, so the external-mod bridge can report
+        /// it on <c>ExternalPeer.PlayerIndex</c>. Unique among the players registered at the same time, but not the
+        /// player's position in GameManager.Players: a ghost is removed while its peer is downed or away and registered
+        /// again later, which shifts positions. Kept in lockstep with <see cref="GhostUnitsByPeer"/>.</summary>
         internal static readonly Dictionary<string, int> PlayerIndexByPeer = new Dictionary<string, int>();
 
         private readonly HashSet<string> _seenThisTick = new HashSet<string>();
@@ -241,7 +242,7 @@ namespace SULFURTogether.Networking.Gameplay
                 try { _cameraRootField?.SetValue(player, eyes.transform); } catch { }
                 try { _playerVisualsField?.SetValue(player, Array.CreateInstance(_playerVisualsField.FieldType.GetElementType()!, 0)); } catch { }
                 try { if (_activeHoldableRenderersProp?.PropertyType.GetElementType() is Type rt) _activeHoldableRenderersProp.SetValue(player, Array.CreateInstance(rt, 0), null); } catch { }
-                int assignedPlayerIndex = playersList.Count;
+                int assignedPlayerIndex = NextFreePlayerIndex(playersList);
                 try { _playerIndexProp?.SetValue(player, assignedPlayerIndex, null); } catch { }
 
                 go.SetActive(true); // Unit.Awake runs; Player stays disabled.
@@ -266,6 +267,24 @@ namespace SULFURTogether.Networking.Gameplay
                 Plugin.Log.Info($"[PlayerRegistry] registered ghost player peer={peerId} pos={pos:F1} players={playersList.Count} unitSO={(playerUnitSO == null ? "null" : "ok")}");
             }
             catch (Exception ex) { Plugin.Log.Warn($"[PlayerRegistry] create failed peer={peerId}: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>PI-1: the smallest playerIndex no registered player holds. The list's length is not one: a ghost
+        /// removed from the middle (its peer went down) leaves a later ghost holding the index the length now names, and
+        /// the returning ghost would take the same one. The game itself only needs the value to differ per player
+        /// (<c>playerRenderLayer</c>); where it wants a list position it calls <c>Players.IndexOf</c>.</summary>
+        private static int NextFreePlayerIndex(IList players)
+        {
+            if (_playerIndexProp == null) return players.Count;
+            var used = new HashSet<int>();
+            foreach (var p in players)
+            {
+                if (p == null) continue;
+                try { used.Add((int)_playerIndexProp.GetValue(p, null)); } catch { }
+            }
+            int i = 0;
+            while (used.Contains(i)) i++;
+            return i;
         }
 
         private void Destroy(string peerId, string reason)

@@ -31,11 +31,13 @@ namespace SULFURTogether.Api
         public bool   IsLocal { get; }
 
         /// <summary>
-        /// The index of this peer's player in the <b>local</b> machine's <c>GameManager.Players</c>, or <c>-1</c>
-        /// when not resolvable here. The host populates it for remote peers (from the headless player it already
-        /// tracks per peer); a client keeps no such per-peer players, so it reports <c>-1</c> for others. A companion
-        /// mod resolves its own local player index directly and uses this only to route a decision about a remote
-        /// peer's player back to that peer. Not stable across machines — it is each machine's own roster index.
+        /// The game's <c>Player.playerIndex</c> of the player the <b>local</b> machine keeps for this peer, or <c>-1</c>
+        /// when it keeps none. The host populates it for remote peers (from the headless player it tracks per peer; that
+        /// player is absent, and the value -1, while the peer is downed or between scenes); a client keeps no such
+        /// per-peer players, so it reports <c>-1</c> for others. Unique among the players present at the same time. It is
+        /// <b>not</b> a position in <c>GameManager.Players</c>, and it can change when a peer's player is registered
+        /// again. Not stable across machines. To find the peer of a player unit, prefer
+        /// <see cref="NetSessionInfo.TryGetPeerOf"/>, which does not go through this number.
         /// </summary>
         public int PlayerIndex { get; }
     }
@@ -68,6 +70,17 @@ namespace SULFURTogether.Api
         /// <para>Read-only, and read per hit rather than cached — the host can change it mid-session.</para>
         /// </summary>
         public static bool FriendlyFireEnabled => SULFURTogether.Networking.NetSessionSettings.FriendlyFireEnabled;
+
+        /// <summary>
+        /// The session peer a player's unit belongs to. <paramref name="playerUnit"/> is a game <c>Unit</c> (or any
+        /// component on the same GameObject): the local player's own unit gives <see cref="LocalPeerId"/>; a unit this
+        /// machine keeps for a remote player (on the host, the headless player enemies target and hit) gives that
+        /// player's peer id. False offline, for an enemy or any other unit, and for a remote player this machine keeps no
+        /// unit for. Main thread only. Use it to route a decision about the player something just hit to the peer who
+        /// owns that player.
+        /// </summary>
+        public static bool TryGetPeerOf(object playerUnit, out string peerId)
+            => SULFURTogether.Networking.NetExternalBridge.TryGetPeerOf(playerUnit, out peerId);
 
         /// <summary>Snapshot of currently-connected session members, including the local peer. Empty when offline.</summary>
         public static IReadOnlyList<ExternalPeer> Peers => SULFURTogether.Networking.NetExternalBridge.Peers;
