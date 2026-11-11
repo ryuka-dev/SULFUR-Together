@@ -1972,8 +1972,64 @@ namespace SULFURTogether.Networking.Gameplay
         /// <summary>RM-1: the game is going back to the main menu (it stays Running while the level is destroyed).</summary>
         public static void NoteLeavingToMainMenu() => _leavingToMainMenu = true;
 
-        /// <summary>RM-1: a level load has begun, which ends any "leaving to main menu".</summary>
-        public static void NoteLevelLoadStarted() => _leavingToMainMenu = false;
+        // HOST: units whose runtime spawn was broadcast in this level (Unity instance ids). A client mirrors such a unit
+        // whatever the host's game state was when it spawned, so its removal is reported in every state too.
+        private static readonly HashSet<int> _hostBroadcastRuntimeUnits = new HashSet<int>();
+
+        /// <summary>RM-1 (HOST): this unit's runtime spawn was just broadcast to the clients.</summary>
+        public static void NoteHostRuntimeSpawnBroadcast(object? unit)
+        {
+            if (unit is UnityEngine.Object uo && !ReferenceEquals(uo, null)) _hostBroadcastRuntimeUnits.Add(uo.GetInstanceID());
+        }
+
+        /// <summary>RM-1: a level load has begun (the game entered its Loading state). It ends any "leaving to main
+        /// menu", and the units broadcast so far belong to the level that is about to be torn down: forget them first,
+        /// so the teardown reports nothing. Units spawned later in the same load belong to the new level.</summary>
+        public static void NoteLevelLoadStarted()
+        {
+            _leavingToMainMenu = false;
+            _hostBroadcastRuntimeUnits.Clear();
+        }
+
+        private static bool _aliveListCheckPending;
+
+        /// <summary>The level has just been shown (the game left Loading). Its last step adds every NPC to
+        /// GameManager.aliveNpcs, including one that was spawned while the level was loading and is in the list already
+        /// (a host mod's arena units, a client's mirror of them). Check for that on the next tick.</summary>
+        public static void NoteLevelShown() => _aliveListCheckPending = true;
+
+        /// <summary>Per frame, either end of a session: drop repeated entries from GameManager.aliveNpcs once after a
+        /// level was shown. A unit listed twice is targeted and counted twice, and stays listed after it is removed. The
+        /// game produces such entries on its own as well (4 in Sewers 2); offline the list is left as the game made it.</summary>
+        public static void TickAliveNpcList()
+        {
+            if (!_aliveListCheckPending) return;
+            _aliveListCheckPending = false;
+            try
+            {
+                if (!NetGameplaySyncBridge.IsSessionActive) return;
+                var gm = PerfectRandom.Sulfur.Core.GameManager.Instance;
+                var alive = gm != null ? gm.aliveNpcs : null;
+                if (alive == null || alive.Count < 2) return;
+                var seen = new HashSet<int>();
+                int removed = 0;
+                for (int i = 0; i < alive.Count; i++)
+                {
+                    var n = alive[i];
+                    if (ReferenceEquals(n, null) || seen.Add(n.GetInstanceID())) continue;
+                    alive.RemoveAt(i--);
+                    removed++;
+                }
+                if (removed == 0) return;
+                // The game rebuilds these two from the lists whenever an NPC is removed; do the same.
+                var raycasts = PerfectRandom.Sulfur.Core.StaticInstance<PerfectRandom.Sulfur.Core.BatchedNPCRaycasts>.Instance;
+                if (raycasts != null) raycasts.SetupNpcList();
+                var projectiles = PerfectRandom.Sulfur.Core.StaticInstance<PerfectRandom.Sulfur.Core.ProjectileSystem>.Instance;
+                if (projectiles != null) projectiles.SetupNpcList();
+                Plugin.Log.Info($"[EnemyRemoval] dropped {removed} repeated entr{(removed == 1 ? "y" : "ies")} from the alive NPC list after the level was shown");
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[EnemyRemoval] alive list check failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
 
         /// <summary>
         /// RM-1 (HOST): the game is dropping <paramref name="npc"/> from its NPC list, which it does from the unit's
@@ -1985,6 +2041,10 @@ namespace SULFURTogether.Networking.Gameplay
         /// going back to the main menu or quitting (everything is destroyed then, and the clients leave the level on their
         /// own), not for a boss or its adds, whose lifecycle the boss encounter sync owns on both ends, and not during
         /// Endless's arena cleanup, which every end runs for itself. The level state is read from the game itself.
+        ///
+        /// <para>A unit whose runtime spawn was broadcast is the exception to the Loading rule: clients mirror it in any
+        /// state (a mod that fills its arena while the level loads), so its removal is reported in any state as well. The
+        /// teardown of a level cannot be mistaken for that, because the broadcast set is emptied when the load begins.</para>
         /// </summary>
         public static void ReportHostNpcDestroyed(object? npc)
         {
@@ -1995,10 +2055,14 @@ namespace SULFURTogether.Networking.Gameplay
                 if (_appQuitting || _leavingToMainMenu) return;
                 if (!unit.IsAlive) return;
                 if (!unit.gameObject.scene.isLoaded) return;                       // scene unload
-                var gm = PerfectRandom.Sulfur.Core.GameManager.Instance;
-                if (gm == null) return;
-                var gs = gm.gameState;                                             // level teardown / load
-                if (gs == PerfectRandom.Sulfur.Core.GameState.Loading || gs == PerfectRandom.Sulfur.Core.GameState.Uninitialized) return;
+                bool wasBroadcast = _hostBroadcastRuntimeUnits.Remove(unit.GetInstanceID());
+                if (!wasBroadcast)
+                {
+                    var gm = PerfectRandom.Sulfur.Core.GameManager.Instance;
+                    if (gm == null) return;
+                    var gs = gm.gameState;                                         // level teardown / load
+                    if (gs == PerfectRandom.Sulfur.Core.GameState.Loading || gs == PerfectRandom.Sulfur.Core.GameState.Uninitialized) return;
+                }
                 var endless = EndlessModeManager.Instance;
                 if (endless != null && endless.arenaCleanupStarted) return;        // every end clears its own arena
                 var so = unit.unitSO;
@@ -2031,7 +2095,12 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 if (!IsEnabled() || NetConfig.GetMode() != NetMode.Client) { detail = "not a client"; return false; }
                 if (evt.SpawnIndex <= 0) { detail = "no host index"; return false; }
-                if (!NetRunStateBridge.TryGetLocalRunState(out var localState) || !evt.MatchesScene(localState)) { detail = "scene/seed mismatch"; return false; }
+                // The same test the spawn it undoes was accepted with (chapter and level), plus the seed when both ends
+                // have one: a removal sent while the level loads can precede this end's seed.
+                if (!NetRunStateBridge.TryGetLocalRunState(out var localState) || localState == null || !localState.HasLevel
+                    || !NetSceneName.SameScene(localState.ChapterName, localState.LevelIndex, evt.ChapterName, evt.LevelIndex)
+                    || (evt.HasLevelSeed && localState.HasLevelSeed && evt.LevelSeed != localState.LevelSeed))
+                { detail = "another level"; return false; }
                 if (IsClientTerminalDead(evt.SpawnIndex)) { detail = $"hostIdx={evt.SpawnIndex} already gone here"; return false; }
 
                 if (!ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(evt.SpawnIndex, out var key)
@@ -2099,9 +2168,23 @@ namespace SULFURTogether.Networking.Gameplay
             // Phase 4.4.0-O3: Traders and interactive NPCs must never enter enemy death mirror. A removal is not a death:
             // a mirrored non-combat unit (an Endless shop keeper, a mod's civilian) has to go on the clients too.
             if (!removed && IsNonCombatForSync(snapshot)) { _nonCombatExcludedFromEnemySync++; return; }
-            if (!NetRunStateBridge.TryGetLocalRunState(out var state)) return;
-            if (!state.HasLevel) return;
-            if (Plugin.Cfg.EnableLevelSeedAuthority.Value && !state.HasLevelSeed) return;
+            if (removed)
+            {
+                // A removal can happen while the level loads, before this end has its seed; the receiver compares the
+                // seed only when both have one.
+                if (!NetRunStateBridge.TryGetLocalRunState(out var loadingState) || loadingState == null || !loadingState.HasLevel)
+                {
+                    Plugin.Log.Warn($"[EnemyRemoval] could not report the removal of idx={snapshot.SpawnIndex}: no level in the local run state");
+                    return;
+                }
+            }
+            else
+            {
+                if (!NetRunStateBridge.TryGetLocalRunState(out var liveState)) return;
+                if (!liveState.HasLevel) return;
+                if (Plugin.Cfg.EnableLevelSeedAuthority.Value && !liveState.HasLevelSeed) return;
+            }
+            NetRunStateBridge.TryGetLocalRunState(out var state);
 
             _deathMirrorSequence++;
             var evt = new NetGameplayDeathEvent
@@ -2131,6 +2214,12 @@ namespace SULFURTogether.Networking.Gameplay
             };
 
             evt.Removed = removed;
+            // A removal names the level the way the spawn broadcast it undoes does (the boss manager's run context), so a
+            // client that accepted the spawn accepts the removal.
+            if (removed && Boss.NetBossEncounterManager.TryGetRunContext(out string rmChapter, out int rmLevel, out bool rmHasSeed, out int rmSeed))
+            {
+                evt.ChapterName = rmChapter; evt.LevelIndex = rmLevel; evt.HasLevelSeed = rmHasSeed; evt.LevelSeed = rmSeed;
+            }
 
             // ST-3c: state whether this unit died frozen-solid. A client cannot re-derive it — that is an exact
             // `GetStatus(Frozen) >= 100` test, and its mirror of a capped status is always a little under the cap.

@@ -49,9 +49,12 @@ namespace SULFURTogether.Patches
 
         private static void GoToMainMenu_Pre() => NetGameplayProbeManager.NoteLeavingToMainMenu();
 
-        private static void SetState_Pre(GameState state)
+        private static void SetState_Pre(GameManager __instance, GameState state)
         {
+            GameState old = __instance.gameState;
+            if (old == state) return;
             if (state == GameState.Loading) NetGameplayProbeManager.NoteLevelLoadStarted();
+            else if (old == GameState.Loading) NetGameplayProbeManager.NoteLevelShown();
         }
     }
 }

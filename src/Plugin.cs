@@ -171,7 +171,8 @@ namespace SULFURTogether
             Networking.Gameplay.Boss.BossDynamicSpawnManifest.TickReleaseStaleGated(); // RT3-A safety: release stuck gates
             Networking.Gameplay.Boss.EndlessBossDiagnostics.Tick(); // EM-Boss: observe-only endless boss controller state (host vs client)
             Networking.Gameplay.ArenaLockdownManager.Tick(); // LD-2a: host arena lockdown timers
-            Networking.Gameplay.TeamMarks.TeamMarkManager.Tick(); // #26 prototype: team marks
+            Networking.Gameplay.TeamMarks.TeamMarkManager.Tick(); // #26: team marks
+            Networking.Gameplay.NetGameplayProbeManager.TickAliveNpcList(); // RM-1: no repeated entries after a level is shown
             Networking.Gameplay.CardinalFightSyncManager.Tick(); // BGC-2: fail open if a blocked cardinal start is never committed
             Networking.Gameplay.FrozenSolidDiffProbe.Tick();     // ST-3-DIFF: diagnostic only — dump settled ice-corpse state
             UI.RunStatsOverlay.RunStatsOverlayManager.Tick(); // RS-2: Run-end stat cards over the Hub loading screen

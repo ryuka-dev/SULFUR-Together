@@ -250,6 +250,7 @@ namespace SULFURTogether.Networking.Gameplay
             };
             RuntimeSpawnBroadcast++;
             Plugin.Log.Info($"[RuntimeSpawn] host broadcasting {msg.ToCompact()}");
+            NetGameplayProbeManager.NoteHostRuntimeSpawnBroadcast(spawnedUnit); // RM-1: its removal is reported in any state
             NetGameplaySyncBridge.BroadcastHostRuntimeSpawn(msg);
         }
 
