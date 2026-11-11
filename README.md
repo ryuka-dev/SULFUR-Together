@@ -117,4 +117,4 @@ Both files are overwritten the next time the game starts, so copy them right aft
 
 ## License
 
-Licensed under the **GNU General Public License v3.0** — see [LICENSE](LICENSE). The GPL covers the mod's source code. Game assets (including any sprites derived from SULFUR) remain the property of their original owners and are **not** licensed under the GPL.
+Licensed under the **MIT License**, see [LICENSE](LICENSE). The license covers the mod's source code. Game assets (including any sprites derived from SULFUR) remain the property of their original owners and are **not** covered by it. Versions up to 1.7.0 were released under the GPL v3.0.
