@@ -19,6 +19,7 @@ together, and everyone must run the same build of SULFUR.**
 - **Tougher enemies: mutations.** Optional and off by default: twice as many enemies are mutated.
 - **A Balance section on the connect page.** The host turns each of the three on or off there. Team marks and
   health are on by default. A change to the two "tougher enemies" settings applies from the next level.
+- **Traditional Chinese.** The interface is now translated into Traditional Chinese as well, 15 languages in all.
 - **For other mods:** the combat API (version 2) reports the team bonus of each hit and the marks on an enemy, and
   lets a mod show them itself. Damage Sparks and Enemy Health Bars use it. See `Docs/NetCombatApi.md` in the
   repository.

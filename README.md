@@ -95,7 +95,7 @@ The build errors early with a clear message if `LocalPaths.props` is missing or 
 | `src/Patches/` | Harmony patches (boss encounters, weapon fire, pause control, level-gen trace, …) |
 | `src/UI/` | In-game connect page, toasts, downed-rescue & run-stats overlays, localization boundary |
 | `src/ReverseProbe/` | Diagnostic probes used to reverse-engineer game internals |
-| `lang/` | Per-language `*.json` string files (14 languages) |
+| `lang/` | Per-language `*.json` string files (15 languages) |
 | `Docs/` | Architecture notes, reverse-engineering audits, development plan |
 | `Thunderstore/` | Release manifest, changelog, icon, and packaged README |
 

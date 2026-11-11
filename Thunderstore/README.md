@@ -86,7 +86,7 @@ Your settings save automatically as you type. Quick keys still exist: **Page Dow
 - Optional shared world loot, and host-gated developer mode (session vote), as host session settings
 - Endless Mode co-op — a shared arena, waves, and enemies, with independent or shared progression (a group card vote)
 - End-of-run stats cards and join/leave notifications
-- 14-language interface
+- 15-language interface
 
 ### Saves, inventory, and loot
 
@@ -217,7 +217,7 @@ SULFUR Together 已结束公开测试，转为正式版：整套合作流程可�
 - 可选的共享世界掉落，以及需全员授权或投票开启的开发者模式（均为房主会话设置）
 - 无尽模式联机——共享的竞技场、波次与敌人，进度可选独立或共享（组队选卡投票）
 - 结算统计卡片与加入/离开通知
-- 14 种语言界面
+- 15 种语言界面
 
 ### 存档、背包与掉落
 
@@ -348,7 +348,7 @@ Co-op は**セーブをロードした状態**でホスト／参加します（�
 - 任意の共有ワールド戦利品と、全員の権限または投票で有効化する開発者モード（いずれもホストのセッション設定）
 - エンドレスモードの協力プレイ——アリーナ・ウェーブ・敵を共有し、進行は独立または共有（合同カード投票）を選択可能
 - リザルト統計カードと参加／退出の通知
-- 14言語対応のインターフェース
+- 15言語対応のインターフェース
 
 ### セーブ・インベントリ・戦利品
 
