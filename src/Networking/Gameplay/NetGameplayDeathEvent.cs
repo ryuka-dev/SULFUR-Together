@@ -60,6 +60,17 @@ namespace SULFURTogether.Networking.Gameplay
             set => Flags = (byte)(value ? (Flags | FlagFrozenSolid) : (Flags & ~FlagFrozenSolid));
         }
 
+        /// <summary>Bit 1 (RM-1): the unit did not die. The host destroyed it while it was alive (a spawner clearing what it
+        /// spawned, a mod discarding a unit), so the receiver removes its copy quietly: no death animation, no body, no
+        /// loot, no kill credit. An end that does not know the bit plays an ordinary death instead.</summary>
+        public const byte FlagRemoved = 1 << 1;
+
+        public bool Removed
+        {
+            get => (Flags & FlagRemoved) != 0;
+            set => Flags = (byte)(value ? (Flags | FlagRemoved) : (Flags & ~FlagRemoved));
+        }
+
         public string SceneKey => $"{ChapterName}:{LevelIndex}";
         public string SeedText => HasLevelSeed ? LevelSeed.ToString() : "?";
         public string PositionText => HasPosition ? $"({Position.x:F2},{Position.y:F2},{Position.z:F2})" : "(?)";
@@ -75,7 +86,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         public string ToCompactString()
         {
-            return $"event={EventId} src={SourcePeerId} seq={Sequence} idx={SpawnIndex} candidate={CandidateKey} category={Category} actor={ActorName} pos={PositionText} scene={SceneKey} seed={SeedText} damageCount={DamageCount} source={Source}{(FrozenSolid ? " frozenSolid=True" : "")}";
+            return $"event={EventId} src={SourcePeerId} seq={Sequence} idx={SpawnIndex} candidate={CandidateKey} category={Category} actor={ActorName} pos={PositionText} scene={SceneKey} seed={SeedText} damageCount={DamageCount} source={Source}{(FrozenSolid ? " frozenSolid=True" : "")}{(Removed ? " removed=True" : "")}";
         }
     }
 }

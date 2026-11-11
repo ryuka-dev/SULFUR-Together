@@ -5844,6 +5844,14 @@ namespace SULFURTogether.Networking
             if (Plugin.Cfg.LogReceivedEnemyDeathEvents.Value)
                 NetLogger.Info($"[EnemyDeathMirror] Received host death: {deathEvent.ToCompactString()}");
 
+            // RM-1: the host destroyed the unit without killing it. Its own path: bound copies only, removed quietly.
+            if (deathEvent.Removed)
+            {
+                bool removedOk = NetGameplayProbeManager.TryApplyHostRemoval(deathEvent, out var removalDetail);
+                NetLogger.Info($"[EnemyRemoval] client {(removedOk ? "applied" : "ignored")} host removal hostIdx={deathEvent.SpawnIndex} unit={deathEvent.UnitIdentifier}: {removalDetail}");
+                return;
+            }
+
             if (NetGameplayProbeManager.TryFindLocalMatch(deathEvent, out var match, out var detail))
             {
                 if (Plugin.Cfg.LogReceivedEnemyDeathEvents.Value)

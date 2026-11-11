@@ -28,6 +28,8 @@ together, and everyone must run the same build of SULFUR.**
   kept playing next to teammates it could not see.
 - **The downed panel could be an empty box in Chinese, Japanese or Korean.** The same went for the run stats cards
   and the vote panels.
+- **An enemy the host removed without killing it stayed on clients,** standing still and impossible to hit. This
+  showed up with mods that spawn a unit on the host and discard it again.
 - **With three or more players, the host could confuse two remote players** after one of them was downed and
   rescued. This affected mods that deal damage to a specific player, such as False Gods.
 - **The Cousin could look invulnerable to a client standing outside its arena,** and its first arm was missing on

@@ -1961,12 +1961,144 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
-        private static void TryReportHostEnemyDeathMirror(NetGameplayEntitySnapshot snapshot, string source)
+        // ------------------------------------------------------------------ RM-1: a live unit destroyed on the host
+
+        private static bool _appQuitting, _leavingToMainMenu;
+        private static int _hostRemovalsReported, _clientRemovalsApplied, _clientRemovalsBeforeBind;
+
+        /// <summary>RM-1: the game is quitting; everything is about to be destroyed.</summary>
+        public static void NoteApplicationQuitting() => _appQuitting = true;
+
+        /// <summary>RM-1: the game is going back to the main menu (it stays Running while the level is destroyed).</summary>
+        public static void NoteLeavingToMainMenu() => _leavingToMainMenu = true;
+
+        /// <summary>RM-1: a level load has begun, which ends any "leaving to main menu".</summary>
+        public static void NoteLevelLoadStarted() => _leavingToMainMenu = false;
+
+        /// <summary>
+        /// RM-1 (HOST): the game is dropping <paramref name="npc"/> from its NPC list, which it does from the unit's
+        /// OnDestroy only. A unit that is destroyed while still alive never ran Die, so no death event told the clients:
+        /// their copy would stand there for the rest of the level, untouchable (the host refuses hits on a unit it no
+        /// longer has). Such removals happen in the game itself (Endless clearing its arena, a boss room discarding
+        /// helpers) and in mods that spawn through a host-authoritative owner and then discard the unit. Report it as a
+        /// removal. Not for a body (it died, the clients were told), not while the level is being torn down, the game is
+        /// going back to the main menu or quitting (everything is destroyed then, and the clients leave the level on their
+        /// own), not for a boss or its adds, whose lifecycle the boss encounter sync owns on both ends, and not during
+        /// Endless's arena cleanup, which every end runs for itself. The level state is read from the game itself.
+        /// </summary>
+        public static void ReportHostNpcDestroyed(object? npc)
+        {
+            try
+            {
+                if (!IsEnabled() || NetConfig.GetMode() != NetMode.Host) return;
+                if (!(npc is PerfectRandom.Sulfur.Core.Units.Unit unit) || ReferenceEquals(unit, null)) return;
+                if (_appQuitting || _leavingToMainMenu) return;
+                if (!unit.IsAlive) return;
+                if (!unit.gameObject.scene.isLoaded) return;                       // scene unload
+                var gm = PerfectRandom.Sulfur.Core.GameManager.Instance;
+                if (gm == null) return;
+                var gs = gm.gameState;                                             // level teardown / load
+                if (gs == PerfectRandom.Sulfur.Core.GameState.Loading || gs == PerfectRandom.Sulfur.Core.GameState.Uninitialized) return;
+                var endless = EndlessModeManager.Instance;
+                if (endless != null && endless.arenaCleanupStarted) return;        // every end clears its own arena
+                var so = unit.unitSO;
+                if (so != null && (so.unitType & PerfectRandom.Sulfur.Core.Utilities.UnitType.Boss) != 0) return;
+                if (Boss.BossDynamicSpawnManifest.IsBossAdd(unit)) return;
+
+                string key = LocalKeyForObject(unit);
+                if (string.IsNullOrWhiteSpace(key) || !EntitiesByLocalId.TryGetValue(key, out var snapshot) || snapshot == null) return;
+                if (snapshot.IsDead || snapshot.SpawnIndex <= 0) return;
+
+                snapshot.IsDead = true; // gone for the roster and for hit requests alike
+                snapshot.LastSeenAt = Time.realtimeSinceStartup;
+                _hostRemovalsReported++;
+                Plugin.Log.Info($"[EnemyRemoval] host unit destroyed alive idx={snapshot.SpawnIndex} unit={snapshot.EntityId.UnitIdentifier} actor={snapshot.ActorName}");
+                TryReportHostEnemyDeathMirror(snapshot, "DestroyedAlive", removed: true);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[EnemyRemoval] host report failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// RM-1 (CLIENT): the host destroyed this unit without killing it. Only a unit bound to that host index is
+        /// removed; nothing is matched by type or position, since the unit in question is often a discarded duplicate of
+        /// units that stay. When no copy is bound yet (the removal overtook an asynchronous mirror spawn) the index is
+        /// latched, and the mirror is discarded when it arrives (<see cref="IsHostIndexGone"/>).
+        /// </summary>
+        public static bool TryApplyHostRemoval(NetGameplayDeathEvent evt, out string detail)
+        {
+            detail = "";
+            try
+            {
+                if (!IsEnabled() || NetConfig.GetMode() != NetMode.Client) { detail = "not a client"; return false; }
+                if (evt.SpawnIndex <= 0) { detail = "no host index"; return false; }
+                if (!NetRunStateBridge.TryGetLocalRunState(out var localState) || !evt.MatchesScene(localState)) { detail = "scene/seed mismatch"; return false; }
+                if (IsClientTerminalDead(evt.SpawnIndex)) { detail = $"hostIdx={evt.SpawnIndex} already gone here"; return false; }
+
+                if (!ClientHostToLocalKeyByHostSpawnIndex.TryGetValue(evt.SpawnIndex, out var key)
+                    || !EntitiesByLocalId.TryGetValue(key, out var snapshot) || snapshot == null || snapshot.IsDead)
+                {
+                    _clientRemovalsBeforeBind++;
+                    MarkClientTerminalDead(evt.SpawnIndex, "host removal before bind");
+                    _runtimeSpawnBindingsByHostIdx.Remove(evt.SpawnIndex);
+                    detail = $"hostIdx={evt.SpawnIndex} has no local copy yet; latched";
+                    return true;
+                }
+                if (!string.IsNullOrWhiteSpace(evt.UnitIdentifier) && !string.IsNullOrWhiteSpace(snapshot.EntityId.UnitIdentifier)
+                    && !string.Equals(evt.UnitIdentifier, snapshot.EntityId.UnitIdentifier, StringComparison.Ordinal))
+                {
+                    // The index is gone on the host whatever is bound to it here: latch it, leave the other unit alone.
+                    MarkClientTerminalDead(evt.SpawnIndex, "host removal, bound copy is another unit");
+                    _runtimeSpawnBindingsByHostIdx.Remove(evt.SpawnIndex);
+                    detail = $"bound copy is another unit host={evt.UnitIdentifier} client={snapshot.EntityId.UnitIdentifier}; latched";
+                    return false;
+                }
+
+                snapshot.TryGetRuntimeObject(out var runtimeObject);
+                snapshot.IsDead = true;
+                snapshot.LastSeenAt = Time.realtimeSinceStartup;
+                MarkClientTerminalDead(evt.SpawnIndex, "host removal");
+                _runtimeSpawnBindingsByHostIdx.Remove(evt.SpawnIndex);
+                ReleaseClientEnemyPuppetOnHostDeath(snapshot, evt.SpawnIndex, "HostRemoval");
+                DestroyQuietly(runtimeObject);
+                _clientRemovalsApplied++;
+                detail = $"removed local copy idx={snapshot.SpawnIndex} hostIdx={evt.SpawnIndex} unit={snapshot.EntityId.UnitIdentifier}";
+                return true;
+            }
+            catch (Exception ex) { detail = $"{ex.GetType().Name}: {ex.Message}"; return false; }
+        }
+
+        /// <summary>CLIENT: the host has reported this host index dead or removed; a mirror of it must not be kept.</summary>
+        public static bool IsHostIndexGone(int hostSpawnIndex)
+            => NetConfig.GetMode() == NetMode.Client && IsClientTerminalDead(hostSpawnIndex);
+
+        /// <summary>Remove a unit the way the game removes one without killing it (<c>Npc.DestroySelf</c>: clear its
+        /// statuses, destroy the object).</summary>
+        public static void DestroyQuietly(object? unit)
+        {
+            try
+            {
+                if (unit is PerfectRandom.Sulfur.Core.Units.Npc npc && npc != null)
+                {
+                    // The game's own removal takes one entry out of aliveNpcs, and a unit spawned while the level was
+                    // still being shown is in that list twice (the level's last step adds every NPC again).
+                    var gm = PerfectRandom.Sulfur.Core.GameManager.Instance;
+                    var alive = gm != null ? gm.aliveNpcs : null;
+                    if (alive != null) while (alive.Remove(npc)) { }
+                    npc.DestroySelf();
+                    return;
+                }
+                if (unit is Component c && c != null) UnityEngine.Object.Destroy(c.gameObject);
+            }
+            catch (Exception ex) { Plugin.Log.Warn($"[EnemyRemoval] destroy failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static void TryReportHostEnemyDeathMirror(NetGameplayEntitySnapshot snapshot, string source, bool removed = false)
         {
             if (!Plugin.Cfg.EnableHostEnemyDeathEventMirror.Value) return;
             if (!string.Equals(snapshot.Category, "Npc", StringComparison.OrdinalIgnoreCase)) return;
-            // Phase 4.4.0-O3: Traders and interactive NPCs must never enter enemy death mirror
-            if (IsNonCombatForSync(snapshot)) { _nonCombatExcludedFromEnemySync++; return; }
+            // Phase 4.4.0-O3: Traders and interactive NPCs must never enter enemy death mirror. A removal is not a death:
+            // a mirrored non-combat unit (an Endless shop keeper, a mod's civilian) has to go on the clients too.
+            if (!removed && IsNonCombatForSync(snapshot)) { _nonCombatExcludedFromEnemySync++; return; }
             if (!NetRunStateBridge.TryGetLocalRunState(out var state)) return;
             if (!state.HasLevel) return;
             if (Plugin.Cfg.EnableLevelSeedAuthority.Value && !state.HasLevelSeed) return;
@@ -1998,9 +2130,11 @@ namespace SULFURTogether.Networking.Gameplay
                 SentAt = Time.realtimeSinceStartup,
             };
 
+            evt.Removed = removed;
+
             // ST-3c: state whether this unit died frozen-solid. A client cannot re-derive it — that is an exact
             // `GetStatus(Frozen) >= 100` test, and its mirror of a capped status is always a little under the cap.
-            if (snapshot.TryGetRuntimeObject(out var dyingUnit) && UnitStatusSyncManager.IsUnitFrozenSolid(dyingUnit))
+            if (!removed && snapshot.TryGetRuntimeObject(out var dyingUnit) && UnitStatusSyncManager.IsUnitFrozenSolid(dyingUnit))
             {
                 evt.FrozenSolid = true;
                 FrozenSolidDiffProbe.Schedule(dyingUnit, snapshot.SpawnIndex);   // ST-3-DIFF (diagnostic)

@@ -485,6 +485,10 @@ together, and everyone must run the same build of SULFUR.**
 [/list]
   and the vote panels.
 [list]
+[*][b]An enemy the host removed without killing it stayed on clients,[/b] standing still and impossible to hit. This[/*]
+[/list]
+  showed up with mods that spawn a unit on the host and discard it again.
+[list]
 [*][b]With three or more players, the host could confuse two remote players[/b] after one of them was downed and[/*]
 [/list]
   rescued. This affected mods that deal damage to a specific player, such as False Gods.

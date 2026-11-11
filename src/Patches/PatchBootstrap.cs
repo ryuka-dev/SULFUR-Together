@@ -45,6 +45,7 @@ namespace SULFURTogether.Patches
             StandInCoverPatches.Apply(harmony);         // HR-7 — enemies take cover from a remote player too
             EnemyRevealPatches.Apply(harmony);          // HR-8 — a Snipa discovered on the host is revealed on clients
             TeamMarkPatches.Apply(harmony);             // #26 team marks (the host's own hits) and the tougher-enemies balance settings
+            EnemyRemovalPatches.Apply(harmony);         // RM-1 — a live unit the host destroys is removed on clients
             Plugin.Log.Info("[PatchBootstrap] Done.");
         }
     }

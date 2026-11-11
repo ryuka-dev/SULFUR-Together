@@ -305,6 +305,14 @@ namespace SULFURTogether.Networking.Gameplay
                     unit = task.GetType().GetProperty("Result")?.GetValue(task);
                 }
                 if (unit == null) { RuntimeSpawnMirrorFailed++; Plugin.Log.Warn($"[RuntimeSpawn] client mirror produced null unit hostIdx={hostSpawnIndex}"); return; }
+                // RM-1: the host already reported this unit gone while the spawn above was loading (a unit spawned and
+                // discarded in the same frame). Keeping the mirror would leave a unit only this end has.
+                if (NetGameplayProbeManager.IsHostIndexGone(hostSpawnIndex))
+                {
+                    NetGameplayProbeManager.DestroyQuietly(unit);
+                    Plugin.Log.Info($"[RuntimeSpawn] client discarded mirror hostIdx={hostSpawnIndex}: the host unit is already gone unit={BossReflect.RootName(unit)}");
+                    return;
+                }
                 bool bound = NetGameplayProbeManager.RegisterMirroredRuntimeSpawn(unit, hostSpawnIndex);
                 if (bound) RuntimeSpawnMirrored++; else RuntimeSpawnMirrorFailed++;
                 Plugin.Log.Info($"[RuntimeSpawn] client mirrored unit hostIdx={hostSpawnIndex} bound={bound} unit={BossReflect.RootName(unit)}");
