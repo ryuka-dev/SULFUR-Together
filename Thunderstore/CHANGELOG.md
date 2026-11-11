@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.8.0 — SULFUR 1.0.6, team marks
+
+Co-op now rewards shooting the same enemy. Hit an enemy a teammate just hit and you deal more damage, and enemies
+are tougher in a session to match.
+
+**1.8.0 is built for SULFUR 1.0.6. The network protocol changed (41 to 44), so everyone must update to 1.8.0
+together, and everyone must run the same build of SULFUR.**
+
+**New:**
+- **Team marks.** Each player's gun and melee hits put their mark on an enemy for 3 seconds. Hit an enemy that
+  carries a teammate's mark and you deal 50% more damage, or 75% more when two or more teammates have marked it.
+  Your own mark does nothing for you. A skull above the enemy shows how many teammates are on it, and the bonus
+  shows next to your crosshair while you aim at it. Explosions and damage over time don't place or use marks, and
+  bosses can't be marked.
+- **Tougher enemies: health.** Enemies other than bosses have more health in a session: 1.5 times with 2 players,
+  1.75 times with 3 or more. Without it, focused fire would make every fight shorter than playing alone.
+- **Tougher enemies: mutations.** Optional and off by default: twice as many enemies are mutated.
+- **A Balance section on the connect page.** The host turns each of the three on or off there. Team marks and
+  health are on by default. A change to the two "tougher enemies" settings applies from the next level.
+- **For other mods:** the combat API (version 2) reports the team bonus of each hit and the marks on an enemy, and
+  lets a mod show them itself. Damage Sparks and Enemy Health Bars use it. See `Docs/NetCombatApi.md` in the
+  repository.
+
+**Fixed:**
+- **Rejoining a session in the same level left the other players invisible.** A client that left and joined again
+  kept playing next to teammates it could not see.
+- **The downed panel could be an empty box in Chinese, Japanese or Korean.** The same went for the run stats cards
+  and the vote panels.
+- **With three or more players, the host could confuse two remote players** after one of them was downed and
+  rescued. This affected mods that deal damage to a specific player, such as False Gods.
+- **The Cousin could look invulnerable to a client standing outside its arena,** and its first arm was missing on
+  that client until the Cousin resurfaced.
+
+**Changed:**
+- **The mod is now released under the MIT License.** Versions up to 1.7.0 were GPL v3.0.
+
+**Known limits:** only tested with two players on one machine. The 75% bonus, the two- and three-skull icons and
+the fix for three or more players have not been seen in a real session yet.
+
 ## 1.7.0 — SULFUR 1.0.5, every hit counts
 
 A client's shots now count the way the host's do. The host settles every one of them through the game's own

@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.7.0.[/b] Built for [b]SULFUR 1.0.5[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
+> [b]Version 1.8.0.[/b] Built for [b]SULFUR 1.0.6[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 [line]
 
@@ -92,6 +92,7 @@ Your settings save automatically as you type. Quick keys still exist: [b]Page Do
 [*]Boss-encounter sync for several bosses (Cousin, Witch, Lucia, Desert boss, Terrorbaum, Black Guild Cardinal, …)[/*]
 [*]Synced destructible objects and player-dropped items[/*]
 [*]Independent per-player character, inventory, equipment, progression, and save[/*]
+[*]Team marks: hitting an enemy a teammate just hit deals more damage, with tougher enemies to match (host settings)[/*]
 [*]Friendly-fire session setting (chosen by the host)[/*]
 [*]Optional shared world loot, and host-gated developer mode (session vote), as host session settings[/*]
 [*]Endless Mode co-op — a shared arena, waves, and enemies, with independent or shared progression (a group card vote)[/*]
@@ -236,6 +237,7 @@ SULFUR Together 已结束公开测试，转为正式版：整套合作流程可�
 [*]多个 Boss 的战斗同步（大表哥、女巫、Lucia、沙漠 Boss、恐怖树、黑帮红衣主教……）[/*]
 [*]可破坏物件与玩家丢落物品的同步[/*]
 [*]每位玩家独立的角色、背包、装备、进度与存档[/*]
+[*]合击标记：攻击队友刚命中的敌人伤害更高，敌人也相应更耐打（房主设置）[/*]
 [*]友军伤害（友伤）会话开关（由房主决定）[/*]
 [*]可选的共享世界掉落，以及需全员授权或投票开启的开发者模式（均为房主会话设置）[/*]
 [*]无尽模式联机——共享的竞技场、波次与敌人，进度可选独立或共享（组队选卡投票）[/*]
@@ -380,6 +382,7 @@ Co-op は[b]セーブをロードした状態[/b]でホスト／参加します�
 [*]複数ボスの戦闘同期（カズン、ウィッチ、Lucia、砂漠ボス、テラーバウム、ブラックギルド枢機卿 ほか）[/*]
 [*]破壊可能オブジェクトとプレイヤーが落としたアイテムの同期[/*]
 [*]プレイヤーごとに独立したキャラクター・インベントリ・装備・進行・セーブ[/*]
+[*]連携マーク：味方が直前に攻撃した敵へのダメージが上がり、そのぶん敵も強化されます（ホスト設定）[/*]
 [*]フレンドリーファイア（同士討ち）のセッション設定（ホストが決定）[/*]
 [*]任意の共有ワールド戦利品と、全員の権限または投票で有効化する開発者モード（いずれもホストのセッション設定）[/*]
 [*]エンドレスモードの協力プレイ——アリーナ・ウェーブ・敵を共有し、進行は独立または共有（合同カード投票）を選択可能[/*]
@@ -440,6 +443,62 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.8.0 — SULFUR 1.0.6, team marks[/b][/color]
+
+Co-op now rewards shooting the same enemy. Hit an enemy a teammate just hit and you deal more damage, and enemies
+are tougher in a session to match.
+
+**1.8.0 is built for SULFUR 1.0.6. The network protocol changed (41 to 44), so everyone must update to 1.8.0
+together, and everyone must run the same build of SULFUR.**
+
+[b]New:[/b]
+[list]
+[*][b]Team marks.[/b] Each player's gun and melee hits put their mark on an enemy for 3 seconds. Hit an enemy that[/*]
+[/list]
+  carries a teammate's mark and you deal 50% more damage, or 75% more when two or more teammates have marked it.
+  Your own mark does nothing for you. A skull above the enemy shows how many teammates are on it, and the bonus
+  shows next to your crosshair while you aim at it. Explosions and damage over time don't place or use marks, and
+  bosses can't be marked.
+[list]
+[*][b]Tougher enemies: health.[/b] Enemies other than bosses have more health in a session: 1.5 times with 2 players,[/*]
+[/list]
+  1.75 times with 3 or more. Without it, focused fire would make every fight shorter than playing alone.
+[list]
+[*][b]Tougher enemies: mutations.[/b] Optional and off by default: twice as many enemies are mutated.[/*]
+[*][b]A Balance section on the connect page.[/b] The host turns each of the three on or off there. Team marks and[/*]
+[/list]
+  health are on by default. A change to the two "tougher enemies" settings applies from the next level.
+[list]
+[*][b]For other mods:[/b] the combat API (version 2) reports the team bonus of each hit and the marks on an enemy, and[/*]
+[/list]
+  lets a mod show them itself. Damage Sparks and Enemy Health Bars use it. See [color=#ffff00]Docs/NetCombatApi.md[/color] in the
+  repository.
+
+[b]Fixed:[/b]
+[list]
+[*][b]Rejoining a session in the same level left the other players invisible.[/b] A client that left and joined again[/*]
+[/list]
+  kept playing next to teammates it could not see.
+[list]
+[*][b]The downed panel could be an empty box in Chinese, Japanese or Korean.[/b] The same went for the run stats cards[/*]
+[/list]
+  and the vote panels.
+[list]
+[*][b]With three or more players, the host could confuse two remote players[/b] after one of them was downed and[/*]
+[/list]
+  rescued. This affected mods that deal damage to a specific player, such as False Gods.
+[list]
+[*][b]The Cousin could look invulnerable to a client standing outside its arena,[/b] and its first arm was missing on[/*]
+[/list]
+  that client until the Cousin resurfaced.
+
+[b]Changed:[/b]
+[list]
+[*][b]The mod is now released under the MIT License.[/b] Versions up to 1.7.0 were GPL v3.0.[/*]
+[/list]
+[b]Known limits:[/b] only tested with two players on one machine. The 75% bonus, the two- and three-skull icons and
+the fix for three or more players have not been seen in a real session yet.
 
 [color=RoyalBlue][b]1.7.0 — SULFUR 1.0.5, every hit counts[/b][/color]
 

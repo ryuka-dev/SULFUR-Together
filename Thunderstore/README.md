@@ -4,7 +4,7 @@ Co-op multiplayer for **SULFUR**.
 
 **Language:** **English** · [简体中文](#简体中文) · [日本語](#日本語)
 
-> **Version 1.7.0.** Built for **SULFUR 1.0.5**; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
+> **Version 1.8.0.** Built for **SULFUR 1.0.6**; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 ---
 
@@ -81,6 +81,7 @@ Your settings save automatically as you type. Quick keys still exist: **Page Dow
 - Boss-encounter sync for several bosses (Cousin, Witch, Lucia, Desert boss, Terrorbaum, Black Guild Cardinal, …)
 - Synced destructible objects and player-dropped items
 - Independent per-player character, inventory, equipment, progression, and save
+- Team marks: hitting an enemy a teammate just hit deals more damage, with tougher enemies to match (host settings)
 - Friendly-fire session setting (chosen by the host)
 - Optional shared world loot, and host-gated developer mode (session vote), as host session settings
 - Endless Mode co-op — a shared arena, waves, and enemies, with independent or shared progression (a group card vote)
@@ -211,6 +212,7 @@ SULFUR Together 已结束公开测试，转为正式版：整套合作流程可�
 - 多个 Boss 的战斗同步（大表哥、女巫、Lucia、沙漠 Boss、恐怖树、黑帮红衣主教……）
 - 可破坏物件与玩家丢落物品的同步
 - 每位玩家独立的角色、背包、装备、进度与存档
+- 合击标记：攻击队友刚命中的敌人伤害更高，敌人也相应更耐打（房主设置）
 - 友军伤害（友伤）会话开关（由房主决定）
 - 可选的共享世界掉落，以及需全员授权或投票开启的开发者模式（均为房主会话设置）
 - 无尽模式联机——共享的竞技场、波次与敌人，进度可选独立或共享（组队选卡投票）
@@ -341,6 +343,7 @@ Co-op は**セーブをロードした状態**でホスト／参加します（�
 - 複数ボスの戦闘同期（カズン、ウィッチ、Lucia、砂漠ボス、テラーバウム、ブラックギルド枢機卿 ほか）
 - 破壊可能オブジェクトとプレイヤーが落としたアイテムの同期
 - プレイヤーごとに独立したキャラクター・インベントリ・装備・進行・セーブ
+- 連携マーク：味方が直前に攻撃した敵へのダメージが上がり、そのぶん敵も強化されます（ホスト設定）
 - フレンドリーファイア（同士討ち）のセッション設定（ホストが決定）
 - 任意の共有ワールド戦利品と、全員の権限または投票で有効化する開発者モード（いずれもホストのセッション設定）
 - エンドレスモードの協力プレイ——アリーナ・ウェーブ・敵を共有し、進行は独立または共有（合同カード投票）を選択可能
