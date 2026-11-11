@@ -81,6 +81,10 @@ namespace SULFURTogether.Networking
             {
                 hadOld = _pendingTransition != null;
                 rev = (_pendingTransition?.Revision ?? 0) + 1;
+                // RC-1: a new transition means a new generation, even of the same graph with the same seed (a client
+                // that rejoins the session in the level it left, a same-level reload). Without this the finalize below
+                // skips it as a repeat, and the run state the session start just cleared never gets its seed back.
+                _lastFinalizedKey = "";
                 _pendingTransition = new PendingTransition
                 {
                     EnvName = string.IsNullOrWhiteSpace(envName) ? "<unknown>" : envName.Trim(),
