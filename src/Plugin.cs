@@ -135,6 +135,11 @@ namespace SULFURTogether
                     Log.Info("[CoopUi] connect page registered (SulfurOptionsApi).");
                 }
                 else Log.Info("[CoopUi] SulfurOptionsApi not present — connect page unavailable.");
+
+                // Overlay text (downed rescue, run stats, votes) takes the game's font by role, which carries the
+                // glyph fallback for every language; a sampled font can be a Latin-only face.
+                if (AccessTools.TypeByName("Ryuka.Sulfur.NativeUI.SulfurFonts") != null)
+                    UI.NativeFontSampler.RoleFont = UI.NativeUiFonts.OverlayFont;
 #endif
             }
             catch (Exception ex)
