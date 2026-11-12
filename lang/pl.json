@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "Nie udało się uruchomić sieci ({type}). Port może być zajęty lub brakuje LiteNetLib." },
     { "key": "connect.error.steamStart", "value": "Nie udało się uruchomić połączenia Steam." },
     { "key": "connect.error.steamUnavailable", "value": "Steam jest niedostępny." },
+    { "key": "toast.contentDiffersPeer", "value": "{name} ma inną zawartość ({list}). Przedmioty z niej nie są między wami współdzielone." },
+    { "key": "connect.error.contentDiffers", "value": "Nie dołączono: twoja zawartość różni się od zawartości hosta ({list})." },
+    { "key": "connect.error.badSessionData", "value": "Nie dołączono: host wysłał dane sesji, których ta wersja nie potrafi odczytać." },
     { "key": "connect.error.invalidSteamId", "value": "Wprowadź prawidłowy Steam ID (tylko cyfry) — lub użyj Zaproś znajomych / zaakceptuj zaproszenie Steam." },
 
     { "key": "connect.desc.intro", "value": "Skonfiguruj połączenie poniżej." },

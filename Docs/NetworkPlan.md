@@ -73,8 +73,8 @@ Client
 
 | ID | Type | Direction | Payload |
 |----|------|-----------|---------|
-| 1 | HandshakeRequest | Client → Host | magic, protocolVersion, modVersion, playerName, connectionKey |
-| 2 | HandshakeAccepted | Host → Client | assignedPeerId, assignedSlot, hostPeerId, hostPlayerName, hostModVersion |
+| 1 | HandshakeRequest | Client → Host | magic, protocolVersion, modVersion, playerName, connectionKey, devEntitlement, gameVersion, requirementBlock |
+| 2 | HandshakeAccepted | Host → Client | assignedPeerId, assignedSlot, hostPeerId, hostPlayerName, hostModVersion, roomToken, requirementBlock |
 | 3 | HandshakeRejected | Host → Client | reason string |
 | 4 | Ping | Both | (empty) |
 | 5 | Pong | Both | (empty) |

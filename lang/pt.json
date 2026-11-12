@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "Não foi possível iniciar a rede ({type}). A porta pode estar em uso ou o LiteNetLib está ausente." },
     { "key": "connect.error.steamStart", "value": "Não foi possível iniciar a conexão do Steam." },
     { "key": "connect.error.steamUnavailable", "value": "O Steam não está disponível." },
+    { "key": "toast.contentDiffersPeer", "value": "{name} tem conteúdo diferente ({list}). Os itens dele não são compartilhados entre vocês." },
+    { "key": "connect.error.contentDiffers", "value": "Não entrou: seu conteúdo é diferente do conteúdo do anfitrião ({list})." },
+    { "key": "connect.error.badSessionData", "value": "Não entrou: o anfitrião enviou dados de sessão que esta versão não consegue ler." },
     { "key": "connect.error.invalidSteamId", "value": "Insira um Steam ID válido (apenas números) — ou use Convidar amigos / aceite um convite do Steam." },
 
     { "key": "connect.desc.intro", "value": "Configure sua conexão abaixo." },

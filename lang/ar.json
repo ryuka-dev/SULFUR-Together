@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "تعذّر بدء الشبكة ({type}). قد يكون المنفذ قيد الاستخدام أو أن LiteNetLib مفقود." },
     { "key": "connect.error.steamStart", "value": "تعذّر بدء اتصال Steam." },
     { "key": "connect.error.steamUnavailable", "value": "Steam غير متوفر." },
+    { "key": "toast.contentDiffersPeer", "value": "لدى {name} محتوى مختلف ({list}). عناصر هذا المحتوى لا تُشارَك بينكما." },
+    { "key": "connect.error.contentDiffers", "value": "لم يتم الانضمام: محتواك يختلف عن محتوى المستضيف ({list})." },
+    { "key": "connect.error.badSessionData", "value": "لم يتم الانضمام: أرسل المستضيف بيانات جلسة لا يستطيع هذا الإصدار قراءتها." },
     { "key": "connect.error.invalidSteamId", "value": "أدخل معرّف Steam صالحاً (أرقام فقط) — أو استخدم دعوة الأصدقاء / اقبل دعوة Steam." },
 
     { "key": "connect.desc.intro", "value": "اضبط اتصالك أدناه." },

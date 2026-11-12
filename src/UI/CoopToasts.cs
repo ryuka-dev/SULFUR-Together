@@ -61,6 +61,10 @@ namespace SULFURTogether.UI
                 CoopLoc.Get("teamMarks.hint.body", "A skull marks an enemy a teammate is hitting. Hit it too: one mark gives +50% damage, two give +75%."),
                 respectPreference: false);
 
+        /// <summary>A message the player must not miss whatever their join/leave notification preference is: why a
+        /// join was given up, or that another player's content differs from theirs.</summary>
+        public static void NotifyImportant(string message) => Notify(null, message, respectPreference: false);
+
         private static float _nextLinkHintAt;
 
         /// <summary>

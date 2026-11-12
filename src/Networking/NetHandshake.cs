@@ -47,7 +47,10 @@ namespace SULFURTogether.Networking
         // 42: #26 team marks — HostTeamMarks (msg 107).
         // 43: #26 balance settings — three more bools on SessionSettings (msg 70), two factors appended to HostSceneRequest.
         // 44: #26 HostHitResult v3 (team multiplier).
-        public const int    ProtocolVersion  = 44;
+        // 45: SR-3 session requirements. HandshakeRequest ends with the client's requirement block; HandshakeAccepted
+        //     ends with the host's room token and requirement block. Both are required: an end that does not send them
+        //     cannot be compared, and item ids are only exchanged with an end that was.
+        public const int    ProtocolVersion  = 45;
 
         /// <summary>The game build this process runs (Unity's Application.version, e.g. "1.0.2"). Read once on the main
         /// thread at first use; the handshake is written and read from the main-thread network poll.</summary>
@@ -55,7 +58,7 @@ namespace SULFURTogether.Networking
         private static string? _localGameVersion;
 
         // Client writes after connection is established.
-        public static void WriteRequest(NetDataWriter w, string playerName)
+        public static void WriteRequest(NetDataWriter w, string playerName, byte[] requirementBlock)
         {
             w.Put(ProtocolMagic);
             w.Put(ProtocolVersion);
@@ -63,7 +66,8 @@ namespace SULFURTogether.Networking
             w.Put(playerName);
             w.Put(Plugin.Cfg.ConnectionKey.Value);
             w.Put(CoopDevEntitlement.Local); // DEV-1: does this client have developer access (-dev true / DevToolsEnabled)?
-            w.Put(LocalGameVersion);         // GU102-3: last, so an older client still fails on the protocol check first
+            w.Put(LocalGameVersion);         // GU102-3: after everything an older host reads, so it still fails on the protocol check first
+            w.PutBytesWithLength(requirementBlock); // SR-3: Session.SessionRequirementBlockCodec
         }
 
         // Host reads from incoming HandshakeRequest payload.
@@ -79,6 +83,9 @@ namespace SULFURTogether.Networking
                 data.ConnectionKey   = r.GetString();
                 data.DevEntitlement  = r.GetBool();
                 data.GameVersion     = r.AvailableBytes > 0 ? r.GetString() : "";
+                // SR-3: taken as raw bytes only. An older client sends none and is turned away by the protocol check;
+                // the host decodes the block after every other check has passed.
+                data.RequirementBlock = r.AvailableBytes > 0 ? r.GetBytesWithLength() : null;
                 return true;
             }
             catch { return false; }
@@ -90,16 +97,22 @@ namespace SULFURTogether.Networking
             string assignedPeerId,
             int assignedSlot,
             string hostPeerId,
-            string hostPlayerName)
+            string hostPlayerName,
+            string roomToken,
+            byte[] requirementBlock)
         {
             w.Put(assignedPeerId ?? "");
             w.Put(assignedSlot);
             w.Put(hostPeerId ?? "host");
             w.Put(hostPlayerName ?? "Host");
             w.Put(ModInfo.Version);
+            w.Put(roomToken);                       // SR-3: Session.HostRoomToken
+            w.PutBytesWithLength(requirementBlock); // SR-3: Session.SessionRequirementBlockCodec
         }
 
-        // Client reads assigned peer id / slot from HandshakeAccepted.
+        // Client reads assigned peer id / slot from HandshakeAccepted. False for anything short of the full message:
+        // a host on this protocol always sends all of it. Bytes after the block are left unread, so a later protocol
+        // can append to it.
         public static bool TryReadAccepted(NetDataReader r, out HandshakeAcceptedData data)
         {
             data = new HandshakeAcceptedData();
@@ -110,6 +123,8 @@ namespace SULFURTogether.Networking
                 data.HostPeerId     = r.GetString();
                 data.HostPlayerName = r.GetString();
                 data.HostModVersion = r.GetString();
+                data.RoomToken        = r.GetString();
+                data.RequirementBlock = r.GetBytesWithLength();
                 return true;
             }
             catch { return false; }
@@ -125,6 +140,7 @@ namespace SULFURTogether.Networking
         public string ConnectionKey   = "";
         public bool   DevEntitlement;   // DEV-1: client launched with developer access
         public string GameVersion     = ""; // GU102-3: client's game build (Application.version)
+        public byte[]? RequirementBlock;    // SR-3: undecoded; null when the client sent none
     }
 
     internal class HandshakeAcceptedData
@@ -134,5 +150,7 @@ namespace SULFURTogether.Networking
         public string HostPeerId     = "host";
         public string HostPlayerName = "Host";
         public string HostModVersion = "";
+        public string RoomToken      = "";  // SR-3: untrusted until Session.HostRoomToken.IsValid
+        public byte[]? RequirementBlock;    // SR-3: undecoded
     }
 }

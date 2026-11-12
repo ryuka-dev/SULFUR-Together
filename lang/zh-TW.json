@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "無法啟動連線功能（{type}）。連接埠可能被占用，或缺少 LiteNetLib。" },
     { "key": "connect.error.steamStart", "value": "無法啟動 Steam 連線。" },
     { "key": "connect.error.steamUnavailable", "value": "無法使用 Steam。" },
+    { "key": "toast.contentDiffersPeer", "value": "{name} 的模組內容與你不一致（{list}）。這些內容的物品不會在你們之間共享。" },
+    { "key": "connect.error.contentDiffers", "value": "未加入：你的模組內容與主機不一致（{list}）。" },
+    { "key": "connect.error.badSessionData", "value": "未加入：主機傳來的連線資料此版本無法讀取。" },
     { "key": "connect.error.invalidSteamId", "value": "請輸入有效的 Steam ID（僅限數字）——或使用「邀請好友」／接受 Steam 邀請。" },
 
     { "key": "connect.desc.intro", "value": "在下方設定你的連線。" },

@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "无法启动联网（{type}）。端口可能被占用，或缺少 LiteNetLib。" },
     { "key": "connect.error.steamStart", "value": "无法启动 Steam 连接。" },
     { "key": "connect.error.steamUnavailable", "value": "Steam 不可用。" },
+    { "key": "toast.contentDiffersPeer", "value": "{name} 的模组内容与你不一致（{list}）。这些内容的物品不会在你们之间共享。" },
+    { "key": "connect.error.contentDiffers", "value": "未加入：你的模组内容与主机不一致（{list}）。" },
+    { "key": "connect.error.badSessionData", "value": "未加入：主机发来的会话数据此版本无法读取。" },
     { "key": "connect.error.invalidSteamId", "value": "请输入有效的 Steam ID（仅数字）——或使用「邀请好友」/ 接受 Steam 邀请。" },
 
     { "key": "connect.desc.intro", "value": "在下方设置你的连接。" },

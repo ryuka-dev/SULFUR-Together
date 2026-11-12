@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "Netzwerk konnte nicht gestartet werden ({type}). Der Port ist möglicherweise belegt oder LiteNetLib fehlt." },
     { "key": "connect.error.steamStart", "value": "Steam-Verbindung konnte nicht gestartet werden." },
     { "key": "connect.error.steamUnavailable", "value": "Steam ist nicht verfügbar." },
+    { "key": "toast.contentDiffersPeer", "value": "{name} hat andere Inhalte ({list}). Gegenstände daraus werden zwischen euch nicht geteilt." },
+    { "key": "connect.error.contentDiffers", "value": "Nicht beigetreten: Deine Inhalte weichen von denen des Hosts ab ({list})." },
+    { "key": "connect.error.badSessionData", "value": "Nicht beigetreten: Der Host hat Sitzungsdaten gesendet, die diese Version nicht lesen kann." },
     { "key": "connect.error.invalidSteamId", "value": "Gib eine gültige Steam-ID ein (nur Zahlen) — oder nutze Freunde einladen / nimm eine Steam-Einladung an." },
 
     { "key": "connect.desc.intro", "value": "Richte deine Verbindung unten ein." },

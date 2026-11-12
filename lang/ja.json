@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "ネットワークを開始できませんでした（{type}）。ポートが使用中か、LiteNetLib が見つかりません。" },
     { "key": "connect.error.steamStart", "value": "Steam 接続を開始できませんでした。" },
     { "key": "connect.error.steamUnavailable", "value": "Steam を利用できません。" },
+    { "key": "toast.contentDiffersPeer", "value": "{name} のコンテンツがあなたと異なります（{list}）。そのアイテムは互いに共有されません。" },
+    { "key": "connect.error.contentDiffers", "value": "参加できません：あなたのコンテンツがホストと異なります（{list}）。" },
+    { "key": "connect.error.badSessionData", "value": "参加できません：ホストから届いたセッションデータをこのバージョンでは読み取れません。" },
     { "key": "connect.error.invalidSteamId", "value": "有効な Steam ID（数字のみ）を入力してください——または「フレンドを招待」/ Steam 招待の承諾を使用してください。" },
 
     { "key": "connect.desc.intro", "value": "以下で接続を設定してください。" },

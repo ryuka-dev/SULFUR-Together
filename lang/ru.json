@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "Не удалось запустить сеть ({type}). Порт может быть занят или отсутствует LiteNetLib." },
     { "key": "connect.error.steamStart", "value": "Не удалось запустить подключение через Steam." },
     { "key": "connect.error.steamUnavailable", "value": "Steam недоступен." },
+    { "key": "toast.contentDiffersPeer", "value": "У игрока {name} другой контент ({list}). Предметы из него не передаются между вами." },
+    { "key": "connect.error.contentDiffers", "value": "Вход отменён: ваш контент отличается от контента хоста ({list})." },
+    { "key": "connect.error.badSessionData", "value": "Вход отменён: хост прислал данные сессии, которые эта версия не может прочитать." },
     { "key": "connect.error.invalidSteamId", "value": "Введите корректный Steam ID (только цифры) — или используйте «Пригласить друзей» / примите приглашение Steam." },
 
     { "key": "connect.desc.intro", "value": "Настройте подключение ниже." },

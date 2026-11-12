@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "Impossibile avviare la rete ({type}). La porta potrebbe essere in uso o manca LiteNetLib." },
     { "key": "connect.error.steamStart", "value": "Impossibile avviare la connessione Steam." },
     { "key": "connect.error.steamUnavailable", "value": "Steam non è disponibile." },
+    { "key": "toast.contentDiffersPeer", "value": "{name} ha contenuti diversi ({list}). I relativi oggetti non vengono condivisi tra voi." },
+    { "key": "connect.error.contentDiffers", "value": "Accesso annullato: i tuoi contenuti sono diversi da quelli dell'host ({list})." },
+    { "key": "connect.error.badSessionData", "value": "Accesso annullato: l'host ha inviato dati di sessione che questa versione non può leggere." },
     { "key": "connect.error.invalidSteamId", "value": "Inserisci uno Steam ID valido (solo numeri) — oppure usa Invita amici / accetta un invito Steam." },
 
     { "key": "connect.desc.intro", "value": "Configura la connessione qui sotto." },

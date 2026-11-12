@@ -28,6 +28,21 @@ namespace SULFURTogether.Networking
         // SteamRelayBridge loopback port instead of the configured Direct-IP HostAddress/HostPort.
         private static (string Address, int Port, string Label)? _pendingSteamJoinTarget;
 
+        // SR-3: a stop a running service asked for from inside its own network poll, carried out on the next Tick.
+        // Bound to that service instance: a request left by a service that is no longer the running one is dropped.
+        private static (NetService Service, string Reason, string PlayerMessage)? _requestedStop;
+
+        /// <summary>
+        /// Ask for networking to be stopped on the next <see cref="Tick"/>, with <paramref name="playerMessage"/> shown
+        /// afterwards as the reason on the connect page and as a toast. For a service that has to end from inside its
+        /// own event handling.
+        /// </summary>
+        internal static void RequestStop(NetService service, string reason, string playerMessage)
+        {
+            if (service == null || !ReferenceEquals(service, _service)) return;
+            _requestedStop = (service, reason, playerMessage);
+        }
+
         /// <summary>True once a running Host has also opened itself to Steam P2P joins (via the connect page's
         /// "Invite Friends" — a deliberate, separate action from Create; Direct-IP hosting works without it).</summary>
         public static bool SteamHostingEnabled { get; private set; }
@@ -62,8 +77,11 @@ namespace SULFURTogether.Networking
             if (_service != null && mode == CurrentMode && signature == _lastSignature)
             {
                 Plugin.Log.Info($"[CoopConn] already running mode={mode} with unchanged settings — no restart (reason={reason}).");
-                return;
+                return; // the running service stays, and so does a stop it asked for
             }
+
+            // From here the running service is replaced or ended: whatever it asked for dies with it.
+            _requestedStop = null;
 
             if (_service != null)
             {
@@ -253,6 +271,20 @@ namespace SULFURTogether.Networking
 
         public static void Tick()
         {
+            if (_requestedStop.HasValue)
+            {
+                var stop = _requestedStop.Value;
+                _requestedStop = null;
+                if (ReferenceEquals(stop.Service, _service))
+                {
+                    Stop(stop.Reason);
+                    // After the stop, which clears the join feedback: the reason must outlive it. The toast does not
+                    // depend on the join/leave notification preference: the player has to learn why they are not in.
+                    NetConnectFeedback.ReportError(stop.PlayerMessage);
+                    UI.CoopToasts.NotifyImportant(stop.PlayerMessage);
+                }
+            }
+
             _service?.Tick();
             SteamRelayBridge.Tick(); // STEAM-2: pump the Steam<->loopback byte relay (no-op when neither role is active)
             // HR-2: hit-result timeouts are judged after this frame's network poll and relay pump, never before them.

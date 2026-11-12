@@ -51,6 +51,15 @@ namespace SULFURTogether.Networking
         private bool  _manualFollowKeyWarningShown;
         // Item ids per peer link (Session.NetItemIdSeam): a peer has a policy from its handshake until it leaves.
         private readonly Session.NetItemIdSeam _itemIds = new Session.NetItemIdSeam();
+        // SR-3: what each compared peer's content looked like next to this machine's (host: per client; client: the host
+        // under Session.NetItemIdSeam.HostLink). Present exactly as long as that peer's item-id policy.
+        private readonly Dictionary<string, Session.SessionContentComparison> _contentComparisons = new Dictionary<string, Session.SessionContentComparison>();
+        // SR-3 (client): the requirements this machine presented in the handshake request of the current connection.
+        // The host's answer is compared against these same entries, so both ends judge one and the same exchange.
+        private Session.SessionRequirementEntry[] _presentedRequirements = Array.Empty<Session.SessionRequirementEntry>();
+        // SR-3 (client): the join is being given up. Nothing more is processed from the host; CoopConnection stops this
+        // service on its next tick (never from inside the network poll that noticed the reason).
+        private bool _abortingJoin;
         // Phase 4.4.0-O3-B: Host world roster
         private float _lastWorldRosterSendTime;
         private int   _lastWorldRosterSentRevision = -1;
@@ -72,6 +81,9 @@ namespace SULFURTogether.Networking
             _receivedClientEnemyDeathClaims.Clear();
             _peerIds.Clear();
             _itemIds.ClearAll();
+            _contentComparisons.Clear();
+            _presentedRequirements = Array.Empty<Session.SessionRequirementEntry>();
+            _abortingJoin = false;
             _clients.Clear();
             _hostPeer = null;
             _lastPingTime = 0f;
@@ -233,6 +245,7 @@ namespace SULFURTogether.Networking
             _clients.Clear();
             _peerIds.Clear();
             _itemIds.ClearAll();
+            _contentComparisons.Clear();
             _sessions.Clear();
             _runStates.Clear();
             _sceneRequests.Clear();
@@ -429,6 +442,7 @@ namespace SULFURTogether.Networking
         private void HandleClientReconnectTimer()
         {
             if (_mode != NetMode.Client || _net == null) return;
+            if (_abortingJoin) return; // the service is about to be stopped
             if (_hostPeer != null || _clientConnectInProgress) return;
 
             float now = Now();
@@ -4344,14 +4358,19 @@ namespace SULFURTogether.Networking
                 _clientConnectInProgress = false;
                 _nextClientReconnectTime = 0f;
                 NetLogger.Info($"[Net] Connected to host at {peer.Address} — sending HandshakeRequest");
+                // SR-3: one snapshot per connection. The digests are taken now and the same entries are compared with
+                // the host's answer.
+                _presentedRequirements = Session.SessionRequirementRegistry.Snapshot();
                 var w = NetMessage.For(NetMessageType.HandshakeRequest);
-                NetHandshake.WriteRequest(w, Plugin.Cfg.PlayerName.Value);
+                NetHandshake.WriteRequest(w, Plugin.Cfg.PlayerName.Value,
+                    Session.SessionRequirementBlockCodec.Encode(_presentedRequirements));
                 peer.Send(w, DeliveryMethod.ReliableOrdered);
             }
         }
 
         private void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channel, DeliveryMethod method)
         {
+            if (_abortingJoin) return; // SR-3: this join was given up; whatever else the host sent is not acted on
             try
             {
                 TouchPeer(peer);
@@ -4761,6 +4780,14 @@ namespace SULFURTogether.Networking
         {
             if (_mode != NetMode.Host) return;
 
+            // SR-3: a peer is compared once, when it joins. A second request from a peer that is already a session
+            // member would let it replace what it presented, so it is not read at all.
+            if (_peerIds.TryGetValue(peer, out var knownPeerId))
+            {
+                NetLogger.Warn($"[Net] Ignoring a repeated HandshakeRequest from peer {knownPeerId}");
+                return;
+            }
+
             if (!NetHandshake.TryReadRequest(reader, out var data))
             {
                 RejectPeer(peer, "Malformed handshake packet");
@@ -4793,13 +4820,25 @@ namespace SULFURTogether.Networking
                 return;
             }
 
+            // SR-3: only now, for a peer that passed every check above, is its requirement block decoded and are this
+            // machine's digest callbacks run. On this protocol the block is always present.
+            if (!Session.SessionRequirementBlockCodec.TryDecode(data.RequirementBlock, out var clientRequirements))
+            {
+                RejectPeer(peer, "Malformed handshake packet");
+                return;
+            }
+            Session.SessionRequirementEntry[] hostRequirements = Session.SessionRequirementRegistry.Snapshot();
+            var comparison = Session.SessionContentComparison.Compare(hostRequirements, clientRequirements, Session.VanillaItemIds.Ceiling);
+
             float now = Now();
             var session = _sessions.RegisterRemoteClient(
                 data.PlayerName,
                 data.ModVersion,
                 peer.Address.ToString(),
                 now);
-            _itemIds.SetPolicy(session.PeerId, Session.MatchedItemIdPolicy.Instance);
+            // The policy first, then the peer id: no message may find a peer that has an id and no policy.
+            _itemIds.SetPolicy(session.PeerId, comparison.CreatePolicy());
+            _contentComparisons[session.PeerId] = comparison;
             _peerIds[peer] = session.PeerId;
             session.DevEntitlement = data.DevEntitlement;
             // DEV-1: fold the newcomer's dev entitlement into the session decision (may auto-enable/fail-closed).
@@ -4809,6 +4848,17 @@ namespace SULFURTogether.Networking
             NetLogger.Info($"[Net] Handshake OK — player='{session.PlayerName}' v={data.ModVersion} game={data.GameVersion} devAccess={data.DevEntitlement}");
             NetLogger.Info($"[Session] Peer joined: id={session.PeerId} slot={session.Slot} name='{session.PlayerName}' endpoint={session.EndPoint}");
             UI.CoopToasts.Notify(UI.CoopLoc.Format("toast.playerJoined", "{name} joined", ("name", session.PlayerName)));
+            if (!comparison.IsMatch)
+            {
+                // A host never turns a player away for content. It is told, and that player's link withholds the ids
+                // the differing content occupies.
+                NetLogger.Info($"[SessionReq] content of peer {session.PeerId} differs: {Session.SessionDifferenceText.ForLog(comparison)}");
+                // {list} is filled before {name}: the list is sanitised text, the name is the peer's own and must not
+                // be able to bring a placeholder for a later replacement.
+                UI.CoopToasts.NotifyImportant(UI.CoopLoc.Format("toast.contentDiffersPeer",
+                    "{name} has different content ({list}). Items from it are not shared between you.",
+                    ("list", Session.SessionDifferenceText.ForPlayer(comparison)), ("name", session.PlayerName)));
+            }
 
             var w = NetMessage.For(NetMessageType.HandshakeAccepted);
             NetHandshake.WriteAccepted(
@@ -4816,7 +4866,9 @@ namespace SULFURTogether.Networking
                 session.PeerId,
                 session.Slot,
                 "host",
-                Plugin.Cfg.PlayerName.Value);
+                Plugin.Cfg.PlayerName.Value,
+                Session.HostRoomToken.Value,
+                Session.SessionRequirementBlockCodec.Encode(hostRequirements));
             peer.Send(w, DeliveryMethod.ReliableOrdered);
             SendRunState(peer, _runStates.LocalState);
             // FF-1: push the host-authoritative session settings so a (re)joining client knows the friendly-fire
@@ -4833,8 +4885,37 @@ namespace SULFURTogether.Networking
         {
             if (_mode != NetMode.Client) return;
 
+            // SR-3: the host is compared once per connection. A second HandshakeAccepted, or one from anyone but the
+            // host this client connected to, would replace what was compared, so it is not read at all.
+            if (peer != _hostPeer || _peerIds.ContainsKey(peer))
+            {
+                NetLogger.Warn("[Net] Ignoring an unexpected HandshakeAccepted");
+                return;
+            }
+
+            // On this protocol a host sends the whole message, with a room token and a requirement block that decode.
+            // Anything less cannot be compared, and a host that cannot be compared is not joined.
+            if (!NetHandshake.TryReadAccepted(reader, out var data)
+                || !Session.HostRoomToken.IsValid(data.RoomToken)
+                || !Session.SessionRequirementBlockCodec.TryDecode(data.RequirementBlock, out var hostRequirements))
+            {
+                AbortClientJoin(peer, "bad-session-data", UI.CoopLoc.Get("connect.error.badSessionData",
+                    "Not joined: the host sent session data this version cannot read."));
+                return;
+            }
+            var comparison = Session.SessionContentComparison.Compare(_presentedRequirements, hostRequirements, Session.VanillaItemIds.Ceiling);
+
+            // Decided before anything of the session is registered: a join that is given up leaves no session behind.
+            if (!comparison.IsMatch)
+            {
+                NetLogger.Info($"[SessionReq] content of the host differs: {Session.SessionDifferenceText.ForLog(comparison)}");
+                AbortClientJoin(peer, "content-differs", UI.CoopLoc.Format("connect.error.contentDiffers",
+                    "Not joined: your content differs from the host's ({list}).",
+                    ("list", Session.SessionDifferenceText.ForPlayer(comparison))));
+                return;
+            }
+
             float now = Now();
-            if (NetHandshake.TryReadAccepted(reader, out var data))
             {
                 var local = _sessions.RegisterLocalClient(
                     data.AssignedPeerId,
@@ -4848,31 +4929,38 @@ namespace SULFURTogether.Networking
                     data.HostModVersion,
                     peer.Address.ToString(),
                     now);
-                _itemIds.SetPolicy(Session.NetItemIdSeam.HostLink, Session.MatchedItemIdPolicy.Instance);
+                // The policy first, then the peer id (see ItemIdPeerKey): from here on the link to the host is compared.
+                _itemIds.SetPolicy(Session.NetItemIdSeam.HostLink, comparison.CreatePolicy());
+                _contentComparisons[Session.NetItemIdSeam.HostLink] = comparison;
                 _peerIds[peer] = data.HostPeerId;
                 _runStates.SetLocalIdentity(local.PeerId, local.PlayerName);
 
                 NetLogger.Info("[Net] Handshake accepted by host — session established");
                 NetLogger.Info($"[Session] Local session assigned: id={local.PeerId} slot={local.Slot} name='{local.PlayerName}'");
                 NetLogger.Info($"[Session] Host session known: id={data.HostPeerId} name='{data.HostPlayerName}'");
+
                 UI.CoopToasts.Notify(UI.CoopLoc.Format("toast.connectedTo", "Connected to {host}", ("host", data.HostPlayerName)));
-                NetConnectFeedback.ReportConnected();
-                SendRunState(peer, _runStates.LocalState);
-            }
-            else
-            {
-                // Backward-compatible fallback for older host builds that sent an empty accepted packet.
-                _sessions.RegisterLocalClient("client-local", -1, Plugin.Cfg.PlayerName.Value, ModInfo.Version, now);
-                _sessions.RegisterRemoteHost("host", "Host", "", peer.Address.ToString(), now);
-                _itemIds.SetPolicy(Session.NetItemIdSeam.HostLink, Session.MatchedItemIdPolicy.Instance);
-                _peerIds[peer] = "host";
-                _runStates.SetLocalIdentity("client-local", Plugin.Cfg.PlayerName.Value);
-                NetLogger.Info("[Net] Handshake accepted by host — session established (legacy payload)");
                 NetConnectFeedback.ReportConnected();
                 SendRunState(peer, _runStates.LocalState);
             }
             // DEV-1: mod now owns dev mode for this client; the host will push the session value right after.
             CoopDevAuthority.OnClientConnected();
+        }
+
+        /// <summary>
+        /// SR-3 (client): give up joining this host. The link is closed at once, so the host sees the player leave, and
+        /// nothing more from it is acted on. Stopping the service itself is left to <see cref="CoopConnection"/> on its
+        /// next tick: this runs inside the network poll, which must not tear down the socket it is reading.
+        /// <paramref name="playerMessage"/> is what the connect page and a toast tell the player.
+        /// </summary>
+        private void AbortClientJoin(NetPeer? peer, string reason, string playerMessage)
+        {
+            if (_mode != NetMode.Client || _abortingJoin) return;
+            _abortingJoin = true;
+            NetLogger.Info($"[Net] Join aborted (reason={reason})");
+            try { peer?.Disconnect(); }
+            catch (Exception ex) { NetLogger.Warn($"[Net] disconnect on abort failed: {ex.Message}"); }
+            CoopConnection.RequestStop(this, reason, playerMessage);
         }
 
         private void HandleRunStateUpdate(NetPeer peer, NetPacketReader reader)
@@ -6227,6 +6315,7 @@ namespace SULFURTogether.Networking
                 NetLoadBarrier.RemovePeer(peerId);
                 _peerIds.Remove(peer);
                 _itemIds.Clear(peerId);
+                _contentComparisons.Remove(peerId);
             }
         }
 
@@ -6253,7 +6342,7 @@ namespace SULFURTogether.Networking
                 Gameplay.RemoteShotSound.RemovePeer(peerId);
                 NetLoadBarrier.RemovePeer(peerId);
                 _peerIds.Remove(peer);
-                if (_mode == NetMode.Host) _itemIds.Clear(peerId);
+                if (_mode == NetMode.Host) { _itemIds.Clear(peerId); _contentComparisons.Remove(peerId); }
                 NetLogger.Info($"[Session] Peer left: id={peerId}");
                 UI.CoopToasts.Notify(_mode == NetMode.Host
                     ? UI.CoopLoc.Format("toast.playerLeft", "{name} left", ("name", leftName))
@@ -6266,6 +6355,7 @@ namespace SULFURTogether.Networking
                 {
                     _hostPeer = null;
                     _itemIds.Clear(Session.NetItemIdSeam.HostLink); // nothing is known about the next host until it is compared again
+                    _contentComparisons.Remove(Session.NetItemIdSeam.HostLink);
                     Gameplay.ClientHitTracker.Reset(); // HR-2: no result can arrive any more — resolve what is outstanding as Lost
                     NetClientJoinFlow.LeaveSession("disconnect");
                     CoopDevAuthority.OnSessionEnded("host connection lost"); // DEV-1: revert to local entitlement while disconnected

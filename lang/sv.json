@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "Kunde inte starta nätverket ({type}). Porten kan vara upptagen eller så saknas LiteNetLib." },
     { "key": "connect.error.steamStart", "value": "Kunde inte starta Steam-anslutningen." },
     { "key": "connect.error.steamUnavailable", "value": "Steam är inte tillgängligt." },
+    { "key": "toast.contentDiffersPeer", "value": "{name} har annat innehåll ({list}). Föremål därifrån delas inte mellan er." },
+    { "key": "connect.error.contentDiffers", "value": "Gick inte med: ditt innehåll skiljer sig från värdens ({list})." },
+    { "key": "connect.error.badSessionData", "value": "Gick inte med: värden skickade sessionsdata som den här versionen inte kan läsa." },
     { "key": "connect.error.invalidSteamId", "value": "Ange ett giltigt Steam ID (endast siffror) — eller använd Bjud in vänner / acceptera en Steam-inbjudan." },
 
     { "key": "connect.desc.intro", "value": "Ställ in din anslutning nedan." },

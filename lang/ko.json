@@ -73,6 +73,9 @@
     { "key": "connect.error.couldNotStart", "value": "네트워킹을 시작할 수 없습니다 ({type}). 포트가 사용 중이거나 LiteNetLib가 없습니다." },
     { "key": "connect.error.steamStart", "value": "Steam 연결을 시작할 수 없습니다." },
     { "key": "connect.error.steamUnavailable", "value": "Steam을 사용할 수 없습니다." },
+    { "key": "toast.contentDiffersPeer", "value": "{name}의 콘텐츠가 당신과 다릅니다({list}). 해당 아이템은 서로 공유되지 않습니다." },
+    { "key": "connect.error.contentDiffers", "value": "참가하지 않음: 콘텐츠가 호스트와 다릅니다({list})." },
+    { "key": "connect.error.badSessionData", "value": "참가하지 않음: 호스트가 보낸 세션 데이터를 이 버전에서 읽을 수 없습니다." },
     { "key": "connect.error.invalidSteamId", "value": "유효한 Steam ID(숫자만)를 입력하세요——또는 친구 초대 / Steam 초대 수락을 사용하세요." },
 
     { "key": "connect.desc.intro", "value": "아래에서 연결을 설정하세요." },
