@@ -30,8 +30,18 @@ namespace SULFURTogether.Networking
             Plugin.Log.Info($"[LinkState] init clientLinked={_clientLinked} hostLinked={_hostLinked}");
         }
 
-        public static void SetClientLinked(bool on, string reason)
+        public static void SetClientLinked(bool on, string reason) => SetClientLinked(on, reason, announce: true);
+
+        /// <param name="announce">False leaves out the link toast, for a change the player is told about another way.</param>
+        public static void SetClientLinked(bool on, string reason, bool announce)
         {
+            // SR-4: a join that waits for the player's decision about differing content does not link, whoever asks:
+            // the link key, the configured default, a reset after loading a save. The decision itself links.
+            if (on && Session.NetContentConsent.IsPending)
+            {
+                Plugin.Log.Info($"[LinkState] client link refused: a content decision is pending (reason={reason})");
+                return;
+            }
             if (_clientLinked == on)
             {
                 Plugin.Log.Info($"[LinkState] client already {(on ? "LINKED" : "UNLINKED")} (reason={reason})");
@@ -44,7 +54,7 @@ namespace SULFURTogether.Networking
             // "Linked to host" on the button press regardless of whether the connection ever succeeded. The
             // link toast stays for link changes outside an attempt (the PageDown/PageUp mid-session toggles,
             // where it is the accurate description); a successful join is announced by "Connected to {host}".
-            if (!on || !NetConnectFeedback.Connecting)
+            if (announce && (!on || !NetConnectFeedback.Connecting))
                 UI.CoopToasts.Notify(on
                     ? UI.CoopLoc.Get("link.linkedToHost", "Linked to host")
                     : UI.CoopLoc.Get("link.playingSolo", "Playing solo"));

@@ -76,6 +76,8 @@ namespace SULFURTogether.UI
         /// </summary>
         public static void NotifyLinkHint()
         {
+            // SR-4: while the join waits for a decision on the connect page the link key does nothing; do not point at it.
+            if (Networking.Session.NetContentConsent.IsPending) return;
             float now = UnityEngine.Time.realtimeSinceStartup;
             if (now < _nextLinkHintAt) return;
             _nextLinkHintAt = now + 90f;

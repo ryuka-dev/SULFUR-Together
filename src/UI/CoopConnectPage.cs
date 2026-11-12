@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Ryuka.Sulfur.NativeUI;
 using Steamworks;
 using SULFURTogether.Networking;
+using SULFURTogether.Networking.Session;
 using SULFURTogether.Networking.Vote;
 using TMPro;
 using UnityEngine;
@@ -112,6 +113,17 @@ namespace SULFURTogether.UI
         // Join, consumed in Tick when the attempt resolves: closed on success, dropped (menu kept open) on failure.
         private static bool _closeMenuOnJoinSuccess;
 
+        // SR-4: the page build that shows the content decision instead of the normal page (null otherwise), and the
+        // moment from which its buttons count. The short delay keeps a click or a confirm press that was meant for the
+        // Join button the page showed a moment earlier from answering the question.
+        private static SulfurOptionsContext _consentViewCtx;
+        private static float _consentArmedAt;
+        private static float _consentNextRebuildAt;
+        private const float ConsentArmSeconds = 0.75f;
+        /// <summary>Differences listed by name before the rest is counted, so the page stays one screen tall and both
+        /// buttons are in view without scrolling.</summary>
+        private const int ConsentMaxRows = 10;
+
         public static void Register()
         {
             if (_registered) return;
@@ -123,6 +135,8 @@ namespace SULFURTogether.UI
                 BuildPage   = BuildPage,
             });
             _registered = true;
+            // SR-4: this page is where a join to a host with differing content is decided.
+            NetContentConsent.IsPromptSurfaceOpen = () => _ctx != null && _ctx.IsAlive;
         }
 
         public static void Unregister()
@@ -130,6 +144,7 @@ namespace SULFURTogether.UI
             if (!_registered) return;
             SulfurOptionsApi.UnregisterPage(PageId);
             _registered = false;
+            NetContentConsent.IsPromptSurfaceOpen = null;
             ResetHandles();
         }
 
@@ -137,6 +152,7 @@ namespace SULFURTogether.UI
         /// page was never built or is currently closed — handle calls on a closed page are harmless.</summary>
         public static void Tick()
         {
+            if (_registered) TickConsentView(); // every frame, before the throttle: a decision must not wait on it
             if (!_registered || _ctx == null || _statusHandle == null) return;
             float now = Time.unscaledTime;
             if (now < _nextTick) return;
@@ -166,10 +182,99 @@ namespace SULFURTogether.UI
             }
         }
 
+        /// <summary>SR-4: switch the open page between its normal build and the content decision. The page is rebuilt
+        /// rather than extended: the decision is the only thing on it, short enough to need no scrolling, and nothing
+        /// else can be operated meanwhile.</summary>
+        private static void TickConsentView()
+        {
+            if (_ctx == null) return;
+            try
+            {
+                bool pending = NetContentConsent.IsPending;
+                bool showing = _consentViewCtx != null && ReferenceEquals(_consentViewCtx, _ctx);
+                // The decision ended while its page was already closed: no join is waiting for this page any more.
+                if (!pending && showing && !_ctx.IsAlive) _closeMenuOnJoinSuccess = false;
+                if (pending == showing || !_ctx.IsAlive) return;
+
+                float now = Time.unscaledTime;
+                if (now < _consentNextRebuildAt) return;
+                _consentNextRebuildAt = now + 0.5f;
+
+                // The decision was taken: after "Join anyway" the page closes like after any successful join.
+                if (!pending && NetContentConsent.LastOutcome == NetContentConsent.Outcome.Accepted)
+                    _closeMenuOnJoinSuccess = true;
+                _ctx.Rebuild(); // BuildPage picks the view from the pending state
+            }
+            catch
+            {
+                // The options page may have been torn down in between; the next build re-arms this.
+            }
+        }
+
+        private static void BuildConsentView(SulfurOptionsContext ctx)
+        {
+            SessionContentComparison comparison = NetContentConsent.PendingComparison;
+            string host = SessionRequirementLimits.SanitizeDisplayName(NetContentConsent.PendingHostName, "host");
+
+            ctx.AddSection(CoopLoc.Get("consent.title", "Your content differs from the host's"));
+            // A warning row is one line and cuts off what does not fit; the consequences go in a description, which wraps.
+            ctx.AddWarning(CoopLoc.Format("consent.warning", "{host} does not have the same content as you.", ("host", host)));
+            ctx.AddDescription(CoopLoc.Get("consent.detail",
+                "If you join, items of the content listed below are not shared with the other players: they do not appear for them, and one that is dropped for them or handed over can be lost."));
+
+            // The buttons come before the list, so they are in view however long the list is. Cancel first: nothing
+            // joins unless "Join anyway" is pressed, and closing the page counts as Cancel.
+            ctx.AddButtonRow(
+                new SulfurButton(CoopLoc.Get("consent.button.cancel", "Cancel"), OnConsentCancel, 170f),
+                new SulfurButton(CoopLoc.Get("consent.button.join", "Join anyway"), OnConsentJoin, 200f));
+
+            if (comparison != null)
+            {
+                // What differs comes first on each row: a row is one line, and a long name and id must not push it out.
+                int shown = 0;
+                foreach (SessionDifference d in comparison.Differences)
+                {
+                    if (shown == ConsentMaxRows) break;
+                    string entry = SessionDifferenceText.Label(d);
+                    string line =
+                        d.Kind == SessionDifferenceKind.OnlyHere ? CoopLoc.Format("consent.row.onlyHere", "Only you have it: {entry}", ("entry", entry))
+                        : d.Kind == SessionDifferenceKind.OnlyThere ? CoopLoc.Format("consent.row.onlyThere", "Only the host has it: {entry}", ("entry", entry))
+                        : CoopLoc.Format("consent.row.different", "Not the same on both sides: {entry}", ("entry", entry));
+                    ctx.AddTextRow(line);
+                    shown++;
+                }
+                int rest = comparison.Differences.Length - shown;
+                if (rest > 0)
+                    ctx.AddTextRow(CoopLoc.Format("consent.more", "and {n} more", ("n", rest.ToString())));
+            }
+
+            _consentViewCtx = ctx;
+            _consentArmedAt = Time.unscaledTime + ConsentArmSeconds;
+            NetContentConsent.MarkPromptShown();
+        }
+
+        // Both buttons wait out the same delay: a second click or a repeated confirm press must answer neither way.
+        private static void OnConsentCancel()
+        {
+            if (Time.unscaledTime < _consentArmedAt) return;
+            NetContentConsent.Cancel("user");
+        }
+
+        private static void OnConsentJoin()
+        {
+            if (Time.unscaledTime < _consentArmedAt) return;
+            NetContentConsent.Accept();
+        }
+
         private static void BuildPage(SulfurOptionsContext ctx)
         {
             ResetHandles();
             _ctx = ctx;
+            if (NetContentConsent.IsPending)
+            {
+                BuildConsentView(ctx);
+                return;
+            }
             LoadDraftsFromConfig();
 
             // --- Current status -------------------------------------------------------------------------
@@ -551,6 +656,7 @@ namespace SULFURTogether.UI
         {
             if (!_closeMenuOnJoinSuccess) return;
             if (NetConnectFeedback.Connecting) return; // attempt still in flight
+            if (NetContentConsent.IsPending) return;   // SR-4: connected, and the player has not decided yet
 
             // Resolved. Success = still in Client mode with no recorded error; anything else is a failure/abort.
             bool joined = CoopConnection.CurrentMode == NetMode.Client
@@ -653,6 +759,7 @@ namespace SULFURTogether.UI
         private static void ResetHandles()
         {
             _ctx                = null;
+            _consentViewCtx     = null;
             _statusHandle       = null;
             _joinFeedbackHandle = null;
             _gateHintHandle     = null;

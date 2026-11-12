@@ -57,6 +57,8 @@ namespace SULFURTogether.Networking
         // SR-3 (client): the requirements this machine presented in the handshake request of the current connection.
         // The host's answer is compared against these same entries, so both ends judge one and the same exchange.
         private Session.SessionRequirementEntry[] _presentedRequirements = Array.Empty<Session.SessionRequirementEntry>();
+        // SR-4 (client): the host's player name from the handshake, for the message shown once the player decided to join.
+        private string _hostDisplayName = "";
         // SR-3 (client): the join is being given up. Nothing more is processed from the host; CoopConnection stops this
         // service on its next tick (never from inside the network poll that noticed the reason).
         private bool _abortingJoin;
@@ -4905,14 +4907,25 @@ namespace SULFURTogether.Networking
             }
             var comparison = Session.SessionContentComparison.Compare(_presentedRequirements, hostRequirements, Session.VanillaItemIds.Ceiling);
 
-            // Decided before anything of the session is registered: a join that is given up leaves no session behind.
+            // SR-4: a host whose content differs is joined only on the player's own decision. One already given in
+            // this process for this room and these exact differences stands (a reconnect does not ask again). Otherwise
+            // the connect page asks; with no page open there is nowhere to ask and the join is given up. Decided before
+            // anything of the session is registered: a join that is given up leaves no session behind.
+            bool awaitDecision = false;
             if (!comparison.IsMatch)
             {
                 NetLogger.Info($"[SessionReq] content of the host differs: {Session.SessionDifferenceText.ForLog(comparison)}");
-                AbortClientJoin(peer, "content-differs", UI.CoopLoc.Format("connect.error.contentDiffers",
-                    "Not joined: your content differs from the host's ({list}).",
-                    ("list", Session.SessionDifferenceText.ForPlayer(comparison))));
-                return;
+                if (Session.NetContentConsent.HasConsent(data.RoomToken, comparison))
+                    NetLogger.Info("[SessionReq] the player already accepted these differences with this room");
+                else if (Session.NetContentConsent.CanPrompt)
+                    awaitDecision = true;
+                else
+                {
+                    AbortClientJoin(peer, "content-differs-no-prompt", UI.CoopLoc.Format("connect.error.contentDiffers",
+                        "Not joined: your content differs from the host's ({list}). Open the SULFUR Together page and join from there to see the differences and decide.",
+                        ("list", Session.SessionDifferenceText.ForPlayer(comparison))));
+                    return;
+                }
             }
 
             float now = Now();
@@ -4939,12 +4952,48 @@ namespace SULFURTogether.Networking
                 NetLogger.Info($"[Session] Local session assigned: id={local.PeerId} slot={local.Slot} name='{local.PlayerName}'");
                 NetLogger.Info($"[Session] Host session known: id={data.HostPeerId} name='{data.HostPlayerName}'");
 
-                UI.CoopToasts.Notify(UI.CoopLoc.Format("toast.connectedTo", "Connected to {host}", ("host", data.HostPlayerName)));
-                NetConnectFeedback.ReportConnected();
+                _hostDisplayName = data.HostPlayerName;
+                if (awaitDecision)
+                {
+                    // Connected and not linked, exactly like a player who has not pressed the link key: the client stays
+                    // in its own world and the link to the host already withholds the differing content's ids. The join
+                    // is neither reported as connected nor announced until the player decides.
+                    NetLinkState.SetClientLinked(false, "content-consent", announce: false);
+                    Session.NetContentConsent.Begin(this, data.RoomToken, data.HostPlayerName, comparison, Now());
+                    NetLogger.Info("[SessionReq] waiting for the player's decision on the connect page");
+                }
+                else
+                {
+                    UI.CoopToasts.Notify(UI.CoopLoc.Format("toast.connectedTo", "Connected to {host}", ("host", data.HostPlayerName)));
+                    NetConnectFeedback.ReportConnected();
+                }
                 SendRunState(peer, _runStates.LocalState);
             }
             // DEV-1: mod now owns dev mode for this client; the host will push the session value right after.
             CoopDevAuthority.OnClientConnected();
+        }
+
+        /// <summary>
+        /// SR-4 (client): the player chose to join the host although its content differs. Called by
+        /// <see cref="CoopConnection"/> outside the network poll. The client links and asks the host for its current
+        /// scene request; the answer goes through the same automatic follow a join with matching content takes, with
+        /// the host's state as it is now rather than as it was when the question was put.
+        /// </summary>
+        internal void OnContentConsentAccepted()
+        {
+            if (_mode != NetMode.Client || _abortingJoin) return;
+            if (_hostPeer == null || !_peerIds.ContainsKey(_hostPeer))
+            {
+                AbortClientJoin(_hostPeer, "consent-link-lost", UI.CoopLoc.Get("connect.error.consentLinkLost",
+                    "Not joined: the connection closed before you decided."));
+                return;
+            }
+            NetLogger.Info("[SessionReq] the player chose to join; linking and asking the host for its scene");
+            // Not announced as a link change: "Connected to" below is the one message for a completed join.
+            NetLinkState.SetClientLinked(true, "content-consent-accepted", announce: false);
+            UI.CoopToasts.Notify(UI.CoopLoc.Format("toast.connectedTo", "Connected to {host}", ("host", _hostDisplayName)));
+            NetConnectFeedback.ReportConnected();
+            SendClientHostGenerationInputRequest(0);
         }
 
         /// <summary>
@@ -5077,6 +5126,14 @@ namespace SULFURTogether.Networking
             catch (Exception ex)
             {
                 NetLogger.Warn($"[SceneFollow] Manual follow key check failed: {ex.Message}");
+                return;
+            }
+
+            // SR-4: while the join waits for the player's decision about differing content, the link key does nothing.
+            // The manual follow below does not check the link state when a host request is cached, so it is stopped here.
+            if (Session.NetContentConsent.IsPending)
+            {
+                NetLogger.Info("[SceneFollow] link key ignored: the join waits for a decision on the connect page");
                 return;
             }
 
@@ -6356,6 +6413,8 @@ namespace SULFURTogether.Networking
                     _hostPeer = null;
                     _itemIds.Clear(Session.NetItemIdSeam.HostLink); // nothing is known about the next host until it is compared again
                     _contentComparisons.Remove(Session.NetItemIdSeam.HostLink);
+                    // SR-4: the question was about this connection. It is not carried over to a reconnect.
+                    Session.NetContentConsent.Cancel("link-lost");
                     Gameplay.ClientHitTracker.Reset(); // HR-2: no result can arrive any more — resolve what is outstanding as Lost
                     NetClientJoinFlow.LeaveSession("disconnect");
                     CoopDevAuthority.OnSessionEnded("host connection lost"); // DEV-1: revert to local entitlement while disconnected

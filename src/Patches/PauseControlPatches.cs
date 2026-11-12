@@ -30,7 +30,8 @@ namespace SULFURTogether.Patches
     {
         private static int _logCount;
 
-        // Tracks the previous suppression state so we can act on the false→true edge (a session just became active).
+        // Tracks the previous suppression state so we can act on its edges: false→true (a session just became active,
+        // held padlocks are released) and true→false (it no longer is, an open pause menu gets its padlock back).
         private static bool _wasSuppressing;
 
         // Cached reflection for the retroactive padlock release (resolved lazily on first need).
@@ -169,7 +170,50 @@ namespace SULFURTogether.Patches
             bool now = SuppressPause();
             if (now && !_wasSuppressing)
                 ReleaseHeldGameplayPadlocks();
+            else if (!now && _wasSuppressing)
+                RestoreMenuPause();
             _wasSuppressing = now;
+        }
+
+        /// <summary>
+        /// The other edge: the session stopped keeping the world running while the pause menu is still open. The
+        /// padlock that menu placed was dropped when the session began (<see cref="ReleaseHeldGameplayPadlocks"/>) or
+        /// never placed because the session blocked it, so without this the world keeps running under an open menu in
+        /// what is now a single-player game: after leaving from the menu, after unlinking, or while a join waits for the
+        /// player's decision. The game's own resume removes the padlock when the menu closes.
+        ///
+        /// Only where <c>GameManager.PauseGame</c> itself would pause: the game is Running and nothing prevents pausing.
+        /// Only the pause menu's padlock is restored; an open inventory or dialogue stays as the session left it.
+        /// </summary>
+        private static void RestoreMenuPause()
+        {
+            try
+            {
+                if (!Networking.CoopMenu.IsOpen()) return;
+                if (!GameWouldPause()) return;
+                if (_gmType == null)
+                {
+                    _gmType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.GameManager");
+                    _modifyMethod = _gmType != null ? AccessTools.Method(_gmType, "ModifyGamePauseState") : null;
+                    _padlockEnumType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.LockStatePadlock");
+                    _gmInstanceGetter = BuildInstanceGetter(_gmType);
+                }
+                if (_modifyMethod == null || _padlockEnumType == null || _gmInstanceGetter == null) return;
+
+                object gm = _gmInstanceGetter();
+                if (gm == null) return;
+
+                // GameManager.PauseGame places exactly this padlock for the pause menu.
+                object padlock = Enum.Parse(_padlockEnumType, "Paused");
+                _modifyMethod.Invoke(gm, new[] { padlock, (object)true });
+
+                if (Plugin.Cfg.LogPauseSuppression.Value)
+                    Plugin.Log.Info("[PauseControl] session no longer suppresses pause with a menu open — pause padlock restored");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"[PauseControl] restoring the menu pause failed: {ex.Message}");
+            }
         }
 
         /// <summary>Remove the four gameplay pause padlocks if currently held, so gameState falls back to Running while
@@ -206,6 +250,25 @@ namespace SULFURTogether.Patches
             {
                 Plugin.Log.Warn($"[PauseControl] retroactive padlock release failed: {ex.Message}");
             }
+        }
+
+        // The two conditions GameManager.PauseGame checks before it pauses. False when either cannot be read.
+        private static bool GameWouldPause()
+        {
+            try
+            {
+                Type gmType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.GameManager");
+                Func<object> instance = BuildInstanceGetter(gmType);
+                object gm = instance != null ? instance() : null;
+                if (gm == null) return false;
+
+                var prevented = AccessTools.Property(gmType, "IsPausePrevented");
+                var state = AccessTools.Property(gmType, "gameState");
+                if (prevented == null || state == null) return false;
+                if (prevented.GetValue(gm, null) is bool p && p) return false;
+                return string.Equals(state.GetValue(gm, null)?.ToString(), "Running", StringComparison.Ordinal);
+            }
+            catch { return false; }
         }
 
         /// <summary>Resolve the static <c>GameManager.Instance</c> accessor as either a property or a field.</summary>

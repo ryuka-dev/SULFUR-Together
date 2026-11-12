@@ -80,8 +80,10 @@ namespace SULFURTogether.Networking
                 return; // the running service stays, and so does a stop it asked for
             }
 
-            // From here the running service is replaced or ended: whatever it asked for dies with it.
+            // From here the running service is replaced or ended: whatever it asked for dies with it, and so does a
+            // decision the player had not taken yet.
             _requestedStop = null;
+            Session.NetContentConsent.Clear();
 
             if (_service != null)
             {
@@ -285,6 +287,9 @@ namespace SULFURTogether.Networking
                 }
             }
 
+            // SR-4: carry out a decision about differing content, or notice that its prompt is gone.
+            Session.NetContentConsent.Tick(UnityEngine.Time.realtimeSinceStartup, _service, OnContentDecision);
+
             _service?.Tick();
             SteamRelayBridge.Tick(); // STEAM-2: pump the Steam<->loopback byte relay (no-op when neither role is active)
             // HR-2: hit-result timeouts are judged after this frame's network poll and relay pump, never before them.
@@ -292,5 +297,26 @@ namespace SULFURTogether.Networking
         }
 
         public static void FixedTick() => _service?.FixedTick();
+
+        // SR-4: the pending decision is already cleared when this runs, so nothing it does is held back by it.
+        private static void OnContentDecision(object owner, Session.NetContentConsent.Outcome outcome, string reason)
+        {
+            if (_service == null || !ReferenceEquals(owner, _service)) return;
+            if (outcome == Session.NetContentConsent.Outcome.Accepted)
+            {
+                _service.OnContentConsentAccepted();
+                return;
+            }
+
+            Stop("content-consent-" + reason);
+            if (reason == "user") return; // the player pressed Cancel and needs no explanation
+            string message = reason == "link-lost"
+                ? UI.CoopLoc.Get("connect.error.consentLinkLost", "Not joined: the connection closed before you decided.")
+                : reason == "timeout"
+                    ? UI.CoopLoc.Get("connect.error.consentTimeout", "Not joined: no decision was taken in time.")
+                    : UI.CoopLoc.Get("connect.error.consentClosed", "Not joined: the page was closed before you decided.");
+            NetConnectFeedback.ReportError(message);
+            UI.CoopToasts.NotifyImportant(message);
+        }
     }
 }
