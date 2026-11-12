@@ -12,6 +12,10 @@ namespace SULFURTogether.Networking.Gameplay
     /// </summary>
     internal sealed class NetPlayerWeaponFire
     {
+        /// <summary>A copy that shares this message's arrays. Whoever changes an array on the copy assigns a new one.
+        /// </summary>
+        public NetPlayerWeaponFire ShallowCopy() => (NetPlayerWeaponFire)MemberwiseClone();
+
         // Identity — which player fired (stamped by the Host from the source peer).
         public string PeerId { get; set; } = "";
 

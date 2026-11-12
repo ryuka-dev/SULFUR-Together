@@ -49,6 +49,8 @@ namespace SULFURTogether.Networking
         private int   _playerVisualSequence;
         private int   _enemyStateSnapshotSequence;
         private bool  _manualFollowKeyWarningShown;
+        // Item ids per peer link (Session.NetItemIdSeam): a peer has a policy from its handshake until it leaves.
+        private readonly Session.NetItemIdSeam _itemIds = new Session.NetItemIdSeam();
         // Phase 4.4.0-O3-B: Host world roster
         private float _lastWorldRosterSendTime;
         private int   _lastWorldRosterSentRevision = -1;
@@ -69,6 +71,7 @@ namespace SULFURTogether.Networking
             _receivedEnemyDeathEvents.Clear();
             _receivedClientEnemyDeathClaims.Clear();
             _peerIds.Clear();
+            _itemIds.ClearAll();
             _clients.Clear();
             _hostPeer = null;
             _lastPingTime = 0f;
@@ -229,6 +232,7 @@ namespace SULFURTogether.Networking
             _lastWorldRosterSentRevision = -1;
             _clients.Clear();
             _peerIds.Clear();
+            _itemIds.ClearAll();
             _sessions.Clear();
             _runStates.Clear();
             _sceneRequests.Clear();
@@ -355,6 +359,30 @@ namespace SULFURTogether.Networking
                     Plugin.Cfg.RemotePlayerSoftCollisionPushSpeed.Value,
                     UnityEngine.Time.fixedDeltaTime);
             }
+        }
+
+        // ---- item-id seam ----
+
+        /// <summary>The name the item-id seam knows a transport peer by: its session peer id on the host, the host
+        /// link on a client. Null for a peer that has not completed the handshake, which the seam treats as unknown.</summary>
+        private string? ItemIdPeerKey(NetPeer? peer)
+        {
+            if (peer == null) return null;
+            if (_mode == NetMode.Host) return _peerIds.TryGetValue(peer, out var id) ? id : null;
+            // A client knows the host as a session peer from HandshakeAccepted on; that registration is the one
+            // record of "the handshake completed" on this side.
+            return peer == _hostPeer && _peerIds.ContainsKey(peer) ? Session.NetItemIdSeam.HostLink : null;
+        }
+
+        /// <summary>Whether a pickup of this item is one the session can mirror at all. The host keeps every pickup
+        /// and decides per peer when it sends. A client's only link is to the host: without a completed handshake
+        /// nothing it drops can be shared, whatever the item, and with one the seam decides whether this item can
+        /// leave over that link. A pickup that cannot be shared exists on the client's machine alone.</summary>
+        internal bool CanMirrorItemId(int itemId)
+        {
+            if (_mode != NetMode.Client) return true;
+            string? link = ItemIdPeerKey(_hostPeer);
+            return link != null && _itemIds.CanLeaveOver(link, itemId);
         }
 
         // ---- client reconnect timer ----
@@ -1601,10 +1629,12 @@ namespace SULFURTogether.Networking
             if (msg == null || _clients.Count == 0) return;
             foreach (var peer in _clients.ToArray())
             {
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Outbound(ItemIdPeerKey(peer)));
+                if (routed == null) continue; // its fixed item does not cross to this peer
                 try
                 {
                     var w = NetMessage.For(NetMessageType.EndlessInteractable);
-                    Gameplay.NetEndlessInteractableCodec.Write(w, msg);
+                    Gameplay.NetEndlessInteractableCodec.Write(w, routed);
                     peer.Send(w, DeliveryMethod.ReliableOrdered);
                 }
                 catch (Exception ex) { NetLogger.Warn($"[Endless] failed to broadcast interactable: {ex.Message}"); }
@@ -1619,7 +1649,9 @@ namespace SULFURTogether.Networking
                 NetLogger.Warn("[Endless] malformed EndlessInteractable packet");
                 return;
             }
-            Gameplay.EndlessInteractableManager.ApplyMirror(msg);
+            var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+            if (routed == null) return;
+            Gameplay.EndlessInteractableManager.ApplyMirror(routed);
         }
 
         // IND-1: client → host, route a locally-picked Independent-mode companion to the host.
@@ -1755,20 +1787,22 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Host)
             {
                 foreach (var peer in _clients.ToArray())
-                    SendPlayerWeaponFire(peer, msg);
+                    SendPlayerWeaponFire(peer, msg, _itemIds.Outbound(ItemIdPeerKey(peer)));
             }
             else if (_hostPeer != null)
             {
-                SendPlayerWeaponFire(_hostPeer, msg);
+                SendPlayerWeaponFire(_hostPeer, msg, _itemIds.Outbound(ItemIdPeerKey(_hostPeer)));
             }
         }
 
-        private void SendPlayerWeaponFire(NetPeer peer, Gameplay.NetPlayerWeaponFire msg)
+        private void SendPlayerWeaponFire(NetPeer peer, Gameplay.NetPlayerWeaponFire msg, Session.ItemIdRoute route)
         {
+            var routed = Session.ItemIdMessageFilter.Apply(msg, route);
+            if (routed == null) return; // the item it is about does not cross to this peer
             try
             {
                 var w = NetMessage.For(NetMessageType.PlayerWeaponFire);
-                Gameplay.NetPlayerWeaponFireCodec.Write(w, msg);
+                Gameplay.NetPlayerWeaponFireCodec.Write(w, routed);
                 peer.Send(w, DeliveryMethod.ReliableOrdered);
             }
             catch (Exception ex)
@@ -1798,8 +1832,9 @@ namespace SULFURTogether.Networking
                 msg.PeerId = peerId;
                 if (msg.Count > 0) Gameplay.NetRunStatsManager.RecordShotFired(peerId);
 
-                if (msg.MatchesScene(_runStates.LocalState))
-                    Gameplay.PlayerWeaponFireManager.Replay(msg);
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+                if (routed != null && routed.MatchesScene(_runStates.LocalState))
+                    Gameplay.PlayerWeaponFireManager.Replay(routed);
 
                 RelayPlayerWeaponFireToOtherClients(peer, msg);
                 return;
@@ -1808,8 +1843,9 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Client)
             {
                 if (msg.PeerId == _runStates.LocalState.PeerId) return; // never replay my own barrage
-                if (msg.MatchesScene(_runStates.LocalState))
-                    Gameplay.PlayerWeaponFireManager.Replay(msg);
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+                if (routed != null && routed.MatchesScene(_runStates.LocalState))
+                    Gameplay.PlayerWeaponFireManager.Replay(routed);
             }
         }
 
@@ -1819,7 +1855,7 @@ namespace SULFURTogether.Networking
             foreach (var client in _clients.ToArray())
             {
                 if (client == sourcePeer) continue;
-                SendPlayerWeaponFire(client, msg);
+                SendPlayerWeaponFire(client, msg, _itemIds.Relay(ItemIdPeerKey(sourcePeer), ItemIdPeerKey(client)));
             }
         }
 
@@ -1934,20 +1970,22 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Host)
             {
                 foreach (var peer in _clients.ToArray())
-                    SendThrowableEffect(peer, msg);
+                    SendThrowableEffect(peer, msg, _itemIds.Outbound(ItemIdPeerKey(peer)));
             }
             else if (_hostPeer != null)
             {
-                SendThrowableEffect(_hostPeer, msg);
+                SendThrowableEffect(_hostPeer, msg, _itemIds.Outbound(ItemIdPeerKey(_hostPeer)));
             }
         }
 
-        private void SendThrowableEffect(NetPeer peer, Gameplay.NetThrowableEffect msg)
+        private void SendThrowableEffect(NetPeer peer, Gameplay.NetThrowableEffect msg, Session.ItemIdRoute route)
         {
+            var routed = Session.ItemIdMessageFilter.Apply(msg, route);
+            if (routed == null) return; // the item it is about does not cross to this peer
             try
             {
                 var w = NetMessage.For(NetMessageType.ThrowableEffect);
-                Gameplay.NetThrowableEffectCodec.Write(w, msg);
+                Gameplay.NetThrowableEffectCodec.Write(w, routed);
                 peer.Send(w, DeliveryMethod.ReliableOrdered);
             }
             catch (Exception ex)
@@ -1976,8 +2014,9 @@ namespace SULFURTogether.Networking
                 }
                 msg.PeerId = peerId;
 
-                if (msg.MatchesScene(_runStates.LocalState))
-                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowableEffect(msg);
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+                if (routed != null && routed.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowableEffect(routed);
 
                 RelayThrowableEffectToOtherClients(peer, msg);
                 return;
@@ -1986,8 +2025,9 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Client)
             {
                 if (msg.PeerId == _runStates.LocalState.PeerId) return; // never mirror my own throw
-                if (msg.MatchesScene(_runStates.LocalState))
-                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowableEffect(msg);
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+                if (routed != null && routed.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowableEffect(routed);
             }
         }
 
@@ -1997,7 +2037,7 @@ namespace SULFURTogether.Networking
             foreach (var client in _clients.ToArray())
             {
                 if (client == sourcePeer) continue;
-                SendThrowableEffect(client, msg);
+                SendThrowableEffect(client, msg, _itemIds.Relay(ItemIdPeerKey(sourcePeer), ItemIdPeerKey(client)));
             }
         }
 
@@ -2020,20 +2060,22 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Host)
             {
                 foreach (var peer in _clients.ToArray())
-                    SendThrowableFlight(peer, msg);
+                    SendThrowableFlight(peer, msg, _itemIds.Outbound(ItemIdPeerKey(peer)));
             }
             else if (_hostPeer != null)
             {
-                SendThrowableFlight(_hostPeer, msg);
+                SendThrowableFlight(_hostPeer, msg, _itemIds.Outbound(ItemIdPeerKey(_hostPeer)));
             }
         }
 
-        private void SendThrowableFlight(NetPeer peer, Gameplay.NetThrowableFlight msg)
+        private void SendThrowableFlight(NetPeer peer, Gameplay.NetThrowableFlight msg, Session.ItemIdRoute route)
         {
+            var routed = Session.ItemIdMessageFilter.Apply(msg, route);
+            if (routed == null) return; // the item it is about does not cross to this peer
             try
             {
                 var w = NetMessage.For(NetMessageType.ThrowableFlight);
-                Gameplay.NetThrowableFlightCodec.Write(w, msg);
+                Gameplay.NetThrowableFlightCodec.Write(w, routed);
                 peer.Send(w, DeliveryMethod.ReliableOrdered);
             }
             catch (Exception ex)
@@ -2057,8 +2099,9 @@ namespace SULFURTogether.Networking
                 if (!_peerIds.TryGetValue(peer, out var peerId)) return;
                 msg.PeerId = peerId;
 
-                if (msg.MatchesScene(_runStates.LocalState))
-                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowFlight(msg);
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+                if (routed != null && routed.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowFlight(routed);
 
                 RelayThrowableFlightToOtherClients(peer, msg);
                 return;
@@ -2067,8 +2110,9 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Client)
             {
                 if (msg.PeerId == _runStates.LocalState.PeerId) return; // never render my own flight
-                if (msg.MatchesScene(_runStates.LocalState))
-                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowFlight(msg);
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+                if (routed != null && routed.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableEffectManager.ApplyRemoteThrowFlight(routed);
             }
         }
 
@@ -2078,7 +2122,7 @@ namespace SULFURTogether.Networking
             foreach (var client in _clients.ToArray())
             {
                 if (client == sourcePeer) continue;
-                SendThrowableFlight(client, msg);
+                SendThrowableFlight(client, msg, _itemIds.Relay(ItemIdPeerKey(sourcePeer), ItemIdPeerKey(client)));
             }
         }
 
@@ -2100,20 +2144,22 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Host)
             {
                 foreach (var peer in _clients.ToArray())
-                    SendThrowableProjectile(peer, msg);
+                    SendThrowableProjectile(peer, msg, _itemIds.Outbound(ItemIdPeerKey(peer)));
             }
             else if (_hostPeer != null)
             {
-                SendThrowableProjectile(_hostPeer, msg);
+                SendThrowableProjectile(_hostPeer, msg, _itemIds.Outbound(ItemIdPeerKey(_hostPeer)));
             }
         }
 
-        private void SendThrowableProjectile(NetPeer peer, Gameplay.NetThrowableProjectile msg)
+        private void SendThrowableProjectile(NetPeer peer, Gameplay.NetThrowableProjectile msg, Session.ItemIdRoute route)
         {
+            var routed = Session.ItemIdMessageFilter.Apply(msg, route);
+            if (routed == null) return; // the item it is about does not cross to this peer
             try
             {
                 var w = NetMessage.For(NetMessageType.ThrowableProjectile);
-                Gameplay.NetThrowableProjectileCodec.Write(w, msg);
+                Gameplay.NetThrowableProjectileCodec.Write(w, routed);
                 peer.Send(w, DeliveryMethod.ReliableOrdered);
             }
             catch (Exception ex)
@@ -2137,8 +2183,9 @@ namespace SULFURTogether.Networking
                 if (!_peerIds.TryGetValue(peer, out var peerId)) return;
                 msg.PeerId = peerId;
 
-                if (msg.MatchesScene(_runStates.LocalState))
-                    Gameplay.ThrowableProjectileManager.ApplyRemoteThrow(msg);
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+                if (routed != null && routed.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableProjectileManager.ApplyRemoteThrow(routed);
 
                 RelayThrowableProjectileToOtherClients(peer, msg);
                 return;
@@ -2147,8 +2194,9 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Client)
             {
                 if (msg.PeerId == _runStates.LocalState.PeerId) return; // never replay my own knife
-                if (msg.MatchesScene(_runStates.LocalState))
-                    Gameplay.ThrowableProjectileManager.ApplyRemoteThrow(msg);
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+                if (routed != null && routed.MatchesScene(_runStates.LocalState))
+                    Gameplay.ThrowableProjectileManager.ApplyRemoteThrow(routed);
             }
         }
 
@@ -2158,7 +2206,7 @@ namespace SULFURTogether.Networking
             foreach (var client in _clients.ToArray())
             {
                 if (client == sourcePeer) continue;
-                SendThrowableProjectile(client, msg);
+                SendThrowableProjectile(client, msg, _itemIds.Relay(ItemIdPeerKey(sourcePeer), ItemIdPeerKey(client)));
             }
         }
 
@@ -2965,20 +3013,22 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Host)
             {
                 foreach (var peer in _clients.ToArray())
-                    SendWorldPickupSpawn(peer, msg);
+                    SendWorldPickupSpawn(peer, msg, _itemIds.Outbound(ItemIdPeerKey(peer)));
             }
             else if (_hostPeer != null)
             {
-                SendWorldPickupSpawn(_hostPeer, msg);
+                SendWorldPickupSpawn(_hostPeer, msg, _itemIds.Outbound(ItemIdPeerKey(_hostPeer)));
             }
         }
 
-        private void SendWorldPickupSpawn(NetPeer peer, Gameplay.NetWorldPickupSpawn msg)
+        private void SendWorldPickupSpawn(NetPeer peer, Gameplay.NetWorldPickupSpawn msg, Session.ItemIdRoute route)
         {
+            var routed = Session.ItemIdMessageFilter.Apply(msg, route);
+            if (routed == null) return; // the item it is about does not cross to this peer
             try
             {
                 var w = NetMessage.For(NetMessageType.WorldPickupSpawn);
-                Gameplay.NetWorldPickupCodec.WriteSpawn(w, msg);
+                Gameplay.NetWorldPickupCodec.WriteSpawn(w, routed);
                 peer.Send(w, DeliveryMethod.ReliableOrdered);
             }
             catch (Exception ex)
@@ -3007,8 +3057,9 @@ namespace SULFURTogether.Networking
                 }
                 msg.OwnerPeerId = peerId; // stamp the dropper's authoritative identity
 
-                if (msg.MatchesScene(_runStates.LocalState))
-                    Gameplay.WorldPickupManager.ApplyRemoteSpawn(msg);
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+                if (routed != null && routed.MatchesScene(_runStates.LocalState))
+                    Gameplay.WorldPickupManager.ApplyRemoteSpawn(routed);
 
                 RelayWorldPickupSpawnToOtherClients(peer, msg);
                 return;
@@ -3017,8 +3068,9 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Client)
             {
                 if (msg.OwnerPeerId == _runStates.LocalState.PeerId) return; // never mirror my own drop
-                if (msg.MatchesScene(_runStates.LocalState))
-                    Gameplay.WorldPickupManager.ApplyRemoteSpawn(msg);
+                var routed = Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer)));
+                if (routed != null && routed.MatchesScene(_runStates.LocalState))
+                    Gameplay.WorldPickupManager.ApplyRemoteSpawn(routed);
             }
         }
 
@@ -3028,7 +3080,7 @@ namespace SULFURTogether.Networking
             foreach (var client in _clients.ToArray())
             {
                 if (client == sourcePeer) continue;
-                SendWorldPickupSpawn(client, msg);
+                SendWorldPickupSpawn(client, msg, _itemIds.Relay(ItemIdPeerKey(sourcePeer), ItemIdPeerKey(client)));
             }
         }
 
@@ -3194,20 +3246,21 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Host)
             {
                 foreach (var peer in _clients.ToArray())
-                    SendPlayerHeldWeapon(peer, msg);
+                    SendPlayerHeldWeapon(peer, msg, _itemIds.Outbound(ItemIdPeerKey(peer)));
             }
             else if (_hostPeer != null)
             {
-                SendPlayerHeldWeapon(_hostPeer, msg);
+                SendPlayerHeldWeapon(_hostPeer, msg, _itemIds.Outbound(ItemIdPeerKey(_hostPeer)));
             }
         }
 
-        private void SendPlayerHeldWeapon(NetPeer peer, Gameplay.NetPlayerHeldWeapon msg)
+        private void SendPlayerHeldWeapon(NetPeer peer, Gameplay.NetPlayerHeldWeapon msg, Session.ItemIdRoute route)
         {
+            var routed = Session.ItemIdMessageFilter.Apply(msg, route);
             try
             {
                 var w = NetMessage.For(NetMessageType.PlayerHeldWeapon);
-                Gameplay.NetPlayerHeldWeaponCodec.Write(w, msg);
+                Gameplay.NetPlayerHeldWeaponCodec.Write(w, routed);
                 peer.Send(w, DeliveryMethod.ReliableOrdered);
             }
             catch (Exception ex)
@@ -3232,12 +3285,12 @@ namespace SULFURTogether.Networking
                     return;
                 msg.PeerId = peerId;
 
-                Gameplay.PlayerHeldWeaponManager.Apply(msg);
+                Gameplay.PlayerHeldWeaponManager.Apply(Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer))));
 
                 foreach (var client in _clients.ToArray())
                 {
                     if (client == peer) continue;
-                    SendPlayerHeldWeapon(client, msg);
+                    SendPlayerHeldWeapon(client, msg, _itemIds.Relay(ItemIdPeerKey(peer), ItemIdPeerKey(client)));
                 }
                 return;
             }
@@ -3245,7 +3298,7 @@ namespace SULFURTogether.Networking
             if (_mode == NetMode.Client)
             {
                 if (msg.PeerId == _runStates.LocalState.PeerId) return;
-                Gameplay.PlayerHeldWeaponManager.Apply(msg);
+                Gameplay.PlayerHeldWeaponManager.Apply(Session.ItemIdMessageFilter.Apply(msg, _itemIds.Inbound(ItemIdPeerKey(peer))));
             }
         }
 
@@ -4746,6 +4799,7 @@ namespace SULFURTogether.Networking
                 data.ModVersion,
                 peer.Address.ToString(),
                 now);
+            _itemIds.SetPolicy(session.PeerId, Session.MatchedItemIdPolicy.Instance);
             _peerIds[peer] = session.PeerId;
             session.DevEntitlement = data.DevEntitlement;
             // DEV-1: fold the newcomer's dev entitlement into the session decision (may auto-enable/fail-closed).
@@ -4794,6 +4848,7 @@ namespace SULFURTogether.Networking
                     data.HostModVersion,
                     peer.Address.ToString(),
                     now);
+                _itemIds.SetPolicy(Session.NetItemIdSeam.HostLink, Session.MatchedItemIdPolicy.Instance);
                 _peerIds[peer] = data.HostPeerId;
                 _runStates.SetLocalIdentity(local.PeerId, local.PlayerName);
 
@@ -4809,6 +4864,7 @@ namespace SULFURTogether.Networking
                 // Backward-compatible fallback for older host builds that sent an empty accepted packet.
                 _sessions.RegisterLocalClient("client-local", -1, Plugin.Cfg.PlayerName.Value, ModInfo.Version, now);
                 _sessions.RegisterRemoteHost("host", "Host", "", peer.Address.ToString(), now);
+                _itemIds.SetPolicy(Session.NetItemIdSeam.HostLink, Session.MatchedItemIdPolicy.Instance);
                 _peerIds[peer] = "host";
                 _runStates.SetLocalIdentity("client-local", Plugin.Cfg.PlayerName.Value);
                 NetLogger.Info("[Net] Handshake accepted by host — session established (legacy payload)");
@@ -6170,6 +6226,7 @@ namespace SULFURTogether.Networking
                 Gameplay.RemoteShotSound.RemovePeer(peerId);
                 NetLoadBarrier.RemovePeer(peerId);
                 _peerIds.Remove(peer);
+                _itemIds.Clear(peerId);
             }
         }
 
@@ -6196,6 +6253,7 @@ namespace SULFURTogether.Networking
                 Gameplay.RemoteShotSound.RemovePeer(peerId);
                 NetLoadBarrier.RemovePeer(peerId);
                 _peerIds.Remove(peer);
+                if (_mode == NetMode.Host) _itemIds.Clear(peerId);
                 NetLogger.Info($"[Session] Peer left: id={peerId}");
                 UI.CoopToasts.Notify(_mode == NetMode.Host
                     ? UI.CoopLoc.Format("toast.playerLeft", "{name} left", ("name", leftName))
@@ -6207,6 +6265,7 @@ namespace SULFURTogether.Networking
                 if (peer == _hostPeer)
                 {
                     _hostPeer = null;
+                    _itemIds.Clear(Session.NetItemIdSeam.HostLink); // nothing is known about the next host until it is compared again
                     Gameplay.ClientHitTracker.Reset(); // HR-2: no result can arrive any more — resolve what is outstanding as Lost
                     NetClientJoinFlow.LeaveSession("disconnect");
                     CoopDevAuthority.OnSessionEnded("host connection lost"); // DEV-1: revert to local entitlement while disconnected

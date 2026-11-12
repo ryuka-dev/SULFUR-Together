@@ -18,6 +18,9 @@ namespace SULFURTogether.Networking.Gameplay
     /// </summary>
     internal sealed class NetThrowableProjectile
     {
+        /// <summary>A field-for-field copy.</summary>
+        public NetThrowableProjectile ShallowCopy() => (NetThrowableProjectile)MemberwiseClone();
+
         // Which player threw it (stamped by the Host from the source peer).
         public string PeerId { get; set; } = "";
 

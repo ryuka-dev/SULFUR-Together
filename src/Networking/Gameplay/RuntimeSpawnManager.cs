@@ -427,6 +427,8 @@ namespace SULFURTogether.Networking.Gameplay
         /// carries the <c>ThrowableWeapon</c> component) or null. All reflection is cached after the first call.</summary>
         internal static GameObject? ResolveItemPrefab(int itemIdValue)
         {
+            // The wire carries this id as an int; narrowing a value outside the id domain would name another item.
+            if (itemIdValue < 1 || itemIdValue > ushort.MaxValue) return null;
             try
             {
                 EnsureResolved(); // resolves _asyncAssetLoadingInstance
@@ -448,6 +450,7 @@ namespace SULFURTogether.Networking.Gameplay
         /// chest's <c>Container.StaticLoot</c> so it contains the card's intended item.</summary>
         internal static object? ResolveItemDefinition(int itemIdValue)
         {
+            if (itemIdValue < 1 || itemIdValue > ushort.MaxValue) return null; // as in ResolveItemPrefab
             try
             {
                 EnsureResolved();

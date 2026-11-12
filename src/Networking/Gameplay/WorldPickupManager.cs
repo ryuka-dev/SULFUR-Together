@@ -106,6 +106,12 @@ namespace SULFURTogether.Networking.Gameplay
                 if (_byPickup.ContainsKey(p)) return;                  // already tracked
                 if (!Qualifies(p)) return;
 
+                // A pickup the host cannot be told about is not a shared object: tracking it would report it as shared
+                // (NetExternalWorldItems.IsShared) and leave its removal to a host that never had it. That is any
+                // pickup while this client has no completed handshake, and afterwards one whose item does not cross
+                // the link. Left untracked it is a local pickup its owner takes back the vanilla way, in every loot mode.
+                if (!NetGameplaySyncBridge.CanMirrorItemId(p.ItemSO.id.value)) return;
+
                 string owner = NetGameplaySyncBridge.LocalPeerId;
                 if (string.IsNullOrEmpty(owner)) return;
 

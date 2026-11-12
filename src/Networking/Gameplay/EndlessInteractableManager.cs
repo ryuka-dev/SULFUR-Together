@@ -156,6 +156,22 @@ namespace SULFURTogether.Networking.Gameplay
                     return;
                 }
 
+                // A chest with a fixed item this machine cannot resolve is not mirrored at all. Decided before anything
+                // is instantiated: with independent loot a chest left without its fixed item rolls its own, a different
+                // item, on this machine. With shared loot the host opens it either way; the rule is kept the same in
+                // both modes.
+                object? staticLoot = null;
+                if (msg.StaticLootItemId != 0)
+                {
+                    staticLoot = RuntimeSpawnManager.ResolveItemDefinition(msg.StaticLootItemId);
+                    if (staticLoot == null)
+                    {
+                        ClientMirrorFailed++;
+                        Plugin.Log.Warn($"[Endless] EM-7e client cannot resolve StaticLoot item {msg.StaticLootItemId}; interactable id={msg.SpawnId} card={msg.CardKey} is not mirrored");
+                        return;
+                    }
+                }
+
                 Transform? parent = ResolveManagerTransform();
                 var rot = Quaternion.Euler(0f, msg.RotationY, 0f);
                 UnityEngine.Object instObj = parent != null
@@ -168,7 +184,7 @@ namespace SULFURTogether.Networking.Gameplay
 
                 // Container path (SpawnFromLootTable): restore the chest's StaticLoot so it contains the card's intended
                 // item (needed in Independent-loot mode; in Shared-loot the open is host-authoritative via SL-2 anyway).
-                if (msg.StaticLootItemId != 0) ApplyContainerStaticLoot(instObj, msg.StaticLootItemId);
+                if (staticLoot != null) ApplyContainerStaticLoot(instObj, staticLoot);
 
                 SetupMirroredInteractable(go);
                 _clientMirrored.Add(go);
@@ -231,14 +247,12 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return 0; }
         }
 
-        // CLIENT: set the mirrored Container's StaticLoot from the broadcast ItemId so it holds the card's intended item.
-        private static void ApplyContainerStaticLoot(UnityEngine.Object instObj, int itemIdValue)
+        // CLIENT: set the mirrored Container's StaticLoot to the item the host named, so it holds the card's intended item.
+        private static void ApplyContainerStaticLoot(UnityEngine.Object instObj, object itemDef)
         {
             try
             {
                 if (_containerType == null || !_containerType.IsInstanceOfType(instObj)) return;
-                object? itemDef = RuntimeSpawnManager.ResolveItemDefinition(itemIdValue);
-                if (itemDef == null) { if (LogOn) Plugin.Log.Info($"[Endless] EM-7e client could not resolve StaticLoot item {itemIdValue}"); return; }
                 if (_containerStaticLootProp?.GetSetMethod() != null) _containerStaticLootProp.SetValue(instObj, itemDef);
                 else _containerStaticLootField?.SetValue(instObj, itemDef);
             }

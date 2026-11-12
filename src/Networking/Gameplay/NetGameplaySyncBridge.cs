@@ -70,6 +70,10 @@ namespace SULFURTogether.Networking.Gameplay
         public static bool IsHost => _service != null && _service.Mode == NetMode.Host;
         public static string LocalPeerId => _service != null ? _service.LocalPeerId : "";
 
+        /// <summary>Whether a pickup of this item can be a shared world object in this session. False on a client for
+        /// an item that does not cross its link to the host: that pickup stays an ordinary local one.</summary>
+        public static bool CanMirrorItemId(int itemId) => _service != null && _service.CanMirrorItemId(itemId);
+
         // Phase 5.6-WS — player weapon fire (visual barrage) channel. The firing peer reports its local barrage;
         // NetService stamps PeerId + scene context and routes it (Client→Host, Host→all clients + replay locally).
         public static void ReportLocalPlayerWeaponFire(NetPlayerWeaponFire msg)

@@ -23,6 +23,10 @@ namespace SULFURTogether.Networking.Gameplay
     /// </summary>
     internal sealed class NetWorldPickupSpawn
     {
+        /// <summary>A copy that shares this message's arrays. Whoever changes an array on the copy assigns a new one.
+        /// </summary>
+        public NetWorldPickupSpawn ShallowCopy() => (NetWorldPickupSpawn)MemberwiseClone();
+
         // ---- identity ----
         public string OwnerPeerId { get; set; } = ""; // dropping peer (set by the dropper, not re-stamped by host)
         public ushort Seq         { get; set; }       // dropper-local monotonic sequence

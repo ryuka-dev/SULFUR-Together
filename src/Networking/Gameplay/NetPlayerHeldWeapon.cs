@@ -8,6 +8,10 @@ namespace SULFURTogether.Networking.Gameplay
     /// </summary>
     internal sealed class NetPlayerHeldWeapon
     {
+        /// <summary>A copy that shares this message's arrays. Whoever changes an array on the copy assigns a new one.
+        /// </summary>
+        public NetPlayerHeldWeapon ShallowCopy() => (NetPlayerHeldWeapon)MemberwiseClone();
+
         public string PeerId { get; set; } = "";
 
         // false → the player is holding no weapon (melee/empty/holstered) → clear the proxy's weapon model.

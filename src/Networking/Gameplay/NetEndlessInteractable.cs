@@ -20,6 +20,9 @@ namespace SULFURTogether.Networking.Gameplay
     /// </summary>
     internal sealed class NetEndlessInteractable
     {
+        /// <summary>A field-for-field copy.</summary>
+        public NetEndlessInteractable ShallowCopy() => (NetEndlessInteractable)MemberwiseClone();
+
         public string  ChapterName = "";
         public int     LevelIndex;
         public bool    HasLevelSeed;

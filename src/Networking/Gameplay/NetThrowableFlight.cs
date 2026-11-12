@@ -12,6 +12,9 @@ namespace SULFURTogether.Networking.Gameplay
     /// </summary>
     internal sealed class NetThrowableFlight
     {
+        /// <summary>A field-for-field copy.</summary>
+        public NetThrowableFlight ShallowCopy() => (NetThrowableFlight)MemberwiseClone();
+
         public string PeerId { get; set; } = "";
 
         public string ChapterName  { get; set; } = "";

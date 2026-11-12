@@ -13,6 +13,7 @@ namespace SULFURTogether.Networking.Gameplay
 {
     /// <summary>Where a shot sound came from, as the game itself stores it. The firing end names the source; every
     /// end resolves it from its own copy of the same asset, so no sound asset ever has to be identified by name.</summary>
+    // A new slot whose SourceId is not a weapon's item id must be added to RemoteShotSound.SourceIsWeaponItem.
     internal enum ShotSoundSlot : byte
     {
         None = 0,
@@ -70,6 +71,14 @@ namespace SULFURTogether.Networking.Gameplay
     internal static class RemoteShotSound
     {
         internal const int MaxSoundsPerShot = 4;
+
+        /// <summary>Whether a sound of this slot names its source by a weapon's item id (<see cref="NetShotSound.SourceId"/>).
+        /// The caliber and effect slots name a game enum instead.</summary>
+        internal static bool SourceIsWeaponItem(ShotSoundSlot slot)
+            => slot != ShotSoundSlot.None
+            && slot != ShotSoundSlot.CaliberShot
+            && slot != ShotSoundSlot.CaliberShotSilenced
+            && slot != ShotSoundSlot.EffectShot;
 
         private static FieldInfo? _fSoundShot;
         private static FieldInfo? _fSoundShotSilenced;
