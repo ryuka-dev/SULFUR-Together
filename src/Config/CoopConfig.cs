@@ -216,6 +216,8 @@ namespace SULFURTogether.Config
         public ConfigEntry<bool>   LogTriggerSpawnSync { get; }
         // ----- PK-6: desert pike riders seeded from the level (same riders on every machine) -----
         public Fixed<bool>         EnableSeededPikeRiders { get; }
+        // ----- HR-9: desert pose actions (Digga burrow/erupt, Sticka spin) shown on clients -----
+        public Fixed<bool>         EnableDesertPoseSync { get; }
         // ----- Phase 5.5-RT3-A bind correction (snap-on-bind + inert + hit-gate) -----
         public Fixed<bool>         EnableRuntimeSpawnSnapOnBind { get; }
         public Fixed<bool>         EnableRuntimeSpawnInertUntilBound { get; }
@@ -853,6 +855,7 @@ namespace SULFURTogether.Config
             EnableRuntimeSpawnSync = new Fixed<bool>(true); // Phase 5.5-RT1 runtime spawn sync — functional, always on.
             EnableTriggerSpawnSync = new Fixed<bool>(true); // Issue #5 host-authoritative trigger-spawn — functional, always on.
             EnableSeededPikeRiders = new Fixed<bool>(true); // PK-6 pike riders seeded from the level — functional, always on.
+            EnableDesertPoseSync = new Fixed<bool>(true);   // HR-9 desert pose replay + copy animation-event guards — always on.
             LogTriggerSpawnSync = cfg.Bind("NetworkEnemy", "LogTriggerSpawnSync", false,
                 "Log host-authoritative one-shot TriggerSpawner (skeleton ambush) sync (Issue #5). Diagnostic only; sync is always on.");
             LogRuntimeSpawnSync = cfg.Bind("NetworkEnemy", "LogRuntimeSpawnSync", true,

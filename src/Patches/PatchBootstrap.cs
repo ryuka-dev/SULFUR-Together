@@ -44,6 +44,7 @@ namespace SULFURTogether.Patches
             RemoteHitReactionPatches.Apply(harmony);    // HR-5 — enemy reactions to a player's hit see a client's hit too
             StandInCoverPatches.Apply(harmony);         // HR-7 — enemies take cover from a remote player too
             EnemyRevealPatches.Apply(harmony);          // HR-8 — a Snipa discovered on the host is revealed on clients
+            DesertPosePatches.Apply(harmony);           // HR-9 — a Digga's burrow and a Sticka's spin are shown on clients
             TeamMarkPatches.Apply(harmony);             // #26 team marks (the host's own hits) and the tougher-enemies balance settings
             EnemyRemovalPatches.Apply(harmony);         // RM-1 — a live unit the host destroys is removed on clients
             DesertPikeRiderPatches.Apply(harmony);      // PK-6 — a desert pike seats the same riders on every machine

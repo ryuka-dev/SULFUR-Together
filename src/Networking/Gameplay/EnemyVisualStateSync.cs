@@ -18,6 +18,11 @@ namespace SULFURTogether.Networking.Gameplay
     /// (<c>Block</c>, <c>LoadedGunBlock</c>) block on the host; those bools are read from the host unit's own animator
     /// and copied to the client copy's animator. Visual only — the block's invulnerability is the host's and already
     /// decides the client's hits.</item>
+    /// <item><b>Desert pose actions (HR-9).</b> A <c>HellShrewDigga</c> digging in, going underground, erupting or
+    /// being knocked out of a dig, and a <c>HellShrewSticka</c> starting or ending its spin. The host's call of the
+    /// method is the event (<see cref="Patches.DesertPosePatches"/>); the client replays only its presentation on the
+    /// copy (<see cref="Patches.DesertPosePatches.ApplyOnClient"/>). Not re-sent: a pose action is an event, and replaying
+    /// one twice restarts its animation. Only the latest one is held for a copy that is not bound yet.</item>
     /// </list>
     /// The host re-sends the current states every few seconds, so a client that was loading, joined late or re-bound
     /// a copy catches up; applying a state twice changes nothing. A state for a copy that is not bound yet is held
@@ -80,6 +85,18 @@ namespace SULFURTogether.Networking.Gameplay
                 NetLogger.Info($"[EnemyVisual] host sent reveal hostIdx={evt.HostSpawnIndex} unit={evt.UnitIdentifier}");
             }
             catch (Exception ex) { NetLogger.Warn($"[EnemyVisual] reveal send failed: {ex.Message}"); }
+        }
+
+        /// <summary>HOST (HR-9): a desert enemy ran a pose action (DesertPosePatches).</summary>
+        public static void OnHostPoseAction(object npc, int action)
+        {
+            try
+            {
+                if (NetConfig.GetMode() != NetMode.Host || !NetGameplaySyncBridge.IsSessionActive) return;
+                var evt = NewEvent(npc, NetHostEnemyVisualState.KindPoseAction, action, true);
+                if (evt != null) Send(evt);
+            }
+            catch (Exception ex) { NetLogger.Warn($"[EnemyVisual] pose send failed: {ex.Message}"); }
         }
 
         /// <summary>HOST: poll the tracked block bools and re-send the current states. Called every frame by the probe
@@ -183,7 +200,9 @@ namespace SULFURTogether.Networking.Gameplay
                 if (NetGameplayProbeManager.IsClientDeadOrDying(evt.HostSpawnIndex)) return;
                 if (NetGameplayProbeManager.TryGetClientPuppetNpc(evt.HostSpawnIndex, out var npc)) { Apply(npc, evt, "on event"); return; }
                 if (!_held.TryGetValue(evt.HostSpawnIndex, out var byKey)) _held[evt.HostSpawnIndex] = byKey = new Dictionary<long, NetHostEnemyVisualState>();
-                byKey[((long)evt.Kind << 32) | (uint)evt.ParamHash] = evt;
+                // A pose action replaces the previous one (only the latest pose matters); bools and reveals keep one per parameter.
+                long key = evt.Kind == NetHostEnemyVisualState.KindPoseAction ? (long)evt.Kind << 32 : ((long)evt.Kind << 32) | (uint)evt.ParamHash;
+                byKey[key] = evt;
                 ClientHeld++;
             }
             catch (Exception ex) { NetLogger.Warn($"[EnemyVisual] client apply failed: {ex.Message}"); }
@@ -213,6 +232,11 @@ namespace SULFURTogether.Networking.Gameplay
                     _snipaSetHidden.Invoke(snipa, new object[] { false });
                     ClientApplied++;
                     NetLogger.Info($"[EnemyVisual] client revealed hostIdx={evt.HostSpawnIndex} ({when})");
+                    return;
+                }
+                if (evt.Kind == NetHostEnemyVisualState.KindPoseAction)
+                {
+                    if (Patches.DesertPosePatches.ApplyOnClient(c, evt.ParamHash)) ClientApplied++;
                     return;
                 }
                 if (evt.Kind == NetHostEnemyVisualState.KindAnimatorBool)

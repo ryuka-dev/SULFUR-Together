@@ -5,12 +5,15 @@ namespace SULFURTogether.Networking.Gameplay
     /// <summary>
     /// HR-8: Host → clients. One visual state of a roster enemy that the client's copy cannot reach on its own (see
     /// <see cref="EnemyVisualStateSync"/>): a hidden enemy was discovered (<see cref="KindReveal"/>), or one of its
-    /// animator bools changed (<see cref="KindAnimatorBool"/>, <see cref="ParamHash"/> = <c>Animator.StringToHash</c>).
+    /// animator bools changed (<see cref="KindAnimatorBool"/>, <see cref="ParamHash"/> = <c>Animator.StringToHash</c>), or
+    /// a desert enemy ran one of its pose actions (<see cref="KindPoseAction"/>, HR-9, <see cref="ParamHash"/> = a
+    /// <c>DesertPoseSync.Action</c> value). A receiver that predates a kind drops the event in the codec.
     /// </summary>
     internal sealed class NetHostEnemyVisualState
     {
         public const byte KindReveal = 1;
         public const byte KindAnimatorBool = 2;
+        public const byte KindPoseAction = 3;
 
         public string ChapterName  { get; set; } = "";
         public int    LevelIndex   { get; set; } = -1;
@@ -70,7 +73,8 @@ namespace SULFURTogether.Networking.Gameplay
                 m.Kind = r.GetByte();
                 m.ParamHash = r.GetInt();
                 m.Value = r.GetBool();
-                if (m.Kind != NetHostEnemyVisualState.KindReveal && m.Kind != NetHostEnemyVisualState.KindAnimatorBool) return false;
+                if (m.Kind != NetHostEnemyVisualState.KindReveal && m.Kind != NetHostEnemyVisualState.KindAnimatorBool
+                    && m.Kind != NetHostEnemyVisualState.KindPoseAction) return false;
                 if (r.AvailableBytes != 0) return false;
                 e = m;
                 return true;
