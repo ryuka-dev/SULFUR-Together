@@ -1760,6 +1760,12 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 // UpdateJump drop the riders at the arc's midpoint, which is the only way a client rider ever dismounts.
                 BossReflect.TrySetMember(carrier, "inverted", msg.JumpInverted);
                 BossReflect.TrySetMember(carrier, "shouldJumpOff", msg.JumpShouldJumpOff);
+                // PK-7: a saddled pike's riders spawn invulnerable and only the native OnTriggerEnter clears that. On a
+                // client that trigger never fires (PK-1: level pikes are armed by the host player), so without this every
+                // client rider kept 9/9 invulnerable hitboxes for the rest of the level and the client's shots could not
+                // land (round 665). The host's replay is the event that its own trigger fired — arm the riders here, the
+                // same way the host does for a relayed request. Not for the boss pike: its rider is the boss body.
+                if (sep >= 0) ArmPikeRidersForAmbush(carrier);
                 jt.Invoke(carrier, new object?[] { msg.Position, msg.JumpAirTimer, msg.JumpHeight, msg.JumpDepth, msg.JumpSpawnPct });
                 if (LogOn) Plugin.Log.Info($"[PikeJumpSync] client replayed {name} seq={msg.Seq} start={msg.JumpStart:F1} target={msg.Position:F1} jumpOff={msg.JumpShouldJumpOff} inv={msg.JumpInverted}");
             }
