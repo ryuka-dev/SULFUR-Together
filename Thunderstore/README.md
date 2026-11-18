@@ -4,7 +4,7 @@ Co-op multiplayer for **SULFUR**.
 
 **Language:** **English** · [简体中文](#简体中文) · [日本語](#日本語)
 
-> **Version 1.8.0.** Built for **SULFUR 1.0.6**; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
+> **Version 1.9.0.** Built for **SULFUR 1.0.6**; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 ---
 
@@ -103,6 +103,8 @@ SULFUR Together does not synchronize other mods. Content another mod adds — it
 Mods that want their content to work in a session can integrate with SULFUR Together directly. There is a small public API for handing spawns to the host, keeping a mod's own objects out of the shared mirror, sending a mod's own messages between players, asking whether a player is down, and learning how the host settled a client's hits (for damage numbers and hit feedback). **False Gods** uses it. If you are a mod author, the details are in the GitHub repository.
 
 Everyone in a session should run the **same set of mods**, not just the same version of this one.
+
+Some content mods register the items they add with SULFUR Together. If you join a host whose registered content isn't the same as yours, you're told before the join goes through and can back out. If you join anyway, items from that content are left out between the two of you instead of showing up as the wrong item.
 
 ### Known issues
 

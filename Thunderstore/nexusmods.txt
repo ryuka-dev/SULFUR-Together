@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.8.0.[/b] Built for [b]SULFUR 1.0.6[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
+> [b]Version 1.9.0.[/b] Built for [b]SULFUR 1.0.6[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 [line]
 
@@ -114,6 +114,8 @@ SULFUR Together does not synchronize other mods. Content another mod adds — it
 Mods that want their content to work in a session can integrate with SULFUR Together directly. There is a small public API for handing spawns to the host, keeping a mod's own objects out of the shared mirror, sending a mod's own messages between players, asking whether a player is down, and learning how the host settled a client's hits (for damage numbers and hit feedback). [b]False Gods[/b] uses it. If you are a mod author, the details are in the GitHub repository.
 
 Everyone in a session should run the [b]same set of mods[/b], not just the same version of this one.
+
+Some content mods register the items they add with SULFUR Together. If you join a host whose registered content isn't the same as yours, you're told before the join goes through and can back out. If you join anyway, items from that content are left out between the two of you instead of showing up as the wrong item.
 
 [color=DodgerBlue][b]Known issues[/b][/color]
 
@@ -443,6 +445,52 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.9.0 — SULFUR 1.0.6, content mods and the desert[/b][/color]
+
+Joining a host with different content mods no longer mixes up items without warning, and the Forest and the
+Desert now have the same enemies on every screen.
+
+**1.9.0 is built for SULFUR 1.0.6. The network protocol changed (44 to 45), so everyone must update to 1.9.0
+together, and everyone must run the same build of SULFUR.**
+
+[b]New:[/b]
+[list]
+[*][b]Joining a host whose content differs.[/b] Mods that add items can tell SULFUR Together what they add. If yours[/*]
+[/list]
+  don't match the host's when you join, the connect page shows the difference and asks whether you want to join
+  anyway. If you do, the items in question won't show up for the other player, but they'll never turn into some
+  other item either. Mods that don't do this aren't checked.
+[list]
+[*][b]For other mods:[/b] register your content with [color=#ffff00]NetSessionRequirements[/color]. See [color=#ffff00]Docs/SessionRequirements.md[/color] in[/*]
+[/list]
+  the repository.
+
+[b]Fixed:[/b]
+[list]
+[*][b]Joining while the host was already heading into a level went wrong on the client.[/b] If the host left the hub[/*]
+[/list]
+  before a joining player had finished loading into it, that player's game could load the level several times over
+  and log errors every frame until it caught up. The joining player now finishes loading the hub first and then
+  follows. 1.8.0 had this too.
+[list]
+[*][b]Forest ambushes gave a client enemies of its own.[/b] If a client set off an ambush in the Forest, the enemies[/*]
+[/list]
+  that jumped out existed only on that client's screen. They mixed in with the real ones and the host never saw
+  them. An ambush now spawns the same enemies for everyone, no matter who sets it off.
+[list]
+[*][b]Desert sandworm riders differed between players.[/b] Each player's game picked the riders separately. A rider[/*]
+[/list]
+  the host could see and kill might be invisible to a client after jumping off, and a client could end up with an
+  extra rider nobody else had: it followed that player around, kept making noise and couldn't be killed until the
+  next level. Everyone now gets the same riders. One side effect: a given level always has the same riders, in
+  single player too.
+[list]
+[*][b]A client couldn't hurt sandworm riders.[/b] They stayed invulnerable on the client's side for the whole level.[/*]
+[*][b]A client never saw a Digga burrow or a Sticka spin.[/b] Both now show for everyone, sound included.[/*]
+[/list]
+[b]Known limits:[/b] only tested with two players on one machine. The burrowing and spinning were checked in the
+game's data but haven't been watched on a client's screen yet.
 
 [color=RoyalBlue][b]1.8.0 — SULFUR 1.0.6, team marks[/b][/color]
 

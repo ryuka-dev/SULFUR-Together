@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.9.0 — SULFUR 1.0.6, content mods and the desert
+
+Joining a host with different content mods no longer mixes up items without warning, and the Forest and the
+Desert now have the same enemies on every screen.
+
+**1.9.0 is built for SULFUR 1.0.6. The network protocol changed (44 to 45), so everyone must update to 1.9.0
+together, and everyone must run the same build of SULFUR.**
+
+**New:**
+- **Joining a host whose content differs.** Mods that add items can tell SULFUR Together what they add. If yours
+  don't match the host's when you join, the connect page shows the difference and asks whether you want to join
+  anyway. If you do, the items in question won't show up for the other player, but they'll never turn into some
+  other item either. Mods that don't do this aren't checked.
+- **For other mods:** register your content with `NetSessionRequirements`. See `Docs/SessionRequirements.md` in
+  the repository.
+
+**Fixed:**
+- **Joining while the host was already heading into a level went wrong on the client.** If the host left the hub
+  before a joining player had finished loading into it, that player's game could load the level several times over
+  and log errors every frame until it caught up. The joining player now finishes loading the hub first and then
+  follows. 1.8.0 had this too.
+- **Forest ambushes gave a client enemies of its own.** If a client set off an ambush in the Forest, the enemies
+  that jumped out existed only on that client's screen. They mixed in with the real ones and the host never saw
+  them. An ambush now spawns the same enemies for everyone, no matter who sets it off.
+- **Desert sandworm riders differed between players.** Each player's game picked the riders separately. A rider
+  the host could see and kill might be invisible to a client after jumping off, and a client could end up with an
+  extra rider nobody else had: it followed that player around, kept making noise and couldn't be killed until the
+  next level. Everyone now gets the same riders. One side effect: a given level always has the same riders, in
+  single player too.
+- **A client couldn't hurt sandworm riders.** They stayed invulnerable on the client's side for the whole level.
+- **A client never saw a Digga burrow or a Sticka spin.** Both now show for everyone, sound included.
+
+**Known limits:** only tested with two players on one machine. The burrowing and spinning were checked in the
+game's data but haven't been watched on a client's screen yet.
+
 ## 1.8.0 — SULFUR 1.0.6, team marks
 
 Co-op now rewards shooting the same enemy. Hit an enemy a teammate just hit and you deal more damage, and enemies
