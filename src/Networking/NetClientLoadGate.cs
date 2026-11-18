@@ -27,6 +27,9 @@ namespace SULFURTogether.Networking
         private static bool    _connectedToHost;
         private static bool    _reentry;           // a host-driven (or manual) GoToLevel is executing
         private static State   _state = State.Idle;
+        // JF-1: a host follow that arrived while this client was still generating a level; started once it is done.
+        private static NetHostSceneRequest? _deferredFollow;
+        private static string _deferredLoggedKey = "";
         private static PendingKind _pendingKind = PendingKind.None;
 
         // pending local (combat) request — for logging / fallback
@@ -107,6 +110,7 @@ namespace SULFURTogether.Networking
         public static int AutoFollowSkippedReentry;
         public static int AutoFollowSkippedDeathRespawn; // Phase 5.6-DL: dead player respawning to hub
         public static int AutoFollowFailed;
+        public static int AutoFollowDeferredGenerating; // JF-1
 
         // Phase 5.4-B session-return (host returns to Hub/SafeZone) counters.
         public static int SessionReturnHubRequestReceived;
@@ -155,6 +159,8 @@ namespace SULFURTogether.Networking
         private static void ResetLocked()
         {
             _state = State.Idle;
+            _deferredFollow = null;
+            _deferredLoggedKey = "";
             _pendingKind = PendingKind.None;
             _reentry = false;
             _timedOut = false;
@@ -357,6 +363,10 @@ namespace SULFURTogether.Networking
             {
                 _latestHostRequest = request;
                 _latestHostRequestAt = Now();
+                // JF-1: a newer host request supersedes a deferred one. TryAutoFollow below defers this one again if
+                // the client is still between levels; anything it skips (a seedless hub, not authorized, already
+                // there) must not leave an older target queued.
+                _deferredFollow = null;
                 ClientLoadGateHostInputReceived++;
                 int chunks = request.HasUsedSets ? request.UsedChunksThisRun.Count : 0;
                 int run = request.HasUsedSets ? request.UsedEventsThisRun.Count : 0;
@@ -553,6 +563,28 @@ namespace SULFURTogether.Networking
             // Phase 5.4-A: the join policy decides whether an UNJOINED client may auto-take-over now. Once
             // joined, this always allows (combat auto-follow / hub session-return continues). When skipped,
             // the latest host request is preserved for a manual follow.
+            // JF-1: never start a host-driven transition while this client is still between levels (a transition of
+            // its own, or the previous host follow still generating). Two transitions at once let the first level's
+            // ShowLevelNode finish during the second one's teardown: the game went Running with no local player and
+            // threw every frame, and the forced seed was lost (rounds 671, 672). A parked client (press-to-continue)
+            // is not in flight: leading it away is AWAIT-3's path. The request is kept and started from Tick once
+            // the level is generated; a newer host request replaces it.
+            if (DeferWhileInFlight() && NetLocalTransition.InFlight)
+            {
+                string dkey = target + "|" + seed + "|" + graph;
+                lock (_lock)
+                {
+                    _deferredFollow = req;
+                    if (dkey != _deferredLoggedKey)
+                    {
+                        _deferredLoggedKey = dkey;
+                        AutoFollowDeferredGenerating++;
+                        Plugin.Log.Info($"[AutoFollow] deferred target={target} graph={graph} seed={seed} reason=local-level-in-flight");
+                    }
+                }
+                return;
+            }
+
             if (!NetClientJoinFlow.TryAuthorizeAutoFollow(target, graph))
                 return;
 
@@ -595,6 +627,12 @@ namespace SULFURTogether.Networking
             }
         }
 
+        private static bool DeferWhileInFlight()
+        {
+            try { return Plugin.Cfg.DeferHostFollowWhileGenerating.Value; }
+            catch { return true; }
+        }
+
         private static bool RequireSeedMatch()
         {
             try
@@ -609,6 +647,29 @@ namespace SULFURTogether.Networking
 
         public static void Tick()
         {
+            // JF-1: start a follow that waited for this client's own level to finish generating.
+            NetHostSceneRequest? deferred = null;
+            lock (_lock)
+            {
+                if (_deferredFollow != null && (_mode != NetMode.Client || !_connectedToHost))
+                {
+                    _deferredFollow = null; // the session it belonged to is gone
+                    _deferredLoggedKey = "";
+                }
+                else if (_deferredFollow != null && _state == State.Idle && !NetLocalTransition.InFlight)
+                {
+                    deferred = _deferredFollow;
+                    _deferredFollow = null;
+                    _deferredLoggedKey = "";
+                }
+            }
+            if (deferred != null)
+            {
+                Plugin.Log.Info($"[AutoFollow] resuming deferred follow target={deferred.TargetSceneKey()} (local level done)");
+                try { TryAutoFollow(deferred); }
+                catch (System.Exception ex) { Plugin.Log.Error($"[AutoFollow] deferred follow failed: {ex.GetType().Name}: {ex.Message}"); }
+            }
+
             NetHostSceneRequest? req = null;
             bool doHubDeathFallback = false;
             bool doClientInitiatedFallback = false;

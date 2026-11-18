@@ -218,6 +218,8 @@ namespace SULFURTogether.Config
         public Fixed<bool>         EnableSeededPikeRiders { get; }
         // ----- HR-9: desert pose actions (Digga burrow/erupt, Sticka spin) shown on clients -----
         public Fixed<bool>         EnableDesertPoseSync { get; }
+        // ----- JF-1: a client starts a host-driven follow only when its own level transition is over -----
+        public Fixed<bool>         DeferHostFollowWhileGenerating { get; }
         // ----- Phase 5.5-RT3-A bind correction (snap-on-bind + inert + hit-gate) -----
         public Fixed<bool>         EnableRuntimeSpawnSnapOnBind { get; }
         public Fixed<bool>         EnableRuntimeSpawnInertUntilBound { get; }
@@ -856,6 +858,7 @@ namespace SULFURTogether.Config
             EnableTriggerSpawnSync = new Fixed<bool>(true); // Issue #5 host-authoritative trigger-spawn — functional, always on.
             EnableSeededPikeRiders = new Fixed<bool>(true); // PK-6 pike riders seeded from the level — functional, always on.
             EnableDesertPoseSync = new Fixed<bool>(true);   // HR-9 desert pose replay + copy animation-event guards — always on.
+            DeferHostFollowWhileGenerating = new Fixed<bool>(true); // JF-1 no host follow mid-generation — always on.
             LogTriggerSpawnSync = cfg.Bind("NetworkEnemy", "LogTriggerSpawnSync", false,
                 "Log host-authoritative one-shot TriggerSpawner (skeleton ambush) sync (Issue #5). Diagnostic only; sync is always on.");
             LogRuntimeSpawnSync = cfg.Bind("NetworkEnemy", "LogRuntimeSpawnSync", true,

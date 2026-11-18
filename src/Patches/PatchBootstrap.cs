@@ -48,6 +48,7 @@ namespace SULFURTogether.Patches
             TeamMarkPatches.Apply(harmony);             // #26 team marks (the host's own hits) and the tougher-enemies balance settings
             EnemyRemovalPatches.Apply(harmony);         // RM-1 — a live unit the host destroys is removed on clients
             DesertPikeRiderPatches.Apply(harmony);      // PK-6 — a desert pike seats the same riders on every machine
+            LocalTransitionPatches.Apply(harmony);      // JF-1 — a client starts a host follow only between levels, not mid-generation
             Plugin.Log.Info("[PatchBootstrap] Done.");
         }
     }
