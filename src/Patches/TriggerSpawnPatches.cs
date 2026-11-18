@@ -7,16 +7,18 @@ using SULFURTogether.Networking.Gameplay;
 namespace SULFURTogether.Patches
 {
     /// <summary>
-    /// Issue #5: intercept the one-shot enemy-ambush trigger so its spawn becomes host-authoritative instead of
+    /// Issue #5 / TS-2: intercept one-shot enemy spawners so their spawn becomes host-authoritative instead of
     /// per-machine-local.
     ///
-    /// <para><c>PerfectRandom.Sulfur.Core.World.Triggerable.Trigger(GameObject)</c> is the synchronous chokepoint that
-    /// <c>PlayerTrigger</c> calls to fire each of its <c>Triggerable</c>s; a <c>Triggerable</c> that also has a
-    /// <c>TriggerSpawner</c> spawns the skeleton(s). The prefix hands off to <see cref="TriggerSpawnSyncManager"/>: on a
-    /// client it suppresses the local spawn and asks the host; on the host it de-duplicates (first-trigger-wins) and lets
-    /// the real spawn run, which the runtime-spawn mirror then carries to every peer. Non-spawner Triggerables (fog, ...)
-    /// and solo play fall through to vanilla untouched.</para>
+    /// <para><c>PerfectRandom.Sulfur.Core.World.TriggerSpawner.Spawn(GameObject)</c> is the chokepoint every such spawn
+    /// goes through: the Caves maze reaches it via <c>Triggerable.Trigger</c>, the Forest ambush events call it directly
+    /// from <c>PlayerTrigger.onTriggerEvents</c>. TS-1 hooked <c>Triggerable.Trigger</c> and so missed the ambushes.
+    /// The prefix hands off to <see cref="TriggerSpawnSyncManager"/>: on a client it suppresses the local spawn and asks
+    /// the host; on the host it de-duplicates (first-trigger-wins) and lets the real spawn run, which the runtime-spawn
+    /// mirror then carries to every peer. Solo play falls through to vanilla untouched. The trigger's own effects
+    /// (the ambush animation, particles, sound) stay local on every machine.</para>
     /// </summary>
+    // Executes on: All (Host dedups, Client redirects)
     internal static class TriggerSpawnPatches
     {
         public static void Apply(Harmony harmony)
@@ -29,20 +31,20 @@ namespace SULFURTogether.Patches
                     return;
                 }
 
-                var triggerableType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.World.Triggerable");
-                var trigger = triggerableType != null
-                    ? AccessTools.Method(triggerableType, "Trigger", new[] { typeof(GameObject) })
+                var spawnerType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.World.TriggerSpawner");
+                var spawn = spawnerType != null
+                    ? AccessTools.Method(spawnerType, "Spawn", new[] { typeof(GameObject) })
                     : null;
 
-                if (trigger != null)
+                if (spawn != null)
                 {
-                    harmony.Patch(trigger, prefix: new HarmonyMethod(
-                        typeof(TriggerSpawnPatches).GetMethod(nameof(Trigger_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
-                    Plugin.Log.Info("[TriggerSpawn] Patched Triggerable.Trigger (host-authoritative trigger spawns).");
+                    harmony.Patch(spawn, prefix: new HarmonyMethod(
+                        typeof(TriggerSpawnPatches).GetMethod(nameof(Spawn_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                    Plugin.Log.Info("[TriggerSpawn] Patched TriggerSpawner.Spawn (host-authoritative trigger spawns).");
                 }
                 else
                 {
-                    Plugin.Log.Warn("[TriggerSpawn] Triggerable.Trigger(GameObject) not found — trigger-spawn sync disabled.");
+                    Plugin.Log.Warn("[TriggerSpawn] TriggerSpawner.Spawn(GameObject) not found — trigger-spawn sync disabled.");
                 }
             }
             catch (Exception ex)
@@ -52,9 +54,9 @@ namespace SULFURTogether.Patches
         }
 
         // Returns false to suppress the vanilla local spawn (client redirected to host / host de-duplicated).
-        private static bool Trigger_Pre(object __instance)
+        private static bool Spawn_Pre(object __instance)
         {
-            return TriggerSpawnSyncManager.OnTriggerableTrigger(__instance);
+            return TriggerSpawnSyncManager.OnTriggerSpawnerSpawn(__instance);
         }
     }
 }

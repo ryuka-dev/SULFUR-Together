@@ -19,7 +19,7 @@ namespace SULFURTogether.Networking.Gameplay
     /// </summary>
     internal sealed class NetTriggerSpawn
     {
-        public Vector3 Position    { get; set; }        // Triggerable/TriggerSpawner world position — the shared key.
+        public Vector3 Position    { get; set; }        // TriggerSpawner world position — the shared key (TS-2: one request per spawner).
         public int     UnitIdValue { get; set; }        // ushort UnitSO.id.value — diagnostic/validation only.
         public string  ChapterName { get; set; } = "";
         public int     LevelIndex  { get; set; } = -1;

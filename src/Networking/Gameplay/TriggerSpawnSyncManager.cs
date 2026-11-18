@@ -10,10 +10,11 @@ using SULFURTogether.Networking.Gameplay.Boss;
 namespace SULFURTogether.Networking.Gameplay
 {
     /// <summary>
-    /// Issue #5: host-authoritative one-shot <c>TriggerSpawner</c> spawns (e.g. the Caves maze skeleton ambush).
+    /// Issue #5 / TS-2: host-authoritative one-shot <c>TriggerSpawner</c> spawns (the Caves maze skeletons, the Forest
+    /// ambush enemies).
     ///
-    /// <para>Vanilla runs <c>PlayerTrigger → Triggerable.Trigger → TriggerSpawner.Spawn</c> locally and one-shot per
-    /// machine, so each player triggers their own local, unsynced skeletons. This manager routes every trigger through
+    /// <para>Vanilla runs <c>PlayerTrigger → (Triggerable.Trigger →) TriggerSpawner.Spawn</c> locally and one-shot per
+    /// machine, so each player triggers their own local, unsynced enemies. This manager routes every trigger through
     /// the host: a client blocks its local spawn and asks the host (<see cref="NetTriggerSpawn"/>); the host runs the
     /// real spawn once per trigger (first-trigger-wins, keyed by world position) and it reaches all peers through the
     /// existing runtime-spawn mirror (<see cref="RuntimeSpawnManager"/>, which now classifies a <c>TriggerSpawner</c>
@@ -26,7 +27,7 @@ namespace SULFURTogether.Networking.Gameplay
 
         // HOST: set of trigger keys already fired this level (first-trigger-wins across all players).
         private static readonly HashSet<long> _consumed = new HashSet<long>();
-        // HOST: true while replaying a client's requested trigger, so the Triggerable.Trigger prefix lets it run.
+        // HOST: true while replaying a client's requested trigger, so the TriggerSpawner.Spawn prefix lets it run.
         private static bool _applyingRemote;
 
         // diagnostics
@@ -58,23 +59,24 @@ namespace SULFURTogether.Networking.Gameplay
             return ((qx & 0x1FFFFF) << 42) ^ ((qy & 0x1FFFFF) << 21) ^ (qz & 0x1FFFFF);
         }
 
-        // ============================================================ patch entry (Triggerable.Trigger prefix)
+        // ============================================================ patch entry (TriggerSpawner.Spawn prefix)
 
-        /// <summary>Called from the <c>Triggerable.Trigger</c> prefix. Returns true to let the vanilla local spawn run,
-        /// false to suppress it (client redirected to host, or host de-duplicated).</summary>
-        public static bool OnTriggerableTrigger(object triggerable)
+        /// <summary>Called from the <c>TriggerSpawner.Spawn(GameObject)</c> prefix. Returns true to let the vanilla
+        /// local spawn run, false to suppress it (client redirected to host, or host de-duplicated).
+        /// <para>The spawner, not <c>Triggerable.Trigger</c>, is the chokepoint: the Caves maze reaches it through
+        /// <c>Triggerable.Trigger</c>, but the Forest ambush events (<c>Event_Forest_Ambush*</c>) call
+        /// <c>TriggerSpawner.Spawn</c> straight from <c>PlayerTrigger.onTriggerEvents</c> (a UnityEvent persistent
+        /// call), one call per spawner. A Triggerable-level hook never saw those, so every player who walked into an
+        /// ambush got their own local, unbound enemies (round 665).</para></summary>
+        public static bool OnTriggerSpawnerSpawn(object spawnerObj)
         {
             try
             {
                 if (!Enabled) return true;                                  // feature off → vanilla
                 if (!NetGameplaySyncBridge.IsSessionActive) return true;    // solo → vanilla
-                if (triggerable is not Triggerable t) return true;
+                if (spawnerObj is not TriggerSpawner spawner) return true;
 
-                // Only the skeleton/enemy spawners matter; non-spawner Triggerables (fog, ...) stay purely local.
-                var spawner = t.GetComponent<TriggerSpawner>();
-                if (spawner == null) return true;
-
-                Vector3 pos = t.transform.position;
+                Vector3 pos = spawner.transform.position;
 
                 var mode = NetGameplaySyncBridge.BossMode;
                 if (mode == NetMode.Host)
@@ -103,7 +105,7 @@ namespace SULFURTogether.Networking.Gameplay
             }
             catch (Exception ex)
             {
-                Plugin.Log.Warn($"[TriggerSpawn] OnTriggerableTrigger failed: {ex.GetType().Name}: {ex.Message}");
+                Plugin.Log.Warn($"[TriggerSpawn] OnTriggerSpawnerSpawn failed: {ex.GetType().Name}: {ex.Message}");
                 return true; // fail-open to vanilla so a bug never silently deletes the ambush
             }
         }
@@ -133,8 +135,8 @@ namespace SULFURTogether.Networking.Gameplay
 
         // ============================================================ host handling
 
-        /// <summary>HOST: a client asked us to run a trigger. Fire it once (first-trigger-wins) by invoking the real
-        /// local <c>Triggerable</c> at that position, so the vanilla spawn + activation runs and the runtime-spawn
+        /// <summary>HOST: a client asked us to run a spawner. Fire it once (first-trigger-wins) by invoking the real
+        /// local <c>TriggerSpawner</c> at that position, so the vanilla spawn + activation runs and the runtime-spawn
         /// mirror carries it to every peer.</summary>
         public static void HandleClientTriggerRequest(NetTriggerSpawn msg, string peerId)
         {
@@ -164,45 +166,59 @@ namespace SULFURTogether.Networking.Gameplay
                     return; // already fired — the requester already received the earlier broadcast
                 }
 
-                var triggerable = FindTriggerableNear(msg.Position, out float dist);
-                if (triggerable == null)
+                var spawner = FindTriggerSpawnerNear(msg.Position, msg.UnitIdValue, out float dist);
+                if (spawner == null)
                 {
                     HostRequestsUnmatched++;
-                    Plugin.Log.Warn($"[TriggerSpawn] host could not find a Triggerable near {msg.Position:F1} (nearest={dist:F1}m) — skeleton not spawned for peer={peerId}");
+                    Plugin.Log.Warn($"[TriggerSpawn] host could not find a TriggerSpawner near {msg.Position:F1} (nearest={dist:F1}m) — nothing spawned for peer={peerId}");
                     return;
                 }
 
+                // Key on the host's own spawner position, so a later local trigger of the same spawner dedups exactly.
+                long spawnerKey = PositionKey(spawner.transform.position);
+                if (_consumed.Contains(spawnerKey))
+                {
+                    HostTriggersDeduped++;
+                    if (LogOn) Plugin.Log.Info($"[TriggerSpawn] host dedup client request (already fired) {msg.ToCompact()} peer={peerId}");
+                    return;
+                }
+                _consumed.Add(spawnerKey);
                 _consumed.Add(key);
                 HostRemoteTriggersApplied++;
-                if (LogOn) Plugin.Log.Info($"[TriggerSpawn] host applying client request {msg.ToCompact()} peer={peerId} match={dist:F2}m");
+                if (LogOn) Plugin.Log.Info($"[TriggerSpawn] host applying client request {msg.ToCompact()} peer={peerId} match={dist:F2}m active={spawner.gameObject.activeInHierarchy}");
 
-                // Aggro/log inside Trigger dereference the triggering object — pass the host player (never null-crash).
-                GameObject triggeringObject = ResolveHostPlayerObject() ?? triggerable.gameObject;
+                // Spawn reports the triggering object to the spawned enemy's AI — pass the host player (never null).
+                GameObject triggeringObject = ResolveHostPlayerObject() ?? spawner.gameObject;
 
                 _applyingRemote = true;
-                try { triggerable.Trigger(triggeringObject); }
+                try { spawner.Spawn(triggeringObject); }
                 finally { _applyingRemote = false; }
             }
             catch (Exception ex) { Plugin.Log.Warn($"[TriggerSpawn] HandleClientTriggerRequest failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        private static Triggerable? FindTriggerableNear(Vector3 pos, out float bestDist)
+        /// <summary>The host's TriggerSpawner at the requested position. An ambush groups several spawners about a
+        /// metre apart (Event_Forest_Ambush3: three within 1.1 m), so the match is the nearest within 0.5 m — positions
+        /// come from the same seed on every peer and agree exactly — and, when both sides know it, of the same unit.
+        /// Inactive scene objects are included: the client may set off an ambush in a room the host has switched off,
+        /// and <c>UnitSO.SpawnUnitAsync</c> only needs the owner for its destroy token.</summary>
+        private static TriggerSpawner? FindTriggerSpawnerNear(Vector3 pos, int unitIdValue, out float bestDist)
         {
             bestDist = float.MaxValue;
-            Triggerable? best = null;
-            // Rare event (one-shot triggers) — a scene scan is acceptable and avoids a stale registry.
-            // (FindObjectsByType/FindObjectSortMode aren't in this Unity version; the codebase uses FindObjectsOfType.)
-#pragma warning disable CS0618
-            var all = UnityEngine.Object.FindObjectsOfType<Triggerable>();
-#pragma warning restore CS0618
-            foreach (var t in all)
+            TriggerSpawner? best = null;
+            // Rare event (one-shot triggers) — a scan is acceptable and avoids a stale registry.
+            foreach (var s in Resources.FindObjectsOfTypeAll<TriggerSpawner>())
             {
-                if (t == null || t.GetComponent<TriggerSpawner>() == null) continue;
-                float d = Vector3.Distance(t.transform.position, pos);
-                if (d < bestDist) { bestDist = d; best = t; }
+                if (s == null || !s.gameObject.scene.IsValid()) continue;    // skip prefabs/assets
+                if (unitIdValue != 0)
+                {
+                    int local = ReadUnitIdValue(s);
+                    if (local != 0 && local != unitIdValue) continue;
+                }
+                float d = Vector3.Distance(s.transform.position, pos);
+                if (d < bestDist) { bestDist = d; best = s; }
             }
-            // Positions are seed-deterministic; a generous tolerance still can't collide with a different, far trigger.
-            return (best != null && bestDist <= 1.5f) ? best : null;
+            return (best != null && bestDist <= 0.5f) ? best : null;
         }
 
         // ============================================================ reflection helpers
