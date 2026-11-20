@@ -359,8 +359,7 @@ namespace SULFURTogether.Networking.Gameplay
                 if (peer.PeerId == localPeerId) continue;
                 if (peer.IsDownOrDead) continue;
                 if (!peer.HasPosition) continue;
-                if (string.IsNullOrWhiteSpace(peer.SceneKey) || peer.SceneKey != local.SceneKey()) continue;
-                if (Plugin.Cfg.RequireSameLevelSeedForSceneMatch.Value && peer.HasLevelSeed && local.HasLevelSeed && peer.LevelSeed != local.LevelSeed) continue;
+                if (!IsPeerInScene(peer, local)) continue;
                 result.Add(new PeerCombatPosition
                 {
                     PeerId = peer.PeerId,
@@ -1259,8 +1258,18 @@ namespace SULFURTogether.Networking.Gameplay
         private static bool IsSameCurrentScene(PeerLife peer)
         {
             if (!NetRunStateBridge.TryGetLocalRunState(out var local) || !local.HasLevel) return false;
+            return IsPeerInScene(peer, local);
+        }
+
+        // DR-6: a peer's SceneKey is always the canonical one (NetSceneName.SceneCompareKey, from both the transform
+        // stream and the life-state message), so the local side has to be canonical too. Comparing it with the raw
+        // NetRunState.SceneKey() never matched in the one chapter whose reported name differs from its canonical
+        // name: the first level out of the church reports Act_01_HedgemazeFromChurch, canonical Act_01_Hedgemaze.
+        // There no rescuer ever found the downed player — no prompt, no hold, no revive.
+        private static bool IsPeerInScene(PeerLife peer, NetRunState local)
+        {
             if (string.IsNullOrWhiteSpace(peer.SceneKey) || peer.SceneKey == "<unknown>") return false;
-            if (peer.SceneKey != local.SceneKey()) return false;
+            if (!string.Equals(peer.SceneKey, local.SceneCompareKey(), StringComparison.OrdinalIgnoreCase)) return false;
             if (Plugin.Cfg.RequireSameLevelSeedForSceneMatch.Value && peer.HasLevelSeed && local.HasLevelSeed && peer.LevelSeed != local.LevelSeed) return false;
             return true;
         }
