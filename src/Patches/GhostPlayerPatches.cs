@@ -52,6 +52,7 @@ namespace SULFURTogether.Patches
         {
             ApplyDonutCollision(harmony);
             ApplyWaterTriggers(harmony);
+            ApplyPunishTrigger(harmony);
             try
             {
                 var playerType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.Units.Player");
@@ -182,6 +183,61 @@ namespace SULFURTogether.Patches
         private static bool Water_Trigger_Pre(Collider __0)
         {
             try { return !RemotePlayerRegistryManager.HasGhosts || !RemotePlayerRegistryManager.IsGhostCollider(__0); }
+            catch { return true; }
+        }
+
+        // ---------------------------------------------------------------- PunishPlayerTrigger (PT-1)
+
+        /// <summary>
+        /// <c>PunishPlayerTrigger</c> is the game's fall damage: the volume under a drop or outside the map. A player
+        /// entering it loses half their current health plus 5 (<c>DamageTypes.Punish</c>), the game slows to 0.25
+        /// and fades out, and the player is teleported back into the room. Any other unit entering it is killed with
+        /// its full maximum health.
+        /// <para>A remote player's stand-in (the host's ghost, a target proxy, a client's friendly-fire hit proxy) has
+        /// a solid capsule on a kinematic body, so it follows its player into the volume and sets it off again on
+        /// this machine. Its <c>isPlayer</c> is false, so it takes the non-player branch, and the host forwarded that
+        /// full-health hit to the client on top of the fall the client had already taken on its own end: a client
+        /// lost far more to a fall than a host did.</para>
+        /// <para>Whether a player fell is decided on that player's own end, like water (above). The trigger skips
+        /// every remote-player stand-in; the local player and every enemy are untouched.</para>
+        /// </summary>
+        private static void ApplyPunishTrigger(Harmony harmony)
+        {
+            try
+            {
+                var triggerType = AccessTools.TypeByName("PerfectRandom.Sulfur.Core.World.PunishPlayerTrigger");
+                var trigger = triggerType != null
+                    ? triggerType.GetMethod("Trigger", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                        null, new[] { typeof(GameObject) }, null)
+                    : null;
+                if (trigger == null)
+                {
+                    Plugin.Log.Error("[GhostPlayer] PunishPlayerTrigger.Trigger(GameObject) not found — remote players' stand-ins will set off fall damage on this machine");
+                    return;
+                }
+                harmony.Patch(trigger, prefix: new HarmonyMethod(
+                    typeof(GhostPlayerPatches).GetMethod(nameof(PunishTrigger_Trigger_Pre), BindingFlags.Static | BindingFlags.NonPublic)));
+                Plugin.Log.Info("[GhostPlayer] patched PunishPlayerTrigger.Trigger (remote-player stand-in skip)");
+            }
+            catch (Exception ex) { Plugin.Log.Error($"[GhostPlayer] PunishPlayerTrigger patch failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        private static int _punishSkipLogCount;
+
+        /// <summary>Skips the trigger for a remote player's stand-in. The unit is resolved the way the trigger itself
+        /// resolves it (the collider's object or a parent).</summary>
+        private static bool PunishTrigger_Trigger_Pre(GameObject __0)
+        {
+            try
+            {
+                if (__0 == null) return true;
+                var unit = __0.GetComponentInParent<Unit>();
+                if (unit == null || !SULFURTogether.Networking.RemotePlayerTargetProxyManager.TryGetProxyPeer(unit, out string peerId))
+                    return true;
+                if (_punishSkipLogCount++ < 5)
+                    Plugin.Log.Info($"[GhostPlayer] PunishPlayerTrigger ignored a remote player's stand-in peer={peerId} (the fall is that player's own)");
+                return false;
+            }
             catch { return true; }
         }
 

@@ -1280,6 +1280,13 @@ namespace SULFURTogether.Patches
                     if (IsPeriodicDotSource(ffSource))
                         return false;
 
+                    // PT-1: Punish damage is what a player's own end deals to its own player — fall damage
+                    // (PunishPlayerTrigger), a failed crypt protection challenge, pollen sneezes. None of it is an
+                    // enemy's hit, and the owning client applies its own, so a copy landing on the proxy is absorbed
+                    // here instead of being sent to the client a second time.
+                    if (ReadDamageTypeInt(ffSource) == (int)PerfectRandom.Sulfur.Core.Stats.DamageTypes.Punish)
+                        return false;
+
                     bool fromLocalPlayer = FriendlyFireClassifier.IsFromLocalPlayer(ffSource);
                     FriendlyFireClassifier.LogClassification("host proxy hit", ffSource, damage, fromLocalPlayer);
                     if (fromLocalPlayer)
