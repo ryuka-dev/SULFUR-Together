@@ -1697,6 +1697,42 @@ namespace SULFURTogether.Networking.Gameplay
             catch { return 0f; }
         }
 
+        /// <summary>DR-7: <c>GameManager.AddLock</c> is a plain bit set, not a count, so vanilla code that releases a lock
+        /// it took itself also releases ours. <c>ModifyControllerLock</c> calls <c>LockPlayerController(false)</c>
+        /// whenever its last padlock goes — closing the pause menu, a dialog, a hold-to-interact — and that clears
+        /// Weapon and PlayerMovement. A downed player who opened the menu could shoot again; movement stayed frozen
+        /// only because the movement input itself is zeroed while downed. Called from the <c>AddLock</c> postfix
+        /// after any release: while the downed locks are held, put them back.</summary>
+        public static void ReassertDownedControlLocks(object? gm)
+        {
+            if (!_localControlLocksApplied || _reassertingDownedLocks || gm == null) return;
+            try
+            {
+                _reassertingDownedLocks = true;
+                if (SetDownedLocks(gm, true) && ShouldLogThrottled("ReassertLocks", 5f) && Plugin.Cfg.LogPlayerLifeSync.Value)
+                    NetLogger.Info("[PlayerLife] Re-applied downed control locks after a game lock release");
+            }
+            finally { _reassertingDownedLocks = false; }
+        }
+
+        private static bool _reassertingDownedLocks;
+
+        /// <summary>Sets or clears the downed blacklist locks on <paramref name="gm"/>. True when AddLock was found.</summary>
+        private static bool SetDownedLocks(object gm, bool locked)
+        {
+            var addLock = AccessTools.Method(gm.GetType(), "AddLock");
+            if (addLock == null) return false;
+            var p = addLock.GetParameters();
+            if (p.Length < 2 || !p[0].ParameterType.IsEnum) return false;
+            foreach (string lockName in DownedInputBlacklist)
+            {
+                if (!Enum.IsDefined(p[0].ParameterType, lockName)) continue;
+                object lockValue = Enum.Parse(p[0].ParameterType, lockName);
+                addLock.Invoke(gm, new[] { lockValue, (object)locked });
+            }
+            return true;
+        }
+
         private static void ApplyLocalControlLocks(bool locked)
         {
             if (_localControlLocksApplied == locked) return;
@@ -1709,11 +1745,6 @@ namespace SULFURTogether.Networking.Gameplay
                 object? gm = AccessTools.Property(gmType, "Instance")?.GetValue(null, null);
                 if (gm == null) return;
 
-                var addLock = AccessTools.Method(gmType, "AddLock");
-                if (addLock == null) return;
-                var p = addLock.GetParameters();
-                if (p.Length < 2 || !p[0].ParameterType.IsEnum) return;
-
                 // Downed-player input = a BLACKLIST of combat-related player systems (GameManager.PlayerLocks,
                 // a [Flags] enum: Camera/Interaction/Weapon/PlayerMovement/Inventory/UseHUD). We lock ONLY the
                 // combat actions the design wants gone while downed; everything else stays usable:
@@ -1724,12 +1755,7 @@ namespace SULFURTogether.Networking.Gameplay
                 // path is NOT lock-gated at all (InputReader.TogglePause → GameManager.PauseGame, which only needs
                 // gameState==Running) and the downed state keeps gameState Running — so a downed player can always
                 // open the menu and quit, using whatever key they bound to TogglePause (we never hardcode ESC).
-                foreach (string lockName in DownedInputBlacklist)
-                {
-                    if (!Enum.IsDefined(p[0].ParameterType, lockName)) continue;
-                    object lockValue = Enum.Parse(p[0].ParameterType, lockName);
-                    addLock.Invoke(gm, new[] { lockValue, (object)locked });
-                }
+                if (!SetDownedLocks(gm, locked)) return;
 
                 if (locked)
                 {
@@ -1737,7 +1763,10 @@ namespace SULFURTogether.Networking.Gameplay
                     if (equipment != null)
                     {
                         InvokeMethod(equipment, "ReleaseTrigger");
-                        InvokeMethod(equipment, "UnsightWeapon");
+                        // UnsightWeapon(bool useLerp = true): reflection does not fill optional parameters, so the
+                        // argument is passed explicitly (DR-7: without it the call always threw "Number of parameters
+                        // specified does not match").
+                        InvokeMethod(equipment, "UnsightWeapon", true);
                     }
                 }
             }

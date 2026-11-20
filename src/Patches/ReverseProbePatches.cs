@@ -1912,6 +1912,20 @@ namespace SULFURTogether.Patches
             var walker = FindType("PerfectRandom.Sulfur.Core.Movement.ExtendedAdvancedWalkerController");
             if (walker != null)
                 TryPatch(harmony, walker, "UpdateCrouching", Pre(nameof(ExtendedWalker_UpdateCrouching_Pre)), null);
+
+            // DR-7: the Weapon/PlayerMovement/Inventory locks that make a player downed are game PlayerLocks bits, which
+            // vanilla code clears when it releases its own (closing the pause menu, a dialog, a hold-to-interact).
+            // Put them back while the player is still down. Only a release can drop one, so only a release is checked.
+            var gameManager = FindType("PerfectRandom.Sulfur.Core.GameManager");
+            if (gameManager != null)
+                TryPatch(harmony, gameManager, "AddLock", null, Post(nameof(GameManager_AddLock_Post)));
+        }
+
+        private static void GameManager_AddLock_Post(object __instance, bool addLock)
+        {
+            if (addLock) return;
+            try { NetPlayerLifeManager.ReassertDownedControlLocks(__instance); }
+            catch (Exception ex) { Log.Error($"[GameManager.AddLock] downed lock re-apply failed: {ex.Message}"); }
         }
 
         private static bool _forcedDownedCrouch;
