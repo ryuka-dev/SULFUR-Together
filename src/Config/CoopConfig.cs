@@ -546,7 +546,6 @@ namespace SULFURTogether.Config
         public Fixed<float>        EnemyFarDistance { get; }
         public Fixed<float>        EnemyFarSnapshotHz { get; }
         public Fixed<bool>         EnableCombatEventCoalescing { get; }
-        public Fixed<float>        EnemyToClientDamageCoalesceSeconds { get; }
         public Fixed<float>        EnemyDamageEventMinIntervalSeconds { get; }
         public Fixed<float>        AttackPhaseEventMinIntervalSeconds { get; }
         // Plan B: multiplayer NPC activation + headless Player registry — verified working (release-hardcoded).
@@ -1309,7 +1308,6 @@ namespace SULFURTogether.Config
             EnemyFarDistance = new Fixed<float>(40f);
             EnemyFarSnapshotHz = new Fixed<float>(2f);
             EnableCombatEventCoalescing = new Fixed<bool>(true);
-            EnemyToClientDamageCoalesceSeconds = new Fixed<float>(0.1f);
             EnemyDamageEventMinIntervalSeconds = new Fixed<float>(0.07f);
             AttackPhaseEventMinIntervalSeconds = new Fixed<float>(0.08f);
 

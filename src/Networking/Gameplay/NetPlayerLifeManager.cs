@@ -160,7 +160,6 @@ namespace SULFURTogether.Networking.Gameplay
             if (NetConfig.GetMode() == NetMode.Host)
                 TickHostActiveRescues();
             UpdateDeathRespawnGuard();
-            FlushPendingEnemyToClientDamage();
         }
 
         public static void ReportLocalPlayerObject(object? player)
@@ -372,68 +371,21 @@ namespace SULFURTogether.Networking.Gameplay
             return result.AsReadOnly();
         }
 
-        // (1) 5.7-B8: enemy→client damage is ACCUMULATED per (peer,damageType) and flushed once per window. A machine-gun
-        // enemy hitting the client sent one NetPlayerLifeState per pellet (LogOutput102: 841). Total damage is preserved
-        // (accumulated, never dropped) — only the feedback batches. Keyed per damageType so status effects aren't merged.
-        private static readonly Dictionary<string, float>   _enemyDmgPending     = new Dictionary<string, float>();
-        private static readonly Dictionary<string, float>   _enemyDmgLastSentAt  = new Dictionary<string, float>();
-        private static readonly Dictionary<string, Vector3> _enemyDmgLastPos     = new Dictionary<string, Vector3>();
-        private static readonly Dictionary<string, string>  _enemyDmgLastReason  = new Dictionary<string, string>();
-        private static readonly List<string> _enemyDmgFlushScratch = new List<string>();
-
+        // ED-1: every hit on a remote player's stand-in is sent on its own, the moment it lands, and the client's own
+        // Unit.ReceiveDamage decides what it costs. That is where the game's player hit window lives: within 0.2 s a
+        // player only loses what a hit exceeds the largest one already taken (iFrameTimeSinceDamage /
+        // iFrameDamageInWindow), so one attack that reports several hits in the same frame — the Goblin Barrel Boy's
+        // landing, a pellet spread — costs a player one hit. The stand-in is a plain Unit and is never charged, so that
+        // rule can only run on the client, and only if the hits reach it together: hits the host sends in one frame
+        // arrive and are applied in one client frame. (5.7-B8 summed hits per 0.1 s instead and sent the first at once
+        // and the rest as a later message, which landed outside that window and cost the client a second hit.)
         public static void ReportHostAuthoritativeEnemyDamage(string targetPeerId, float damage, string reason, Vector3 hitPosition, int damageTypeInt = 0)
         {
             if (NetConfig.GetMode() != NetMode.Host) return;
             if (string.IsNullOrWhiteSpace(targetPeerId)) return;
             if (targetPeerId == GetLocalPeerId()) return;
             if (damage <= 0f) return;
-
-            float window = 0f;
-            try { if (Plugin.Cfg.EnableCombatEventCoalescing.Value) window = Plugin.Cfg.EnemyToClientDamageCoalesceSeconds.Value; } catch { }
-            if (window <= 0f) { SendEnemyDamageToClient(targetPeerId, damage, reason, hitPosition, damageTypeInt); return; }
-
-            string key = targetPeerId + "|" + damageTypeInt;
-            float now = Time.realtimeSinceStartup;
-            _enemyDmgLastPos[key] = hitPosition;
-            _enemyDmgLastReason[key] = reason ?? "enemy damage";
-            _enemyDmgLastSentAt.TryGetValue(key, out float lastAt);
-            if (now - lastAt < window)
-            {
-                _enemyDmgPending.TryGetValue(key, out float p);
-                _enemyDmgPending[key] = p + damage;           // accumulate; flushed by Tick
-                return;
-            }
-            _enemyDmgLastSentAt[key] = now;
-            _enemyDmgPending.TryGetValue(key, out float pend);
-            if (pend > 0f) _enemyDmgPending.Remove(key);
-            SendEnemyDamageToClient(targetPeerId, damage + pend, reason, hitPosition, damageTypeInt);
-        }
-
-        /// <summary>Host Tick: flush accumulated enemy→client damage whose window has elapsed (the tail of a burst).</summary>
-        public static void FlushPendingEnemyToClientDamage()
-        {
-            if (NetConfig.GetMode() != NetMode.Host || _enemyDmgPending.Count == 0) return;
-            float window; try { window = Plugin.Cfg.EnemyToClientDamageCoalesceSeconds.Value; } catch { window = 0.1f; }
-            if (window <= 0f) { _enemyDmgPending.Clear(); return; }
-            float now = Time.realtimeSinceStartup;
-            _enemyDmgFlushScratch.Clear();
-            foreach (var kv in _enemyDmgPending)
-            {
-                _enemyDmgLastSentAt.TryGetValue(kv.Key, out float lastAt);
-                if (now - lastAt >= window) _enemyDmgFlushScratch.Add(kv.Key);
-            }
-            foreach (var key in _enemyDmgFlushScratch)
-            {
-                float dmg = _enemyDmgPending[key]; _enemyDmgPending.Remove(key);
-                if (dmg <= 0f) continue;
-                int sep = key.LastIndexOf('|');
-                string peer = sep > 0 ? key.Substring(0, sep) : key;
-                int type = 0; if (sep > 0) int.TryParse(key.Substring(sep + 1), out type);
-                Vector3 pos = _enemyDmgLastPos.TryGetValue(key, out var pp) ? pp : Vector3.zero;
-                string reason = _enemyDmgLastReason.TryGetValue(key, out var rr) ? rr : "enemy damage (coalesced)";
-                _enemyDmgLastSentAt[key] = now;
-                SendEnemyDamageToClient(peer, dmg, reason, pos, type);
-            }
+            SendEnemyDamageToClient(targetPeerId, damage, reason, hitPosition, damageTypeInt);
         }
 
         private static void SendEnemyDamageToClient(string targetPeerId, float damage, string reason, Vector3 hitPosition, int damageTypeInt)
