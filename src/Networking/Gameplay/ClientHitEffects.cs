@@ -21,7 +21,13 @@ namespace SULFURTogether.Networking.Gameplay
     /// does not set, so the client's kills never reached its <c>ENEMIES_KILLED</c> or the <c>enemies_killed</c> stat.
     /// A kill credit counts here when the client dealt the killing blow or did damage to the enemy (an assist): two
     /// players who both damaged an enemy each count it. A credit with no damage (every hit arrived after the death)
-    /// does not count.</item>
+    /// does not count.
+    /// <para>TK-1: the same kill also counts toward the world tick that restocks the vendors. Vanilla <c>Npc.Die</c>
+    /// calls <c>tickManager.RegisterKill()</c> when <c>LastDamagedBy.isPlayer</c>, which the client's copy never has,
+    /// so its <c>GAME_TICK</c> (personal, in its own save) never moved and its church vendors never restocked. It uses
+    /// the rule above, so an assist counts too (vanilla counts only a kill whose last hit was a player's; the tick moves
+    /// at most once per chapter either way). Skipped when the local copy did record a player hit, because its own
+    /// <c>Die</c> counts it then.</para></item>
     /// <item><b>Organs (HR-5).</b> Vanilla <c>Npc.CreateDamageEffects</c> rolls an organ pickup (or loose organ gibs) for the
     /// hit that left an NPC dead, when <c>sourceData.isPlayer</c>. The host settles a client's killing hit without the
     /// flag, so it never rolled one — and loot is the client's own: an organ the host rolled would land in the host's
@@ -148,7 +154,8 @@ namespace SULFURTogether.Networking.Gameplay
 
         /// <summary>A kill credit fired for <paramref name="localTarget"/>.</summary>
         /// <param name="isNpc">The target's <c>Unit.isNpc</c>, read while it was alive (the unit may be gone by now).</param>
-        public static void OnKillCredited(bool isNpc, bool killingBlow, float damageDealt)
+        /// <param name="localDieCountsTick">The local copy recorded a player hit, so its own <c>Die</c> counts the tick.</param>
+        public static void OnKillCredited(bool isNpc, bool killingBlow, float damageDealt, bool localDieCountsTick)
         {
             try
             {
@@ -159,8 +166,29 @@ namespace SULFURTogether.Networking.Gameplay
                 if (achievements != null) achievements.AddToStat(AchievementStats.enemies_killed, 1);
                 if (SulfurSaveState.active != null) SulfurSaveState.active.ENEMIES_KILLED++;
                 KillsCounted++;
+                if (!localDieCountsTick) CountTowardVendorTick();
             }
             catch (Exception ex) { NetLogger.Warn($"[ClientHit] kill count failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        public static int TickKills;
+
+        /// <summary>TK-1: true when vanilla <c>Npc.Die</c> on this copy counts the kill itself
+        /// (<c>LastDamagedBy.isPlayer</c>, e.g. a hit that fell back to local damage).</summary>
+        public static bool LocalCopyRecordedPlayerHit(object? localTarget)
+        {
+            try { return localTarget is Unit u && u != null && u.LastDamagedBy.isPlayer; }
+            catch { return false; }
+        }
+
+        /// <summary>TK-1: vanilla <c>Npc.Die</c>'s <c>tickManager.RegisterKill()</c>, for a kill whose local copy never
+        /// recorded the client's hits.</summary>
+        private static void CountTowardVendorTick()
+        {
+            var gm = StaticInstance<GameManager>.Instance;
+            if (gm == null || gm.tickManager == null) return;
+            gm.tickManager.RegisterKill();
+            TickKills++;
         }
 
         /// <summary>Run the killing hit's damage effects on the dead local copy (organ roll included).</summary>
@@ -225,7 +253,7 @@ namespace SULFURTogether.Networking.Gameplay
             return false;
         }
 
-        public static string FormatSummary() => $"lifestealCalls={LifestealCalls} killsCounted={KillsCounted} killingHitEffects={KillingHitEffects} targetReactions={TargetReactions}";
+        public static string FormatSummary() => $"lifestealCalls={LifestealCalls} killsCounted={KillsCounted} tickKills={TickKills} killingHitEffects={KillingHitEffects} targetReactions={TargetReactions}";
 
         private static Unit? LocalPlayerAnyState()
         {

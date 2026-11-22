@@ -64,6 +64,9 @@ namespace SULFURTogether.Networking.Gameplay
             public NetHitInput KillingHit;
             public Vector3? KillingPosition;
             public bool    BossCredit;     // credited from the killing hit's result (boss kinds), not a local death
+            // TK-1: the local copy recorded a player hit (LastDamagedBy.isPlayer), so its own Die counts the vendor
+            // tick. Read when the credit is armed — the copy can be gone by the time the credit fires.
+            public bool    LocalDieCountsTick;
             // HR-5: this client's hits resolved TargetDead after the killing hit (the rest of a shotgun volley).
             public List<(NetHitInput Hit, object? Weapon, Vector3? Position)>? VolleyAfterKill;
             public object? LastWeapon;
@@ -179,6 +182,7 @@ namespace SULFURTogether.Networking.Gameplay
                         k.CreditPending = true;
                         k.Experience = 0;
                         k.BossCredit = true;
+                        k.LocalDieCountsTick = ClientHitEffects.LocalCopyRecordedPlayerHit(p.Target);
                     }
                 }
                 else if (r.Outcome == NetHitOutcome.TargetDead && k.KillingSeq >= 0 && p.Seq > k.KillingSeq && !k.BossCredit)
@@ -216,6 +220,7 @@ namespace SULFURTogether.Networking.Gameplay
                 var k = GetKill(id, target);
                 k.CreditPending = true;
                 k.Experience = experience;
+                k.LocalDieCountsTick = ClientHitEffects.LocalCopyRecordedPlayerHit(target);
                 TryFlushKill(id);
             }
             catch (Exception ex) { NetLogger.Warn($"[ClientHit] tracker kill failed: {ex.Message}"); }
@@ -329,7 +334,7 @@ namespace SULFURTogether.Networking.Gameplay
             KillsCredited++;
             bool killing = k.KillingSeq >= 0;
             object? target = k.Target is UnityEngine.Object uo && uo == null ? null : k.Target;
-            ClientHitEffects.OnKillCredited(k.IsNpc, killing, k.DamageDealt);
+            ClientHitEffects.OnKillCredited(k.IsNpc, killing, k.DamageDealt, k.LocalDieCountsTick);
             if (killing && !k.BossCredit)
             {
                 ClientHitEffects.RollKillingHitOrgans(target, k.KillingHit, k.KillingWeapon, k.KillingPosition);

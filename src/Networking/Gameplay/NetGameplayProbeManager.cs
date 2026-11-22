@@ -1760,18 +1760,6 @@ namespace SULFURTogether.Networking.Gameplay
         /// can never double-credit. No-op on the Host (its real Npc.Die() already credits via damagedByPlayer).
         /// </summary>
         /// <returns>The experience credited, or -1 when this kill is not the local player's to credit.</returns>
-        /// <summary>CLIENT (TK-1): true when the local player hit this puppet (the Issue #4 mark), without consuming it.</summary>
-        private static bool WasDamagedByLocalPlayer(object? npc)
-        {
-            try
-            {
-                if (npc == null || NetConfig.GetMode() != NetMode.Client) return false;
-                int npcId = ObjectIdentity(npc);
-                return npcId != 0 && ActiveEnemyPuppetsByNpcId.TryGetValue(npcId, out var record) && record != null && record.DamagedByLocalPlayer;
-            }
-            catch { return false; }
-        }
-
         private static int TryCreditLocalWeaponXpForKill(object? npc)
         {
             try
@@ -1901,8 +1889,6 @@ namespace SULFURTogether.Networking.Gameplay
             // is suppressed and routed to the host), so vanilla GiveExperience early-returns here. We reproduce the credit
             // on the machine that dealt the damage, reading ExperienceOnKill before Die() runs. Guarded + consumes the
             // flag so a death re-apply can never double-credit. Personal XP stays client-owned; the kill stays host-authoritative.
-            // TK-1: read before the XP credit consumes the mark — the vendor tick counts the same local kill.
-            bool localKill = WasDamagedByLocalPlayer(runtimeObject);
             int creditedExp = TryCreditLocalWeaponXpForKill(runtimeObject);
 
             // ST-3c: if the sender died frozen-solid, make that true here BEFORE Die() reads it — Die is what decides
@@ -1926,7 +1912,6 @@ namespace SULFURTogether.Networking.Gameplay
                 _hostDeathApplyDepth++;
                 bool wasPendingDead = deathEvent.SpawnIndex >= 0 && IsClientPendingDead(deathEvent.SpawnIndex);
                 die.Invoke(runtimeObject, null);
-                if (localKill) KillTickCreditManager.CreditLocalKill(runtimeObject);
                 // HR-2: the public LocalKillCredited event, now that the local death has run — the tracker still holds
                 // it back until this target's hits resolve.
                 if (creditedExp >= 0) ClientHitTracker.OnLocalKill(runtimeObject, creditedExp);
