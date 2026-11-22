@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.9.0.[/b] Built for [b]SULFUR 1.0.6[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
+> [b]Version 1.10.0.[/b] Built for [b]SULFUR 1.0.7[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 [line]
 
@@ -445,6 +445,49 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.10.0 — SULFUR 1.0.7, enemy hits on clients[/b][/color]
+
+This one is mostly fixes for clients, several of them reported by players after 1.9.0.
+
+**1.10.0 is built for SULFUR 1.0.7. The network protocol changed (45 to 46), so everyone must update to 1.10.0
+together, and everyone must run the same build of SULFUR.**
+
+[b]Fixed:[/b]
+[list]
+[*][b]Some enemy attacks hit a client twice.[/b] A client's game plays out every enemy attack on its own screen, and[/*]
+[/list]
+  that copy of the attack could also hit the client, on top of the hit the host sent over. The Goblin Barrel Boy's
+  landing was the one players noticed, but arrows and explosions did it too. Only the host's hit counts now.
+[list]
+[*][b]A client couldn't parry.[/b] Parrying an arrow or a swing showed the parry, but the client still took the damage.[/*]
+[/list]
+  Now a parry blocks the hit, and one attack only uses up one parry.
+[list]
+[*][b]Enemy explosions didn't match what a client saw.[/b] The host decided whether an explosion hit a client, ignoring[/*]
+[/list]
+  walls, and the host's enemy could be standing a couple of meters away from where the client saw it. Now each client
+  checks enemy explosions against its own character: walls block them, and a Barrel Boy that lands next to you hits
+  you.
+[list]
+[*][b]Falls cost a client far more health than they cost the host.[/b] Falling into a pit or off the map took the[/*]
+[/list]
+  client's own fall damage and then a second, much bigger hit from the host.
+[list]
+[*][b]Nobody could revive a downed player in the first level after the church.[/b] There was no prompt, and holding the[/*]
+[/list]
+  key did nothing.
+[list]
+[*][b]A downed player could shoot again after opening the pause menu.[/b][/*]
+[*][b]A session that ended while you were downed left you stuck that way until the next level.[/b] You now get back up[/*]
+[/list]
+  where you are, with the health you had.
+[list]
+[*][b]A client's church vendors never restocked.[/b] Kills on the client didn't count toward the restock. They do now,[/*]
+[/list]
+  assists included.
+
+[b]Known limits:[/b] only tested with two players on one machine.
 
 [color=RoyalBlue][b]1.9.0 — SULFUR 1.0.6, content mods and the desert[/b][/color]
 

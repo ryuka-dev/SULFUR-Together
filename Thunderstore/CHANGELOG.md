@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.10.0 — SULFUR 1.0.7, enemy hits on clients
+
+This one is mostly fixes for clients, several of them reported by players after 1.9.0.
+
+**1.10.0 is built for SULFUR 1.0.7. The network protocol changed (45 to 46), so everyone must update to 1.10.0
+together, and everyone must run the same build of SULFUR.**
+
+**Fixed:**
+- **Some enemy attacks hit a client twice.** A client's game plays out every enemy attack on its own screen, and
+  that copy of the attack could also hit the client, on top of the hit the host sent over. The Goblin Barrel Boy's
+  landing was the one players noticed, but arrows and explosions did it too. Only the host's hit counts now.
+- **A client couldn't parry.** Parrying an arrow or a swing showed the parry, but the client still took the damage.
+  Now a parry blocks the hit, and one attack only uses up one parry.
+- **Enemy explosions didn't match what a client saw.** The host decided whether an explosion hit a client, ignoring
+  walls, and the host's enemy could be standing a couple of meters away from where the client saw it. Now each client
+  checks enemy explosions against its own character: walls block them, and a Barrel Boy that lands next to you hits
+  you.
+- **Falls cost a client far more health than they cost the host.** Falling into a pit or off the map took the
+  client's own fall damage and then a second, much bigger hit from the host.
+- **Nobody could revive a downed player in the first level after the church.** There was no prompt, and holding the
+  key did nothing.
+- **A downed player could shoot again after opening the pause menu.**
+- **A session that ended while you were downed left you stuck that way until the next level.** You now get back up
+  where you are, with the health you had.
+- **A client's church vendors never restocked.** Kills on the client didn't count toward the restock. They do now,
+  assists included.
+
+**Known limits:** only tested with two players on one machine.
+
 ## 1.9.0 — SULFUR 1.0.6, content mods and the desert
 
 Joining a host with different content mods no longer mixes up items without warning, and the Forest and the
