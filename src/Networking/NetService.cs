@@ -264,6 +264,7 @@ namespace SULFURTogether.Networking
             Gameplay.RemoteHitResolver.ResetSession();
             Vote.CoopVoteManager.Reset(); // VOTE-1: clear any in-flight vote
             CoopDevAuthority.OnSessionEnded("networking stopped"); // DEV-1: back to solo → follow local entitlement
+            Gameplay.NetPlayerLifeManager.OnSessionEnded("networking stopped"); // DR-8: a downed player stands up
             _ffHitProxies.Clear();
             _sessionSettingsRevision = 0;
         }

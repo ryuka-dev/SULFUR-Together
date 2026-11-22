@@ -133,6 +133,38 @@ namespace SULFURTogether.Networking.Gameplay
         // DR-1b: how long a released hold survives (frozen) before it really cancels. Bridges taps and one-frame gaps.
         private const float RescueReleaseGraceSeconds = 0.3f;
 
+        /// <summary>
+        /// DR-8: the session ended (networking stopped) — the player is on their own again. A player who was downed
+        /// waits for a rescue that can no longer come, and nothing else clears the downed state until the next level
+        /// (<see cref="ClearLevelScoped"/>), so the downed locks, the incapacitated state and the downed invulnerability
+        /// would outlive the session. Here they stand up where they are, at the health they were downed with, with the
+        /// same short invulnerability a revive gives. A player whose death was already committed is left to it.
+        /// </summary>
+        public static void OnSessionEnded(string reason)
+        {
+            try
+            {
+                bool wasDowned = _localDowned && !_localNativeDeathCommitted;
+                _localDowned = false;
+                _activeReviveTarget = "";
+                _rescueDisplay = default;
+                _hostActiveRescues.Clear();
+                PeerStates.Clear();
+                ResetReviveHold();
+                if (!wasDowned) return;
+
+                ApplyLocalControlLocks(false);
+                object? unit = ResolveCurrentLocalPlayerUnit();
+                if (unit != null)
+                {
+                    SetUnitState(unit, "Alive");
+                    InvokeMethod(unit, "SetInvulnerableForDuration", Math.Max(0.1f, Plugin.Cfg.PlayerReviveInvulnerabilitySeconds.Value));
+                }
+                NetLogger.Info($"[PlayerLife] Session ended while downed: the local player stands up ({reason})");
+            }
+            catch (Exception ex) { NetLogger.Warn($"[PlayerLife] Standing up after the session ended failed: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
         public static void ClearLevelScoped(string source)
         {
             if (_localControlLocksApplied)
