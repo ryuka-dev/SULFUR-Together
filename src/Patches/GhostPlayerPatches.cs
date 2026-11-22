@@ -224,8 +224,9 @@ namespace SULFURTogether.Patches
 
         private static int _punishSkipLogCount;
 
-        /// <summary>Skips the trigger for a remote player's stand-in. The unit is resolved the way the trigger itself
-        /// resolves it (the collider's object or a parent).</summary>
+        /// <summary>Skips the trigger for a remote player's stand-in. The unit is the one on the collider's object or a
+        /// parent; the game's own lookup (<c>UnitManager.GetUnitFromObject</c>) can return null for an ignored collider,
+        /// but only a unit in the proxy registry is skipped, so that difference never skips anything else.</summary>
         private static bool PunishTrigger_Trigger_Pre(GameObject __0)
         {
             try

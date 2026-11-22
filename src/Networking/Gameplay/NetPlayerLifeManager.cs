@@ -1288,8 +1288,9 @@ namespace SULFURTogether.Networking.Gameplay
 
         // DR-6: a peer's SceneKey is always the canonical one (NetSceneName.SceneCompareKey, from both the transform
         // stream and the life-state message), so the local side has to be canonical too. Comparing it with the raw
-        // NetRunState.SceneKey() never matched in the one chapter whose reported name differs from its canonical
-        // name: the first level out of the church reports Act_01_HedgemazeFromChurch, canonical Act_01_Hedgemaze.
+        // NetRunState.SceneKey() never matched where a reported chapter name differs from its canonical name (any
+        // "...FromChurch" name): the first level out of the church reports Act_01_HedgemazeFromChurch, canonical
+        // Act_01_Hedgemaze.
         // There no rescuer ever found the downed player — no prompt, no hold, no revive.
         private static bool IsPeerInScene(PeerLife peer, NetRunState local)
         {
@@ -1727,10 +1728,13 @@ namespace SULFURTogether.Networking.Gameplay
         /// whenever its last padlock goes — closing the pause menu, a dialog, a hold-to-interact — and that clears
         /// Weapon and PlayerMovement. A downed player who opened the menu could shoot again; movement stayed frozen
         /// only because the movement input itself is zeroed while downed. Called from the <c>AddLock</c> postfix
-        /// after any release: while the downed locks are held, put them back.</summary>
+        /// after any release: while the player is still downed, put the locks back. Only then — the held flag can
+        /// outlive the downed state (a session that ends while downed does not clear it), and a vanilla release must
+        /// still free a player who is no longer down.</summary>
         public static void ReassertDownedControlLocks(object? gm)
         {
             if (!_localControlLocksApplied || _reassertingDownedLocks || gm == null) return;
+            if (!ShouldSuppressLocalPlayerControls()) return;
             try
             {
                 _reassertingDownedLocks = true;
