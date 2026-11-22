@@ -49,7 +49,7 @@ namespace SULFURTogether.Patches
             EnemyRemovalPatches.Apply(harmony);         // RM-1 — a live unit the host destroys is removed on clients
             DesertPikeRiderPatches.Apply(harmony);      // PK-6 — a desert pike seats the same riders on every machine
             LocalTransitionPatches.Apply(harmony);      // JF-1 — a client starts a host follow only between levels, not mid-generation
-            CopyShockwaveDamagePatches.Apply(harmony);  // ED-1 — a copy's shockwave (e.g. the Barrel Boy's landing) does not damage the client's own player
+            CopyDamagePatches.Apply(harmony);           // ED-2 — a copy's hit on the client's own player defers to the host's forwarded hit
             Plugin.Log.Info("[PatchBootstrap] Done.");
         }
     }

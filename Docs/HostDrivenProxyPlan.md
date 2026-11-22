@@ -25,6 +25,8 @@ Every new feature must serve this direction. See `NetworkingArchitecture.md` for
 
 **Goal:** Client enemies never cause real damage/death divergence.
 
+> Superseded by ED-2: `ShouldSuppressAllClientPuppetDamage`, `SuppressAllClientPuppetDamage`, `LogClientPuppetDamageSuppression` and the melee-only suppression depth were removed; the gate is `CopyDamagePatches` (see NetworkingArchitecture.md, Client Damage Suppression).
+
 **Changes:**
 
 | File | Change |

@@ -236,15 +236,24 @@ EnemyDeathEvent received
 
 ---
 
-## Client Damage Suppression (Phase 5.0 P0)
+## Client Damage Suppression (ED-2)
 
-When `EnableHostDrivenEnemyProxy=true` and `SuppressAllClientPuppetDamage=true`:
+An enemy's hit on a client's own player counts once: the host's. The host's enemy hits the host's stand-in for that
+client and `Unit_ReceiveDamage_Pre` forwards the hit as a `HostDamageRequest`; the client's copy of the enemy plays the
+same attack, and its own hit on the local player is dropped (`CopyDamagePatches`):
 
-1. `Npc.HandleMeleeHit` prefix: for puppet NPCs, always call `EnterClientEnemyNativeDamageSuppression()` and allow the call through (for visual animation). __state=true.
-2. `Unit.ReceiveDamage` prefix: checks `IsInClientEnemyNativeDamageSuppression()` — if depth > 0, skips real damage application.
-3. `Npc.HandleMeleeHit` postfix: calls `ExitClientEnemyNativeDamageSuppression()` when __state=true.
+1. Prefixes with finalizers on the game's hit mechanisms mark which one is running: `Npc.HandleMeleeHit`,
+   `ProjectileUtilities.ProcessUnitHit`, `ExplosionManager.Update`, `ShockwaveEffectPart.OnTriggerEnter`,
+   `DamageTrigger.ApplyDamage(Unit)`.
+2. `Unit.ReceiveDamage` prefix (`CopyDamagePatches.ShouldDropCopyHit`): inside one of them, a hit on the local player
+   whose `DamageSourceData.sourceUnit` is a host-driven copy (`IsClientEnemyPuppetNpc` / `IsHostBoundEntity` /
+   `IsRuntimeMirroredEntity`) is skipped. Forwarded damage runs under `HostDamageApplyDepth` and is never skipped,
+   and neither is a status tick (`states.isPeriodicModifier`), even one the game fires inside the hit.
 
-This ensures puppet enemy melee animations play on client (for visual fidelity) without dealing real HP damage to the local player.
+The copy's attack still plays, its hits on other units and props still land, and the status a hit applies still lands
+with all of its damage over time, which stays client-local (the host absorbs periodic ticks on the stand-in). Mechanisms whose host
+side does not reach the stand-in are left alone, so the copy stays the client's only source for them — for example a
+boss's `DonutCollision` ring.
 
 ---
 

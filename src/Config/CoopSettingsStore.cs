@@ -108,7 +108,7 @@ namespace SULFURTogether.Config
             "EnableClientHitFlash", "ClientHitFlashDurationSeconds", "EnableClientPendingDeadState",
             "EnableClientDeathVisualFallback", "ClientDeathVisualFallbackDelaySeconds", "EnableClientHitVisual",
             // Batch 11 (HostDrivenProxy part 2: proxy/attack-phase/interest/target-proxy/coalescing + DisablePauseInMultiplayer):
-            "EnableHostDrivenEnemyProxy", "SuppressAllClientPuppetDamage", "EnableHostAttackPhaseEvents",
+            "EnableHostDrivenEnemyProxy", "SuppressAllClientPuppetDamage", "LogClientPuppetDamageSuppression", "EnableHostAttackPhaseEvents",
             "EnableClientAttackPhaseAnimatorDrive", "ClientAttackPhaseCrossFadeSeconds", "EnableHostProjectileVisualSpawnEvent",
             "IncludeRemotePlayersInInterest", "EnableRemotePlayerTargetProxy", "RemotePlayerTargetProxySetIsPlayer",
             "RemotePlayerTargetProxyForceAggro", "RemotePlayerTargetProxyAggroRange", "RemotePlayerTargetProxyOnlyWhenCloser",

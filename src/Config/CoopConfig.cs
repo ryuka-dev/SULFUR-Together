@@ -449,7 +449,6 @@ namespace SULFURTogether.Config
         public Fixed<bool>        EnableHostAuthorizedIntentExecution { get; }
         public Fixed<float>       HostAuthorizedIntentWindowSeconds { get; }
         public ConfigEntry<bool>  LogHostAuthorizedIntentExecution { get; }
-        public Fixed<bool>        EnableClientEnemyNativeDamageSuppression { get; }
         public Fixed<bool>        EnableClientPuppetAimOverride { get; }
 
         public Fixed<bool>         EnableEnemyStateSnapshotDeltaCompression { get; }
@@ -511,8 +510,6 @@ namespace SULFURTogether.Config
 
         // ----- Phase 5.0 Host-Driven Proxy Architecture ----- (functional/tuning hardcoded; Log*/Debug diagnostics kept)
         public Fixed<bool>         EnableHostDrivenEnemyProxy { get; }
-        public Fixed<bool>         SuppressAllClientPuppetDamage { get; }
-        public ConfigEntry<bool>   LogClientPuppetDamageSuppression { get; }
         public Fixed<bool>         EnableHostAttackPhaseEvents { get; }
         public ConfigEntry<bool>   LogHostAttackPhaseEvents { get; }
         public Fixed<bool>         EnableClientAttackPhaseAnimatorDrive { get; }
@@ -1178,7 +1175,6 @@ namespace SULFURTogether.Config
             HostAuthorizedIntentWindowSeconds = new Fixed<float>(1.0f);
             LogHostAuthorizedIntentExecution = cfg.Bind("NetworkEnemyIntentExperimental", "LogHostAuthorizedIntentExecution", true,
                 "Log when Client puppet combat methods pass through Host-authorized intent windows.");
-            EnableClientEnemyNativeDamageSuppression = new Fixed<bool>(true);
             EnableClientPuppetAimOverride = new Fixed<bool>(true);
 
             // Enemy snapshot delta compression — functional + thresholds hardcoded (Fixed).
@@ -1258,9 +1254,6 @@ namespace SULFURTogether.Config
             // Phase 5.0 Host-Driven Proxy + attack-phase events + remote-player target proxy (retired, off) — functional/
             // tuning hardcoded (Fixed) to effective values; only Log* stay in cfg.
             EnableHostDrivenEnemyProxy = new Fixed<bool>(true);
-            SuppressAllClientPuppetDamage = new Fixed<bool>(true);
-            LogClientPuppetDamageSuppression = cfg.Bind("HostDrivenProxy", "LogClientPuppetDamageSuppression", true,
-                "Log when client puppet enemy damage is suppressed by the host-driven proxy gate.");
             EnableHostAttackPhaseEvents = new Fixed<bool>(true);
             LogHostAttackPhaseEvents = cfg.Bind("HostDrivenProxy", "LogHostAttackPhaseEvents", false,
                 "Default OFF — high volume (one line per enemy attack action): logs HostAttackPhaseEvent send (Host) / receive (Client). The network broadcast itself is gated by EnableHostAttackPhaseEvents (stays on). Enable to debug attack-animation sync.");

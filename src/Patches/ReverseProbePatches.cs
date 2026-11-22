@@ -1333,17 +1333,10 @@ namespace SULFURTogether.Patches
                     return false;
                 }
 
-                // Phase 4.4.0-O: suppress native enemy damage to the local player while inside an
-                // authorized HandleMeleeHit call — Host sends real damage via HostDamageRequest.
-                if (Cfg.EnableClientEnemyNativeDamageSuppression.Value
-                    && NetGameplayProbeManager.IsInClientEnemyNativeDamageSuppression()
-                    && NetPlayerLifeManager.IsLocalPlayerUnit(__instance)
-                    && NetPlayerLifeManager.HostDamageApplyDepth == 0)
-                {
-                    NetGameplayProbeManager.CountSuppressedNativeEnemyDamage();
-                    Log.Debug($"[Unit] ReceiveDamage suppressed (client native damage suppression) dmg={damage} inst={F(__instance)}");
+                // ED-2: a copy's hit on the local player (its swing, shot, explosion, shockwave) is dropped — the host's
+                // enemy makes the same hit on the stand-in and that one arrives as a HostDamageRequest.
+                if (CopyDamagePatches.ShouldDropCopyHit(__instance, damage, DamageSourceOf(__args)))
                     return false;
-                }
 
                 string category = GetUnitCategory(__instance);
                 ReverseProbeSummary.IncrementDamage(category);
@@ -1416,7 +1409,7 @@ namespace SULFURTogether.Patches
             TryPatch(harmony, t, "TriggerWeaponManually",  Pre(nameof(Npc_TriggerWeapon_Pre)),   null);
             TryPatch(harmony, t, "SetAimTarget",           Pre(nameof(Npc_SetAimTarget_Pre)),    null);
             TryPatch(harmony, t, "GetAimPosition",         null,                                Post(nameof(Npc_GetAimPosition_Post)));
-            TryPatch(harmony, t, "HandleMeleeHit",         Pre(nameof(Npc_MeleeHit_Pre)),        Post(nameof(Npc_MeleeHit_Post)));
+            TryPatch(harmony, t, "HandleMeleeHit",         Pre(nameof(Npc_MeleeHit_Pre)),        null);
             TryPatch(harmony, t, "TriggerShootFromAnimation", Pre(nameof(Npc_TriggerShootFromAnimation_Pre)), null);
             TryPatch(harmony, t, "StartMeleeDamageState",  Pre(nameof(Npc_StartMeleeDamageState_Pre)), null);
             TryPatch(harmony, t, "EndMeleeDamageState",    Pre(nameof(Npc_EndMeleeDamageState_Pre)),   null);
@@ -1573,37 +1566,21 @@ namespace SULFURTogether.Patches
         }
 
         // HandleMeleeHit — off by default, per-NPC throttled.
-        // Phase 4.4.0-O: in an authorized window we allow the call through for visual animation but
-        // enter native damage suppression depth so Unit.ReceiveDamage is suppressed for the local player.
-        // __state tracks whether THIS invocation entered suppression so the postfix exits exactly once.
-        private static bool Npc_MeleeHit_Pre(object __instance, ref bool __state)
+        // A copy's swing always runs (its animation and the hit on other units); its damage on the local player is
+        // dropped by CopyDamagePatches (ED-2), which scopes this method.
+        private static bool Npc_MeleeHit_Pre(object __instance)
         {
-            __state = false;
             try
             {
-                // Phase 5.0 P0: when host-driven proxy is active, always allow HandleMeleeHit to
-                // run for visual animation, but suppress all resulting damage to the local player.
-                // This replaces the old authorized-window approach for melee animation visibility.
-                if (Cfg.EnableHostDrivenEnemyProxy.Value
-                    && Cfg.SuppressAllClientPuppetDamage.Value
-                    && NetGameplayProbeManager.IsClientEnemyPuppetNpc(__instance))
+                if (NetGameplayProbeManager.IsClientEnemyPuppetNpc(__instance))
                 {
-                    NetGameplayProbeManager.EnterClientEnemyNativeDamageSuppression();
-                    __state = true;
                     NetGameplayProbeManager.ReportEnemyCombatProbe(__instance, "Npc.HandleMeleeHit");
-                    return true; // allow: visual animation runs; damage blocked by ReceiveDamage suppression
+                    return true;
                 }
 
                 if (NetGameplayProbeManager.ShouldBlockClientEnemyPuppetNpcCombat(__instance, "Npc.HandleMeleeHit", out _))
                     return false;
                 NetGameplayProbeManager.ReportEnemyCombatProbe(__instance, "Npc.HandleMeleeHit");
-                // Only suppress for puppet NPCs — non-puppet NPCs deal damage natively and must not be blocked.
-                if (Cfg.EnableClientEnemyNativeDamageSuppression.Value
-                    && NetGameplayProbeManager.IsClientEnemyPuppetNpc(__instance))
-                {
-                    NetGameplayProbeManager.EnterClientEnemyNativeDamageSuppression();
-                    __state = true;
-                }
                 if (!Cfg.EnableNpcMeleeProbe.Value) return true;
                 string key = $"MeleeHit_{ID(__instance)}";
                 if (!ReverseProbeState.ShouldLog(key, Cfg.ProbeThrottleSeconds.Value, Cfg.MaxRepeatedLogPerKey.Value)) return true;
@@ -1611,16 +1588,6 @@ namespace SULFURTogether.Patches
             }
             catch (Exception ex) { Log.Error($"[Npc.HandleMeleeHit] {ex.Message}"); }
             return true;
-        }
-
-        private static void Npc_MeleeHit_Post(bool __state)
-        {
-            try
-            {
-                if (__state)
-                    NetGameplayProbeManager.ExitClientEnemyNativeDamageSuppression();
-            }
-            catch { }
         }
 
         // Phase 4.4.0-O: new Npc method probes — all route through the same combat gating.

@@ -347,7 +347,6 @@ namespace SULFURTogether.Networking.Gameplay
         // Phase 5.0: client-side de-dup for received attack phase events (spawnIndex → last applied sequence).
         private static readonly Dictionary<int, int> ClientAttackPhaseLastSeqBySpawnIndex = new Dictionary<int, int>();
         // Phase 5.0 counters.
-        private static int _clientPuppetDamageSuppressed;
         private static int _hostAttackPhaseEventsSent;
         private static int _clientAttackPhaseEventsReceived;
         private static int _clientAttackPhaseAnimatorApplies;
@@ -799,8 +798,6 @@ namespace SULFURTogether.Networking.Gameplay
         private static int _clientAuthorizedAttackPasses;
         private static int _clientUnauthorizedAttackBlocks;
         private static int _clientAuthorizedMeleeEvents;
-        private static int _clientSuppressedNativeEnemyDamage;
-        private static int _clientEnemyNativeDamageSuppressDepth;
         // Phase 4.4.0-O2 counters.
         private static int _clientCombatRootReplays;
         private static int _clientCombatRootReplaySkippedDuplicate;
@@ -992,8 +989,6 @@ namespace SULFURTogether.Networking.Gameplay
             _clientAuthorizedAttackPasses = 0;
             _clientUnauthorizedAttackBlocks = 0;
             _clientAuthorizedMeleeEvents = 0;
-            _clientSuppressedNativeEnemyDamage = 0;
-            _clientEnemyNativeDamageSuppressDepth = 0;
             _clientCombatRootReplays = 0;
             _clientCombatRootReplaySkippedDuplicate = 0;
             _clientAuthorizedChildPasses = 0;
@@ -2421,8 +2416,8 @@ namespace SULFURTogether.Networking.Gameplay
             // the signature of a broken ApplyHitModifiers hook; clientEdgesDropped rising means unbound puppets.
             Plugin.Log.Info($"[GameplayProbe] UnitStatus {UnitStatusSyncManager.FormatSummary()} clientHitNonFinite={_clientHitSkipNonFiniteDamage}");
             Plugin.Log.Info($"[GameplayProbe] Summary rosterSent={_hostRosterRecordsSent} rosterReceived={_clientRosterRecordsReceived} rosterBound={_clientRosterBound} rosterOneToOne={_rosterOneToOneBound} rosterHostOnly={_clientRosterHostOnlyMissing} rosterClientOnly={_clientRosterClientOnlyQuarantined} quarantined={_clientOnlyCombatQuarantined} quarantineSuppressed={_quarantinedCombatSuppressed} rosterTypeMismatch={_clientRosterTypeMismatch} rosterFingerprintMismatch={_clientRosterFingerprintMismatch} rosterBindings={ClientHostToLocalKeyByHostSpawnIndex.Count} deathBound={_deathAppliedByBinding} deathUnbound={_deathRejectedUnboundNetEntity} deathBoundDrift={_deathBoundDriftWarning} deathBoundBigDrift={_deathAppliedBoundDespiteDrift}");
-            Plugin.Log.Info($"[GameplayProbe] Summary alive={alive} npcAlive={npc} dead={dead} totalSeen={EntitiesByLocalId.Count} newSpawns={_newSpawns} spawnEvents={_spawnEvents} duplicateSpawnEvents={_duplicateSpawnEvents} damageEvents={_damageEvents} deathEvents={_deathEvents} enemyStateTargets={PendingEnemyStateTargets.Count} enemyStateQueued={_enemyStateTargetsQueued} enemyStateApplied={_enemyStateTargetsApplied} enemyStateSnapped={_enemyStateTargetsSnapped} enemyPuppets={ActiveEnemyPuppets.Count} enemyPuppetsActivated={_clientEnemyPuppetsActivated} enemyPuppetsReleased={_clientEnemyPuppetsReleased} puppetTargetClears={_clientEnemyPuppetTargetClears} puppetTargetBlocks={_clientEnemyPuppetTargetBlocks} puppetCombatBlocks={_clientEnemyPuppetCombatBlocks} enemyCombatProbeEvents={_enemyCombatProbeEvents} hostCombatActions={_hostEnemyCombatActionMarks} clientCombatTriggers={_clientCombatAnimatorTriggerApplies} clientCombatStates={_clientCombatAnimatorStateApplies} clientCombatVisualReplays={_clientCombatVisualActionReplays} clientCombatFallbacks={_clientCombatAnimatorFallbacks} genericCombatStates={_clientGenericCombatAnimatorStateApplies} genericCombatSkipped={_genericCombatStateSkippedDuringAuthorizedIntent} visualProjectiles={_clientVisualProjectileMirrors} activeVisualProjectiles={ClientVisualProjectiles.Count} projectileProbeEvents={_projectileProbeEvents} hostDamageChecks={_hostEnemyDamageChecks} hostDamageHits={_hostEnemyDamageHits} hostAiIntents={_hostEnemyAiIntentMarks} clientAiIntents={_clientEnemyAiIntentApplies} clientAiCorrections={_clientEnemyAiIntentCorrections} driftSkipLoco={_driftSkippedIntentLocomotion} driftSkipCombat={_driftSkippedAuthorizedCombat} hardDrift={_hardDriftCorrections} softDrift={_softDriftCorrections} clientIntentWindows={_clientIntentWindows} activeIntentWindows={_clientAuthorizedIntentByNpcId.Count} clientRootReplays={_clientCombatRootReplays} clientRootSkipped={_clientCombatRootReplaySkippedDuplicate} clientAuthorizedAttacks={_clientAuthorizedAttackPasses} clientAuthorizedChild={_clientAuthorizedChildPasses} clientBlockedSpontaneous={_clientBlockedSpontaneousCombatCalls} clientUnauthorizedBlocks={_clientUnauthorizedAttackBlocks} clientAuthorizedMelee={_clientAuthorizedMeleeEvents} clientSuppressedDamage={_clientSuppressedNativeEnemyDamage} pendingContext={PendingStableSpawnLogs.Count} suppressedContextEvents={_suppressedContextEvents} context={context}");
-            Plugin.Log.Info($"[GameplayProbe] Phase5.0 hostAttackPhaseEventsSent={_hostAttackPhaseEventsSent} clientAttackPhaseEventsReceived={_clientAttackPhaseEventsReceived} clientAttackPhaseAnimatorApplies={_clientAttackPhaseAnimatorApplies} clientPuppetDamageSuppressed={_clientPuppetDamageSuppressed} interestManagementFarSkipped={_interestManagementFarSkipped} interestEngagedExempt={_interestEngagedExempt} attackPhaseThrottled={_attackPhaseThrottled} enemyDamageEventThrottled={_enemyDamageEventThrottled}");
+            Plugin.Log.Info($"[GameplayProbe] Summary alive={alive} npcAlive={npc} dead={dead} totalSeen={EntitiesByLocalId.Count} newSpawns={_newSpawns} spawnEvents={_spawnEvents} duplicateSpawnEvents={_duplicateSpawnEvents} damageEvents={_damageEvents} deathEvents={_deathEvents} enemyStateTargets={PendingEnemyStateTargets.Count} enemyStateQueued={_enemyStateTargetsQueued} enemyStateApplied={_enemyStateTargetsApplied} enemyStateSnapped={_enemyStateTargetsSnapped} enemyPuppets={ActiveEnemyPuppets.Count} enemyPuppetsActivated={_clientEnemyPuppetsActivated} enemyPuppetsReleased={_clientEnemyPuppetsReleased} puppetTargetClears={_clientEnemyPuppetTargetClears} puppetTargetBlocks={_clientEnemyPuppetTargetBlocks} puppetCombatBlocks={_clientEnemyPuppetCombatBlocks} enemyCombatProbeEvents={_enemyCombatProbeEvents} hostCombatActions={_hostEnemyCombatActionMarks} clientCombatTriggers={_clientCombatAnimatorTriggerApplies} clientCombatStates={_clientCombatAnimatorStateApplies} clientCombatVisualReplays={_clientCombatVisualActionReplays} clientCombatFallbacks={_clientCombatAnimatorFallbacks} genericCombatStates={_clientGenericCombatAnimatorStateApplies} genericCombatSkipped={_genericCombatStateSkippedDuringAuthorizedIntent} visualProjectiles={_clientVisualProjectileMirrors} activeVisualProjectiles={ClientVisualProjectiles.Count} projectileProbeEvents={_projectileProbeEvents} hostDamageChecks={_hostEnemyDamageChecks} hostDamageHits={_hostEnemyDamageHits} hostAiIntents={_hostEnemyAiIntentMarks} clientAiIntents={_clientEnemyAiIntentApplies} clientAiCorrections={_clientEnemyAiIntentCorrections} driftSkipLoco={_driftSkippedIntentLocomotion} driftSkipCombat={_driftSkippedAuthorizedCombat} hardDrift={_hardDriftCorrections} softDrift={_softDriftCorrections} clientIntentWindows={_clientIntentWindows} activeIntentWindows={_clientAuthorizedIntentByNpcId.Count} clientRootReplays={_clientCombatRootReplays} clientRootSkipped={_clientCombatRootReplaySkippedDuplicate} clientAuthorizedAttacks={_clientAuthorizedAttackPasses} clientAuthorizedChild={_clientAuthorizedChildPasses} clientBlockedSpontaneous={_clientBlockedSpontaneousCombatCalls} clientUnauthorizedBlocks={_clientUnauthorizedAttackBlocks} clientAuthorizedMelee={_clientAuthorizedMeleeEvents} pendingContext={PendingStableSpawnLogs.Count} suppressedContextEvents={_suppressedContextEvents} context={context}");
+            Plugin.Log.Info($"[GameplayProbe] Phase5.0 hostAttackPhaseEventsSent={_hostAttackPhaseEventsSent} clientAttackPhaseEventsReceived={_clientAttackPhaseEventsReceived} clientAttackPhaseAnimatorApplies={_clientAttackPhaseAnimatorApplies} interestManagementFarSkipped={_interestManagementFarSkipped} interestEngagedExempt={_interestEngagedExempt} attackPhaseThrottled={_attackPhaseThrottled} enemyDamageEventThrottled={_enemyDamageEventThrottled}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.2 hostDmgEventsSent={_hostEnemyDamageEventsSent} hostHealthStatesSent={_hostEnemyHealthStatesSent} clientDmgEventsRecv={_clientEnemyDamageEventsReceived} clientHealthStatesRecv={_clientEnemyHealthStatesReceived} clientHealthApplied={_clientEnemyHealthStatesApplied} clientHealthNoBinding={_clientEnemyHealthApplySkippedNoBinding} healthPendingQueued={_clientHealthStatesPendingQueued} healthPendingApplied={_clientHealthStatesPendingApplied} healthPendingExpired={_clientHealthStatesPendingExpired} deathByRosterBind={_hostDeathAppliedByRosterBinding} deathSnapped={_hostDeathAppliedAfterSnap} deathRejectedNoBinding={_hostDeathRejectedNoBinding} deathTombstone={_hostDeathTombstoneHit} deathNeverBound={_hostDeathNeverBound} lateBindAttempts={_hostDeathLateBindAttempts} lateBindSuccess={_hostDeathLateBindSuccess} claimsSuppressed={_clientDeathClaimsSuppressedByHostAuthority}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.2-diag healthFail_disabled={_clientHealthApplyDisabled} healthFail_noHp={_clientHealthNoCurrentHp} healthFail_noEntity={_clientHealthNoEntity} healthFail_noRuntimeObj={_clientHealthNoRuntimeObj} healthFail_unityDestroyed={_clientHealthUnityDestroyed} healthFail_noStats={_clientHealthNoStats} healthFail_noSetStatus={_clientHealthSetStatusMissing} healthFail_enumArgBuild={_clientHealthEnumArgFailed} healthFail_invokeFail={_clientHealthSetStatusFailed} healthFail_write={_clientHealthWriteFailed} healthFail_readBackUnchanged={_clientHealthWriteReadBackUnchanged} puppetSuppressedAwaitingHost={_puppetReleaseSuppressedAwaitingHost} puppetStaleSuppressed={_puppetStaleReleaseSuppressed} nonFiniteFacingsRejected={RejectedNonFiniteFacings} transformsRepaired={RepairedPoisonedTransforms} releasesKeptSuppressed={_suppressedUnrepairableReleases} safeTeleports={SafeTeleports} safeTeleportHoldsExpired={SafeTeleportHoldsExpired} safeTeleportHoldsActive={PuppetColliderHolds.Count} mountedSuppressionSkipped={_mountedPuppetSuppressionSkipped} carrierDrivenSuppressionSkipped={_carrierDrivenSuppressionSkipped}");
             Plugin.Log.Info($"[GameplayProbe] Phase5.3-B clientHitSent={_clientHitRequestsSent} clientHitSkipNoPuppet={_clientHitRequestsSkippedNoPuppet} clientHitSkipNoBinding={_clientHitRequestsSkippedNoBinding} puppetNonPlayerDmgIgnored={_clientPuppetNonPlayerDamageIgnored} clientHitSkipPendingDead={_clientHitSkipPendingDead} clientHitSkipTerminalDead={_clientHitSkipTerminalDead} clientHitResults={_clientHitResultsRecv} clientHitConfirmed={_clientLocalHitConfirmed} clientHitCaptureFallback={_clientHitCaptureFallback} tracker[{ClientHitTracker.FormatSummary()}] effects[{ClientHitEffects.FormatSummary()}] hostHitRecv={_hostHitRequestsRecv} hostHitRejectScene={_hostHitRequestsRejectedScene} hostHitRejectNoTarget={_hostHitRequestsRejectedNoTarget} hostHitRejectType={_hostHitRequestsRejectedTypeMismatch} hostHitRejectDead={_hostHitRequestsRejectedDead} hostHitRejectInput={_hostHitRequestsRejectedInput} hostHitRejectRateLimit={_hostHitRequestsRejectedRateLimit} hostHitAccepted={_hostHitRequestsAccepted} hostHitDmgApplied={_hostHitRequestsDamageApplied} hostHitDeclined={_hostHitRequestsDeclined} remoteResolved={RemoteHitResolver.Resolved} remoteResolveFailed={RemoteHitResolver.ResolveFailed} remoteGhostBonus={RemoteHitResolver.GhostBonusApplied} remoteSynthShape={RemoteHitResolver.SynthesizedShape} remoteHitboxHit={RemoteHitResolver.HitboxHitRaised} remoteAlerts={RemoteHitResolver.AlertsReproduced} standInGate={SULFURTogether.Patches.StandInCoverPatches.GateStandIn} standInCover={SULFURTogether.Patches.StandInCoverPatches.CoverSearchStandIn} {EnemyVisualStateSync.FormatSummary()}");
@@ -3589,7 +3584,7 @@ namespace SULFURTogether.Networking.Gameplay
 
                 if (isMeleeHit)
                 {
-                    // HandleMeleeHit runs for visual animation; patch enters native-damage suppression.
+                    // HandleMeleeHit runs for visual animation; its damage on the local player is dropped by CopyDamagePatches (ED-2).
                     _clientAuthorizedMeleeEvents++;
                     detail = $"authorized-melee idx={record.Snapshot.SpawnIndex} actor={record.Snapshot.ActorName} seq={authWindow.Sequence}";
                     if (Plugin.Cfg.LogHostAuthorizedIntentExecution.Value)
@@ -3659,8 +3654,6 @@ namespace SULFURTogether.Networking.Gameplay
             return true;
         }
 
-        // Phase 4.4.0-O: native damage suppression depth — entered while HandleMeleeHit runs in
-        // an authorized window so that Unit.ReceiveDamage is suppressed for the local Player.
         public static bool IsClientEnemyPuppetNpc(object? npc)
         {
             if (npc == null) return false;
@@ -3691,23 +3684,6 @@ namespace SULFURTogether.Networking.Gameplay
             if (!window.HasAimPosition || !IsFinite(window.AimPosition)) return false;
             aim = window.AimPosition;
             return true;
-        }
-
-        public static bool IsInClientEnemyNativeDamageSuppression() => _clientEnemyNativeDamageSuppressDepth > 0;
-
-        public static void EnterClientEnemyNativeDamageSuppression()
-        {
-            _clientEnemyNativeDamageSuppressDepth++;
-        }
-
-        public static void ExitClientEnemyNativeDamageSuppression()
-        {
-            if (_clientEnemyNativeDamageSuppressDepth > 0) _clientEnemyNativeDamageSuppressDepth--;
-        }
-
-        public static void CountSuppressedNativeEnemyDamage()
-        {
-            _clientSuppressedNativeEnemyDamage++;
         }
 
         // Returns true when a NEW sequence was created/arrived (root replay should be triggered).
@@ -9506,51 +9482,6 @@ namespace SULFURTogether.Networking.Gameplay
         {
             _remoteInterestPositions.Clear();
             if (positions != null) _remoteInterestPositions.AddRange(positions);
-        }
-
-        /// <summary>
-        /// P0: gate called by ReceiveDamage Harmony patch (Client side).
-        /// When EnableHostDrivenEnemyProxy and SuppressAllClientPuppetDamage are true,
-        /// returns true for ANY damage where the source is a client puppet enemy.
-        /// This prevents any client-local enemy AI from dealing real damage, regardless of
-        /// whether an authorized window is open. Host-authoritative damage arrives via
-        /// HostDamageRequest packets and is not suppressed here.
-        /// </summary>
-        public static bool ShouldSuppressAllClientPuppetDamage(object? npcSource)
-        {
-            if (!Plugin.Cfg.EnableHostDrivenEnemyProxy.Value) return false;
-            if (!Plugin.Cfg.SuppressAllClientPuppetDamage.Value) return false;
-            if (NetConfig.GetMode() != NetMode.Client) return false;
-            if (npcSource == null) return false;
-
-            // Check if the damaging entity is a known puppet.
-            int npcId = ObjectIdentity(npcSource);
-            if (npcId == 0) return false;
-
-            bool isPuppet = ActiveEnemyPuppetsByNpcId.ContainsKey(npcId);
-
-            // Also suppress for quarantined client-only entities (no host binding).
-            if (!isPuppet)
-            {
-                var snap = FindSnapshotForRuntimeObject(npcSource);
-                if (snap != null)
-                {
-                    string qKey = GetSnapshotTargetKey(snap);
-                    if (!string.IsNullOrWhiteSpace(qKey) && ClientQuarantinedEntities.Contains(qKey))
-                        isPuppet = true;
-                }
-            }
-
-            if (!isPuppet) return false;
-
-            _clientPuppetDamageSuppressed++;
-            if (Plugin.Cfg.LogClientPuppetDamageSuppression.Value)
-            {
-                int id = npcId;
-                if (ActiveEnemyPuppetsByNpcId.TryGetValue(id, out var rec))
-                    Plugin.Log.Info($"[Phase5] Suppressed puppet damage src={rec.Snapshot.ActorName} idx={rec.Snapshot.SpawnIndex}");
-            }
-            return true;
         }
 
         /// <summary>
