@@ -6201,9 +6201,9 @@ namespace SULFURTogether.Networking
                     return;
                 }
 
-                if (state.Kind == NetPlayerLifeStateKind.HostDamageRequest)
+                if (state.Kind == NetPlayerLifeStateKind.HostDamageRequest || state.Kind == NetPlayerLifeStateKind.HostExplosion)
                 {
-                    NetLogger.Warn($"[PlayerLife] Ignoring client-sent HostDamageRequest from {peerId}");
+                    NetLogger.Warn($"[PlayerLife] Ignoring client-sent {state.Kind} from {peerId}");
                     return;
                 }
 

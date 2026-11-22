@@ -50,6 +50,7 @@ namespace SULFURTogether.Patches
             DesertPikeRiderPatches.Apply(harmony);      // PK-6 — a desert pike seats the same riders on every machine
             LocalTransitionPatches.Apply(harmony);      // JF-1 — a client starts a host follow only between levels, not mid-generation
             CopyDamagePatches.Apply(harmony);           // ED-2 — a copy's hit on the client's own player defers to the host's forwarded hit
+            ForwardedHitPatches.Apply(harmony);         // ED-3 — enemy explosions resolved on the client; forwarded hits parryable
             Plugin.Log.Info("[PatchBootstrap] Done.");
         }
     }

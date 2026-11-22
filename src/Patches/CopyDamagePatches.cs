@@ -27,6 +27,8 @@ namespace SULFURTogether.Patches
     /// <item>its <c>DamageSourceData.sourceUnit</c> is a copy the host drives (<c>IsClientEnemyPuppetNpc</c>,
     /// <c>IsHostBoundEntity</c> or <c>IsRuntimeMirroredEntity</c>).</item>
     /// </list>
+    /// (For an explosion the host's counterpart is not the stand-in's hit but a HostExplosion event the client resolves
+    /// against its own player — ED-3, <c>EnemyExplosionRelay</c>.)
     /// The mechanisms: <c>Npc.HandleMeleeHit</c> (a swing), <c>ProjectileUtilities.ProcessUnitHit</c> (a projectile),
     /// <c>ExplosionManager.Update</c> (every queued explosion), <c>ShockwaveEffectPart.OnTriggerEnter</c> and
     /// <c>DamageTrigger.ApplyDamage(Unit)</c> (the two shockwave prefabs). Only the hit's own <c>ReceiveDamage</c> is
@@ -52,6 +54,31 @@ namespace SULFURTogether.Patches
         private static string? _scope;
 
         private const string Melee = "melee", Projectile = "projectile", Explosion = "explosion", Shockwave = "shockwave";
+
+        // ED-3 (host): the parry the game just offered the stand-in inside a swing or a projectile hit — set by the
+        // Unit.TryParryWithWeapon postfix, taken by the damage that follows it, cleared at every scope boundary so it never
+        // reaches a later hit. The game offers it right before a swing's damage (Npc.HandleMeleeHit) and before each
+        // damage component of a projectile (ProjectileUtilities.ProcessUnitHit), never before a projectile's explicit
+        // damage, so only damage a player could parry is marked.
+        private static byte _parryOpportunity;
+
+        /// <summary>HOST (ED-3): the game offered the stand-in a parry of this type.</summary>
+        public static void NoteParryOpportunity(byte kind)
+        {
+            if (_scope == Melee || _scope == Projectile) _parryOpportunity = kind;
+        }
+
+        /// <summary>HOST (ED-3): the parry type of the damage being forwarded right now (a MeleeParryTypes value), or 0
+        /// when the game offered no parry for it. Taking it clears it.</summary>
+        public static byte TakeParryOpportunity()
+        {
+            byte kind = _parryOpportunity;
+            _parryOpportunity = 0;
+            return kind;
+        }
+
+        /// <summary>BOTH ends (ED-3): is <c>ExplosionManager.Update</c> resolving explosions right now?</summary>
+        public static bool InExplosion => _scope == Explosion;
 
         public static void Apply(Harmony harmony)
         {
@@ -80,14 +107,15 @@ namespace SULFURTogether.Patches
                 Plugin.Log.Info($"[CopyDamage] Patched {patched} enemy hit mechanisms (a copy's hit on the local player defers to the host's).");
         }
 
-        private static void EnterMelee(out string? __state) { __state = _scope; _scope = Melee; }
-        private static void EnterProjectile(out string? __state) { __state = _scope; _scope = Projectile; }
-        private static void EnterExplosion(out string? __state) { __state = _scope; _scope = Explosion; }
-        private static void EnterShockwave(out string? __state) { __state = _scope; _scope = Shockwave; }
+        private static void EnterMelee(out string? __state) { __state = _scope; _scope = Melee; _parryOpportunity = 0; }
+        private static void EnterProjectile(out string? __state) { __state = _scope; _scope = Projectile; _parryOpportunity = 0; }
+        private static void EnterExplosion(out string? __state) { __state = _scope; _scope = Explosion; _parryOpportunity = 0; }
+        private static void EnterShockwave(out string? __state) { __state = _scope; _scope = Shockwave; _parryOpportunity = 0; }
 
         private static Exception? ExitScope(Exception? __exception, string? __state)
         {
             _scope = __state;
+            _parryOpportunity = 0;
             return __exception;
         }
 
@@ -120,7 +148,8 @@ namespace SULFURTogether.Patches
                     default: DroppedShockwave++; break;
                 }
                 if (Plugin.Cfg.LogEnemyHostDamageAuthority.Value)
-                    Plugin.Log.Info($"[EnemyDamageAuthority] dropped a copy's {scope} hit on the local player dmg={damage:0.##} type={source.damageType} owner={owner.name} source={source.name}");
+                    Plugin.Log.Info($"[EnemyDamageAuthority] dropped a copy's {scope} hit on the local player dmg={damage:0.##} type={source.damageType} owner={owner.name} source={source.name}"
+                        + (source.sourcePosition.HasValue ? $" from=({source.sourcePosition.Value.x:F2},{source.sourcePosition.Value.y:F2},{source.sourcePosition.Value.z:F2})" : ""));
                 return true;
             }
             catch { return false; }

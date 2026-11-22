@@ -1287,6 +1287,12 @@ namespace SULFURTogether.Patches
                     if (ReadDamageTypeInt(ffSource) == (int)PerfectRandom.Sulfur.Core.Stats.DamageTypes.Punish)
                         return false;
 
+                    // ED-3: an enemy's explosion reaches the client as a HostExplosion event (EnemyExplosionRelay) and is
+                    // resolved there against its own player; the stand-in's own hit by it is not forwarded as well.
+                    var sourceData = ffSource is PerfectRandom.Sulfur.Core.Units.DamageSourceData sd ? sd : (PerfectRandom.Sulfur.Core.Units.DamageSourceData?)null;
+                    if (CopyDamagePatches.InExplosion && sourceData.HasValue && EnemyExplosionRelay.IsRelayedOwner(sourceData.Value.sourceUnit))
+                        return false;
+
                     bool fromLocalPlayer = FriendlyFireClassifier.IsFromLocalPlayer(ffSource);
                     FriendlyFireClassifier.LogClassification("host proxy hit", ffSource, damage, fromLocalPlayer);
                     if (fromLocalPlayer)
@@ -1300,8 +1306,27 @@ namespace SULFURTogether.Patches
                     // Forward the real DamageTypes value (enum) so the client applies the correct type instead of None(0),
                     // which the wrapper rejects outright. The synthetic ranged-hit path has no real type and passes 0.
                     int damageTypeInt = ReadDamageTypeInt(ffSource);
+                    // ED-3: damage the game let a player parry (it offered the stand-in a parry right before it) can be
+                    // parried on the client; tell it which kind, and from where.
+                    byte hitKind = CopyDamagePatches.TakeParryOpportunity();
+                    Vector3 attackOrigin = default;
+                    int attackerIdx = 0;
+                    if (fromLocalPlayer || !sourceData.HasValue || sourceData.Value.sourceUnit == null)
+                        hitKind = 0;
+                    else
+                    {
+                        if (hitKind != 0)
+                        {
+                            var attacker = sourceData.Value.sourceUnit;
+                            attackOrigin = hitKind == 2 && sourceData.Value.sourcePosition.HasValue
+                                ? sourceData.Value.sourcePosition.Value
+                                : attacker.transform.position;
+                            NetGameplayProbeManager.TryGetHostEntityBinding(attacker, out attackerIdx, out _);
+                        }
+                    }
                     NetPlayerLifeManager.ReportHostAuthoritativeEnemyDamage(proxyPeer, damage,
-                        fromLocalPlayer ? "player friendly fire" : "enemy via target proxy", hitPos, damageTypeInt);
+                        fromLocalPlayer ? "player friendly fire" : "enemy via target proxy", hitPos, damageTypeInt,
+                        hitKind, attackOrigin, attackerIdx);
                     return false; // suppress local proxy damage
                 }
 

@@ -28,6 +28,12 @@ namespace SULFURTogether.Networking.Gameplay
             w.Put(state.DamageAmount);
             w.Put(state.DamageType);
             w.Put(state.Progress);
+            w.Put(state.HitKind);
+            w.Put(state.AttackOrigin.x);
+            w.Put(state.AttackOrigin.y);
+            w.Put(state.AttackOrigin.z);
+            w.Put(state.AttackerSpawnIndex);
+            w.Put(state.Radius);
         }
 
         public static bool TryRead(NetPacketReader r, out NetPlayerLifeState state)
@@ -55,6 +61,13 @@ namespace SULFURTogether.Networking.Gameplay
                 state.DamageAmount = r.GetFloat();
                 state.DamageType = r.GetInt();
                 state.Progress = r.GetFloat();
+                state.HitKind = r.GetByte();
+                float ox = r.GetFloat();
+                float oy = r.GetFloat();
+                float oz = r.GetFloat();
+                state.AttackOrigin = new Vector3(ox, oy, oz);
+                state.AttackerSpawnIndex = r.GetInt();
+                state.Radius = r.GetFloat();
                 return true;
             }
             catch (Exception ex)

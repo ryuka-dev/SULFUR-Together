@@ -7782,6 +7782,25 @@ namespace SULFURTogether.Networking.Gameplay
             return false;
         }
 
+        /// <summary>ED-3 (client): the host SpawnIndex a local copy answers to, by either binding ED-2 counts as a copy (a
+        /// host-bound entity or an RT3-mirrored runtime spawn); false for a unit no host enemy drives.</summary>
+        public static bool TryGetCopyHostSpawnIndex(object? entity, out int hostSpawnIndex)
+        {
+            hostSpawnIndex = 0;
+            try
+            {
+                if (entity == null) return false;
+                if (entity is UnityEngine.Object uo && uo == null) return false;
+                string key = LocalKeyForObject(entity);
+                if (string.IsNullOrWhiteSpace(key)) return false;
+                if (ClientLocalKeyToHostSpawnIndex.TryGetValue(key, out int idx) && idx > 0) { hostSpawnIndex = idx; return true; }
+                foreach (var kv in _runtimeSpawnBindingsByHostIdx)
+                    if (string.Equals(kv.Value, key, StringComparison.Ordinal)) { hostSpawnIndex = kv.Key; return true; }
+            }
+            catch { }
+            return false;
+        }
+
         /// <summary>PK-1: does this local entity currently answer to a host SpawnIndex? Callers that suppress local
         /// simulation in favour of host replay must fail OPEN on false — an unbound entity gets no host events, so
         /// blocking it would freeze it for good.</summary>

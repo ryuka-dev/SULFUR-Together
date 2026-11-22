@@ -311,6 +311,13 @@ namespace SULFURTogether.Networking.Gameplay
                 return;
             }
 
+            if (state.Kind == NetPlayerLifeStateKind.HostExplosion)
+            {
+                if (targetsLocal)
+                    ApplyHostExplosionToLocalPlayer(state);
+                return;
+            }
+
             if (state.Kind == NetPlayerLifeStateKind.DamageTakenReport)
             {
                 if (receivedOnHost)
@@ -379,16 +386,55 @@ namespace SULFURTogether.Networking.Gameplay
         // rule can only run on the client, and only if the hits reach it together: hits the host sends in one frame
         // arrive and are applied in one client frame. (5.7-B8 summed hits per 0.1 s instead and sent the first at once
         // and the rest as a later message, which landed outside that window and cost the client a second hit.)
-        public static void ReportHostAuthoritativeEnemyDamage(string targetPeerId, float damage, string reason, Vector3 hitPosition, int damageTypeInt = 0)
+        // ED-3: hitKind / attackOrigin / attackerSpawnIndex describe a parryable hit (a swing or a projectile) so the
+        // client can parry it (ForwardedHitParry); 0 / default for anything else.
+        public static void ReportHostAuthoritativeEnemyDamage(string targetPeerId, float damage, string reason, Vector3 hitPosition, int damageTypeInt = 0,
+            byte hitKind = 0, Vector3 attackOrigin = default, int attackerSpawnIndex = 0)
         {
             if (NetConfig.GetMode() != NetMode.Host) return;
             if (string.IsNullOrWhiteSpace(targetPeerId)) return;
             if (targetPeerId == GetLocalPeerId()) return;
             if (damage <= 0f) return;
-            SendEnemyDamageToClient(targetPeerId, damage, reason, hitPosition, damageTypeInt);
+            SendEnemyDamageToClient(targetPeerId, damage, reason, hitPosition, damageTypeInt, hitKind, attackOrigin, attackerSpawnIndex);
         }
 
-        private static void SendEnemyDamageToClient(string targetPeerId, float damage, string reason, Vector3 hitPosition, int damageTypeInt)
+        /// <summary>ED-3 (host): an enemy explosion went off near <paramref name="targetPeerId"/>'s stand-in; the client
+        /// resolves it against its own player (EnemyExplosionRelay).</summary>
+        public static void ReportHostEnemyExplosion(string targetPeerId, Vector3 point, float damage, float radius, int damageTypeInt, int attackerSpawnIndex, Vector3 ownerPosition)
+        {
+            if (NetConfig.GetMode() != NetMode.Host) return;
+            if (string.IsNullOrWhiteSpace(targetPeerId) || targetPeerId == GetLocalPeerId()) return;
+            NetRunStateBridge.TryGetLocalRunState(out var runState);
+            int seq = ++_sequence;
+            var state = new NetPlayerLifeState
+            {
+                EventId = $"host:enemyExplosion:{seq}:{targetPeerId}",
+                SourcePeerId = "host",
+                TargetPeerId = targetPeerId,
+                PlayerName = Plugin.Cfg.PlayerName.Value,
+                ChapterName = runState.ChapterName,
+                LevelIndex = runState.LevelIndex,
+                HasLevelSeed = runState.HasLevelSeed,
+                LevelSeed = runState.LevelSeed,
+                Sequence = seq,
+                Kind = NetPlayerLifeStateKind.HostExplosion,
+                HasPosition = true,
+                Position = point,
+                SentAt = Time.realtimeSinceStartup,
+                Reason = "enemy explosion",
+                DamageAmount = damage,
+                DamageType = damageTypeInt,
+                AttackerSpawnIndex = attackerSpawnIndex,
+                AttackOrigin = ownerPosition,
+                Radius = radius
+            };
+            NetGameplaySyncBridge.ReportHostPlayerLifeStateToAll(state);
+            if (Plugin.Cfg.LogEnemyHostDamageAuthority.Value)
+                NetLogger.Info($"[EnemyDamageAuthority] Host sent explosion target={targetPeerId} dmg={damage:F1} radius={radius:F1} pos=({point.x:F2},{point.y:F2},{point.z:F2}) attacker={attackerSpawnIndex}");
+        }
+
+        private static void SendEnemyDamageToClient(string targetPeerId, float damage, string reason, Vector3 hitPosition, int damageTypeInt,
+            byte hitKind, Vector3 attackOrigin, int attackerSpawnIndex)
         {
             NetRunStateBridge.TryGetLocalRunState(out var runState);
             int seq = ++_sequence;
@@ -409,7 +455,10 @@ namespace SULFURTogether.Networking.Gameplay
                 SentAt = Time.realtimeSinceStartup,
                 Reason = reason ?? "enemy ranged damage",
                 DamageAmount = damage,
-                DamageType = damageTypeInt
+                DamageType = damageTypeInt,
+                HitKind = hitKind,
+                AttackOrigin = attackOrigin,
+                AttackerSpawnIndex = attackerSpawnIndex
             };
 
             NetGameplaySyncBridge.ReportHostPlayerLifeStateToAll(state);
@@ -987,6 +1036,21 @@ namespace SULFURTogether.Networking.Gameplay
             }
         }
 
+        /// <summary>ED-3 (client): resolve a host enemy explosion against the local player by the game's own rule and apply
+        /// what reaches it through the same path as a forwarded hit.</summary>
+        private static void ApplyHostExplosionToLocalPlayer(NetPlayerLifeState state)
+        {
+            if (state == null) return;
+            if (!(ResolveCurrentLocalPlayerUnit() is PerfectRandom.Sulfur.Core.Units.Unit player) || player == null) return;
+            Vector3 point = EnemyExplosionRelay.PlaceRelativeToCopy(state.Position, state.AttackerSpawnIndex, state.AttackOrigin, out float copyOffset);
+            float damage = EnemyExplosionRelay.ResolveAgainstPlayer(player, point, state.DamageAmount, state.Radius, out string detail);
+            if (Plugin.Cfg.LogEnemyHostDamageAuthority.Value)
+                NetLogger.Info($"[EnemyDamageAuthority] host explosion resolved dmg={damage:F1} (of {state.DamageAmount:F1}, radius {state.Radius:F1}) at=({point.x:F2},{point.y:F2},{point.z:F2}) copyOffset={copyOffset:F2} {detail} attacker={state.AttackerSpawnIndex}");
+            if (!(damage > 0f)) return;
+            state.DamageAmount = damage;
+            ApplyHostDamageToLocalPlayer(state);
+        }
+
         /// <summary>FF-1: apply a validated client friendly-fire hit to the HOST's own player. Thin wrapper over the
         /// same apply path a client uses for a HostDamageRequest — native ReceiveDamage feedback, armor, elemental
         /// status and the downed/death interception all come along. The state is built locally so
@@ -1021,6 +1085,15 @@ namespace SULFURTogether.Networking.Gameplay
             if (_localDowned)
             {
                 StabilizeDownedLocalPlayer("host damage while already downed");
+                return;
+            }
+
+            // ED-3: a forwarded swing or shot can be parried, as the game parries a hit before its damage.
+            if (state.HitKind != 0 && unit is PerfectRandom.Sulfur.Core.Units.Unit playerUnit
+                && ForwardedHitParry.TryParry(playerUnit, state.HitKind, state.AttackerSpawnIndex, state.AttackOrigin))
+            {
+                if (Plugin.Cfg.LogEnemyHostDamageAuthority.Value)
+                    NetLogger.Info($"[EnemyDamageAuthority] parried a forwarded hit kind={state.HitKind} amount={damage:F1} attacker={state.AttackerSpawnIndex}");
                 return;
             }
 

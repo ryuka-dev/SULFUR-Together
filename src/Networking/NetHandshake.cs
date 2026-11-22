@@ -50,7 +50,9 @@ namespace SULFURTogether.Networking
         // 45: SR-3 session requirements. HandshakeRequest ends with the client's requirement block; HandshakeAccepted
         //     ends with the host's room token and requirement block. Both are required: an end that does not send them
         //     cannot be compared, and item ids are only exchanged with an end that was.
-        public const int    ProtocolVersion  = 45;
+        // 46: ED-3 — PlayerLifeState ends with HitKind, AttackOrigin, AttackerSpawnIndex and Radius (a forwarded hit can
+        //     be parried; an enemy explosion reaches a client as a HostExplosion event).
+        public const int    ProtocolVersion  = 46;
 
         /// <summary>The game build this process runs (Unity's Application.version, e.g. "1.0.2"). Read once on the main
         /// thread at first use; the handshake is written and read from the main-thread network poll.</summary>

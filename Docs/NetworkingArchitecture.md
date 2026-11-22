@@ -251,7 +251,24 @@ same attack, and its own hit on the local player is dropped (`CopyDamagePatches`
    and neither is a status tick (`states.isPeriodicModifier`), even one the game fires inside the hit.
 
 The copy's attack still plays, its hits on other units and props still land, and the status a hit applies still lands
-with all of its damage over time, which stays client-local (the host absorbs periodic ticks on the stand-in). Mechanisms whose host
+with all of its damage over time, which stays client-local (the host absorbs periodic ticks on the stand-in).
+
+Two parts of the game's hit rules need the client's player and are therefore decided on the client (ED-3):
+
+- **Parry.** The game parries a swing or a shot on the victim's end, before the damage (`Unit.TryParryWithWeapon`).
+  On the host, the game offering the stand-in that parry marks the damage that follows as parryable; the forwarded
+  hit carries `HitKind` (melee / projectile), `AttackOrigin` and `AttackerSpawnIndex` (`PlayerLifeState`). Each such
+  attack reaches the client twice — the copy's own hit and the forwarded one — and the client decides the parry once,
+  at whichever comes first (the game's test, against its copy of the attacker); the other takes the same answer
+  (`ForwardedHitParry`), so one attack never spends two parry charges. Of the copy's own hits only a parry is remembered.
+- **Explosions.** The host does not judge an enemy explosion against the stand-in (not a player: no line-of-sight
+  check, no centre). At the start of `ExplosionManager.Update` the host reads every explosion that Update resolves —
+  queued ones and those a projectile's hit job wrote into `commandData` — and sends each enemy-owned one as a
+  `HostExplosion` event (point, damage, radius, type, owner and its position) to each client whose stand-in is near.
+  The client moves an explosion centred on its owner along with its copy of the owner, and resolves it with the game's
+  rule — distance from the player's `ExplosionCenter`, line of sight from its eyes, linear falloff
+  (`EnemyExplosionRelay`). The stand-in's own hit by that explosion is absorbed on the host. Only explosions an enemy
+  owns are relayed. A client-sent `HostExplosion`, like a client-sent `HostDamageRequest`, is ignored by the host. Mechanisms whose host
 side does not reach the stand-in are left alone, so the copy stays the client's only source for them — for example a
 boss's `DonutCollision` ring.
 

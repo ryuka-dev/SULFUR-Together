@@ -31,6 +31,13 @@ namespace SULFURTogether.Networking.Gameplay
         // DR-1: Host→All, one-shot — the Host invalidated the active rescue (rescuer released the key / left
         // range / died, or the target stopped being Downed for some other reason) before it completed.
         RescueCancelled = 10,
+
+        // ED-3: Host→client, an enemy's explosion went off near this client's stand-in. Position = the explosion point,
+        // DamageAmount = its damage at the centre, Radius = its damage radius, DamageType = its type. The client resolves
+        // it against its own player exactly as the game's ExplosionManager resolves an explosion against the player
+        // (distance from the player's ExplosionCenter, line of sight from its eyes, linear falloff), instead of the host
+        // judging the stand-in, which has neither the player's centre nor its line-of-sight check.
+        HostExplosion = 11,
     }
 
     internal sealed class NetPlayerLifeState
@@ -57,6 +64,19 @@ namespace SULFURTogether.Networking.Gameplay
         // DR-1: authoritative rescue progress, 0..1. Only meaningful on RescueProgress (Host→All); zero/unused on
         // every other Kind.
         public float Progress { get; set; }
+
+        // ED-3: what a HostDamageRequest forwards, so the client can parry it as the game parries a hit before its damage
+        // (Npc.HandleMeleeHit / ProjectileUtilities.ProcessUnitHit call Unit.TryParryWithWeapon first). HitKind is a
+        // MeleeParryTypes value: 0 = not parryable, 1 = a melee swing, 2 = a projectile. AttackOrigin is where the attack
+        // came from on the host (the attacker for a swing, the shot's origin for a projectile; on a HostExplosion the
+        // owner's position, so the client can place the point relative to its copy of the owner); AttackerSpawnIndex the
+        // attacker's host SpawnIndex (0 = unknown). Zero on every other Kind.
+        public byte HitKind { get; set; }
+        public Vector3 AttackOrigin { get; set; }
+        public int AttackerSpawnIndex { get; set; }
+
+        // ED-3: HostExplosion only — the explosion's damage radius.
+        public float Radius { get; set; }
 
         public bool HasScene => !string.IsNullOrWhiteSpace(ChapterName) && ChapterName != "<unknown>" && LevelIndex >= 0;
         public string SceneKey => NetSceneName.SceneCompareKey(ChapterName, LevelIndex);
