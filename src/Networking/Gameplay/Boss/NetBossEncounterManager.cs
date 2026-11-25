@@ -248,6 +248,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _preFightLogged.Clear();
                 _luciaEyeConsumed.Clear();
                 _luciaEyeCycleComplete.Clear();
+                _luciaDeathHandled.Clear();
                 _pendingEyeComplete.Clear();
                 _witchAppliedRevision.Clear();
                 _witchPhaseRevision = 0;
@@ -345,6 +346,7 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 _preFightLogged.Clear();
                 _luciaEyeConsumed.Clear();
                 _luciaEyeCycleComplete.Clear();
+                _luciaDeathHandled.Clear();
                 _pendingEyeComplete.Clear();
                 _witchAppliedRevision.Clear();
                 _witchPhaseRevision = 0;
@@ -4413,23 +4415,43 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             get { try { return Plugin.Cfg.EnableLuciaDeathAuthority.Value; } catch { return false; } }
         }
 
-        /// <summary>PREFIX of LuciaBossFightHelper.OnBossDead(Unit): isolate the host-only world results. On the HOST
-        /// (and single-player) the full vanilla OnBossDead runs (loot placement, checkpoint/save, presentation). On a
-        /// joined CLIENT it returns false to BLOCK the body so the Client's bossUnit.Die() does NOT duplicate loot/save
-        /// — the Client's presentation is replayed separately by TryApplyLuciaDeath. Never throws.</summary>
+        // 5.4-F6b (CLIENT): set while the host's Lucia death is being applied here; only then may the vanilla
+        // OnBossDead body run on a joined client.
+        private static bool _applyingHostLuciaDeath;
+        // 5.4-F6b (CLIENT): the Lucia helpers (instance ids) whose OnBossDead body has run on this end, so it runs once
+        // whichever path reaches it. Cleared with the other per-level encounter state.
+        private static readonly HashSet<int> _luciaDeathHandled = new HashSet<int>();
+
+        /// <summary>PREFIX of LuciaBossFightHelper.OnBossDead(Unit). The host (and single-player) runs it as the game
+        /// does. On a joined client the body runs only for the death the host reported (<see cref="HandleHostLuciaDeath"/>):
+        /// that body is the client's own end of the fight, as Terrorbaum's is on a client:
+        /// its own reward (<c>luciaLoot[i].PlaceLoot()</c>, rolled by this end's loot rules), its own progress and save
+        /// (checkpoint <c>BossDead_Lucia</c>, the unlocked environment) and the end of the boss music
+        /// (<c>MusicPlayer.StopPlaying</c>). Any other local death of the client's Lucia is not the fight's end and is
+        /// blocked. Never throws.</summary>
         public static bool OnLocalLuciaBossDead_Pre(object component, object unit)
         {
             try
             {
                 if (!Enabled || component == null || !LuciaDeathEnabled) return true;
-                if (InReentry) return true; // our own apply path — let it run (we don't wrap the client Die in reentry)
                 NetMode mode = NetGameplaySyncBridge.BossMode;
-                if (mode == NetMode.Host) return true; // host is authoritative for loot/save
+                if (mode == NetMode.Host) return true; // the host's fight
                 bool joined = false; try { joined = NetClientJoinFlow.SessionJoinedHost; } catch { }
                 if (mode != NetMode.Client || !joined) return true; // single-player / not joined — keep own play
-                // Joined client: block the loot/save body. Presentation is handled in TryApplyLuciaDeath.
-                if (LogOn) Plugin.Log.Info($"[LuciaDeath] client OnBossDead loot/save body BLOCKED (isolated) root={BossReflect.RootName(component)}");
-                return false;
+                if (!_applyingHostLuciaDeath)
+                {
+                    if (LogOn) Plugin.Log.Info($"[LuciaDeath] client OnBossDead blocked: the host has not reported Lucia dead root={BossReflect.RootName(component)}");
+                    return false;
+                }
+                int id = BossReflect.InstanceId(component);
+                bool first; lock (_lock) { first = _luciaDeathHandled.Add(id); }
+                if (!first)
+                {
+                    if (LogOn) Plugin.Log.Info($"[LuciaDeath] client OnBossDead already ran root={BossReflect.RootName(component)}");
+                    return false;
+                }
+                Plugin.Log.Info($"[LuciaDeath] client runs OnBossDead (own reward, progress, music stop) root={BossReflect.RootName(component)}");
+                return true;
             }
             catch { return true; }
         }
@@ -4460,9 +4482,9 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             catch (Exception ex) { Plugin.Log.Warn($"[LuciaDeath] OnHostLuciaBossDead_Post failed: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        /// <summary>CLIENT: the Host's Lucia died. Run a safe local death (real Unit death + boss-end presentation, with
-        /// loot/save isolated by the OnBossDead prefix), clear the boss bar, and enable terminal suppression so no more
-        /// hit/state is sent for this encounter.</summary>
+        /// <summary>CLIENT: the Host's Lucia died. Run the boss's real death on this end: the unit's death, then the vanilla
+        /// OnBossDead once (presentation, boss bar, music stop, the client's own reward and progress). Terminal suppression
+        /// then keeps any more hit/state from being sent for this encounter.</summary>
         public static void HandleHostLuciaDeath(NetLuciaDeath msg)
         {
             EnsureRunScope(); // #20: roll before this message records anything for the level
@@ -4482,11 +4504,27 @@ namespace SULFURTogether.Networking.Gameplay.Boss
                 if (!adapter.IsEyeBoss) { Plugin.Log.Warn($"[LuciaDeath] client encounter not Lucia key={msg.EncounterKey}"); return; }
                 Plugin.Log.Info($"[LuciaDeath] local Lucia resolved key={msg.EncounterKey} root={BossReflect.RootName(component)}");
 
-                // NOT wrapped in the reentry guard: the client's bossUnit.Die() must trigger the OnBossDead prefix so it
-                // can block the loot/save body (reentry would let the full vanilla body run and duplicate loot).
+                // The unit's real death reaches OnBossDead through onDeath when the fight subscribed it here; the body
+                // then runs once (OnLocalLuciaBossDead_Pre). When it did not (the copy was already dead, or onDeath was
+                // never subscribed on this end), the handler is called directly with the same allowance.
                 bool ok; string detail;
-                try { ok = adapter.TryApplyLuciaDeath(component, out detail); }
-                catch (Exception ex) { ok = false; detail = $"exception {ex.GetType().Name}: {ex.Message}"; }
+                _applyingHostLuciaDeath = true;
+                try
+                {
+                    try { ok = adapter.TryApplyLuciaDeath(component, out detail); }
+                    catch (Exception ex) { ok = false; detail = $"exception {ex.GetType().Name}: {ex.Message}"; }
+                    bool handled; lock (_lock) { handled = _luciaDeathHandled.Contains(BossReflect.InstanceId(component)); }
+                    if (!handled)
+                    {
+                        bool ran; string runDetail;
+                        try { ran = adapter.TryRunLuciaDeathHandler(component, out runDetail); }
+                        catch (Exception ex) { ran = false; runDetail = $"exception {ex.GetType().Name}: {ex.Message}"; }
+                        detail += $" handler=direct({ran}: {runDetail})";
+                        if (!ran) Plugin.Log.Warn($"[LuciaDeath] client could not run OnBossDead key={msg.EncounterKey}: {runDetail}");
+                    }
+                    else detail += " handler=onDeath";
+                }
+                finally { _applyingHostLuciaDeath = false; }
 
                 if (ok) LuciaDeathApplied++;
                 Plugin.Log.Info($"[LuciaDeath] local death applied key={msg.EncounterKey} ok={ok}: {detail}");

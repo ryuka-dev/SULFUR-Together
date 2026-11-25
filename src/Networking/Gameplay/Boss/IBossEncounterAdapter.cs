@@ -278,11 +278,13 @@ namespace SULFURTogether.Networking.Gameplay.Boss
 
         // ---- Phase 5.4-F6: Lucia terminal death authority ----
 
-        /// <summary>CLIENT: run a SAFE local Lucia death — real Unit death (dead state / death animation / despawn) +
-        /// the boss-end presentation (bar detach, "Dead" anim, stop phase routines, music stop), but WITHOUT the
-        /// host-only world results (loot placement, checkpoint/save). Those are isolated by the OnBossDead prefix.
-        /// Idempotent, never throws.</summary>
+        /// <summary>CLIENT: the real Unit death of the local Lucia (dead state / death animation / despawn); its onDeath
+        /// reaches OnBossDead when the fight subscribed it on this end. Idempotent, never throws.</summary>
         bool TryApplyLuciaDeath(object component, out string detail);
+
+        /// <summary>CLIENT (5.4-F6b): call the boss's own OnBossDead directly, for a host death whose Die() did not
+        /// reach it. Never throws.</summary>
+        bool TryRunLuciaDeathHandler(object component, out string detail);
 
         // ---- Phase 5.4-E3: phase/state broadcast (Witch and other phase bosses) ----
 

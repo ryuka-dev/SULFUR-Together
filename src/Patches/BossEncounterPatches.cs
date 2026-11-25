@@ -756,8 +756,8 @@ namespace SULFURTogether.Patches
         }
 
         /// <summary>Phase 5.4-F6: prefix + postfix LuciaBossFightHelper.OnBossDead(Unit) (the overridden death handler
-        /// bound to bossUnit.onDeath in TriggerFight). Prefix isolates the host-only loot/save body on the client;
-        /// postfix lets the Host broadcast the terminal death.</summary>
+        /// bound to bossUnit.onDeath in TriggerFight). Prefix lets a joined client run the body only for the death the
+        /// host reported (5.4-F6b); postfix lets the Host broadcast the terminal death.</summary>
         private static void PatchLuciaDeath(Harmony harmony, Type? type)
         {
             if (type == null) { Log.Info("[LuciaDeath] LuciaBossFightHelper type not found (skipped)"); return; }
@@ -774,7 +774,7 @@ namespace SULFURTogether.Patches
             }
         }
 
-        // Returns false to BLOCK the loot/save body on a joined client (presentation is replayed by the manager).
+        // Returns false on a joined client for a death the host has not reported (or a second run of the body).
         private static bool LuciaOnBossDead_Pre(object __instance, object unit)
         {
             try { return NetBossEncounterManager.OnLocalLuciaBossDead_Pre(__instance, unit); }

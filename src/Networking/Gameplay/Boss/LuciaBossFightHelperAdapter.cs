@@ -146,53 +146,32 @@ namespace SULFURTogether.Networking.Gameplay.Boss
             return true;
         }
 
-        // ---- Phase 5.4-F6: Lucia terminal death. Confirmed by decompilation of LuciaBossFightHelper.OnBossDead(Unit):
-        //   PRESENTATION (safe on client): eventAnimator/bossAnimator.speed=1, eventAnimator.SetBool("Dead",true),
-        //     bossUnit.AttachToBossUI(false), destructionAnimator.SetInteger("DestructionLevel",3), StopAllCoroutines(),
-        //     MusicPlayer.StopPlaying(5f).
-        //   HOST-ONLY world results (must NOT run on client): PlayerProgress.SaveCheckpoints, SulfurSave.SaveBackup,
-        //     luciaLoot[i].PlaceLoot(), LootManager.SetBossFightLoot — these are isolated by the OnBossDead prefix
-        //     (the client's bossUnit.Die() → OnBossDead is blocked), so we replay only the presentation subset here. ----
+        // ---- Phase 5.4-F6 / 5.4-F6b: Lucia terminal death. LuciaBossFightHelper.OnBossDead(Unit) (game 1.0.6) is the
+        //   fight's end on the end that runs it: the presentation (eventAnimator "Dead", bar detach, DestructionLevel 3,
+        //   StopAllCoroutines), MusicPlayer.StopPlaying(5f), the checkpoint BossDead_Lucia + unlocked environment + save
+        //   write, luciaLoot[i].PlaceLoot() and LootManager.SetBossFightLoot(false). On a client all of it is the
+        //   client's own (its save, its reward), so the vanilla body runs there once for the host's death, reached
+        //   through onDeath from the Die() below, or through TryRunLuciaDeathHandler. ----
         public override bool TryApplyLuciaDeath(object component, out string detail)
         {
             var bossUnit = BossReflect.GetMember(component, "bossUnit");
             if (bossUnit == null) { detail = "no bossUnit"; return false; }
 
-            // Real Unit death (dead state / death animation / despawn). The OnBossDead prefix blocks the loot/save body
-            // on the client, so this Die() does not duplicate world results.
+            // Real Unit death (dead state / death animation / despawn); its onDeath reaches OnBossDead when the fight
+            // subscribed it on this end.
             bool alreadyDead = BossReflect.TryGetBool(bossUnit, "IsAlive", out bool alive) && !alive;
             bool died = false; string dieDetail = "already-dead";
             if (!alreadyDead) died = BossReflect.TryInvoke(bossUnit, "Die", out dieDetail);
 
-            // Presentation subset (the loot/save-free parts of OnBossDead).
-            bool barOff = BossReflect.TryInvokeBool(bossUnit, "AttachToBossUI", false, out _);
-            var eventAnimator = BossReflect.GetMember(component, "eventAnimator");
-            bool deadAnim = TrySetAnimatorBool(eventAnimator, "Dead", true);
-            bool destrSet = TrySetAnimatorInt(BossReflect.GetMember(component, "destructionAnimator"), "DestructionLevel", 3);
-            BossReflect.TryInvoke(component, "StopAllCoroutines", out _);
-
-            detail = $"died={died}({dieDetail}) alreadyDead={alreadyDead} barDetached={barOff} deadAnim={deadAnim} destruction={destrSet}";
+            detail = $"died={died}({dieDetail}) alreadyDead={alreadyDead}";
             return true;
         }
 
-        private static bool TrySetAnimatorBool(object? animator, string param, bool value)
+        public override bool TryRunLuciaDeathHandler(object component, out string detail)
         {
-            try
-            {
-                if (animator is Animator a && a != null) { a.SetBool(param, value); return true; }
-            }
-            catch { }
-            return false;
-        }
-
-        private static bool TrySetAnimatorInt(object? animator, string param, int value)
-        {
-            try
-            {
-                if (animator is Animator a && a != null) { a.SetInteger(param, value); return true; }
-            }
-            catch { }
-            return false;
+            var bossUnit = BossReflect.GetMember(component, "bossUnit");
+            if (bossUnit == null) { detail = "no bossUnit"; return false; }
+            return BossReflect.TryInvokeArg(component, "OnBossDead", bossUnit, out detail);
         }
 
         public override void TryReadState(object component, out bool hasPhase, out int phaseIndex, out bool hasPos, out Vector3 pos)

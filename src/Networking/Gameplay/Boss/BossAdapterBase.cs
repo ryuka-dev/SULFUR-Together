@@ -326,6 +326,8 @@ namespace SULFURTogether.Networking.Gameplay.Boss
         { phase = -1; restartCounter = -1; invulnerable = false; pos = Vector3.zero; return false; }
         public virtual bool TryApplyLuciaDeath(object component, out string detail)
         { detail = "not a Lucia boss"; return false; }
+        public virtual bool TryRunLuciaDeathHandler(object component, out string detail)
+        { detail = "not a Lucia boss"; return false; }
 
         // ---- Phase 5.4-F4 discrete-event authority: default = no fixed-point events ----
         public virtual string[] DiscreteEventMethods => Array.Empty<string>();
