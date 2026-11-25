@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.10.1 — Sapper mines and St. Lucia
+
+Two fixes for clients, both from player reports.
+
+**1.10.1 is still built for SULFUR 1.0.7 and the network protocol hasn't changed, but players on 1.10.0 and 1.10.1
+can't join each other, so update together.**
+
+**Fixed:**
+- **Mines laid by Black Guild Sappers didn't show up for clients.** Only the host had them, so a client could neither
+  see them nor set them off. Everyone now has the same mines. Whoever sets one off, it goes off for everyone, and
+  each player takes the blast from the mine on their own screen.
+- **Beating St. Lucia gave a client nothing, and her music kept playing.** A client now gets its own reward (with
+  shared loot on, it shares the host's instead), the music stops, and the kill counts toward the client's own
+  progress.
+
+**Known limits:** mines laid before you joined the level aren't sent to you, so you won't see them, and they can't
+hurt you either. Only tested with two players on one machine.
+
 ## 1.10.0 — SULFUR 1.0.7, enemy hits on clients
 
 This one is mostly fixes for clients, several of them reported by players after 1.9.0.

@@ -4,7 +4,7 @@ Co-op multiplayer for [b]SULFUR[/b].
 
 [b]Language:[/b] [b]English[/b] · [url=#简体中文]简体中文[/url] · [url=#日本語]日本語[/url]
 
-> [b]Version 1.10.0.[/b] Built for [b]SULFUR 1.0.7[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
+> [b]Version 1.10.1.[/b] Built for [b]SULFUR 1.0.7[/b]; it does not run on 0.19.x game builds — stay on 1.4.1 if you are still on SULFUR 0.19.9. Back up your saves, and make sure everyone runs the same version of the game and of the mod.
 
 [line]
 
@@ -445,6 +445,28 @@ SULFUR Together は他のMODを同期しません。他のMODが追加した内�
 これは非公式のファンメイドMODであり、Perfect Random や SULFUR 開発者と提携・承認されたものでは[b]ありません[/b]。SULFUR およびその素材は、それぞれの権利者に帰属します。
 
 [font=Arial Black][color=DarkOrange][size=5][b]Changelog[/b][/size][/color][/font]
+
+[color=RoyalBlue][b]1.10.1 — Sapper mines and St. Lucia[/b][/color]
+
+Two fixes for clients, both from player reports.
+
+**1.10.1 is still built for SULFUR 1.0.7 and the network protocol hasn't changed, but players on 1.10.0 and 1.10.1
+can't join each other, so update together.**
+
+[b]Fixed:[/b]
+[list]
+[*][b]Mines laid by Black Guild Sappers didn't show up for clients.[/b] Only the host had them, so a client could neither[/*]
+[/list]
+  see them nor set them off. Everyone now has the same mines. Whoever sets one off, it goes off for everyone, and
+  each player takes the blast from the mine on their own screen.
+[list]
+[*][b]Beating St. Lucia gave a client nothing, and her music kept playing.[/b] A client now gets its own reward (with[/*]
+[/list]
+  shared loot on, it shares the host's instead), the music stops, and the kill counts toward the client's own
+  progress.
+
+[b]Known limits:[/b] mines laid before you joined the level aren't sent to you, so you won't see them, and they can't
+hurt you either. Only tested with two players on one machine.
 
 [color=RoyalBlue][b]1.10.0 — SULFUR 1.0.7, enemy hits on clients[/b][/color]
 
