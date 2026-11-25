@@ -20,7 +20,7 @@ namespace SULFURTogether.Networking.Gameplay
         public int     UnitIdValue   { get; set; }   // ushort UnitSO.id.value
         public Vector3 Position      { get; set; }
         public float   RotationY     { get; set; }
-        public int     HostSpawnIndex { get; set; }
+        public int     HostSpawnIndex { get; set; }   // 0 for a Sapper mine (SM-1): matched by spawn position, never bound
         public string  ChapterName   { get; set; } = "";
         public int     LevelIndex    { get; set; } = -1;
         public bool    HasSeed       { get; set; }

@@ -228,6 +228,9 @@ namespace SULFURTogether.Networking.Gameplay
             // (SULFURTogether.Api.NetExternalSpawns). ST deliberately learns nothing about the mod: the mod
             // promises only the host spawns these, and they mirror exactly like any other one-sided source.
             if (NetExternalSpawnOwners.IsRegistered(owner)) return "ExternalMod";
+            // SM-1: a Black Guild Sapper's mine (InstantiateMine → mineSO.SpawnUnitAsync(GameManager, …)). Only the host's sapper
+            // lays mines (SapperMinePatches stops a client's copy), so the host's mine is one-sided and safe to mirror.
+            if (SapperMineSync.HostSpawnDepth > 0) return SapperMineSync.Source;
             return null;
         }
 
@@ -237,8 +240,11 @@ namespace SULFURTogether.Networking.Gameplay
         {
             int unitIdValue = ReadUnitIdValue(unitSO);
             if (unitIdValue == 0) { if (LogOn) Plugin.Log.Info($"[RuntimeSpawn] host skip (no unitId) src={source}"); return; }
-            int hostIdx = NetGameplayProbeManager.GetSpawnIndexForObject(spawnedUnit);
-            if (hostIdx <= 0) { Plugin.Log.Warn($"[RuntimeSpawn] host skip src={source} unitId={unitIdValue}: spawnIndex not ready"); return; }
+            // SM-1: a mine is a destructible, which has no spawn index; its cross-end identity is its spawn position
+            // (5.7-BR), so it goes out with index 0 and is never bound to a puppet.
+            bool mine = string.Equals(source, SapperMineSync.Source, StringComparison.Ordinal);
+            int hostIdx = mine ? 0 : NetGameplayProbeManager.GetSpawnIndexForObject(spawnedUnit);
+            if (hostIdx <= 0 && !mine) { Plugin.Log.Warn($"[RuntimeSpawn] host skip src={source} unitId={unitIdValue}: spawnIndex not ready"); return; }
             if (!NetBossEncounterManager.TryGetRunContext(out string chap, out int lvl, out bool hasSeed, out int seed)) { chap = ""; lvl = -1; }
             float rotY = 0f;
             try { if (spawnedUnit is Component c && c != null) rotY = c.transform.eulerAngles.y; } catch { }
@@ -250,7 +256,8 @@ namespace SULFURTogether.Networking.Gameplay
             };
             RuntimeSpawnBroadcast++;
             Plugin.Log.Info($"[RuntimeSpawn] host broadcasting {msg.ToCompact()}");
-            NetGameplayProbeManager.NoteHostRuntimeSpawnBroadcast(spawnedUnit); // RM-1: its removal is reported in any state
+            if (mine) SapperMineSync.NoteHostLaid(position);
+            else NetGameplayProbeManager.NoteHostRuntimeSpawnBroadcast(spawnedUnit); // RM-1: its removal is reported in any state
             NetGameplaySyncBridge.BroadcastHostRuntimeSpawn(msg);
         }
 
@@ -270,6 +277,8 @@ namespace SULFURTogether.Networking.Gameplay
                 object? unitSO = ResolveUnitSO(msg.UnitIdValue);
                 if (unitSO == null) { RuntimeSpawnMirrorFailed++; Plugin.Log.Warn($"[RuntimeSpawn] client cannot resolve UnitSO for unitId={msg.UnitIdValue}"); return; }
                 Plugin.Log.Info($"[RuntimeSpawn] client mirroring {msg.ToCompact()}");
+                if (string.Equals(msg.Source, SapperMineSync.Source, StringComparison.Ordinal))
+                    SapperMineSync.NoteMirrorLoading(msg.Position); // SM-1
                 MirrorSpawnAsync(unitSO, msg.Position, msg.RotationY, msg.HostSpawnIndex, msg.Source);
             }
             catch (Exception ex) { Plugin.Log.Warn($"[RuntimeSpawn] HandleHostRuntimeSpawn failed: {ex.GetType().Name}: {ex.Message}"); }
@@ -306,6 +315,13 @@ namespace SULFURTogether.Networking.Gameplay
                     unit = task.GetType().GetProperty("Result")?.GetValue(task);
                 }
                 if (unit == null) { RuntimeSpawnMirrorFailed++; Plugin.Log.Warn($"[RuntimeSpawn] client mirror produced null unit hostIdx={hostSpawnIndex}"); return; }
+                // SM-1: a mine is matched across ends by its spawn position, not bound to a host index.
+                if (string.Equals(source, SapperMineSync.Source, StringComparison.Ordinal))
+                {
+                    RuntimeSpawnMirrored++;
+                    SapperMineSync.OnClientMirrorSpawned(unit, position);
+                    return;
+                }
                 // RM-1: the host already reported this unit gone while the spawn above was loading (a unit spawned and
                 // discarded in the same frame). Keeping the mirror would leave a unit only this end has.
                 if (NetGameplayProbeManager.IsHostIndexGone(hostSpawnIndex))

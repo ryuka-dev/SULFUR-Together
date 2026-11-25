@@ -1289,8 +1289,9 @@ namespace SULFURTogether.Patches
 
                     // ED-3: an enemy's explosion reaches the client as a HostExplosion event (EnemyExplosionRelay) and is
                     // resolved there against its own player; the stand-in's own hit by it is not forwarded as well.
+                    // SM-1: nor is its hit by a Sapper mine, which explodes on the client's own end as well.
                     var sourceData = ffSource is PerfectRandom.Sulfur.Core.Units.DamageSourceData sd ? sd : (PerfectRandom.Sulfur.Core.Units.DamageSourceData?)null;
-                    if (CopyDamagePatches.InExplosion && sourceData.HasValue && EnemyExplosionRelay.IsRelayedOwner(sourceData.Value.sourceUnit))
+                    if (CopyDamagePatches.InExplosion && sourceData.HasValue && EnemyExplosionRelay.StandInAbsorbsExplosion(sourceData.Value))
                         return false;
 
                     bool fromLocalPlayer = FriendlyFireClassifier.IsFromLocalPlayer(ffSource);

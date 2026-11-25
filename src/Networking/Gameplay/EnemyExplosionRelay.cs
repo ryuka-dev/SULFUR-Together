@@ -40,6 +40,11 @@ namespace SULFURTogether.Networking.Gameplay
     /// <para>Only explosions an enemy owns are relayed: a player's own explosion (the host player's, friendly fire) and one
     /// owned by a remote player's stand-in keep their existing paths. The status an explosion applies is not relayed; the
     /// copy's local explosion still applies it as before.</para>
+    ///
+    /// <para>A Sapper's mine is not relayed either (SM-1, <see cref="SapperMineSync"/>): every end has the mine and its
+    /// explosion, at the same point, and judges its own player by it. The stand-in's hit by the host's mine explosion is
+    /// absorbed (<see cref="StandInAbsorbsExplosion"/>). Mine explosions are told by their explosion type and point: the
+    /// mine that owns one is destroyed by the break that queued it, usually before the explosion resolves.</para>
     /// </summary>
     internal static class EnemyExplosionRelay
     {
@@ -66,7 +71,24 @@ namespace SULFURTogether.Networking.Gameplay
         public static bool CanReadQueue => QueuedExplosions != null;
 
         // Diagnostics only (read with an inspector); never consulted.
-        public static int HostSent, ClientResolved, ClientHit;
+        public static int HostSent, ClientResolved, ClientHit, HostMineExplosions;
+
+        // SM-1 (HOST): the points of the Sapper mine explosions the current ExplosionManager.Update resolves. Refilled by
+        // the Update prefix, read by the stand-in's ReceiveDamage inside that same Update.
+        private static readonly List<Vector3> _mineExplosionPoints = new List<Vector3>();
+
+        /// <summary>HOST, from the stand-in's <c>ReceiveDamage</c> inside <c>ExplosionManager.Update</c>: the hit is not
+        /// forwarded to the client, because the client judges this explosion itself: an enemy's is relayed to it as a
+        /// HostExplosion, and a Sapper mine's goes off on the client's own end too.</summary>
+        public static bool StandInAbsorbsExplosion(DamageSourceData source)
+        {
+            if (IsRelayedOwner(source.sourceUnit)) return true;
+            if (!source.sourcePosition.HasValue || _mineExplosionPoints.Count == 0) return false;
+            Vector3 p = source.sourcePosition.Value;
+            for (int i = 0; i < _mineExplosionPoints.Count; i++)
+                if ((_mineExplosionPoints[i] - p).sqrMagnitude < 0.0001f) return true;
+            return false;
+        }
 
         /// <summary>BOTH ends: is an explosion with this owner relayed (and therefore absorbed on the host's stand-in)?
         /// True for an enemy — any unit that is neither a player nor a remote player's stand-in.</summary>
@@ -82,6 +104,7 @@ namespace SULFURTogether.Networking.Gameplay
         /// projectile system wrote into <c>commandData</c> and those queued — is sent to the clients near it.</summary>
         public static void OnHostExplosionsResolving(ExplosionManager em)
         {
+            _mineExplosionPoints.Clear();
             if (em == null || NetConfig.GetMode() != NetMode.Host || !NetGameplaySyncBridge.IsSessionActive) return;
             if (em.commandData.IsCreated)
                 for (int i = 0; i < em.commandData.Length; i++) Relay(em.commandData[i]);
@@ -92,6 +115,12 @@ namespace SULFURTogether.Networking.Gameplay
 
         private static void Relay(ExplosionManager.Data data)
         {
+            if (data.id == ExplosionTypes.SapperMine)
+            {
+                _mineExplosionPoints.Add(data.point);
+                HostMineExplosions++;
+                return;
+            }
             // The owner from the same ownerID ExplosionManager.Update resolves (through its cache) a moment later for the
             // stand-in's hit; a destroyed owner is null on both.
             Unit? owner = Resources.EntityIdToObject(data.ownerID) as Unit;

@@ -35,7 +35,16 @@ namespace SULFURTogether.Networking.Gameplay
 
         // Max distance (m) between an incoming spawn-position key and a local breakable's spawn position to count as a
         // match. Deterministic generation makes these near-identical; the slack absorbs float drift / minor divergence.
-        private const float MatchEpsilon = 0.75f;
+        internal const float MatchEpsilon = 0.75f;
+
+        // SM-1: remote breaks that found no local breakable where a mine mirror was still loading, kept briefly. The
+        // other end's mine can go off before this end's copy has finished spawning; the copy then asks here
+        // (ConsumeUnmatchedBreakNear) instead of staying behind as a mine only this end has. A break with no mirror
+        // loading there is not kept, so a stale record cannot discard a later mine laid on the same spot.
+        private const float UnmatchedBreakTtl = 10f;
+        private const int UnmatchedBreakMax = 32;
+        private struct UnmatchedBreak { public Vector3 Position; public float At; }
+        private static readonly List<UnmatchedBreak> _unmatched = new List<UnmatchedBreak>();
 
         public static bool IsApplyingMirror => _applyingMirror;
 
@@ -128,6 +137,7 @@ namespace SULFURTogether.Networking.Gameplay
                 Breakable target = FindMatch(m.Position);
                 if (target == null)
                 {
+                    if (SapperMineSync.IsMirrorLoadingNear(m.Position)) NoteUnmatchedBreak(m.Position);
                     if (Plugin.Cfg.LogBreakableSync.Value)
                         NetLogger.Info($"[BreakableBreak] mirror peer={m.PeerId} no alive match near {m.Position}");
                     return;
@@ -145,6 +155,32 @@ namespace SULFURTogether.Networking.Gameplay
             {
                 NetLogger.Warn($"[BreakableBreak] mirror failed: {ex.Message}");
             }
+        }
+
+        // ----------------------------------------------------------------- unmatched remote breaks (SM-1)
+
+        private static void NoteUnmatchedBreak(Vector3 position)
+        {
+            float now = Time.realtimeSinceStartup;
+            _unmatched.RemoveAll(u => now - u.At > UnmatchedBreakTtl);
+            if (_unmatched.Count >= UnmatchedBreakMax) _unmatched.RemoveAt(0);
+            _unmatched.Add(new UnmatchedBreak { Position = position, At = now });
+        }
+
+        /// <summary>SM-1: did another end break a destructible at this spawn position within the last few seconds while
+        /// this end had none there? Consumes the record when it did.</summary>
+        public static bool ConsumeUnmatchedBreakNear(Vector3 spawnPosition)
+        {
+            float now = Time.realtimeSinceStartup;
+            float maxSqr = MatchEpsilon * MatchEpsilon;
+            for (int i = _unmatched.Count - 1; i >= 0; i--)
+            {
+                if (now - _unmatched[i].At > UnmatchedBreakTtl) { _unmatched.RemoveAt(i); continue; }
+                if ((_unmatched[i].Position - spawnPosition).sqrMagnitude > maxSqr) continue;
+                _unmatched.RemoveAt(i);
+                return true;
+            }
+            return false;
         }
 
         // ----------------------------------------------------------------- helpers
@@ -191,6 +227,7 @@ namespace SULFURTogether.Networking.Gameplay
         {
             _registry.Clear();
             _broadcasted.Clear();
+            _unmatched.Clear();
         }
     }
 }

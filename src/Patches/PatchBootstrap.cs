@@ -23,6 +23,7 @@ namespace SULFURTogether.Patches
             DeathSpawnSyncPatches.Apply(harmony);
             WeaponFirePatches.Apply(harmony);
             BreakablePatches.Apply(harmony);
+            SapperMinePatches.Apply(harmony);           // SM-1 — a sapper's mines reach every end
             ThrowablePatches.Apply(harmony);
             TriggerSpawnPatches.Apply(harmony);
             MetalGatePatches.Apply(harmony);
